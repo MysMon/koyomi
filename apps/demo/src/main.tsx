@@ -5,7 +5,7 @@
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import '@koyomi/react/theme.css';
+import '@koyomi-cal/react/theme.css';
 import './demo.css';
 import { App } from './App';
 

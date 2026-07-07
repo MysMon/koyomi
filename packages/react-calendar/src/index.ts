@@ -1,6 +1,6 @@
 /**
  * @packageDocumentation
- * `@koyomi/react` — ヘッドレスな TypeScript/React カレンダーライブラリ。
+ * `@koyomi-cal/react` — ヘッドレスな TypeScript/React カレンダーライブラリ。
  *
  * 公開 API のエントリポイント。コア（フレームワーク非依存）と
  * React バインディングの両方をここから re-export する。

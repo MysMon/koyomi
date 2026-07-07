@@ -1,5 +1,5 @@
 {
-  "name": "@koyomi/demo",
+  "name": "@koyomi-cal/demo",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@koyomi/react": "workspace:*",
+    "@koyomi-cal/react": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

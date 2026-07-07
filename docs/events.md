@@ -40,7 +40,7 @@
 - **オフセットなし ISO 8601**（例: `'2026-07-01T10:00:00'`） — `timeZone`（イベントに指定がなければカレンダーの表示タイムゾーン）の**壁時計時刻**として解釈
 
 ```ts
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 
@@ -66,7 +66,7 @@ const occurrences = calendar.getOccurrences({
 `end: '2026-07-03'`）。
 
 ```ts
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 calendar.createEvent({
@@ -102,7 +102,7 @@ const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
 参照してください。単発イベントでは省略します。
 
 ```ts
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 
@@ -118,7 +118,7 @@ calendar.deleteEvent(created.id);
 ```
 
 ```ts
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 
@@ -146,7 +146,7 @@ const events = calendar.getEvents();
 この規則はコアの純粋関数 `applyPatch` として実装されており、単体でも利用できます。
 
 ```ts
-import { applyPatch, type CalendarEvent } from '@koyomi/react';
+import { applyPatch, type CalendarEvent } from '@koyomi-cal/react';
 
 const event: CalendarEvent = {
   id: 'e1',
@@ -180,8 +180,8 @@ const renamed = applyPatch(event, { title: '別タイトル' });
 - 外部側の変更（サーバー push など）→ `calendar.api.setEvents(...)` でカレンダーに反映する（`onEventsChange` は再度呼ばれない）
 
 ```tsx
-import { useCalendar } from '@koyomi/react';
-import type { CalendarEvent } from '@koyomi/react';
+import { useCalendar } from '@koyomi-cal/react';
+import type { CalendarEvent } from '@koyomi-cal/react';
 
 function useCalendarSyncedWithServer(initialEvents: CalendarEvent[], saveToServer: (events: readonly CalendarEvent[]) => void) {
   const calendar = useCalendar({
@@ -220,7 +220,7 @@ function useCalendarSyncedWithServer(initialEvents: CalendarEvent[], saveToServe
 `getOccurrences(range)` で任意の範囲の発生一覧を取得できます（開始時刻順）。
 
 ```ts
-import { createCalendar, occurrenceKey } from '@koyomi/react';
+import { createCalendar, occurrenceKey } from '@koyomi-cal/react';
 
 const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 calendar.createEvent({

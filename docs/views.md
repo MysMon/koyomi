@@ -16,7 +16,7 @@ Koyomi は月・週・日・リスト（スケジュール）の 4 つのビュ�
 
 `ListView` が描画します。予定がある日だけを対象に、日付ごとのセクションとして一覧表示します（Google カレンダーの「スケジュール」表示相当）。各セクションには日付の見出しと予定の行（時刻ラベル・色見本・タイトル）が並びます。表示範囲（`listDays` 日分、既定 `30`）に予定が 1 件もない場合は空状態のメッセージを表示します。月・週・日ビューと異なり、リストビューにドラッグ操作はありません。
 
-いずれのビューも、既定の見た目を使うには `@koyomi/react/theme.css` を読み込みます。DOM 構造や CSS でのカスタマイズ方法は [テーマとスタイリング](./theming.md) を参照してください。
+いずれのビューも、既定の見た目を使うには `@koyomi-cal/react/theme.css` を読み込みます。DOM 構造や CSS でのカスタマイズ方法は [テーマとスタイリング](./theming.md) を参照してください。
 
 ## ビューの切り替え
 
@@ -27,8 +27,8 @@ Koyomi は月・週・日・リスト（スケジュール）の 4 つのビュ�
 3. `useCalendarShortcuts` によるキーボード操作（`M` / `W` / `D` / `A`。詳細は [インタラクション](./interactions.md) を参照）
 
 ```tsx
-import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi/react';
-import '@koyomi/react/theme.css';
+import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
 
 function App() {
   const calendar = useCalendar({ initialView: 'month' });
@@ -50,8 +50,8 @@ function App() {
 キーボードで切り替えたい場合は `useCalendarShortcuts` を併用します。
 
 ```tsx
-import { CalendarProvider, CalendarView, useCalendar, useCalendarShortcuts } from '@koyomi/react';
-import '@koyomi/react/theme.css';
+import { CalendarProvider, CalendarView, useCalendar, useCalendarShortcuts } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
 
 function App() {
   const calendar = useCalendar({ initialView: 'month' });
@@ -87,7 +87,7 @@ function App() {
 | `list` | ±`listDays` 日 |
 
 ```ts
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({
   timeZone: 'Asia/Tokyo',
@@ -122,7 +122,7 @@ calendar.today(); // now() が指す日（この例では 2026-07-15）に戻る
 `type` で分岐すれば、ビューごとの情報を型安全に扱えます。
 
 ```ts
-import type { CalendarViewModel } from '@koyomi/react';
+import type { CalendarViewModel } from '@koyomi-cal/react';
 
 function describeViewModel(viewModel: CalendarViewModel): string {
   switch (viewModel.type) {
@@ -142,7 +142,7 @@ function describeViewModel(viewModel: CalendarViewModel): string {
 ビルトインコンポーネント（`MonthView` など）を使わず、ビューモデルから直接マークアップを組み立てることもできます。
 
 ```tsx
-import { useCalendar } from '@koyomi/react';
+import { useCalendar } from '@koyomi-cal/react';
 
 function BareMonthGrid() {
   const calendar = useCalendar({ initialView: 'month' });

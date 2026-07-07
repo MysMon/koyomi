@@ -17,7 +17,7 @@ importers:
 
   apps/demo:
     dependencies:
-      '@koyomi/react':
+      '@koyomi-cal/react':
         specifier: workspace:*
         version: link:../../packages/react-calendar
       react:

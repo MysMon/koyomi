@@ -8,8 +8,8 @@
  * 一通り確認できるように構成している。
  */
 
-import type { CalendarEvent, Weekday } from '@koyomi/react';
-import { addDaysInZone, dateKeyInZone, weekdayInZone } from '@koyomi/react';
+import type { CalendarEvent, Weekday } from '@koyomi-cal/react';
+import { addDaysInZone, dateKeyInZone, weekdayInZone } from '@koyomi-cal/react';
 
 /** サンプルイベントの基準タイムゾーン（デモの初期表示タイムゾーンと合わせる）。 */
 const BASE_TIME_ZONE = 'Asia/Tokyo';

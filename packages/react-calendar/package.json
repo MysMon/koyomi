@@ -1,8 +1,32 @@
 {
-  "name": "@koyomi/react",
+  "name": "@koyomi-cal/react",
   "version": "0.1.0",
   "description": "ヘッドレスな TypeScript/React カレンダーライブラリ（月・週・日・リスト表示、Google カレンダー相当のインタラクティブ操作、マルチタイムゾーン、RRULE 完全対応）",
+  "keywords": [
+    "react",
+    "calendar",
+    "headless",
+    "typescript",
+    "scheduler",
+    "events",
+    "recurrence",
+    "rrule",
+    "timezone",
+    "date-fns",
+    "カレンダー",
+    "予定表"
+  ],
+  "author": "Yutaro Fujikawa",
   "license": "MIT",
+  "homepage": "https://github.com/koyomi-cal/koyomi#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/koyomi-cal/koyomi.git",
+    "directory": "packages/react-calendar"
+  },
+  "bugs": {
+    "url": "https://github.com/koyomi-cal/koyomi/issues"
+  },
   "type": "module",
   "sideEffects": [
     "*.css"
@@ -20,12 +44,17 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": false
+  },
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm run build"
   },
   "peerDependencies": {
     "react": ">=18",

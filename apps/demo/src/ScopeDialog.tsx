@@ -7,7 +7,7 @@
  * および `EventDialog` からの保存・削除の両方から共通で利用する。
  */
 
-import type { EventOccurrence, RecurringEditScope } from '@koyomi/react';
+import type { EventOccurrence, RecurringEditScope } from '@koyomi-cal/react';
 import { type ReactElement, useEffect, useRef } from 'react';
 
 /** スコープ選択が要求された操作の種類。 */

@@ -6,14 +6,14 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "pnpm --filter @koyomi/react build",
-    "test": "pnpm --filter @koyomi/react test",
-    "test:watch": "pnpm --filter @koyomi/react test:watch",
+    "build": "pnpm --filter @koyomi-cal/react build",
+    "test": "pnpm --filter @koyomi-cal/react test",
+    "test:watch": "pnpm --filter @koyomi-cal/react test:watch",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "demo": "pnpm --filter @koyomi/demo dev",
+    "demo": "pnpm --filter @koyomi-cal/demo dev",
     "check": "pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {

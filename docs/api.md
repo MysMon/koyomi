@@ -1,6 +1,6 @@
 # API リファレンス
 
-`@koyomi/react` が公開する API の全件リファレンスです。カレンダーエンジン・React フック・コンポーネント・型・低レベルユーティリティをカテゴリ別に一覧します。各機能の詳しい使い方や設計意図は、末尾の関連ページを参照してください。
+`@koyomi-cal/react` が公開する API の全件リファレンスです。カレンダーエンジン・React フック・コンポーネント・型・低レベルユーティリティをカテゴリ別に一覧します。各機能の詳しい使い方や設計意図は、末尾の関連ページを参照してください。
 
 ## カレンダーエンジン
 
@@ -18,7 +18,7 @@ function createCalendar(options?: CalendarOptions): CalendarApi
 - `createEvent` で `id` を省略した場合は `'koyomi-1'` のような連番 ID を採番します。
 
 ```ts
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({
   initialView: 'month',
@@ -65,7 +65,7 @@ unsubscribe();
 | `setDragPreview` | `(preview: DragPreview | null): void` | ドラッグ操作のプレビューを設定する（`null` で解除） |
 
 ```ts
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 
@@ -85,7 +85,7 @@ console.log(calendar.getEvents().length); // => 0
 ```
 
 ```ts
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({
   initialView: 'day',
@@ -120,7 +120,7 @@ function useCalendar(options?: CalendarOptions): UseCalendarResult
 - 戻り値の `api` は再レンダリングを跨いで安定した参照です（`useEffect` の依存に安全に使えます）。
 
 ```tsx
-import { CalendarProvider, CalendarView, useCalendar } from '@koyomi/react';
+import { CalendarProvider, CalendarView, useCalendar } from '@koyomi-cal/react';
 
 function App() {
   const calendar = useCalendar({ initialView: 'month' });
@@ -154,7 +154,7 @@ Google カレンダー準拠のキーボードショートカットを有効に�
 | `C` | `onCreate` を呼ぶ（予定作成 UI の起点） |
 
 ```tsx
-import { CalendarProvider, CalendarView, useCalendar, useCalendarShortcuts } from '@koyomi/react';
+import { CalendarProvider, CalendarView, useCalendar, useCalendarShortcuts } from '@koyomi-cal/react';
 
 function App() {
   const calendar = useCalendar({ initialView: 'month' });
@@ -197,7 +197,7 @@ function useDayDrag(params: {
 
 ```tsx
 import { renderHook } from '@testing-library/react';
-import { useCalendar, useDayDrag } from '@koyomi/react';
+import { useCalendar, useDayDrag } from '@koyomi-cal/react';
 
 const { result } = renderHook(() => {
   const calendar = useCalendar({ initialView: 'month' });
@@ -243,7 +243,7 @@ function useTimeGridDrag(params: {
 
 ```tsx
 import { renderHook } from '@testing-library/react';
-import { useCalendar, useTimeGridDrag } from '@koyomi/react';
+import { useCalendar, useTimeGridDrag } from '@koyomi-cal/react';
 
 const { result } = renderHook(() => {
   const calendar = useCalendar({ initialView: 'day' });
@@ -281,7 +281,7 @@ function useCalendarContext(): CalendarContextValue
 | `useCalendarContext` | `(): CalendarContextValue` |
 
 ```tsx
-import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi/react';
+import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi-cal/react';
 
 function App() {
   const calendar = useCalendar({
@@ -497,7 +497,7 @@ function Toolbar(): ReactElement
 | `WallClockParts`（型） | `{ year; month; day; hours?; minutes?; seconds?; milliseconds? }` |
 
 ```ts
-import { addDaysInZone, dateKeyInZone, isValidTimeZone, startOfDayInZone } from '@koyomi/react';
+import { addDaysInZone, dateKeyInZone, isValidTimeZone, startOfDayInZone } from '@koyomi-cal/react';
 
 console.log(isValidTimeZone('Asia/Tokyo')); // => true
 console.log(isValidTimeZone('Invalid/Zone')); // => false
@@ -521,7 +521,7 @@ console.log(dateKeyInZone(next, 'Asia/Tokyo')); // => '2026-07-03'
 | `navigateDate(view, currentDate, direction, timeZone, options): Date` | 「次へ/前へ」ナビゲーションの移動先の基準日を返す |
 
 ```ts
-import { eachDayInRange, monthGridRange, rangesOverlap } from '@koyomi/react';
+import { eachDayInRange, monthGridRange, rangesOverlap } from '@koyomi-cal/react';
 
 const overlap = rangesOverlap(
   { start: new Date('2026-07-01T10:00:00+09:00'), end: new Date('2026-07-01T11:00:00+09:00') },
@@ -547,7 +547,7 @@ RFC 5545 の RRULE（`rrule` パッケージ）をラップし、タイムゾー
 | `countOccurrencesBefore(params): number` | `dtstart` から `before`（排他）までの発生回数を数える |
 
 ```ts
-import { expandRecurrence, normalizeRRuleString } from '@koyomi/react';
+import { expandRecurrence, normalizeRRuleString } from '@koyomi-cal/react';
 
 console.log(normalizeRRuleString('freq=daily;count=3')); // => 'FREQ=DAILY;COUNT=3'
 
@@ -576,8 +576,8 @@ Google カレンダーの編集・削除操作（繰り返しの「この予定�
 | `CreateEventResult`（型） | `{ events: CalendarEvent[]; created: CalendarEvent }` |
 
 ```ts
-import { applyPatch, createEventIn } from '@koyomi/react';
-import type { CalendarEvent, MutationContext } from '@koyomi/react';
+import { applyPatch, createEventIn } from '@koyomi-cal/react';
+import type { CalendarEvent, MutationContext } from '@koyomi-cal/react';
 
 const event: CalendarEvent = { id: '1', title: '会議', start: '2026-07-01T10:00' };
 const updated = applyPatch(event, { title: '新タイトル' });
@@ -607,8 +607,8 @@ console.log(result.events.length); // => 1
 | `resolveOccurrence(params): EventOccurrence | null` | 単一イベントの、指定した発生開始時刻における発生を解決する |
 
 ```ts
-import { expandEvents, occurrenceKey, resolveOccurrence } from '@koyomi/react';
-import type { CalendarEvent } from '@koyomi/react';
+import { expandEvents, occurrenceKey, resolveOccurrence } from '@koyomi-cal/react';
+import type { CalendarEvent } from '@koyomi-cal/react';
 
 const events: CalendarEvent[] = [
   {
@@ -653,7 +653,7 @@ console.log(resolved?.start.getTime() === occurrences[1]!.start.getTime()); // =
 | `TimeGridDragState`（型） | `{ mode: TimeGridDragMode, occurrence: EventOccurrence または null, anchor: Date }` |
 
 ```ts
-import { shortcutForKey, snapToInterval } from '@koyomi/react';
+import { shortcutForKey, snapToInterval } from '@koyomi-cal/react';
 
 console.log(snapToInterval(37, 15)); // => 30
 console.log(shortcutForKey('w')); // => { type: 'view', view: 'week' }
@@ -671,7 +671,7 @@ console.log(shortcutForKey('s')); // => null（該当なし）
 | `buildListViewModel(params): ListViewModel` | リストビューのビューモデル（日付ごとの発生一覧）を構築する |
 
 ```ts
-import { buildMonthViewModel } from '@koyomi/react';
+import { buildMonthViewModel } from '@koyomi-cal/react';
 
 const model = buildMonthViewModel({
   currentDate: new Date('2026-07-15T00:00:00+09:00'),
@@ -699,7 +699,7 @@ console.log(model.weeks.length >= 4 && model.weeks.length <= 6); // => true
 | `formatDayHeader(date, timeZone, locale): string` | 時間グリッドの日ヘッダー用ラベル（例: `'15 (水)'`） |
 
 ```ts
-import { formatMonthTitle, formatTime, formatWeekday } from '@koyomi/react';
+import { formatMonthTitle, formatTime, formatWeekday } from '@koyomi-cal/react';
 
 console.log(formatTime(new Date('2026-07-15T01:00:00Z'), 'Asia/Tokyo', 'ja')); // => '10:00'
 console.log(formatMonthTitle(new Date('2026-07-15T01:00:00Z'), 'Asia/Tokyo', 'ja')); // => '2026年7月'

@@ -6,11 +6,11 @@ export default defineConfig({
   resolve: {
     alias: {
       // ワークスペース内のライブラリをビルドせずソースのまま参照する
-      '@koyomi/react/theme.css': new URL(
+      '@koyomi-cal/react/theme.css': new URL(
         '../../packages/react-calendar/src/theme/default.css',
         import.meta.url,
       ).pathname,
-      '@koyomi/react': new URL('../../packages/react-calendar/src/index.ts', import.meta.url)
+      '@koyomi-cal/react': new URL('../../packages/react-calendar/src/index.ts', import.meta.url)
         .pathname,
     },
   },
