@@ -9,6 +9,8 @@
  * 「壁時計（wall clock）」= あるタイムゾーンで時計が示す年月日・時分。
  */
 
+import { TZDate } from '@date-fns/tz';
+import { addDays } from 'date-fns';
 import type { TimeZoneId, Weekday } from './types';
 
 /**
@@ -30,13 +32,45 @@ export interface WallClockParts {
   seconds?: number;
 }
 
+/** `'YYYY-MM-DD'` 形式の日付キー。 */
+const DATE_KEY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** オフセット付き ISO 8601（`Z` または `±hh:mm` で終わる）。 */
+const OFFSET_ISO_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/** オフセットなし ISO 8601（壁時計として解釈する。秒・小数秒は省略可）。 */
+const LOCAL_ISO_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?$/;
+
+/**
+ * 年月日が暦上実在するかを検証する。
+ *
+ * `Date` の setter による正規化（例: 2/30 → 3/2）を利用し、
+ * 設定後の成分が入力と一致するかで判定する。
+ */
+function isRealCalendarDate(year: number, month: number, day: number): boolean {
+  // 0〜99 年が 1900 年代に解釈されるのを避けるため、Date.UTC ではなく setter を使う
+  const probe = new Date(0);
+  probe.setUTCFullYear(year, month - 1, day);
+  return (
+    probe.getUTCFullYear() === year &&
+    probe.getUTCMonth() === month - 1 &&
+    probe.getUTCDate() === day
+  );
+}
+
+/** 2 桁ゼロ埋め。 */
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
 /**
  * 実行環境のローカルタイムゾーン ID を返す。
  *
  * @returns IANA タイムゾーン ID（例: `'Asia/Tokyo'`）
  */
 export function getLocalTimeZone(): TimeZoneId {
-  throw new Error('未実装');
+  return new Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
 /**
@@ -51,8 +85,15 @@ export function getLocalTimeZone(): TimeZoneId {
  * ```
  */
 export function isValidTimeZone(timeZone: string): boolean {
-  void timeZone;
-  throw new Error('未実装');
+  if (timeZone === '') {
+    return false;
+  }
+  try {
+    new Intl.DateTimeFormat(undefined, { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -63,9 +104,15 @@ export function isValidTimeZone(timeZone: string): boolean {
  * @returns 壁時計成分（`month` は 1〜12）
  */
 export function getWallClock(date: Date, timeZone: TimeZoneId): Required<WallClockParts> {
-  void date;
-  void timeZone;
-  throw new Error('未実装');
+  const zoned = new TZDate(date.getTime(), timeZone);
+  return {
+    year: zoned.getFullYear(),
+    month: zoned.getMonth() + 1,
+    day: zoned.getDate(),
+    hours: zoned.getHours(),
+    minutes: zoned.getMinutes(),
+    seconds: zoned.getSeconds(),
+  };
 }
 
 /**
@@ -84,9 +131,9 @@ export function getWallClock(date: Date, timeZone: TimeZoneId): Required<WallClo
  * ```
  */
 export function fromWallClock(parts: WallClockParts, timeZone: TimeZoneId): Date {
-  void parts;
-  void timeZone;
-  throw new Error('未実装');
+  const { year, month, day, hours = 0, minutes = 0, seconds = 0 } = parts;
+  const zoned = new TZDate(year, month - 1, day, hours, minutes, seconds, 0, timeZone);
+  return new Date(zoned.getTime());
 }
 
 /**
@@ -96,9 +143,8 @@ export function fromWallClock(parts: WallClockParts, timeZone: TimeZoneId): Date
  * @param timeZone - タイムゾーン
  */
 export function startOfDayInZone(date: Date, timeZone: TimeZoneId): Date {
-  void date;
-  void timeZone;
-  throw new Error('未実装');
+  const wall = getWallClock(date, timeZone);
+  return fromWallClock({ year: wall.year, month: wall.month, day: wall.day }, timeZone);
 }
 
 /**
@@ -111,10 +157,9 @@ export function startOfDayInZone(date: Date, timeZone: TimeZoneId): Date {
  * @param timeZone - タイムゾーン
  */
 export function addDaysInZone(date: Date, amount: number, timeZone: TimeZoneId): Date {
-  void date;
-  void amount;
-  void timeZone;
-  throw new Error('未実装');
+  // TZDate に対する date-fns の addDays は指定 TZ の壁時計を維持して日を進める
+  const zoned = addDays(new TZDate(date.getTime(), timeZone), amount);
+  return new Date(zoned.getTime());
 }
 
 /**
@@ -122,16 +167,31 @@ export function addDaysInZone(date: Date, amount: number, timeZone: TimeZoneId):
  *
  * 単純な絶対時刻への加算ではなく壁時計に対する加算のため、
  * DST 跨ぎでは絶対時刻の差が指定分数と異なる場合がある。
+ * 加算結果が存在しない時刻になる場合は前方に、曖昧な時刻になる場合は
+ * 早い方のオフセットで解決される（{@link fromWallClock} と同じ規則）。
  *
  * @param date - 基準となる絶対時刻
  * @param amount - 加算する分数（負数で減算）
  * @param timeZone - タイムゾーン
  */
 export function addMinutesInZone(date: Date, amount: number, timeZone: TimeZoneId): Date {
-  void date;
-  void amount;
-  void timeZone;
-  throw new Error('未実装');
+  const wall = getWallClock(date, timeZone);
+  // 壁時計成分をオフセットのない UTC 上の日時として組み立ててから分を加算し、
+  // 日・月・年への繰り上がり/繰り下がりを Date の正規化に任せる
+  const shifted = new Date(0);
+  shifted.setUTCFullYear(wall.year, wall.month - 1, wall.day);
+  shifted.setUTCHours(wall.hours, wall.minutes + amount, wall.seconds, 0);
+  return fromWallClock(
+    {
+      year: shifted.getUTCFullYear(),
+      month: shifted.getUTCMonth() + 1,
+      day: shifted.getUTCDate(),
+      hours: shifted.getUTCHours(),
+      minutes: shifted.getUTCMinutes(),
+      seconds: shifted.getUTCSeconds(),
+    },
+    timeZone,
+  );
 }
 
 /**
@@ -146,9 +206,8 @@ export function addMinutesInZone(date: Date, amount: number, timeZone: TimeZoneI
  * ```
  */
 export function dateKeyInZone(date: Date, timeZone: TimeZoneId): string {
-  void date;
-  void timeZone;
-  throw new Error('未実装');
+  const wall = getWallClock(date, timeZone);
+  return `${wall.year}-${pad2(wall.month)}-${pad2(wall.day)}`;
 }
 
 /**
@@ -157,12 +216,24 @@ export function dateKeyInZone(date: Date, timeZone: TimeZoneId): string {
  *
  * @param key - `'YYYY-MM-DD'` 形式の日付キー
  * @param timeZone - タイムゾーン
- * @throws 形式が不正な場合は `Error`
+ * @throws 形式が不正な場合、または暦上存在しない日付の場合は `Error`
  */
 export function dateFromKey(key: string, timeZone: TimeZoneId): Date {
-  void key;
-  void timeZone;
-  throw new Error('未実装');
+  const match = DATE_KEY_PATTERN.exec(key);
+  if (match === null) {
+    throw new Error(`日付キーの形式が不正です（'YYYY-MM-DD' 形式が必要）: '${key}'`);
+  }
+  const [, yearText, monthText, dayText] = match;
+  if (yearText === undefined || monthText === undefined || dayText === undefined) {
+    throw new Error(`日付キーの形式が不正です（'YYYY-MM-DD' 形式が必要）: '${key}'`);
+  }
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  if (!isRealCalendarDate(year, month, day)) {
+    throw new Error(`暦上存在しない日付です: '${key}'`);
+  }
+  return fromWallClock({ year, month, day }, timeZone);
 }
 
 /**
@@ -173,19 +244,15 @@ export function dateFromKey(key: string, timeZone: TimeZoneId): Date {
  * @returns 0〜1439 の分数
  */
 export function minutesOfDayInZone(date: Date, timeZone: TimeZoneId): number {
-  void date;
-  void timeZone;
-  throw new Error('未実装');
+  const wall = getWallClock(date, timeZone);
+  return wall.hours * 60 + wall.minutes;
 }
 
 /**
  * 2 つの絶対時刻が、指定タイムゾーンの壁時計基準で同じ日かどうかを判定する。
  */
 export function isSameDayInZone(a: Date, b: Date, timeZone: TimeZoneId): boolean {
-  void a;
-  void b;
-  void timeZone;
-  throw new Error('未実装');
+  return dateKeyInZone(a, timeZone) === dateKeyInZone(b, timeZone);
 }
 
 /**
@@ -194,9 +261,20 @@ export function isSameDayInZone(a: Date, b: Date, timeZone: TimeZoneId): boolean
  * @returns 0 = 日曜日、…、6 = 土曜日
  */
 export function weekdayInZone(date: Date, timeZone: TimeZoneId): Weekday {
-  void date;
-  void timeZone;
-  throw new Error('未実装');
+  const day = new TZDate(date.getTime(), timeZone).getDay();
+  switch (day) {
+    case 0:
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+    case 6:
+      return day;
+    default:
+      // Date#getDay は常に 0〜6 を返すため、ここには到達しない
+      throw new Error(`曜日の値が不正です: ${day}`);
+  }
 }
 
 /**
@@ -216,10 +294,54 @@ export function weekdayInZone(date: Date, timeZone: TimeZoneId): Weekday {
  * @throws 解釈できない文字列の場合は `Error`
  */
 export function parseDateValue(value: Date | string, timeZone: TimeZoneId, allDay: boolean): Date {
-  void value;
-  void timeZone;
-  void allDay;
-  throw new Error('未実装');
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      throw new Error('無効な Date が指定されました');
+    }
+    return allDay ? startOfDayInZone(value, timeZone) : new Date(value.getTime());
+  }
+
+  // 'YYYY-MM-DD' — timeZone におけるその日の 0:00
+  if (DATE_KEY_PATTERN.test(value)) {
+    return dateFromKey(value, timeZone);
+  }
+
+  // オフセット付き ISO 8601 — 記載どおりの絶対時刻
+  if (OFFSET_ISO_PATTERN.test(value)) {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new Error(`日時として解釈できない値です: '${value}'`);
+    }
+    return allDay ? startOfDayInZone(parsed, timeZone) : parsed;
+  }
+
+  // オフセットなし ISO 8601 — timeZone の壁時計として解釈
+  const local = LOCAL_ISO_PATTERN.exec(value);
+  if (local !== null) {
+    const [, yearText, monthText, dayText, hoursText, minutesText, secondsText] = local;
+    if (
+      yearText === undefined ||
+      monthText === undefined ||
+      dayText === undefined ||
+      hoursText === undefined ||
+      minutesText === undefined
+    ) {
+      throw new Error(`日時として解釈できない値です: '${value}'`);
+    }
+    const year = Number(yearText);
+    const month = Number(monthText);
+    const day = Number(dayText);
+    const hours = Number(hoursText);
+    const minutes = Number(minutesText);
+    const seconds = secondsText === undefined ? 0 : Number(secondsText);
+    if (!isRealCalendarDate(year, month, day) || hours > 23 || minutes > 59 || seconds > 59) {
+      throw new Error(`日時として解釈できない値です: '${value}'`);
+    }
+    const instant = fromWallClock({ year, month, day, hours, minutes, seconds }, timeZone);
+    return allDay ? startOfDayInZone(instant, timeZone) : instant;
+  }
+
+  throw new Error(`日時として解釈できない値です: '${value}'`);
 }
 
 /**
@@ -232,6 +354,5 @@ export function parseDateValue(value: Date | string, timeZone: TimeZoneId, allDa
  * ```
  */
 export function formatSlotLabel(minutes: number): string {
-  void minutes;
-  throw new Error('未実装');
+  return `${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`;
 }
