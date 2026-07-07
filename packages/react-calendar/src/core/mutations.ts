@@ -631,9 +631,16 @@ export function moveOccurrenceIn(
   if (isRecurring && params.scope === undefined) {
     throw new Error(`繰り返しイベントの移動には scope の指定が必要です: '${id}'`);
   }
+  // マスターの ID + 現在の開始時刻で「オーバーライド済みの発生」を移動する場合は、
+  // マスターの既定の長さではなく、そのオーバーライド固有の長さを維持する
+  const override =
+    event.rrule !== undefined
+      ? findOverrideFor(events, event.id, params.occurrenceStart, context)
+      : undefined;
+  const durationSource = override ?? event;
   const end =
     params.newEnd === undefined
-      ? new Date(params.newStart.getTime() + occurrenceDurationMs(event, context))
+      ? new Date(params.newStart.getTime() + occurrenceDurationMs(durationSource, context))
       : new Date(params.newEnd.getTime());
   const patch: CalendarEventPatch = { start: new Date(params.newStart.getTime()), end };
   if (params.allDay !== undefined) {

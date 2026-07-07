@@ -873,6 +873,26 @@ describe('deleteEventIn: 繰り返しイベント', () => {
 });
 
 describe('moveOccurrenceIn', () => {
+  it('オーバーライド済みの発生をマスター ID + 現在の開始時刻で移動すると、オーバーライド固有の長さが維持される', () => {
+    // 7/3 の発生は 11:00〜12:30 JST（90 分）に変更済み（マスターの既定は 60 分）
+    const override = makeOverride({ end: new Date('2026-07-03T03:30:00Z') });
+    const result = moveOccurrenceIn(
+      [makeMaster(), override],
+      'master-1',
+      {
+        // 「対象発生の現在の開始時刻」= オーバーライド後の 11:00 JST
+        occurrenceStart: new Date('2026-07-03T02:00:00Z'),
+        newStart: new Date('2026-07-03T05:00:00Z'), // 14:00 JST へ移動
+        scope: 'this',
+      },
+      makeContext(),
+    );
+    const moved = findById(result, 'ov-3');
+    expect(moved.start).toEqual(new Date('2026-07-03T05:00:00Z'));
+    // マスターの 60 分ではなく、オーバーライドの 90 分が維持される
+    expect(moved.end).toEqual(new Date('2026-07-03T06:30:00Z'));
+  });
+
   it('単発イベントの移動では長さ（90 分）が維持される', () => {
     const single: CalendarEvent = {
       id: 'single-1',
