@@ -1,0 +1,393 @@
+/*
+ * Koyomi デモアプリ用スタイル。
+ *
+ * カレンダー本体（[data-koyomi="..."]）の見た目は @koyomi/react/theme.css に
+ * 委ね、ここではページ全体のレイアウト・ヘッダー・ダイアログ・ログ領域のみを
+ * 定義する。ライト/ダーク両方に対応し、既定は prefers-color-scheme に従う。
+ * App がダークモードボタンで <html data-koyomi-theme="dark|light"> を
+ * トグルした場合はそちらを優先する。
+ */
+
+:root {
+  --demo-bg: #f6f7f8;
+  --demo-surface: #ffffff;
+  --demo-fg: #1f1f1f;
+  --demo-muted: #5f6368;
+  --demo-border: #dcdfe3;
+  --demo-accent: #1a73e8;
+  --demo-danger: #d93025;
+  --demo-shadow: 0 8px 28px rgba(32, 33, 36, 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --demo-bg: #131417;
+    --demo-surface: #202124;
+    --demo-fg: #e8eaed;
+    --demo-muted: #9aa0a6;
+    --demo-border: #3c4043;
+    --demo-accent: #8ab4f8;
+    --demo-danger: #f28b82;
+    --demo-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  }
+}
+
+:root[data-koyomi-theme="dark"] {
+  --demo-bg: #131417;
+  --demo-surface: #202124;
+  --demo-fg: #e8eaed;
+  --demo-muted: #9aa0a6;
+  --demo-border: #3c4043;
+  --demo-accent: #8ab4f8;
+  --demo-danger: #f28b82;
+  --demo-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+
+:root[data-koyomi-theme="light"] {
+  --demo-bg: #f6f7f8;
+  --demo-surface: #ffffff;
+  --demo-fg: #1f1f1f;
+  --demo-muted: #5f6368;
+  --demo-border: #dcdfe3;
+  --demo-accent: #1a73e8;
+  --demo-danger: #d93025;
+  --demo-shadow: 0 8px 28px rgba(32, 33, 36, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background-color: var(--demo-bg);
+  color: var(--demo-fg);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN",
+    "Noto Sans JP", sans-serif;
+}
+
+.demo-app {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ---------------------------------------------------------------------------
+ * ヘッダー
+ * ------------------------------------------------------------------------ */
+
+.demo-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.demo-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.demo-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.demo-control {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--demo-muted);
+}
+
+.demo-control select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--demo-fg);
+  background-color: var(--demo-surface);
+  border: 1px solid var(--demo-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.demo-theme-toggle {
+  font: inherit;
+  font-size: 13px;
+  color: var(--demo-fg);
+  background-color: var(--demo-surface);
+  border: 1px solid var(--demo-border);
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.demo-theme-toggle:hover {
+  border-color: var(--demo-accent);
+}
+
+/* ---------------------------------------------------------------------------
+ * カレンダー本体のコンテナ（枠のみ。中身は theme.css に委ねる）
+ * ------------------------------------------------------------------------ */
+
+.demo-main {
+  background-color: var(--demo-surface);
+  border: 1px solid var(--demo-border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(32, 33, 36, 0.08);
+}
+
+/* ---------------------------------------------------------------------------
+ * 変更ログ
+ * ------------------------------------------------------------------------ */
+
+.demo-log {
+  background-color: var(--demo-surface);
+  border: 1px solid var(--demo-border);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+
+.demo-log-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--demo-muted);
+}
+
+.demo-log-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--demo-muted);
+}
+
+.demo-log-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* ---------------------------------------------------------------------------
+ * ダイアログ共通
+ * ------------------------------------------------------------------------ */
+
+.demo-dialog {
+  border: none;
+  border-radius: 12px;
+  padding: 0;
+  color: var(--demo-fg);
+  background-color: var(--demo-surface);
+  box-shadow: var(--demo-shadow);
+  width: min(480px, calc(100vw - 32px));
+}
+
+.demo-dialog::backdrop {
+  background-color: rgba(32, 33, 36, 0.5);
+}
+
+.demo-dialog-title {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.demo-dialog-body,
+.demo-form {
+  padding: 20px 22px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.demo-readonly-notice {
+  margin: -6px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background-color: color-mix(in srgb, var(--demo-danger) 12%, transparent);
+  color: var(--demo-danger);
+  font-size: 13px;
+}
+
+.demo-readonly-notice code {
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------------------------
+ * フォーム
+ * ------------------------------------------------------------------------ */
+
+.demo-form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.demo-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.demo-form-row .demo-form-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.demo-form-field label,
+.demo-field-label {
+  font-size: 12px;
+  color: var(--demo-muted);
+}
+
+.demo-form-field input[type="text"],
+.demo-form-field input[type="date"],
+.demo-form-field input[type="datetime-local"],
+.demo-form-field select,
+.demo-form-field textarea {
+  font: inherit;
+  font-size: 14px;
+  color: var(--demo-fg);
+  background-color: var(--demo-surface);
+  border: 1px solid var(--demo-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+.demo-form-field input:disabled,
+.demo-form-field select:disabled,
+.demo-form-field textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.demo-form-field textarea {
+  resize: vertical;
+}
+
+.demo-checkbox-field label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--demo-fg);
+}
+
+.demo-field-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--demo-muted);
+}
+
+.demo-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--demo-danger);
+}
+
+/* ---------------------------------------------------------------------------
+ * 色スウォッチ
+ * ------------------------------------------------------------------------ */
+
+.demo-color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.demo-color-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.demo-color-swatch[aria-pressed="true"] {
+  border-color: var(--demo-fg);
+  box-shadow: 0 0 0 2px var(--demo-surface) inset;
+}
+
+.demo-color-swatch:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------------------
+ * ダイアログのボタン列
+ * ------------------------------------------------------------------------ */
+
+.demo-dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.demo-dialog-actions-spacer {
+  flex: 1;
+}
+
+.demo-button {
+  font: inherit;
+  font-size: 14px;
+  border: 1px solid var(--demo-border);
+  border-radius: 6px;
+  padding: 8px 16px;
+  background-color: var(--demo-surface);
+  color: var(--demo-fg);
+  cursor: pointer;
+}
+
+.demo-button:hover {
+  border-color: var(--demo-accent);
+}
+
+.demo-button-text {
+  border-color: transparent;
+  background-color: transparent;
+}
+
+.demo-button-primary {
+  border-color: var(--demo-accent);
+  background-color: var(--demo-accent);
+  color: #ffffff;
+}
+
+.demo-button-danger {
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--demo-danger);
+}
+
+/* ---------------------------------------------------------------------------
+ * ScopeDialog 専用
+ * ------------------------------------------------------------------------ */
+
+.demo-scope-description {
+  margin: 0;
+  font-size: 14px;
+  color: var(--demo-fg);
+}
+
+.demo-scope-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.demo-scope-options .demo-button {
+  text-align: left;
+}
