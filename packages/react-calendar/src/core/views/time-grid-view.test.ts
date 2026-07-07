@@ -581,6 +581,27 @@ describe('buildTimeGridViewModel', () => {
     });
   });
 
+  describe('深夜 0:00 に DST が切り替わるゾーン（America/Santiago 2026-09-06）', () => {
+    it('切替日を含む週でも days は 7 日で、8 日に増えない', () => {
+      // Santiago は 2026-09-06 の 0:00 → 1:00 に春時間へ切り替わる（0:00 が存在しない）。
+      // rangeEnd の再正規化がないと範囲が翌日側へ 1 時間はみ出し 8 日になる（回帰テスト）
+      const model = build({
+        currentDate: new Date('2026-09-06T12:00:00Z'),
+        timeZone: 'America/Santiago',
+      });
+      expect(model.days).toHaveLength(7);
+      expect(model.days.map((d) => d.key)).toEqual([
+        '2026-09-06',
+        '2026-09-07',
+        '2026-09-08',
+        '2026-09-09',
+        '2026-09-10',
+        '2026-09-11',
+        '2026-09-12',
+      ]);
+    });
+  });
+
   describe('空イベント', () => {
     it('発生が空でも days・slots は生成され、items と終日行は空になる', () => {
       const model = build({ occurrences: [] });

@@ -347,7 +347,10 @@ export function buildTimeGridViewModel(params: {
       ? startOfWeekInZone(currentDate, timeZone, weekStartsOn)
       : startOfDayInZone(currentDate, timeZone);
   const dayCount = viewType === 'week' ? 7 : 1;
-  const rangeEnd = addDaysInZone(rangeStart, dayCount, timeZone);
+  // addDaysInZone は加算前の壁時計時刻を維持するため、深夜 0:00 に DST が切り替わる
+  // ゾーン（例: America/Santiago）で rangeStart が 1:00 に前方解決されていると
+  // 範囲が翌日側へ 1 時間はみ出し、日数が 1 日増えてしまう。日初へ再正規化する
+  const rangeEnd = startOfDayInZone(addDaysInZone(rangeStart, dayCount, timeZone), timeZone);
   const dayStarts = eachDayInRange({ start: rangeStart, end: rangeEnd }, timeZone);
 
   const dayKeys = dayStarts.map((dayStart) => dateKeyInZone(dayStart, timeZone));
