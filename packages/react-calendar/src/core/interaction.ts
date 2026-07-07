@@ -8,10 +8,39 @@
  * ポインタイベントから座標割合を求め、このモジュールに委譲する。
  */
 
+import { addDaysInZone, addMinutesInZone, dateKeyInZone } from './timezone';
 import type { DateRange, EventOccurrence, TimeZoneId } from './types';
+
+/** 1 日のミリ秒数。 */
+const MS_PER_DAY = 86_400_000;
+
+/** 1 日の分数。 */
+const MINUTES_PER_DAY = 1440;
+
+/**
+ * スナップ間隔を正規化する。1 未満（0・負数・小数）は 1 として扱う。
+ */
+function normalizeSnap(snap: number): number {
+  return snap < 1 ? 1 : snap;
+}
+
+/**
+ * `'YYYY-MM-DD'` 形式の日付キーを UTC 0:00 のエポックミリ秒に変換する。
+ *
+ * タイムゾーンの UTC オフセット（DST 切り替えを含む）の影響を受けずに
+ * 暦上の日数差を求めるための内部ヘルパ。
+ */
+function dateKeyToUtcMs(key: string): number {
+  const year = Number(key.slice(0, 4));
+  const month = Number(key.slice(5, 7));
+  const day = Number(key.slice(8, 10));
+  return Date.UTC(year, month - 1, day);
+}
 
 /**
  * 分数を指定間隔にスナップする（最近傍への丸め）。
+ *
+ * `snap` が 1 未満の場合は 1 として扱う。
  *
  * @param minutes - 対象の分数
  * @param snap - スナップ間隔（分、1 以上）
@@ -22,9 +51,8 @@ import type { DateRange, EventOccurrence, TimeZoneId } from './types';
  * ```
  */
 export function snapToInterval(minutes: number, snap: number): number {
-  void minutes;
-  void snap;
-  throw new Error('未実装');
+  const interval = normalizeSnap(snap);
+  return Math.round(minutes / interval) * interval;
 }
 
 /**
@@ -33,6 +61,10 @@ export function snapToInterval(minutes: number, snap: number): number {
  * 縦位置は列の高さ全体を 0:00〜24:00 に対応づけ、`snap` 間隔に
  * スナップした壁時計時刻を返す。結果は `[日の 0:00, 24:00 - snap]` に
  * クランプされる。
+ *
+ * 壁時計への分加算（{@link addMinutesInZone}）で日時化するため、
+ * DST の切り替え日でも縦位置と壁時計時刻の対応が保たれる
+ * （存在しない時刻は前方に解決される）。
  *
  * @param params.day - 対象列の日の 0:00（絶対時刻）
  * @param params.fractionY - 列内の縦位置（0 = 0:00、1 = 24:00）
@@ -45,8 +77,11 @@ export function timeAtGridPosition(params: {
   timeZone: TimeZoneId;
   snap: number;
 }): Date {
-  void params;
-  throw new Error('未実装');
+  const { day, fractionY, timeZone, snap } = params;
+  const interval = normalizeSnap(snap);
+  const snapped = snapToInterval(fractionY * MINUTES_PER_DAY, interval);
+  const minutes = Math.min(Math.max(snapped, 0), MINUTES_PER_DAY - interval);
+  return addMinutesInZone(day, minutes, timeZone);
 }
 
 /**
@@ -86,16 +121,49 @@ export interface TimeGridDragState {
  * @param context.timeZone - 表示タイムゾーン
  * @param context.snap - スナップ間隔（分）
  * @returns プレビューの日時範囲
+ * @throws `move` / `resize` で `state.occurrence` が `null` の場合は `Error`
  */
 export function dragPreviewRange(
   state: TimeGridDragState,
   pointer: Date,
   context: { timeZone: TimeZoneId; snap: number },
 ): DateRange {
-  void state;
-  void pointer;
-  void context;
-  throw new Error('未実装');
+  const { timeZone, snap } = context;
+  switch (state.mode) {
+    case 'create': {
+      const anchorMs = state.anchor.getTime();
+      const pointerMs = pointer.getTime();
+      if (anchorMs === pointerMs) {
+        // クリック相当: snap 分の長さのプレビューにする
+        const start = new Date(anchorMs);
+        return { start, end: addMinutesInZone(start, snap, timeZone) };
+      }
+      return {
+        start: new Date(Math.min(anchorMs, pointerMs)),
+        end: new Date(Math.max(anchorMs, pointerMs)),
+      };
+    }
+    case 'move': {
+      if (state.occurrence === null) {
+        throw new Error('move 操作には対象の発生（occurrence）が必要です');
+      }
+      // 移動量・長さとも絶対時刻（ミリ秒）で計算する
+      const deltaMs = pointer.getTime() - state.anchor.getTime();
+      const durationMs = state.occurrence.end.getTime() - state.occurrence.start.getTime();
+      const startMs = state.occurrence.start.getTime() + deltaMs;
+      return { start: new Date(startMs), end: new Date(startMs + durationMs) };
+    }
+    case 'resize': {
+      if (state.occurrence === null) {
+        throw new Error('resize 操作には対象の発生（occurrence）が必要です');
+      }
+      const start = new Date(state.occurrence.start.getTime());
+      // 最小でも snap 分の長さを保つ
+      const minEnd = addMinutesInZone(start, snap, timeZone);
+      const end = pointer.getTime() > minEnd.getTime() ? new Date(pointer.getTime()) : minEnd;
+      return { start, end };
+    }
+  }
 }
 
 /**
@@ -105,10 +173,14 @@ export function dragPreviewRange(
  * - `move` — 発生の開始日を「アンカー日からポインタ日までの日数差」だけずらす。
  *   日数（期間）は維持される。時間指定イベントの場合は壁時計時刻も維持される
  *
+ * 日数差は日付キーを UTC に載せた差分で求めるため、DST 切り替えで
+ * 1 日が 23/25 時間になっても暦上の日数として正しく計算される。
+ *
  * @param state - ドラッグ状態（`resize` は日単位ドラッグでは未対応）
  * @param pointerDay - 現在ポインタが乗っている日の 0:00（絶対時刻）
  * @param anchorDay - ドラッグを開始した日の 0:00（絶対時刻）
  * @param timeZone - 表示タイムゾーン
+ * @throws `move` で `state.occurrence` が `null` の場合は `Error`
  */
 export function dayDragPreviewRange(
   state: { mode: 'create' | 'move'; occurrence: EventOccurrence | null },
@@ -116,11 +188,31 @@ export function dayDragPreviewRange(
   anchorDay: Date,
   timeZone: TimeZoneId,
 ): DateRange {
-  void state;
-  void pointerDay;
-  void anchorDay;
-  void timeZone;
-  throw new Error('未実装');
+  switch (state.mode) {
+    case 'create': {
+      // どちらも同じ TZ の 0:00 の絶対時刻なので、大小比較で日順が決まる
+      const startDay = pointerDay.getTime() <= anchorDay.getTime() ? pointerDay : anchorDay;
+      const endDay = pointerDay.getTime() <= anchorDay.getTime() ? anchorDay : pointerDay;
+      return {
+        start: new Date(startDay.getTime()),
+        end: addDaysInZone(endDay, 1, timeZone),
+      };
+    }
+    case 'move': {
+      if (state.occurrence === null) {
+        throw new Error('move 操作には対象の発生（occurrence）が必要です');
+      }
+      // 日数差は日付キー同士を UTC に載せて求める（DST 安全）
+      const dayDiff =
+        (dateKeyToUtcMs(dateKeyInZone(pointerDay, timeZone)) -
+          dateKeyToUtcMs(dateKeyInZone(anchorDay, timeZone))) /
+        MS_PER_DAY;
+      return {
+        start: addDaysInZone(state.occurrence.start, dayDiff, timeZone),
+        end: addDaysInZone(state.occurrence.end, dayDiff, timeZone),
+      };
+    }
+  }
 }
 
 /**
@@ -151,7 +243,32 @@ export function shortcutForKey(
   key: string,
   modifiers?: { ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean },
 ): CalendarShortcut | null {
-  void key;
-  void modifiers;
-  throw new Error('未実装');
+  if (
+    modifiers !== undefined &&
+    (modifiers.ctrlKey === true || modifiers.metaKey === true || modifiers.altKey === true)
+  ) {
+    return null;
+  }
+  switch (key.toLowerCase()) {
+    case 'm':
+      return { type: 'view', view: 'month' };
+    case 'w':
+      return { type: 'view', view: 'week' };
+    case 'd':
+      return { type: 'view', view: 'day' };
+    case 'a':
+      return { type: 'view', view: 'list' };
+    case 't':
+      return { type: 'today' };
+    case 'j':
+    case 'n':
+      return { type: 'next' };
+    case 'k':
+    case 'p':
+      return { type: 'prev' };
+    case 'c':
+      return { type: 'create' };
+    default:
+      return null;
+  }
 }

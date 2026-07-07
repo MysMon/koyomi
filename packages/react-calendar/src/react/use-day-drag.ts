@@ -11,7 +11,12 @@
  * 現在乗っている日を判定する。
  */
 
-import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, Ref } from 'react';
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+  Ref,
+} from 'react';
 import type { DateRange, EventSegment } from '../core/types';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 

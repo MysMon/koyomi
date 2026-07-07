@@ -6,15 +6,315 @@
  * 日ごとに重なりレイアウトを適用する。
  */
 
-import type { EventOccurrence, TimeGridViewModel, TimeZoneId, Weekday } from '../types';
+import { eachDayInRange, rangesOverlap, startOfWeekInZone } from '../date-utils';
+import type { BandItemInput } from '../layout/band-layout';
+import { layoutBandItems } from '../layout/band-layout';
+import type { TimeGridItemInput } from '../layout/time-grid-layout';
+import { layoutTimeGridItems } from '../layout/time-grid-layout';
+import {
+  addDaysInZone,
+  dateKeyInZone,
+  formatSlotLabel,
+  isSameDayInZone,
+  minutesOfDayInZone,
+  startOfDayInZone,
+  weekdayInZone,
+} from '../timezone';
+import type {
+  EventOccurrence,
+  EventSegment,
+  PositionedOccurrence,
+  TimeGridDay,
+  TimeGridViewModel,
+  TimeSlot,
+  TimeZoneId,
+  Weekday,
+} from '../types';
+
+/** 1 日の名目分数（24:00）。DST 日でも表示グリッドは 24 時間として扱う。 */
+const MINUTES_PER_DAY = 1440;
+
+/** 時間指定イベントを終日行へ振り分ける最小継続時間（24 時間、ミリ秒）。 */
+const ALL_DAY_ROW_MIN_DURATION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 発生を終日行（帯）に振り分けるべきかを判定する。
+ *
+ * 振り分けルール:
+ * - `allDay: true` の発生は常に終日行
+ * - 時間指定イベントでも、表示タイムゾーンで複数日にまたがり
+ *   （`dateKeyInZone(start)` と「`end` の 1ms 前」の日付キーが異なる）、
+ *   かつ 24 時間以上続く発生は終日行に入る
+ * - 24 時間未満で日をまたぐ発生（例: 22:00〜翌 2:00）は時間グリッド側で
+ *   日ごとに分割表示する（{@link buildDayItems} が
+ *   `continuesBefore` / `continuesAfter` を立てて 0 / 1440 分にクランプする）
+ * - 長さ 0（以下）の発生は単日扱い（時間グリッド）
+ *
+ * @param occurrence - 判定する発生
+ * @param timeZone - 表示タイムゾーン
+ * @returns 終日行に入れるべきなら `true`
+ */
+function belongsToAllDayRow(occurrence: EventOccurrence, timeZone: TimeZoneId): boolean {
+  if (occurrence.allDay) {
+    return true;
+  }
+  const durationMs = occurrence.end.getTime() - occurrence.start.getTime();
+  if (durationMs < ALL_DAY_ROW_MIN_DURATION_MS) {
+    return false;
+  }
+  // end は排他的なので、1ms 前の時点が属する日と開始日を比較して複数日判定する
+  return (
+    dateKeyInZone(occurrence.start, timeZone) !==
+    dateKeyInZone(new Date(occurrence.end.getTime() - 1), timeZone)
+  );
+}
+
+/**
+ * 終日行のセグメントを帯レイアウト（月ビューと同じ方式）で構築する。
+ *
+ * 表示範囲全体（週なら 7 列、日なら 1 列）を 1 つの帯として扱い、
+ * {@link layoutBandItems} でレーンを割り当てる。あふれ制限（`maxLanes`）はない。
+ *
+ * @param occurrences - 終日行に振り分けられた発生
+ * @param params.rangeStart - 表示範囲の開始（最初の日の 0:00）
+ * @param params.rangeEnd - 表示範囲の終了（排他）
+ * @param params.columnIndexByKey - 日付キー → 列番号の索引
+ * @param params.columnCount - 列数（週なら 7、日なら 1）
+ * @param params.timeZone - 表示タイムゾーン
+ * @returns セグメント一覧と使用レーン数
+ */
+function buildAllDaySegments(
+  occurrences: readonly EventOccurrence[],
+  params: {
+    rangeStart: Date;
+    rangeEnd: Date;
+    columnIndexByKey: ReadonlyMap<string, number>;
+    columnCount: number;
+    timeZone: TimeZoneId;
+  },
+): { segments: EventSegment[]; laneCount: number } {
+  const { rangeStart, rangeEnd, columnIndexByKey, columnCount, timeZone } = params;
+
+  const bandInputs: BandItemInput[] = [];
+  const metas: {
+    occurrence: EventOccurrence;
+    startCol: number;
+    span: number;
+    continuesBefore: boolean;
+    continuesAfter: boolean;
+  }[] = [];
+
+  for (const occurrence of occurrences) {
+    // 長さ 0 の発生でも開始日 1 日分の帯として扱えるよう、終端を最低 1ms 確保する
+    const effectiveEndMs = Math.max(occurrence.end.getTime(), occurrence.start.getTime() + 1);
+    // 表示範囲と重ならない発生は無視する（範囲展開済みの入力に対する防御）
+    if (
+      occurrence.start.getTime() >= rangeEnd.getTime() ||
+      effectiveEndMs <= rangeStart.getTime()
+    ) {
+      continue;
+    }
+    const clampedStart = new Date(Math.max(occurrence.start.getTime(), rangeStart.getTime()));
+    // 終端は排他的なので、1ms 前の時点が属する日が最終列になる
+    const clampedLast = new Date(Math.min(effectiveEndMs, rangeEnd.getTime()) - 1);
+    const startCol = columnIndexByKey.get(dateKeyInZone(clampedStart, timeZone));
+    const endCol = columnIndexByKey.get(dateKeyInZone(clampedLast, timeZone));
+    if (startCol === undefined || endCol === undefined) {
+      // 表示範囲にクランプ済みのため必ず見つかるはずだが、防御的にスキップする
+      continue;
+    }
+    const span = endCol - startCol + 1;
+    bandInputs.push({
+      key: occurrence.key,
+      startCol,
+      span,
+      sortStart: occurrence.start.getTime(),
+      sortDuration: occurrence.end.getTime() - occurrence.start.getTime(),
+    });
+    metas.push({
+      occurrence,
+      startCol,
+      span,
+      continuesBefore: occurrence.start.getTime() < rangeStart.getTime(),
+      continuesAfter: occurrence.end.getTime() > rangeEnd.getTime(),
+    });
+  }
+
+  const layout = layoutBandItems(bandInputs, columnCount);
+  const segments: EventSegment[] = metas.map((meta, index) => {
+    // placements は入力と同数・同順のため index で対応付く（undefined は防御）
+    const placement = layout.placements[index];
+    return {
+      occurrence: meta.occurrence,
+      startCol: meta.startCol,
+      span: meta.span,
+      lane: placement?.lane ?? 0,
+      continuesBefore: meta.continuesBefore,
+      continuesAfter: meta.continuesAfter,
+      hidden: placement?.hidden ?? false,
+    };
+  });
+
+  return { segments, laneCount: layout.laneCount };
+}
+
+/** 時間グリッド 1 日分の作業用エントリ。 */
+interface GridEntry {
+  /** 対応する発生。 */
+  occurrence: EventOccurrence;
+  /** 日内での表示開始（分）。 */
+  startMinutes: number;
+  /** 日内での表示終了（分、排他）。 */
+  endMinutes: number;
+  /** 発生がこの日より前から続いているか。 */
+  continuesBefore: boolean;
+  /** 発生がこの日より後に続くか。 */
+  continuesAfter: boolean;
+}
+
+/**
+ * 時間グリッドのエントリの表示順を決める比較関数。
+ * `startMinutes` 昇順 → 表示上の長さ降順 → `key` 辞書順。
+ */
+function compareGridEntries(a: GridEntry, b: GridEntry): number {
+  if (a.startMinutes !== b.startMinutes) {
+    return a.startMinutes - b.startMinutes;
+  }
+  const durationA = a.endMinutes - a.startMinutes;
+  const durationB = b.endMinutes - b.startMinutes;
+  if (durationA !== durationB) {
+    return durationB - durationA;
+  }
+  if (a.occurrence.key < b.occurrence.key) {
+    return -1;
+  }
+  if (a.occurrence.key > b.occurrence.key) {
+    return 1;
+  }
+  return 0;
+}
+
+/**
+ * 1 日分の時間グリッド配置を構築する。
+ *
+ * `[dayStart, dayEnd)` と重なる発生について:
+ * - その日に始まる発生は `minutesOfDayInZone(start)`（壁時計基準）、
+ *   前日から続く発生は 0 分から表示し `continuesBefore` を立てる
+ * - `end` が翌日 0:00 以降なら 1440 分（24:00）にクランプし、
+ *   翌日 0:00 より後に続く場合は `continuesAfter` を立てる
+ * - 長さ 0（以下）の発生は開始時点の 1 点として単日扱いする
+ *
+ * 重なりの横並びは {@link layoutTimeGridItems}（既定の `minSlotMinutes`）で計算する。
+ *
+ * @param occurrences - 時間グリッドに振り分けられた発生
+ * @param params.dayStart - 対象日の 0:00（絶対時刻）
+ * @param params.dayEnd - 翌日の 0:00（絶対時刻、排他）
+ * @param params.timeZone - 表示タイムゾーン
+ * @returns 表示順（開始分昇順 → 長い方が先 → key）に並んだ配置済み発生
+ */
+function buildDayItems(
+  occurrences: readonly EventOccurrence[],
+  params: { dayStart: Date; dayEnd: Date; timeZone: TimeZoneId },
+): PositionedOccurrence[] {
+  const { dayStart, dayEnd, timeZone } = params;
+  const entries: GridEntry[] = [];
+
+  for (const occurrence of occurrences) {
+    const startMs = occurrence.start.getTime();
+    const endMs = occurrence.end.getTime();
+
+    if (endMs <= startMs) {
+      // 長さ 0（以下）の発生は開始時点の 1 点として単日扱いする
+      if (startMs < dayStart.getTime() || startMs >= dayEnd.getTime()) {
+        continue;
+      }
+      const minutes = minutesOfDayInZone(occurrence.start, timeZone);
+      entries.push({
+        occurrence,
+        startMinutes: minutes,
+        endMinutes: minutes,
+        continuesBefore: false,
+        continuesAfter: false,
+      });
+      continue;
+    }
+
+    if (
+      !rangesOverlap(
+        { start: occurrence.start, end: occurrence.end },
+        { start: dayStart, end: dayEnd },
+      )
+    ) {
+      continue;
+    }
+
+    const startsInDay = startMs >= dayStart.getTime();
+    const endsAtOrAfterDayEnd = endMs >= dayEnd.getTime();
+    entries.push({
+      occurrence,
+      startMinutes: startsInDay ? minutesOfDayInZone(occurrence.start, timeZone) : 0,
+      endMinutes: endsAtOrAfterDayEnd
+        ? MINUTES_PER_DAY
+        : minutesOfDayInZone(occurrence.end, timeZone),
+      continuesBefore: !startsInDay,
+      continuesAfter: endMs > dayEnd.getTime(),
+    });
+  }
+
+  entries.sort(compareGridEntries);
+
+  const inputs: TimeGridItemInput[] = entries.map((entry) => ({
+    key: entry.occurrence.key,
+    startMinutes: entry.startMinutes,
+    endMinutes: entry.endMinutes,
+  }));
+  const placements = layoutTimeGridItems(inputs);
+
+  return entries.map((entry, index) => {
+    // placements は入力と同数・同順のため index で対応付く（undefined は防御）
+    const placement = placements[index];
+    return {
+      occurrence: entry.occurrence,
+      startMinutes: entry.startMinutes,
+      endMinutes: entry.endMinutes,
+      left: placement?.left ?? 0,
+      width: placement?.width ?? 1,
+      continuesBefore: entry.continuesBefore,
+      continuesAfter: entry.continuesAfter,
+    };
+  });
+}
+
+/**
+ * 時間軸の目盛りを生成する。
+ *
+ * 0 分から 1440 分未満まで `slotMinutes` 刻みで生成し、
+ * ラベルは {@link formatSlotLabel}（`'HH:mm'` 形式）で付ける。
+ *
+ * @param slotMinutes - 目盛り間隔（分）。0 以下・非有限の場合は空配列を返す
+ */
+function buildSlots(slotMinutes: number): TimeSlot[] {
+  const slots: TimeSlot[] = [];
+  // 不正な間隔（0 以下・非有限）では無限ループになるため空配列で防御する
+  if (!Number.isFinite(slotMinutes) || slotMinutes <= 0) {
+    return slots;
+  }
+  for (let minutes = 0; minutes < MINUTES_PER_DAY; minutes += slotMinutes) {
+    slots.push({ minutes, label: formatSlotLabel(minutes) });
+  }
+  return slots;
+}
 
 /**
  * 週/日ビューのビューモデルを構築する。
  *
- * 振り分けルール（Google カレンダーと同じ）:
- * - `allDay: true` の発生、または表示タイムゾーンで複数日にまたがる発生は
- *   終日行のセグメントになる（帯レイアウトでレーン割当。あふれ制限はなし）
- * - それ以外（同一日内の時間指定イベント）は該当日の時間グリッドに配置される
+ * 振り分けルール（Google カレンダーと同じ帯方式）:
+ * - `allDay: true` の発生、または表示タイムゾーンで複数日にまたがり
+ *   （開始の日付キーと「終了の 1ms 前」の日付キーが異なる。長さ 0 は単日扱い）
+ *   かつ 24 時間以上続く発生は終日行のセグメントになる
+ *   （帯レイアウトでレーン割当。あふれ制限はなし）
+ * - それ以外（24 時間未満の時間指定イベント）は該当日の時間グリッドに配置される。
+ *   日をまたぐもの（例: 22:00〜翌 2:00）は日ごとに分割される
  *
  * 時間グリッドの配置:
  * - 発生の日内位置は `minutesOfDayInZone` による壁時計の分で決まる
@@ -39,6 +339,68 @@ export function buildTimeGridViewModel(params: {
   slotMinutes: number;
   now: Date;
 }): TimeGridViewModel {
-  void params;
-  throw new Error('未実装');
+  const { currentDate, viewType, timeZone, occurrences, weekStartsOn, slotMinutes, now } = params;
+
+  // 表示範囲: week は週開始日から 7 日、day は基準日の 1 日
+  const rangeStart =
+    viewType === 'week'
+      ? startOfWeekInZone(currentDate, timeZone, weekStartsOn)
+      : startOfDayInZone(currentDate, timeZone);
+  const dayCount = viewType === 'week' ? 7 : 1;
+  const rangeEnd = addDaysInZone(rangeStart, dayCount, timeZone);
+  const dayStarts = eachDayInRange({ start: rangeStart, end: rangeEnd }, timeZone);
+
+  const dayKeys = dayStarts.map((dayStart) => dateKeyInZone(dayStart, timeZone));
+  const columnIndexByKey = new Map<string, number>(dayKeys.map((key, index) => [key, index]));
+
+  // 発生を終日行と時間グリッドに振り分ける
+  const allDayRowOccurrences: EventOccurrence[] = [];
+  const timedOccurrences: EventOccurrence[] = [];
+  for (const occurrence of occurrences) {
+    if (belongsToAllDayRow(occurrence, timeZone)) {
+      allDayRowOccurrences.push(occurrence);
+    } else {
+      timedOccurrences.push(occurrence);
+    }
+  }
+
+  const { segments: allDaySegments, laneCount: allDayLaneCount } = buildAllDaySegments(
+    allDayRowOccurrences,
+    {
+      rangeStart,
+      rangeEnd,
+      columnIndexByKey,
+      columnCount: dayStarts.length,
+      timeZone,
+    },
+  );
+
+  const days: TimeGridDay[] = dayStarts.map((dayStart, index) => ({
+    date: dayStart,
+    key: dayKeys[index] ?? dateKeyInZone(dayStart, timeZone),
+    isToday: isSameDayInZone(dayStart, now, timeZone),
+    weekday: weekdayInZone(dayStart, timeZone),
+    items: buildDayItems(timedOccurrences, {
+      dayStart,
+      // 最終日の翌日 0:00 は範囲終端と一致する
+      dayEnd: dayStarts[index + 1] ?? rangeEnd,
+      timeZone,
+    }),
+  }));
+
+  // 現在時刻線: 表示範囲内に「今日」があればその列と壁時計の分を返す
+  const todayKey = dateKeyInZone(now, timeZone);
+  const nowIndicator = columnIndexByKey.has(todayKey)
+    ? { dayKey: todayKey, minutes: minutesOfDayInZone(now, timeZone) }
+    : null;
+
+  return {
+    type: 'timeGrid',
+    viewType,
+    days,
+    allDaySegments,
+    allDayLaneCount,
+    slots: buildSlots(slotMinutes),
+    nowIndicator,
+  };
 }
