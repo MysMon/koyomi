@@ -30,6 +30,8 @@ export interface WallClockParts {
   minutes?: number;
   /** 秒（0〜59）。既定は 0。 */
   seconds?: number;
+  /** ミリ秒（0〜999）。既定は 0。 */
+  milliseconds?: number;
 }
 
 /** `'YYYY-MM-DD'` 形式の日付キー。 */
@@ -40,7 +42,7 @@ const OFFSET_ISO_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 /** オフセットなし ISO 8601（壁時計として解釈する。秒・小数秒は省略可）。 */
-const LOCAL_ISO_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?$/;
+const LOCAL_ISO_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(\.\d{1,9})?)?$/;
 
 /**
  * 年月日が暦上実在するかを検証する。
@@ -62,6 +64,18 @@ function isRealCalendarDate(year: number, month: number, day: number): boolean {
 /** 2 桁ゼロ埋め。 */
 function pad2(value: number): string {
   return String(value).padStart(2, '0');
+}
+
+/**
+ * ISO 8601 の小数秒部分（先頭の `.` を含む文字列。例: `'.123456'`）を
+ * ミリ秒（0〜999）に変換する。3 桁を超える分は切り捨てる。
+ */
+function millisecondsFromFraction(fractionText: string | undefined): number {
+  if (fractionText === undefined) {
+    return 0;
+  }
+  const digits = fractionText.slice(1, 4).padEnd(3, '0');
+  return Number(digits);
 }
 
 /**
@@ -112,6 +126,7 @@ export function getWallClock(date: Date, timeZone: TimeZoneId): Required<WallClo
     hours: zoned.getHours(),
     minutes: zoned.getMinutes(),
     seconds: zoned.getSeconds(),
+    milliseconds: zoned.getMilliseconds(),
   };
 }
 
@@ -131,8 +146,13 @@ export function getWallClock(date: Date, timeZone: TimeZoneId): Required<WallClo
  * ```
  */
 export function fromWallClock(parts: WallClockParts, timeZone: TimeZoneId): Date {
-  const { year, month, day, hours = 0, minutes = 0, seconds = 0 } = parts;
-  const zoned = new TZDate(year, month - 1, day, hours, minutes, seconds, 0, timeZone);
+  const { year, month, day, hours = 0, minutes = 0, seconds = 0, milliseconds = 0 } = parts;
+  // TZDate の数値引数コンストラクタは Date コンストラクタの 2 桁年マッピング
+  // （0〜99 年を 1900〜1999 年とみなす）をそのまま引き継いでしまう。
+  // isRealCalendarDate と同様に setter 経由で組み立てることでこれを回避する。
+  const zoned = TZDate.tz(timeZone);
+  zoned.setFullYear(year, month - 1, day);
+  zoned.setHours(hours, minutes, seconds, milliseconds);
   return new Date(zoned.getTime());
 }
 
@@ -178,9 +198,10 @@ export function addMinutesInZone(date: Date, amount: number, timeZone: TimeZoneI
   const wall = getWallClock(date, timeZone);
   // 壁時計成分をオフセットのない UTC 上の日時として組み立ててから分を加算し、
   // 日・月・年への繰り上がり/繰り下がりを Date の正規化に任せる
+  // （ミリ秒も保持し、加算前後で恒等性が保たれるようにする）
   const shifted = new Date(0);
   shifted.setUTCFullYear(wall.year, wall.month - 1, wall.day);
-  shifted.setUTCHours(wall.hours, wall.minutes + amount, wall.seconds, 0);
+  shifted.setUTCHours(wall.hours, wall.minutes + amount, wall.seconds, wall.milliseconds);
   return fromWallClock(
     {
       year: shifted.getUTCFullYear(),
@@ -189,6 +210,7 @@ export function addMinutesInZone(date: Date, amount: number, timeZone: TimeZoneI
       hours: shifted.getUTCHours(),
       minutes: shifted.getUTCMinutes(),
       seconds: shifted.getUTCSeconds(),
+      milliseconds: shifted.getUTCMilliseconds(),
     },
     timeZone,
   );
@@ -318,7 +340,8 @@ export function parseDateValue(value: Date | string, timeZone: TimeZoneId, allDa
   // オフセットなし ISO 8601 — timeZone の壁時計として解釈
   const local = LOCAL_ISO_PATTERN.exec(value);
   if (local !== null) {
-    const [, yearText, monthText, dayText, hoursText, minutesText, secondsText] = local;
+    const [, yearText, monthText, dayText, hoursText, minutesText, secondsText, fractionText] =
+      local;
     if (
       yearText === undefined ||
       monthText === undefined ||
@@ -334,10 +357,14 @@ export function parseDateValue(value: Date | string, timeZone: TimeZoneId, allDa
     const hours = Number(hoursText);
     const minutes = Number(minutesText);
     const seconds = secondsText === undefined ? 0 : Number(secondsText);
+    const milliseconds = millisecondsFromFraction(fractionText);
     if (!isRealCalendarDate(year, month, day) || hours > 23 || minutes > 59 || seconds > 59) {
       throw new Error(`日時として解釈できない値です: '${value}'`);
     }
-    const instant = fromWallClock({ year, month, day, hours, minutes, seconds }, timeZone);
+    const instant = fromWallClock(
+      { year, month, day, hours, minutes, seconds, milliseconds },
+      timeZone,
+    );
     return allDay ? startOfDayInZone(instant, timeZone) : instant;
   }
 

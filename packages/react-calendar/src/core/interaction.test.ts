@@ -121,6 +121,30 @@ describe('timeAtGridPosition', () => {
     expect(result).toEqual(at('2026-07-07T23:00', TOKYO));
   });
 
+  it('snap が 1440 を超える場合、fractionY = 0 と 1 のどちらも当日 0:00（日内）になる', () => {
+    // 修正前は上限が 1440 - 2000 = -560 となり、前日側へはみ出していた
+    const result0 = timeAtGridPosition({
+      day: dayTokyo,
+      fractionY: 0,
+      timeZone: TOKYO,
+      snap: 2000,
+    });
+    const result1 = timeAtGridPosition({
+      day: dayTokyo,
+      fractionY: 1,
+      timeZone: TOKYO,
+      snap: 2000,
+    });
+    expect(result0).toEqual(dayTokyo);
+    expect(result1).toEqual(dayTokyo);
+  });
+
+  it('1440 を割り切らない snap（25 分）では fractionY = 1 が格子上の 1425 分（23:45）にクランプされる', () => {
+    // 修正前の上限は 1440 - 25 = 1415 分で、25 の倍数の格子から外れていた
+    const result = timeAtGridPosition({ day: dayTokyo, fractionY: 1, timeZone: TOKYO, snap: 25 });
+    expect(result).toEqual(at('2026-07-07T23:45', TOKYO));
+  });
+
   it('負の fractionY は 0:00 にクランプされる', () => {
     const result = timeAtGridPosition({
       day: dayTokyo,
@@ -220,6 +244,30 @@ describe('dragPreviewRange', () => {
       const range = dragPreviewRange(state, at('2026-07-08T00:00', TOKYO), context);
       expect(range.start).toEqual(at('2026-07-07T23:00', TOKYO));
       expect(range.end).toEqual(at('2026-07-08T00:00', TOKYO));
+    });
+
+    it('snap が 0 でもクリック相当は空プレビューにならず 1 分の長さになる（正規化）', () => {
+      const anchor = at('2026-07-07T10:00', TOKYO);
+      const state: TimeGridDragState = { mode: 'create', occurrence: null, anchor };
+      const range = dragPreviewRange(state, new Date(anchor.getTime()), {
+        timeZone: TOKYO,
+        snap: 0,
+      });
+      expect(range.start).toEqual(anchor);
+      expect(range.end).toEqual(at('2026-07-07T10:01', TOKYO));
+      expect(range.end.getTime()).toBeGreaterThan(range.start.getTime());
+    });
+
+    it('snap が負数でもクリック相当は end < start に反転せず 1 分の長さになる', () => {
+      const anchor = at('2026-07-07T10:00', TOKYO);
+      const state: TimeGridDragState = { mode: 'create', occurrence: null, anchor };
+      const range = dragPreviewRange(state, new Date(anchor.getTime()), {
+        timeZone: TOKYO,
+        snap: -15,
+      });
+      expect(range.start).toEqual(anchor);
+      expect(range.end).toEqual(at('2026-07-07T10:01', TOKYO));
+      expect(range.end.getTime()).toBeGreaterThan(range.start.getTime());
     });
   });
 
@@ -327,6 +375,36 @@ describe('dragPreviewRange', () => {
         anchor: at('2026-07-07T11:00', TOKYO),
       };
       expect(() => dragPreviewRange(state, at('2026-07-07T12:00', TOKYO), context)).toThrow(/発生/);
+    });
+
+    it('snap が 0 でも最小 1 分の長さを保つ（正規化）', () => {
+      const state: TimeGridDragState = {
+        mode: 'resize',
+        occurrence,
+        anchor: at('2026-07-07T11:00', TOKYO),
+      };
+      const range = dragPreviewRange(state, at('2026-07-07T10:00', TOKYO), {
+        timeZone: TOKYO,
+        snap: 0,
+      });
+      expect(range.start).toEqual(at('2026-07-07T10:00', TOKYO));
+      expect(range.end).toEqual(at('2026-07-07T10:01', TOKYO));
+      expect(range.end.getTime()).toBeGreaterThan(range.start.getTime());
+    });
+
+    it('snap が負数でも end が start を下回らず最小 1 分の長さを保つ', () => {
+      const state: TimeGridDragState = {
+        mode: 'resize',
+        occurrence,
+        anchor: at('2026-07-07T11:00', TOKYO),
+      };
+      const range = dragPreviewRange(state, at('2026-07-07T09:00', TOKYO), {
+        timeZone: TOKYO,
+        snap: -30,
+      });
+      expect(range.start).toEqual(at('2026-07-07T10:00', TOKYO));
+      expect(range.end).toEqual(at('2026-07-07T10:01', TOKYO));
+      expect(range.end.getTime()).toBeGreaterThan(range.start.getTime());
     });
   });
 });

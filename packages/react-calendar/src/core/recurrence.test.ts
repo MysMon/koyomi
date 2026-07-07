@@ -109,6 +109,30 @@ describe('expandRecurrence', () => {
         expect([wall.hours, wall.minutes]).toEqual([9, 0]);
       }
     });
+
+    it('春の DST 切替で存在しない壁時計時刻が前方解決され同じ絶対時刻に重複しても、1 件に統合する', () => {
+      // BYHOUR=2,3;BYMINUTE=30 は毎日 2:30 と 3:30 の 2 回発生するはずだが、
+      // 2026-03-08 は 2:00〜2:59 が存在しないため 2:30 が前方解決されて 3:30 EDT
+      // （07:30Z）に一致し、3:30 の発生と絶対時刻が重複する
+      const dtstart = new Date('2026-03-01T07:30:00Z'); // NY 3/1 2:30 EST
+      const result = expandRecurrence({
+        rrule: 'FREQ=DAILY;BYHOUR=2,3;BYMINUTE=30',
+        dtstart,
+        timeZone: NY,
+        range: { start: new Date('2026-03-07T00:00:00Z'), end: new Date('2026-03-10T00:00:00Z') },
+      });
+      // 3/8 は絶対時刻が重複するため 1 件のみ（3/7 は通常どおり 2 件）
+      expect(toISO(result)).toEqual([
+        '2026-03-07T07:30:00.000Z',
+        '2026-03-07T08:30:00.000Z',
+        '2026-03-08T07:30:00.000Z',
+        '2026-03-09T06:30:00.000Z',
+        '2026-03-09T07:30:00.000Z',
+      ]);
+      // 重複除去後も絶対時刻に重複がないことを確認する
+      const times = result.map((d) => d.getTime());
+      expect(new Set(times).size).toBe(times.length);
+    });
   });
 
   it('FREQ=WEEKLY;BYDAY=MO,WE は月曜・水曜の発生を返す', () => {
@@ -238,6 +262,39 @@ describe('expandRecurrence', () => {
       '2026-07-02T10:00:00.000Z',
       '2026-07-03T10:00:00.000Z',
     ]);
+  });
+
+  describe('ミリ秒を持つ dtstart の扱い（fake-UTC 変換のミリ秒往復）', () => {
+    it('dtstart にミリ秒がある場合でも COUNT=3 は 3 件返り、最初の発生が dtstart とミリ秒まで一致する', () => {
+      const dtstart = new Date('2026-07-01T00:00:00.500Z');
+      const result = expandRecurrence({
+        rrule: 'FREQ=DAILY;COUNT=3',
+        dtstart,
+        timeZone: TOKYO,
+        // range.start を dtstart ちょうどにすることで、ミリ秒切り捨てによる
+        // 「最初の発生が range.start 未満になり消える」不具合を検出する
+        range: { start: dtstart, end: new Date('2026-08-01T00:00:00Z') },
+      });
+      expect(result).toHaveLength(3);
+      expect(result[0]?.getTime()).toBe(dtstart.getTime());
+      expect(toISO(result)).toEqual([
+        '2026-07-01T00:00:00.500Z',
+        '2026-07-02T00:00:00.500Z',
+        '2026-07-03T00:00:00.500Z',
+      ]);
+    });
+
+    it('dtstart にミリ秒がある場合、exdates もミリ秒まで一致する発生のみ正しく除外する', () => {
+      const dtstart = new Date('2026-07-01T00:00:00.500Z');
+      const result = expandRecurrence({
+        rrule: 'FREQ=DAILY;COUNT=3',
+        dtstart,
+        timeZone: TOKYO,
+        exdates: [new Date('2026-07-02T00:00:00.500Z')],
+        range: { start: new Date('2026-06-01T00:00:00Z'), end: new Date('2026-08-01T00:00:00Z') },
+      });
+      expect(toISO(result)).toEqual(['2026-07-01T00:00:00.500Z', '2026-07-03T00:00:00.500Z']);
+    });
   });
 
   describe('exdates による除外', () => {
@@ -487,7 +544,7 @@ describe('countOccurrencesBefore', () => {
 describe('truncateRRule', () => {
   const dtstart = new Date('2026-07-01T00:00:00Z'); // 東京 7/1 9:00
 
-  it('COUNT を削除して UNTIL（fake-UTC 空間で until の 1ms 前）に置き換える', () => {
+  it('COUNT を削除して UNTIL（until 直前の発生の fake-UTC 時刻）に置き換える', () => {
     const result = truncateRRule({
       rrule: 'FREQ=DAILY;COUNT=10',
       dtstart,
@@ -496,8 +553,8 @@ describe('truncateRRule', () => {
       until: new Date('2026-07-05T00:00:00Z'),
     });
     expect(result).not.toContain('COUNT');
-    // 東京の壁時計 7/5 9:00 の 1ms 前 → 秒精度に切り捨てられ 08:59:59
-    expect(result).toBe('FREQ=DAILY;UNTIL=20260705T085959Z');
+    // until 直前の発生は 4 回目（東京 7/4 9:00）。その fake-UTC 時刻を UNTIL にする
+    expect(result).toBe('FREQ=DAILY;UNTIL=20260704T090000Z');
   });
 
   it('COUNT=10 のルールを 5 回目で打ち切ると展開結果が 4 回になる', () => {
@@ -528,7 +585,7 @@ describe('truncateRRule', () => {
       timeZone: TOKYO,
       until: new Date('2026-07-05T00:00:00Z'),
     });
-    expect(result).toBe('FREQ=DAILY;UNTIL=20260705T085959Z');
+    expect(result).toBe('FREQ=DAILY;UNTIL=20260704T090000Z');
   });
 
   it('until 以降（含む）の発生を含まず、直前の発生は含む', () => {
@@ -560,7 +617,8 @@ describe('truncateRRule', () => {
       timeZone: NY,
       until: new Date('2026-03-08T13:00:00Z'),
     });
-    expect(truncated).toBe('FREQ=DAILY;UNTIL=20260308T085959Z');
+    // until 直前の発生は 3/7 9:00 EST。その fake-UTC 時刻を UNTIL にする
+    expect(truncated).toBe('FREQ=DAILY;UNTIL=20260307T090000Z');
     const result = expandRecurrence({
       rrule: truncated,
       dtstart: nyDtstart,
@@ -568,6 +626,59 @@ describe('truncateRRule', () => {
       range: { start: new Date('2026-03-01T00:00:00Z'), end: new Date('2026-04-01T00:00:00Z') },
     });
     expect(toISO(result)).toEqual(['2026-03-06T14:00:00.000Z', '2026-03-07T14:00:00.000Z']);
+  });
+
+  describe('until の境界が壊れるケース（ミリ秒・DST 曖昧時刻）', () => {
+    it('until にミリ秒がある場合でも、直前の発生（ミリ秒付き）が消えずに残る', () => {
+      // dtstart は毎日 9:00（東京）でミリ秒 .499 を持つ。5 回目の発生は
+      // 2026-07-05T00:00:00.499Z。until はその 1ms 後（.500Z）なので
+      // 5 回目の発生は「until より前」として残るべき
+      const msDtstart = new Date('2026-07-01T00:00:00.499Z');
+      const truncated = truncateRRule({
+        rrule: 'FREQ=DAILY',
+        dtstart: msDtstart,
+        timeZone: TOKYO,
+        until: new Date('2026-07-05T00:00:00.500Z'),
+      });
+      const result = expandRecurrence({
+        rrule: truncated,
+        dtstart: msDtstart,
+        timeZone: TOKYO,
+        range: { start: new Date('2026-06-01T00:00:00Z'), end: new Date('2026-08-01T00:00:00Z') },
+      });
+      expect(toISO(result)).toEqual([
+        '2026-07-01T00:00:00.499Z',
+        '2026-07-02T00:00:00.499Z',
+        '2026-07-03T00:00:00.499Z',
+        '2026-07-04T00:00:00.499Z',
+        '2026-07-05T00:00:00.499Z',
+      ]);
+    });
+
+    it('DST 秋切替の曖昧時間帯を跨ぐ打ち切りでも、絶対時刻順序で正しく直前の発生を残す', () => {
+      // NY の毎日 1:30。2026-11-01 は DST 終了（EDT→EST）で 1:00〜1:59 が
+      // 2 回現れる曖昧時間帯。この日の 1:30 は早い方のオフセット（EDT）で
+      // 解決され、絶対時刻は 05:30Z になる
+      const nyDtstart = new Date('2026-10-25T05:30:00Z'); // NY 10/25 1:30 EDT
+      const truncated = truncateRRule({
+        rrule: 'FREQ=DAILY',
+        dtstart: nyDtstart,
+        timeZone: NY,
+        // 11/1 の発生（05:30Z）と 11/2 の発生（06:30Z）の間の絶対時刻
+        until: new Date('2026-11-01T06:00:00Z'),
+      });
+      const result = expandRecurrence({
+        rrule: truncated,
+        dtstart: nyDtstart,
+        timeZone: NY,
+        range: { start: new Date('2026-10-01T00:00:00Z'), end: new Date('2026-12-01T00:00:00Z') },
+      });
+      // 11/1 の発生（05:30Z）は残り、11/2 以降は含まれない
+      expect(toISO(result).at(-1)).toBe('2026-11-01T05:30:00.000Z');
+      for (const occurrence of result) {
+        expect(occurrence.getTime()).toBeLessThan(new Date('2026-11-01T06:00:00Z').getTime());
+      }
+    });
   });
 
   it('不正な RRULE には Error を投げる', () => {

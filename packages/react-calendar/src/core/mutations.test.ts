@@ -460,7 +460,7 @@ describe("updateEventIn: scope 'thisAndFollowing'（シリーズ分割）", () =
     expect(result).toHaveLength(2);
     // 旧シリーズ: COUNT は削除され、分割点の直前で UNTIL 打ち切り。patch は適用されない
     expect(findById(result, 'master-1')).toEqual(
-      makeMaster({ rrule: 'FREQ=DAILY;UNTIL=20260704T085959Z' }),
+      makeMaster({ rrule: 'FREQ=DAILY;UNTIL=20260703T090000Z' }),
     );
     // 新シリーズ: 末尾に追加され、patch が適用される
     const created = result[result.length - 1];
@@ -568,7 +568,7 @@ describe("updateEventIn: scope 'thisAndFollowing'（シリーズ分割）", () =
       { occurrenceStart: splitPoint, scope: 'thisAndFollowing' },
       makeContext(),
     );
-    expect(findById(result, 'master-1').rrule).toBe('FREQ=DAILY;UNTIL=20260704T085959Z');
+    expect(findById(result, 'master-1').rrule).toBe('FREQ=DAILY;UNTIL=20260703T090000Z');
     expect(findById(result, 'gen-1').rrule).toBe('FREQ=DAILY;UNTIL=20260710T090000Z');
   });
 
@@ -581,7 +581,7 @@ describe("updateEventIn: scope 'thisAndFollowing'（シリーズ分割）", () =
       { occurrenceStart: splitPoint, scope: 'thisAndFollowing' },
       makeContext(),
     );
-    expect(findById(result, 'master-1').rrule).toBe('FREQ=DAILY;UNTIL=20260704T085959Z');
+    expect(findById(result, 'master-1').rrule).toBe('FREQ=DAILY;UNTIL=20260703T090000Z');
     expect(findById(result, 'gen-1').rrule).toBe('FREQ=DAILY');
   });
 
@@ -616,7 +616,7 @@ describe("updateEventIn: scope 'thisAndFollowing'（シリーズ分割）", () =
     );
     const oldMaster = findById(result, 'ny-master');
     const created = findById(result, 'gen-1');
-    expect(oldMaster.rrule).toBe('FREQ=DAILY;UNTIL=20260308T085959Z');
+    expect(oldMaster.rrule).toBe('FREQ=DAILY;UNTIL=20260307T090000Z');
     expect(created.start).toEqual(new Date('2026-03-08T13:00:00Z'));
     expect(created.end).toEqual(new Date('2026-03-08T14:00:00Z'));
     expect(created.rrule).toBe('FREQ=DAILY;COUNT=4'); // 消化済み 2 回を差し引く
@@ -703,7 +703,7 @@ describe('updateEventIn: オーバーライドの ID で親シリーズに適用
     );
     expect(result).toHaveLength(3);
     // 旧シリーズは 7/3 9:00 の直前で打ち切り（7/1・7/2 の 2 回が残る）
-    expect(findById(result, 'master-1').rrule).toBe('FREQ=DAILY;UNTIL=20260703T085959Z');
+    expect(findById(result, 'master-1').rrule).toBe('FREQ=DAILY;UNTIL=20260702T090000Z');
     // 新シリーズは分割点（originalStart）から始まり、COUNT は 10 - 2 = 8
     const created = findById(result, 'gen-1');
     expect(created.start).toEqual(new Date('2026-07-03T00:00:00Z'));
@@ -831,7 +831,7 @@ describe('deleteEventIn: 繰り返しイベント', () => {
     );
     expect(result).toHaveLength(2);
     const updated = findById(result, 'master-1');
-    expect(updated.rrule).toBe('FREQ=DAILY;UNTIL=20260704T085959Z');
+    expect(updated.rrule).toBe('FREQ=DAILY;UNTIL=20260703T090000Z');
     expect(updated.exdates).toEqual([new Date('2026-07-03T00:00:00Z')]);
     expect(findById(result, 'ov-2')).toEqual(before);
     expect(result.some((event) => event.id === 'ov-4')).toBe(false);
@@ -1015,7 +1015,7 @@ describe('moveOccurrenceIn', () => {
       },
       makeContext(),
     );
-    expect(findById(result, 'master-1').rrule).toBe('FREQ=DAILY;UNTIL=20260704T085959Z');
+    expect(findById(result, 'master-1').rrule).toBe('FREQ=DAILY;UNTIL=20260703T090000Z');
     const created = findById(result, 'gen-1');
     expect(created.start).toEqual(new Date('2026-07-04T02:00:00Z'));
     expect(created.end).toEqual(new Date('2026-07-04T03:00:00Z'));

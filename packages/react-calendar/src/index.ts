@@ -100,3 +100,30 @@ export type {
 export { buildListViewModel } from './core/views/list-view';
 export { buildMonthViewModel } from './core/views/month-view';
 export { buildTimeGridViewModel } from './core/views/time-grid-view';
+// React: コンテキスト
+export { CalendarProvider, type CalendarProviderProps, useCalendarContext } from './react/context';
+// React: 型
+export type {
+  CalendarContextValue,
+  CalendarInteractionCallbacks,
+  EventChange,
+  RangeSelection,
+  UseCalendarResult,
+} from './react/types';
+// React: フック
+export { useCalendar } from './react/use-calendar';
+export { useCalendarShortcuts } from './react/use-calendar-shortcuts';
+export {
+  type DayCellProps,
+  type DayDragHandlers,
+  type SegmentProps,
+  useDayDrag,
+} from './react/use-day-drag';
+export {
+  type TimeGridDayProps,
+  type TimeGridDragHandlers,
+  type TimeGridEventProps,
+  type TimeGridPreviewSegment,
+  type TimeGridResizeHandleProps,
+  useTimeGridDrag,
+} from './react/use-time-grid-drag';

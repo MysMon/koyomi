@@ -48,7 +48,13 @@ export function buildListViewModel(params: {
   const days: ListDay[] = [];
 
   for (const dayStart of dayStarts) {
-    const dayEnd = addDaysInZone(dayStart, 1, timeZone);
+    // addDaysInZone は加算前の壁時計時刻を維持するため、dayStart が深夜 0:00 の
+    // 存在しないゾーン（例: America/Havana）の切替日で前方解決された時刻
+    // （例: 1:00）を持っていると、そのまま加算した dayEnd も同じ時刻になり
+    // 翌日の本来の 0:00〜1:00 分だけ範囲が伸びてしまう。その結果、翌日の
+    // 0:00〜1:00 の発生が当日・翌日の両方に重複出現する。startOfDayInZone で
+    // dayEnd を日初へ再正規化して防ぐ（eachDayInRange と同じ理由）
+    const dayEnd = startOfDayInZone(addDaysInZone(dayStart, 1, timeZone), timeZone);
     // [day, 翌日) と重なる発生を集める（end 排他の交差判定）
     const dayOccurrences = occurrences.filter((occurrence) =>
       rangesOverlap(

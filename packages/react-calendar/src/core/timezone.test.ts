@@ -68,6 +68,7 @@ describe('getWallClock', () => {
       hours: 5,
       minutes: 0,
       seconds: 0,
+      milliseconds: 0,
     });
     expect(getWallClock(date, NY)).toEqual({
       year: 2026,
@@ -76,6 +77,7 @@ describe('getWallClock', () => {
       hours: 16,
       minutes: 0,
       seconds: 0,
+      milliseconds: 0,
     });
     expect(getWallClock(date, UTC)).toEqual({
       year: 2026,
@@ -84,6 +86,7 @@ describe('getWallClock', () => {
       hours: 20,
       minutes: 0,
       seconds: 0,
+      milliseconds: 0,
     });
   });
 
@@ -96,6 +99,20 @@ describe('getWallClock', () => {
       hours: 10,
       minutes: 23,
       seconds: 45,
+      milliseconds: 0,
+    });
+  });
+
+  it('ミリ秒も壁時計成分として返す', () => {
+    const date = new Date('2026-07-01T01:23:45.678Z');
+    expect(getWallClock(date, TOKYO)).toEqual({
+      year: 2026,
+      month: 7,
+      day: 1,
+      hours: 10,
+      minutes: 23,
+      seconds: 45,
+      milliseconds: 678,
     });
   });
 });
@@ -145,11 +162,53 @@ describe('fromWallClock', () => {
     );
   });
 
-  it('getWallClock と往復できる（通常の時刻）', () => {
-    const parts = { year: 2026, month: 7, day: 1, hours: 10, minutes: 30, seconds: 15 };
+  it('getWallClock と往復できる（通常の時刻、ミリ秒も含む）', () => {
+    const parts = {
+      year: 2026,
+      month: 7,
+      day: 1,
+      hours: 10,
+      minutes: 30,
+      seconds: 15,
+      milliseconds: 250,
+    };
     for (const tz of [TOKYO, NY, UTC]) {
       expect(getWallClock(fromWallClock(parts, tz), tz)).toEqual(parts);
     }
+  });
+
+  it('ミリ秒を省略すると 0 として扱う', () => {
+    const result = fromWallClock({ year: 2026, month: 7, day: 1, hours: 10 }, UTC);
+    expect(result.getUTCMilliseconds()).toBe(0);
+  });
+});
+
+describe('fromWallClock: 年 0〜99 の 2 桁年変換バグ回帰', () => {
+  // TZDate の数値引数コンストラクタは Date コンストラクタの 2 桁年マッピング
+  // （0〜99 年を 1900〜1999 年とみなす）を引き継いでしまう。
+  // 過去の日付（例: 歴史イベントの記録）を UTC で扱うユースケースを想定し、
+  // 2 桁年が誤って 19xx 年へ変換されないことを検証する。
+  it('年 50 を 1950 年に変換しない', () => {
+    const result = fromWallClock({ year: 50, month: 1, day: 1 }, UTC);
+    expect(result.toISOString()).toBe('0050-01-01T00:00:00.000Z');
+    expect(result.getUTCFullYear()).toBe(50);
+  });
+
+  it('年 0（西暦 0 年）も正しく扱う', () => {
+    const result = fromWallClock({ year: 0, month: 1, day: 1 }, UTC);
+    expect(result.getUTCFullYear()).toBe(0);
+  });
+
+  it('年 99 も正しく扱う', () => {
+    const result = fromWallClock({ year: 99, month: 12, day: 31 }, UTC);
+    expect(result.getUTCFullYear()).toBe(99);
+    expect(result.getUTCMonth()).toBe(11);
+    expect(result.getUTCDate()).toBe(31);
+  });
+
+  it('年 100 以降には影響しない（回帰確認）', () => {
+    const result = fromWallClock({ year: 100, month: 1, day: 1 }, UTC);
+    expect(result.getUTCFullYear()).toBe(100);
   });
 });
 
@@ -233,7 +292,20 @@ describe('addMinutesInZone', () => {
       hours: 0,
       minutes: 30,
       seconds: 0,
+      milliseconds: 0,
     });
+  });
+
+  it('0 分を加算するとミリ秒を含めて同じ絶対時刻を返す（回帰）', () => {
+    const date = new Date('2026-07-01T01:00:00.123Z');
+    expect(addMinutesInZone(date, 0, TOKYO).getTime()).toBe(date.getTime());
+  });
+
+  it('加算してもミリ秒が保持される', () => {
+    const date = new Date('2026-07-01T01:00:00.123Z');
+    const result = addMinutesInZone(date, 30, TOKYO);
+    expect(result.getUTCMilliseconds()).toBe(123);
+    expect(result.toISOString()).toBe('2026-07-01T01:30:00.123Z');
   });
 
   it('壁時計基準の加算のため、DST 開始跨ぎでは絶対時刻の差が指定分数と異なる', () => {
@@ -311,6 +383,11 @@ describe('dateFromKey', () => {
   it('うるう年の 2/29 は有効', () => {
     expect(dateFromKey('2028-02-29', UTC).toISOString()).toBe('2028-02-29T00:00:00.000Z');
     expect(() => dateFromKey('2026-02-29', UTC)).toThrow(Error);
+  });
+
+  it('年 0〜99 の日付キーを 1900 年代へ変換しない（回帰）', () => {
+    expect(dateFromKey('0050-01-01', UTC).toISOString()).toBe('0050-01-01T00:00:00.000Z');
+    expect(dateFromKey('0001-06-15', UTC).toISOString()).toBe('0001-06-15T00:00:00.000Z');
   });
 });
 
@@ -407,6 +484,12 @@ describe('parseDateValue', () => {
     it('暦上存在しない日付は Error を投げる', () => {
       expect(() => parseDateValue('2026-02-30', TOKYO, false)).toThrow(Error);
     });
+
+    it('年 0〜99 を 1900 年代へ変換しない（回帰）', () => {
+      expect(parseDateValue('0050-01-01', UTC, false).toISOString()).toBe(
+        '0050-01-01T00:00:00.000Z',
+      );
+    });
   });
 
   describe('オフセット付き ISO 8601', () => {
@@ -471,6 +554,30 @@ describe('parseDateValue', () => {
       expect(() => parseDateValue('2026-07-01T24:00', TOKYO, false)).toThrow(Error);
       expect(() => parseDateValue('2026-07-01T10:60', TOKYO, false)).toThrow(Error);
       expect(() => parseDateValue('2026-07-01T10:00:60', TOKYO, false)).toThrow(Error);
+    });
+
+    it('年 0〜99 を 1900 年代へ変換しない（回帰）', () => {
+      expect(parseDateValue('0050-01-01T10:00', UTC, false).toISOString()).toBe(
+        '0050-01-01T10:00:00.000Z',
+      );
+    });
+
+    it('小数秒（ミリ秒）を解釈する（回帰: 従来は無警告で破棄されていた）', () => {
+      expect(parseDateValue('2026-07-01T10:00:00.5', TOKYO, false).toISOString()).toBe(
+        '2026-07-01T01:00:00.500Z',
+      );
+    });
+
+    it('小数秒は 3 桁までに切り捨てられる', () => {
+      expect(parseDateValue('2026-07-01T10:00:00.123456', TOKYO, false).toISOString()).toBe(
+        '2026-07-01T01:00:00.123Z',
+      );
+    });
+
+    it('小数秒の解釈はオフセット付き ISO 8601 と一貫する', () => {
+      expect(parseDateValue('2026-07-01T10:00:00.500', TOKYO, false).getTime()).toBe(
+        parseDateValue('2026-07-01T10:00:00.500+09:00', TOKYO, false).getTime(),
+      );
     });
   });
 
