@@ -228,17 +228,14 @@ function buildFormState(mode: EventDialogMode): FormState {
 /**
  * `rrule` を含めたパッチを組み立てる。
  *
- * `rrule` が `undefined`（繰り返し解除）の場合、`CalendarEventPatch`
- * （`Partial<...>`）は `exactOptionalPropertyTypes` の制約でプロパティへ
- * 直接 `undefined` を代入できない。ライブラリの `applyPatch` は
- * 「キーが存在し値が `undefined`」をフィールド削除として扱う契約になっている
- * （`packages/react-calendar/src/core/mutations.ts` 参照）ため、ここでは
- * 一度 `Record` として組み立ててから型アサーションすることで契約どおりの
- * パッチを表現する。
+ * `CalendarEventPatch` の各フィールドは明示的に `| undefined` を許容するため、
+ * `exactOptionalPropertyTypes: true` の下でもキャストなしでリテラルのまま
+ * `rrule: undefined` を書ける。`rrule` が `undefined`（繰り返し解除）の場合、
+ * ライブラリの `applyPatch` は「キーが存在し値が `undefined`」をフィールド削除
+ * として扱う（`packages/react-calendar/src/core/mutations.ts` 参照）。
  */
 function withRRule(patch: CalendarEventPatch, rrule: string | undefined): CalendarEventPatch {
-  const merged: Record<string, unknown> = { ...patch, rrule };
-  return merged as unknown as CalendarEventPatch;
+  return { ...patch, rrule };
 }
 
 /**

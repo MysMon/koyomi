@@ -158,8 +158,17 @@ export type RecurringEditScope = 'this' | 'thisAndFollowing' | 'all';
 /**
  * イベントの変更内容（部分更新）。
  * `id` 以外のすべてのフィールドを変更できる。
+ *
+ * @remarks
+ * キーが存在し値が `undefined` のフィールドは「削除」を意味する
+ * （例: `{ rrule: undefined }` で繰り返しを解除する。ただし必須フィールドの
+ * `title` / `start` は削除されず元の値が維持される）。
+ * `exactOptionalPropertyTypes: true` の利用者コードでもこのリテラルを
+ * そのまま書けるように、各フィールドは明示的に `| undefined` を許容する。
  */
-export type CalendarEventPatch = Partial<Omit<CalendarEvent, 'id'>>;
+export type CalendarEventPatch = {
+  [K in keyof Omit<CalendarEvent, 'id'>]?: Omit<CalendarEvent, 'id'>[K] | undefined;
+};
 
 // ---------------------------------------------------------------------------
 // ビューモデル
