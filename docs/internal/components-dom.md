@@ -93,7 +93,8 @@ div[data-koyomi="timegrid"][data-koyomi-days="7|1"]
            [data-continues-before?][data-continues-after?][data-koyomi-dragging?]
            style: top/height/left/width すべて %（top = startMinutes/1440 など）
           div[data-koyomi="timegrid-event-content"]  … 内容既定: 時刻範囲＋タイトル
-          div[data-koyomi="timegrid-resize"]         … getResizeHandleProps を展開
+          div[data-koyomi="timegrid-resize"]?        … getResizeHandleProps を展開
+                                                       （editable: false のイベントには出力しない）
         div[data-koyomi="timegrid-preview"][data-kind="create|move|resize"]?
            … previewFor(day) の分区間。style: top/height %
         div[data-koyomi="now-indicator"]?            … style: top %（nowIndicator の日のみ）
