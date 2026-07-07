@@ -106,21 +106,25 @@ const COUNT_PATTERN = /COUNT=(\d+)/i;
  * ```
  */
 export function applyPatch(event: CalendarEvent, patch: CalendarEventPatch): CalendarEvent {
-  // patch の undefined 値キーも一旦スプレッドで乗るが、後段の削除処理で取り除く。
-  // 必須フィールドは undefined で上書きされないよう元の値へフォールバックする
-  const merged: CalendarEvent = {
-    ...event,
-    ...patch,
-    id: event.id,
-    title: patch.title ?? event.title,
-    start: patch.start ?? event.start,
-  };
+  // undefined 値のキー（削除指定）と実際の上書き値を先に分離する。
+  // CalendarEventPatch は明示的な undefined を許容するため、そのままスプレッドすると
+  // exactOptionalPropertyTypes 下で CalendarEvent に代入できない
+  const overrides: Partial<CalendarEvent> = {};
+  const deletions: string[] = [];
   for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined && !REQUIRED_KEYS.has(key)) {
-      // キーが存在し値が undefined のフィールドは削除する（applyPatch の削除規則）。
-      // delete 演算子の代わりに Reflect を使い、キャストなしで動的キーを取り除く
-      Reflect.deleteProperty(merged, key);
+    if (value === undefined) {
+      // 必須フィールド（id / title / start）は削除対象にしない（元の値を維持）
+      if (!REQUIRED_KEYS.has(key)) {
+        deletions.push(key);
+      }
+    } else {
+      Object.assign(overrides, { [key]: value });
     }
+  }
+  const merged: CalendarEvent = { ...event, ...overrides, id: event.id };
+  for (const key of deletions) {
+    // delete 演算子の代わりに Reflect を使い、キャストなしで動的キーを取り除く
+    Reflect.deleteProperty(merged, key);
   }
   return merged;
 }

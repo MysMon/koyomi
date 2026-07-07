@@ -122,6 +122,15 @@ describe('applyPatch', () => {
     expect(result.color).toBe('#3b82f6');
   });
 
+  it('exactOptionalPropertyTypes 下でも undefined 値のリテラルを直接書ける（型の保証）', () => {
+    // CalendarEventPatch は各フィールドに明示的な `| undefined` を許容するため、
+    // Object.assign を経由せずリテラルで削除パッチを書ける
+    const event = makeMaster();
+    const result = applyPatch(event, { rrule: undefined, location: undefined });
+    expect(Object.hasOwn(result, 'rrule')).toBe(false);
+    expect(Object.hasOwn(result, 'location')).toBe(false);
+  });
+
   it('必須フィールド（title / start）は undefined を渡しても元の値を維持する', () => {
     const event = makeMaster();
     const result = applyPatch(event, undefinedPatch('title', 'start'));
