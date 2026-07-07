@@ -7,11 +7,21 @@
  */
 
 import type { ReactElement, ReactNode } from 'react';
+import { createContext, createElement, useContext, useMemo } from 'react';
 import type {
   CalendarContextValue,
   CalendarInteractionCallbacks,
   UseCalendarResult,
 } from './types';
+
+/**
+ * カレンダーコンテキストの内部実体。
+ * 利用者はこれを直接参照せず、`useCalendarContext` 経由でアクセスする。
+ */
+const CalendarContext = createContext<CalendarContextValue | null>(null);
+
+/** `callbacks` 省略時に使う安定した空オブジェクト（毎レンダーで新規生成しない）。 */
+const EMPTY_CALLBACKS: CalendarInteractionCallbacks = {};
 
 /**
  * `CalendarProvider` の props。
@@ -43,8 +53,22 @@ export interface CalendarProviderProps {
  * ```
  */
 export function CalendarProvider(props: CalendarProviderProps): ReactElement {
-  void props;
-  throw new Error('未実装');
+  const { value, callbacks, children } = props;
+  const resolvedCallbacks = callbacks ?? EMPTY_CALLBACKS;
+  const { api, state, viewModel } = value;
+
+  /**
+   * 依存を `value` オブジェクトの参照ではなくフィールド単位（`api` / `state` /
+   * `viewModel` / 解決済み `callbacks`）に分解する。`value` は呼び出し側で
+   * 毎レンダー新規生成されがちだが、中身が変わっていなければコンテキスト値の
+   * 参照を保ち、配下コンポーネントの不要な再レンダーを避ける。
+   */
+  const contextValue = useMemo<CalendarContextValue>(
+    () => ({ api, state, viewModel, callbacks: resolvedCallbacks }),
+    [api, state, viewModel, resolvedCallbacks],
+  );
+
+  return createElement(CalendarContext.Provider, { value: contextValue }, children);
 }
 
 /**
@@ -53,5 +77,9 @@ export function CalendarProvider(props: CalendarProviderProps): ReactElement {
  * @throws `CalendarProvider` の配下で呼ばれていない場合は `Error`
  */
 export function useCalendarContext(): CalendarContextValue {
-  throw new Error('未実装');
+  const value = useContext(CalendarContext);
+  if (value === null) {
+    throw new Error('useCalendarContext は CalendarProvider の配下で使用してください');
+  }
+  return value;
 }

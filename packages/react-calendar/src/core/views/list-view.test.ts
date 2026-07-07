@@ -2,11 +2,14 @@
  * list-view.ts のテスト。
  *
  * テストプロセスは vitest.config.ts により TZ=Asia/Tokyo で実行される。
- * マルチタイムゾーンの検証は 'America/New_York' を引数で明示して行う。
+ * マルチタイムゾーンの検証は 'America/New_York' / 'America/Havana' を
+ * 引数で明示して行う。
  *
  * 2026 年のカレンダー事実:
  * - 2026-07-01 は水曜
- * - America/New_York の DST は 2026-03-08 に開始（EST -05:00 → EDT -04:00）
+ * - America/New_York の DST は 2026-03-08 に開始（EST -05:00 → EDT -04:00、切替は 2:00）
+ * - America/Havana の DST は 2026-03-08 に開始するが、切替が深夜 0:00 に起きる
+ *   （0:00 が存在せず 1:00 に前方解決される。EST -05:00 → EDT -04:00）
  */
 import { describe, expect, it } from 'vitest';
 import type { EventOccurrence, ListViewModel, TimeZoneId } from '../types';
@@ -14,6 +17,7 @@ import { buildListViewModel } from './list-view';
 
 const TOKYO = 'Asia/Tokyo';
 const NY = 'America/New_York';
+const HAVANA = 'America/Havana';
 
 /**
  * テスト用の発生（EventOccurrence）を組み立てるヘルパ。
@@ -494,6 +498,44 @@ describe('buildListViewModel', () => {
         ],
       });
       expect(dayKeys(model)).toEqual(['2026-03-07', '2026-03-08', '2026-03-09']);
+    });
+
+    it('深夜 0:00 に DST が切り替わるゾーン（America/Havana）では切替翌日の 0:00〜1:00 の発生が翌日にのみ出現する', () => {
+      // Havana は 2026-03-08 の 0:00 が存在せず 1:00 に前方解決される。
+      // dayEnd の計算が壁時計維持のままだと 3/8 の終端が本来より 1 時間
+      // 後ろにずれ、3/9 0:00〜1:00 の発生が 3/8 にも重複出現してしまう
+      const model = build({
+        currentDate: '2026-03-07T12:00:00-05:00',
+        timeZone: HAVANA,
+        listDays: 3,
+        occurrences: [
+          makeOccurrence({
+            id: 'after-switch-midnight',
+            start: '2026-03-09T00:30:00-04:00',
+            end: '2026-03-09T00:45:00-04:00',
+          }),
+        ],
+      });
+      // 3/9 にのみ出現し、3/8 には重複出現しない
+      expect(dayKeys(model)).toEqual(['2026-03-09']);
+    });
+
+    it('深夜 0:00 に DST が切り替わるゾーンでも切替翌日の ListDay.date は現地 0:00 の絶対時刻になる', () => {
+      const model = build({
+        currentDate: '2026-03-07T12:00:00-05:00',
+        timeZone: HAVANA,
+        listDays: 3,
+        occurrences: [
+          makeOccurrence({
+            id: 'ev',
+            start: '2026-03-09T09:00:00-04:00',
+            end: '2026-03-09T10:00:00-04:00',
+          }),
+        ],
+      });
+      const day = model.days.find((d) => d.key === '2026-03-09');
+      // 3/9 0:00 は EDT（-04:00）: DST 切替翌日で通常どおり 0:00 が存在する
+      expect(day?.date.toISOString()).toBe('2026-03-09T04:00:00.000Z');
     });
   });
 });

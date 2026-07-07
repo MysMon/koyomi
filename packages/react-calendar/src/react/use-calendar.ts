@@ -3,7 +3,9 @@
  * `useCalendar` — カレンダーエンジンを React に接続するメインフック。
  */
 
-import type { CalendarOptions } from '../core/types';
+import { useMemo, useRef, useSyncExternalStore } from 'react';
+import { createCalendar } from '../core/calendar';
+import type { CalendarEvent, CalendarOptions } from '../core/types';
 import type { UseCalendarResult } from './types';
 
 /**
@@ -38,6 +40,34 @@ import type { UseCalendarResult } from './types';
  * ```
  */
 export function useCalendar(options?: CalendarOptions): UseCalendarResult {
-  void options;
-  throw new Error('未実装');
+  /** 最新の `onEventsChange` を保持する参照。エンジンには安定ラッパのみを渡す。 */
+  const onEventsChangeRef = useRef(options?.onEventsChange);
+  onEventsChangeRef.current = options?.onEventsChange;
+
+  /**
+   * エンジンをマウント時に一度だけ生成する。
+   * `options` は初回値のみが使われ、以後の変更は無視する
+   * （`onEventsChange` だけは安定ラッパ経由で常に最新を呼ぶ）。
+   */
+  const apiRef = useRef<ReturnType<typeof createCalendar> | null>(null);
+  if (apiRef.current === null) {
+    apiRef.current = createCalendar({
+      ...options,
+      onEventsChange: (events: readonly CalendarEvent[]) => {
+        onEventsChangeRef.current?.(events);
+      },
+    });
+  }
+  const api = apiRef.current;
+
+  const state = useSyncExternalStore(api.subscribe, api.getState);
+  const viewModel = api.getViewModel();
+
+  /**
+   * `api` / `state` / `viewModel` はいずれも安定（不変なら参照が変わらない）だが、
+   * それらを束ねるオブジェクト自体を毎レンダー新規生成すると、この戻り値を
+   * 依存に使う下流のメモ化（`useMemo` / `React.memo` 等）が無効になってしまう。
+   * 束ねたオブジェクトも `useMemo` で安定させ、中身が変わらない限り同一参照を返す。
+   */
+  return useMemo(() => ({ api, state, viewModel }), [api, state, viewModel]);
 }

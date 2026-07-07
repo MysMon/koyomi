@@ -49,11 +49,22 @@ function errorMessage(cause: unknown): string {
  * イベント TZ における壁時計成分を、そのまま UTC の成分として持つ `Date` を作る。
  * rrule は UTC 成分だけを見て規則を評価するため、この日時を渡すことで
  * 「壁時計基準の繰り返し」を計算できる。
+ * ミリ秒も往復させる（{@link fromFakeUTC} と対で使う）。ミリ秒を落とすと
+ * dtstart 自身が最初の発生として一致しなくなったり、ミリ秒付き exdate の
+ * 一致判定が常に失敗したりするため。
  */
 function toFakeUTC(date: Date, timeZone: TimeZoneId): Date {
   const wall = getWallClock(date, timeZone);
   return new Date(
-    Date.UTC(wall.year, wall.month - 1, wall.day, wall.hours, wall.minutes, wall.seconds),
+    Date.UTC(
+      wall.year,
+      wall.month - 1,
+      wall.day,
+      wall.hours,
+      wall.minutes,
+      wall.seconds,
+      wall.milliseconds,
+    ),
   );
 }
 
@@ -71,6 +82,7 @@ function fromFakeUTC(fake: Date, timeZone: TimeZoneId): Date {
       hours: fake.getUTCHours(),
       minutes: fake.getUTCMinutes(),
       seconds: fake.getUTCSeconds(),
+      milliseconds: fake.getUTCMilliseconds(),
     },
     timeZone,
   );
@@ -140,6 +152,9 @@ export function normalizeRRuleString(rrule: string): string {
  * - `COUNT` / `UNTIL` を尊重する（`UNTIL` はイベント TZ の壁時計として解釈される）
  * - `exdates` に含まれる開始時刻の発生は除外する（ミリ秒単位の一致で判定）
  * - 発生は昇順で返す
+ * - 春の DST 切替で存在しない壁時計時刻（例: `BYHOUR=2,3` の 2:30 と 3:30 が
+ *   ともに 3:30 に前方解決される）により複数の候補が同一絶対時刻に一致した
+ *   場合は、重複を除いて 1 件にまとめる（発生の一意キーの衝突を防ぐため）
  *
  * @param params.rrule - RRULE 文字列
  * @param params.dtstart - 繰り返しの起点（絶対時刻）
@@ -194,7 +209,17 @@ export function expandRecurrence(params: {
   // DST の秋切替（壁時計が巻き戻る）では fake-UTC の昇順と絶対時刻の昇順が
   // 局所的に入れ替わり得るため、絶対時刻で並べ直して昇順を保証する
   occurrences.sort((a, b) => a.getTime() - b.getTime());
-  return occurrences;
+  // 春の DST 切替で存在しない壁時計時刻が前方解決されると、別の BY* 候補と
+  // 絶対時刻が一致することがある（例: BYHOUR=2,3;BYMINUTE=30 で 2:30 が
+  // 3:30 に前方解決される）。ソート済みなので隣接比較だけで重複を除去できる
+  const deduped: Date[] = [];
+  for (const occurrence of occurrences) {
+    const last = deduped.at(-1);
+    if (last === undefined || last.getTime() !== occurrence.getTime()) {
+      deduped.push(occurrence);
+    }
+  }
+  return deduped;
 }
 
 /**
@@ -255,12 +280,34 @@ export function previousOccurrenceStart(params: {
 }
 
 /**
+ * fake-UTC 時刻を、直後の整数秒（ミリ秒 0）へ切り上げる。
+ *
+ * RRULE の `UNTIL` は秒精度までしか表現できない（`RRule.optionsToString` は
+ * ミリ秒を切り捨てて文字列化する）。ミリ秒を持つ発生をちょうど含めるために
+ * その発生の fake-UTC 時刻をそのまま `UNTIL` にすると、文字列化の際にミリ秒が
+ * 切り捨てられて「その発生自身が UNTIL 未満になり除外される」結果になる。
+ * 直後の整数秒に切り上げることで、この発生を含みつつ次の発生（fake-UTC 空間で
+ * 常に 1 秒以上先）は含まない境界にできる。
+ */
+function ceilFakeUTCToWholeSecond(fake: Date): Date {
+  const remainderMs = fake.getTime() % 1000;
+  return remainderMs === 0 ? fake : new Date(fake.getTime() + (1000 - remainderMs));
+}
+
+/**
  * 繰り返しルールを「`until` より前（排他）で終了する」ように打ち切った
  * 新しい RRULE 文字列を返す。
  *
  * - 元ルールに `COUNT` がある場合は削除し、`UNTIL` に置き換える
- * - `UNTIL` は `until` の直前の発生を含み、`until` 以降の発生を含まない値にする
- *   （fake-UTC 空間で `until` の 1 ミリ秒前。RRULE の秒精度では 1 秒前に丸められる）
+ * - `UNTIL` は {@link previousOccurrenceStart} で求めた `until` 直前の発生
+ *   （絶対時刻基準）の fake-UTC 時刻にする。until-1ms を直接使わないのは、
+ *   (1) その発生がミリ秒を持つ場合に秒精度への切り捨てで消えてしまう、
+ *   (2) DST の曖昧時間帯では fake-UTC の順序と絶対時刻の順序がずれ、
+ *   直前の発生を取り違える、という 2 つの問題があるため
+ * - 直前の発生が存在しない場合（`until` が最初の発生以前）は、
+ *   従来どおり `until` の fake-UTC 時刻の 1 ミリ秒前にフォールバックする
+ *   （常に空になる打ち切りを表現できればよく、直前の発生がないため
+ *   基準にできる絶対時刻もない）
  *
  * @param params.rrule - 元の RRULE 文字列
  * @param params.dtstart - 繰り返しの起点（絶対時刻）
@@ -276,7 +323,7 @@ export function previousOccurrenceStart(params: {
  *   timeZone: 'Asia/Tokyo',
  *   until: new Date('2026-07-05T00:00:00Z'), // 東京 7/5 9:00（5 回目の発生）
  * });
- * // => 'FREQ=DAILY;UNTIL=20260705T085959Z'（展開すると 7/1〜7/4 の 4 回になる）
+ * // => 'FREQ=DAILY;UNTIL=20260704T090000Z'（直前の発生＝4 回目。展開すると 7/1〜7/4 の 4 回になる）
  * ```
  */
 export function truncateRRule(params: {
@@ -285,12 +332,17 @@ export function truncateRRule(params: {
   timeZone: TimeZoneId;
   until: Date;
 }): string {
-  const { rrule, timeZone, until } = params;
+  const { rrule, dtstart, timeZone, until } = params;
   const parsed = parseRRuleOptions(rrule);
   // COUNT と UNTIL は排他（RFC 5545）。打ち切りは UNTIL で表現する
   delete parsed.count;
-  // fake-UTC 空間で until の 1ms 前 → until ちょうどに開始する発生を含まない
-  parsed.until = new Date(toFakeUTC(until, timeZone).getTime() - 1);
+  const previous = previousOccurrenceStart({ rrule, dtstart, timeZone, before: until });
+  parsed.until =
+    previous !== null
+      ? ceilFakeUTCToWholeSecond(toFakeUTC(previous, timeZone))
+      : // 直前の発生が存在しない場合は until の 1ms 前にフォールバック
+        // （until 以前に発生がないため、これだけで打ち切り後は必ず空になる）
+        new Date(toFakeUTC(until, timeZone).getTime() - 1);
   return stripRRulePrefix(RRule.optionsToString(parsed));
 }
 

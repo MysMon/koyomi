@@ -59,8 +59,9 @@ export function snapToInterval(minutes: number, snap: number): number {
  * 時間グリッドの列内の縦位置（0〜1）から、その列の日における日時を計算する。
  *
  * 縦位置は列の高さ全体を 0:00〜24:00 に対応づけ、`snap` 間隔に
- * スナップした壁時計時刻を返す。結果は `[日の 0:00, 24:00 - snap]` に
- * クランプされる。
+ * スナップした壁時計時刻を返す。結果は `interval`（正規化後の `snap`）の
+ * 倍数のうち 1440 分（24:00）未満で最大のものを上限に、0 を下限にクランプ
+ * される。`interval` が 1440 以上の場合は上限も 0 になり、常に日の 0:00 を返す。
  *
  * 壁時計への分加算（{@link addMinutesInZone}）で日時化するため、
  * DST の切り替え日でも縦位置と壁時計時刻の対応が保たれる
@@ -80,7 +81,11 @@ export function timeAtGridPosition(params: {
   const { day, fractionY, timeZone, snap } = params;
   const interval = normalizeSnap(snap);
   const snapped = snapToInterval(fractionY * MINUTES_PER_DAY, interval);
-  const minutes = Math.min(Math.max(snapped, 0), MINUTES_PER_DAY - interval);
+  // 上限は「interval の倍数のうち 1440 分未満で最大のもの」。
+  // interval が 1440 を割り切らない場合でも格子から外れず、
+  // interval が 1440 以上の場合は 0（日の 0:00）にクランプされる。
+  const maxOnGrid = Math.max(0, Math.floor((MINUTES_PER_DAY - 1) / interval) * interval);
+  const minutes = Math.min(Math.max(snapped, 0), maxOnGrid);
   return addMinutesInZone(day, minutes, timeZone);
 }
 
@@ -110,11 +115,16 @@ export interface TimeGridDragState {
  *
  * 計算ルール:
  * - `create` — `anchor` とポインタの早い方を開始、遅い方を終了とする。
- *   同時刻（クリック相当）の場合は `snap` 分の長さにする
+ *   同時刻（クリック相当）の場合は `snap` 分（正規化後）の長さにする
  * - `move` — 発生の開始を「`anchor` からポインタまでの移動量」だけずらす。
  *   長さ（ミリ秒）は維持される
  * - `resize` — 発生の開始は固定し、終了をポインタ位置（スナップ済み）にする。
- *   最小でも `開始 + snap 分` の長さを保つ
+ *   最小でも `開始 + snap 分`（正規化後）の長さを保つ
+ *
+ * `context.snap` が 1 未満（0・負数・小数）の場合は 1 として扱う
+ * （{@link normalizeSnap}）。正規化しないと `create` のクリック相当で
+ * 長さ 0 の空プレビューになったり、`resize` で終了が開始を下回る
+ * 逆転レンジになったりするため。
  *
  * @param state - ドラッグ状態
  * @param pointer - 現在のポインタ位置に対応する日時（スナップ済み）
@@ -129,14 +139,16 @@ export function dragPreviewRange(
   context: { timeZone: TimeZoneId; snap: number },
 ): DateRange {
   const { timeZone, snap } = context;
+  // snap は 1 未満（0・負数・小数）だと空プレビューや逆転レンジの原因になるため正規化する
+  const interval = normalizeSnap(snap);
   switch (state.mode) {
     case 'create': {
       const anchorMs = state.anchor.getTime();
       const pointerMs = pointer.getTime();
       if (anchorMs === pointerMs) {
-        // クリック相当: snap 分の長さのプレビューにする
+        // クリック相当: snap（正規化後）分の長さのプレビューにする
         const start = new Date(anchorMs);
-        return { start, end: addMinutesInZone(start, snap, timeZone) };
+        return { start, end: addMinutesInZone(start, interval, timeZone) };
       }
       return {
         start: new Date(Math.min(anchorMs, pointerMs)),
@@ -158,8 +170,8 @@ export function dragPreviewRange(
         throw new Error('resize 操作には対象の発生（occurrence）が必要です');
       }
       const start = new Date(state.occurrence.start.getTime());
-      // 最小でも snap 分の長さを保つ
-      const minEnd = addMinutesInZone(start, snap, timeZone);
+      // 最小でも snap（正規化後）分の長さを保つ
+      const minEnd = addMinutesInZone(start, interval, timeZone);
       const end = pointer.getTime() > minEnd.getTime() ? new Date(pointer.getTime()) : minEnd;
       return { start, end };
     }
