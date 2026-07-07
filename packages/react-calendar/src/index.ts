@@ -100,6 +100,20 @@ export type {
 export { buildListViewModel } from './core/views/list-view';
 export { buildMonthViewModel } from './core/views/month-view';
 export { buildTimeGridViewModel } from './core/views/time-grid-view';
+// React: ビルトインコンポーネント（ヘッドレス）
+export { CalendarView, type CalendarViewProps } from './react/components/calendar-view';
+export {
+  formatDayHeader,
+  formatDayTitle,
+  formatMonthTitle,
+  formatRangeTitle,
+  formatTime,
+  formatWeekday,
+} from './react/components/format';
+export { ListView, type ListViewProps } from './react/components/list-view';
+export { MonthView, type MonthViewProps } from './react/components/month-view';
+export { TimeGridView, type TimeGridViewProps } from './react/components/time-grid-view';
+export { Toolbar } from './react/components/toolbar';
 // React: コンテキスト
 export { CalendarProvider, type CalendarProviderProps, useCalendarContext } from './react/context';
 // React: 型

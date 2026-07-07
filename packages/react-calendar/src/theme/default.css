@@ -1,0 +1,636 @@
+/*
+ * Koyomi デフォルトテーマ
+ * ============================================================================
+ * 当て方:
+ *   import '@koyomi/react/theme.css';
+ *
+ * ビルトインコンポーネント（Toolbar / CalendarView / MonthView / TimeGridView /
+ * ListView）はスタイルを一切持たないヘッドレスなコンポーネントで、DOM 上の
+ * `data-koyomi="<部位名>"` 属性だけを目印にしている（クラス名は生成しない）。
+ * このファイルはその属性だけをセレクタにして見た目を組み立てる。
+ * 利用側が独自テーマを当てたい場合も同じ属性をフックにすればよい。
+ *
+ * カスタマイズ用 CSS 変数（[data-koyomi="root"] スコープで定義）:
+ *   --koyomi-bg                  背景色
+ *   --koyomi-fg                  文字色
+ *   --koyomi-border              罫線色
+ *   --koyomi-muted               補助テキスト色（曜日ラベル・時刻ラベルなど）
+ *   --koyomi-accent              アクセント色（選択中のビュー・今日の日付など）
+ *   --koyomi-today-bg            「今日」のセル背景色
+ *   --koyomi-event-color         イベントの既定色。`event.color` を持つイベントは
+ *                                要素に inline で同名の変数が設定され、そちらが優先される
+ *   --koyomi-event-fg            イベント本体の文字色
+ *   --koyomi-radius              角丸の半径（ボタン・イベント共通）
+ *   --koyomi-font-size           基準フォントサイズ
+ *   --koyomi-month-header-height 月セルの日番号行の高さ（イベント帯の上端オフセットにも使用）
+ *   --koyomi-lane-height         帯セグメント 1 レーンの高さ
+ *   --koyomi-hour-height         時間グリッド 1 時間分の高さ
+ *
+ * 上記に加え、時間グリッドの時刻軸幅をヘッダー・終日行・本体で揃えるための
+ * 内部変数として --koyomi-time-axis-width も定義している（必要なら上書き可）。
+ *
+ * ダークモード:
+ *   既定では `prefers-color-scheme: dark` に追従する。
+ *   [data-koyomi-theme="dark"] / [data-koyomi-theme="light"] を koyomi の
+ *   ルート要素（または祖先要素、例えば <html>）に付与すると強制的に切り替えられる。
+ */
+
+/* ---------------------------------------------------------------------------
+ * 変数定義とベースリセット
+ * ------------------------------------------------------------------------ */
+
+[data-koyomi="root"] {
+  --koyomi-bg: #ffffff;
+  --koyomi-fg: #1f1f1f;
+  --koyomi-border: #e0e0e0;
+  --koyomi-muted: #70757a;
+  --koyomi-accent: #1a73e8;
+  --koyomi-today-bg: #e8f0fe;
+  --koyomi-event-color: #1a73e8;
+  --koyomi-event-fg: #ffffff;
+  --koyomi-radius: 4px;
+  --koyomi-font-size: 13px;
+  --koyomi-month-header-height: 24px;
+  --koyomi-lane-height: 24px;
+  --koyomi-hour-height: 48px;
+  --koyomi-time-axis-width: 56px;
+
+  background-color: var(--koyomi-bg);
+  color: var(--koyomi-fg);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN",
+    "Noto Sans JP", sans-serif;
+  font-size: var(--koyomi-font-size);
+  line-height: 1.4;
+}
+
+/* 系配下すべてに border-box を適用する（幅・高さの % 計算をシンプルに保つため） */
+[data-koyomi="root"],
+[data-koyomi="root"] *,
+[data-koyomi="root"] *::before,
+[data-koyomi="root"] *::after {
+  box-sizing: border-box;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-koyomi="root"] {
+    --koyomi-bg: #202124;
+    --koyomi-fg: #e8eaed;
+    --koyomi-border: #3c4043;
+    --koyomi-muted: #9aa0a6;
+    --koyomi-accent: #8ab4f8;
+    --koyomi-today-bg: #263449;
+    --koyomi-event-color: #8ab4f8;
+    --koyomi-event-fg: #202124;
+  }
+}
+
+/* data-koyomi-theme による強制切替。ルート要素自身・祖先要素どちらへの付与にも対応する */
+[data-koyomi-theme="dark"] [data-koyomi="root"],
+[data-koyomi="root"][data-koyomi-theme="dark"] {
+  --koyomi-bg: #202124;
+  --koyomi-fg: #e8eaed;
+  --koyomi-border: #3c4043;
+  --koyomi-muted: #9aa0a6;
+  --koyomi-accent: #8ab4f8;
+  --koyomi-today-bg: #263449;
+  --koyomi-event-color: #8ab4f8;
+  --koyomi-event-fg: #202124;
+}
+
+[data-koyomi-theme="light"] [data-koyomi="root"],
+[data-koyomi="root"][data-koyomi-theme="light"] {
+  --koyomi-bg: #ffffff;
+  --koyomi-fg: #1f1f1f;
+  --koyomi-border: #e0e0e0;
+  --koyomi-muted: #70757a;
+  --koyomi-accent: #1a73e8;
+  --koyomi-today-bg: #e8f0fe;
+  --koyomi-event-color: #1a73e8;
+  --koyomi-event-fg: #ffffff;
+}
+
+/* ボタンのブラウザ既定スタイルをリセットする（見た目は各部位のセレクタで個別に当てる） */
+[data-koyomi="root"] button {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+[data-koyomi="root"] h2,
+[data-koyomi="root"] h3 {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+[data-koyomi="root"] button:focus-visible {
+  outline: 2px solid var(--koyomi-accent);
+  outline-offset: 2px;
+}
+
+/* ドラッグ中の要素は薄く表示する（月・終日行・時間グリッド共通） */
+[data-koyomi-dragging="true"] {
+  opacity: 0.5;
+}
+
+/* ---------------------------------------------------------------------------
+ * ツールバー
+ * ------------------------------------------------------------------------ */
+
+[data-koyomi="toolbar"] {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--koyomi-border);
+}
+
+[data-koyomi="toolbar-nav"] {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+[data-koyomi="title"] {
+  flex: 1;
+  font-size: 1.2em;
+  font-weight: 500;
+}
+
+[data-koyomi="toolbar-views"] {
+  display: flex;
+  gap: 4px;
+}
+
+[data-koyomi="button"] {
+  padding: 6px 12px;
+  border: 1px solid var(--koyomi-border);
+  border-radius: var(--koyomi-radius);
+  font-size: 0.9em;
+}
+
+[data-koyomi="button"]:hover {
+  background-color: var(--koyomi-border);
+}
+
+[data-koyomi="button"][aria-pressed="true"] {
+  border-color: var(--koyomi-accent);
+  background-color: var(--koyomi-accent);
+  color: var(--koyomi-event-fg);
+}
+
+/* ---------------------------------------------------------------------------
+ * 月ビュー
+ * ------------------------------------------------------------------------ */
+
+[data-koyomi="month-weekdays"] {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid var(--koyomi-border);
+}
+
+[data-koyomi="month-weekday"] {
+  padding: 4px 8px;
+  color: var(--koyomi-muted);
+  font-size: 0.8em;
+  text-align: center;
+}
+
+[data-koyomi="month-week"] {
+  position: relative;
+  border-bottom: 1px solid var(--koyomi-border);
+}
+
+[data-koyomi="month-days"] {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  /* 日番号行 + dayMaxEvents 既定値（4 レーン）+ 「+N 件」の 1 行分を目安にした最小高さ */
+  min-height: calc(var(--koyomi-month-header-height) + var(--koyomi-lane-height) * 4 + 16px);
+}
+
+[data-koyomi="month-day"] {
+  overflow: hidden;
+  border-right: 1px solid var(--koyomi-border);
+  padding: 0 4px 4px;
+}
+
+[data-koyomi="month-day"]:last-child {
+  border-right: none;
+}
+
+[data-koyomi="month-day"][data-today] {
+  background-color: var(--koyomi-today-bg);
+}
+
+[data-koyomi="month-day-number"] {
+  display: flex;
+  min-width: 24px;
+  height: var(--koyomi-month-header-height);
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: var(--koyomi-radius);
+  font-size: 0.85em;
+}
+
+[data-koyomi="month-day-number"]:hover {
+  background-color: var(--koyomi-border);
+}
+
+[data-koyomi="month-day"][data-outside] [data-koyomi="month-day-number"] {
+  color: var(--koyomi-muted);
+}
+
+[data-koyomi="month-day"][data-today] [data-koyomi="month-day-number"] {
+  border-radius: 999px;
+  background-color: var(--koyomi-accent);
+  color: var(--koyomi-event-fg);
+}
+
+[data-koyomi="month-overflow"] {
+  margin-top: 2px;
+  padding: 1px 4px;
+  color: var(--koyomi-muted);
+  font-size: 0.78em;
+}
+
+[data-koyomi="month-overflow"]:hover {
+  color: var(--koyomi-fg);
+  text-decoration: underline;
+}
+
+/* イベントのセグメント層。素通しにしてクリックを下の日セルへ透過させる */
+[data-koyomi="month-events"] {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+[data-koyomi="month-event"] {
+  position: absolute;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  height: calc(var(--koyomi-lane-height) - 2px);
+  gap: 4px;
+  padding: 0 4px;
+  border-radius: var(--koyomi-radius);
+  color: var(--koyomi-fg);
+  font-size: 0.8em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: auto;
+}
+
+[data-koyomi="month-event"]:hover {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* 時間指定イベントは背景なし＋色ドットで表す（Google カレンダーの月ビュー相当） */
+[data-koyomi="month-event"]::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 999px;
+  background-color: var(--koyomi-event-color, var(--koyomi-accent));
+}
+
+/* 終日イベントは色帯（塗りつぶし）で表す */
+[data-koyomi="month-event"][data-all-day] {
+  background-color: var(--koyomi-event-color, var(--koyomi-accent));
+  color: var(--koyomi-event-fg);
+}
+
+[data-koyomi="month-event"][data-all-day]::before {
+  display: none;
+}
+
+[data-koyomi="month-event"][data-continues-before] {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+[data-koyomi="month-event"][data-continues-after] {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+[data-koyomi="day-selection"] {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--koyomi-radius);
+  background-color: var(--koyomi-accent);
+  opacity: 0.2;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * 週/日ビュー（時間グリッド）
+ * ------------------------------------------------------------------------ */
+
+[data-koyomi="timegrid"] {
+  display: flex;
+  flex-direction: column;
+}
+
+[data-koyomi="timegrid-header"] {
+  display: flex;
+  border-bottom: 1px solid var(--koyomi-border);
+}
+
+[data-koyomi="timegrid-axis-gutter"] {
+  flex: none;
+  width: var(--koyomi-time-axis-width);
+}
+
+[data-koyomi="timegrid-day-header"] {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 4px;
+  border-left: 1px solid var(--koyomi-border);
+  text-align: center;
+}
+
+[data-koyomi="timegrid-day-header"]:first-child {
+  border-left: none;
+}
+
+[data-koyomi="timegrid-day-header"][data-today] {
+  background-color: var(--koyomi-today-bg);
+}
+
+[data-koyomi="timegrid-day-number"] {
+  display: inline-flex;
+  min-width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  padding: 0 6px;
+  border-radius: var(--koyomi-radius);
+  font-size: 0.9em;
+}
+
+[data-koyomi="timegrid-day-number"]:hover {
+  background-color: var(--koyomi-border);
+}
+
+[data-koyomi="timegrid-day-header"][data-today] [data-koyomi="timegrid-day-number"] {
+  border-radius: 999px;
+  background-color: var(--koyomi-accent);
+  color: var(--koyomi-event-fg);
+}
+
+[data-koyomi="allday-row"] {
+  display: flex;
+  border-bottom: 1px solid var(--koyomi-border);
+}
+
+[data-koyomi="allday-cells"] {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  /* レーン数はビューモデル側でのみ把握できるため、既定では 2 レーン分を確保する */
+  min-height: calc(var(--koyomi-lane-height) * 2);
+}
+
+[data-koyomi="allday-cell"] {
+  flex: 1 1 0;
+  min-width: 0;
+  border-left: 1px solid var(--koyomi-border);
+}
+
+[data-koyomi="allday-cell"]:first-child {
+  border-left: none;
+}
+
+[data-koyomi="allday-event"] {
+  position: absolute;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  height: calc(var(--koyomi-lane-height) - 2px);
+  padding: 0 4px;
+  border-radius: var(--koyomi-radius);
+  background-color: var(--koyomi-event-color, var(--koyomi-accent));
+  color: var(--koyomi-event-fg);
+  font-size: 0.8em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+[data-koyomi="allday-event"]:hover {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+[data-koyomi="allday-event"][data-continues-before] {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+[data-koyomi="allday-event"][data-continues-after] {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+[data-koyomi="timegrid-body"] {
+  display: flex;
+  max-height: 640px;
+  overflow-y: auto;
+}
+
+[data-koyomi="time-axis"] {
+  flex: none;
+  width: var(--koyomi-time-axis-width);
+  border-right: 1px solid var(--koyomi-border);
+}
+
+/* 既定の slotMinutes（60 分）を前提にした高さ。変更する場合は利用側で上書きする */
+[data-koyomi="time-slot-label"] {
+  height: var(--koyomi-hour-height);
+  padding: 2px 6px 0 0;
+  border-top: 1px solid var(--koyomi-border);
+  color: var(--koyomi-muted);
+  font-size: 0.75em;
+  text-align: right;
+}
+
+[data-koyomi="time-slot-label"]:first-child {
+  border-top: none;
+}
+
+[data-koyomi="timegrid-days"] {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+}
+
+[data-koyomi="timegrid-day"] {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: calc(24 * var(--koyomi-hour-height));
+  border-left: 1px solid var(--koyomi-border);
+}
+
+[data-koyomi="timegrid-day"]:first-child {
+  border-left: none;
+}
+
+[data-koyomi="timegrid-day"][data-today] {
+  background-color: var(--koyomi-today-bg);
+}
+
+[data-koyomi="timegrid-slot"] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--koyomi-border);
+  pointer-events: none;
+}
+
+[data-koyomi="timegrid-event"] {
+  position: absolute;
+  overflow: hidden;
+  padding: 2px 4px;
+  border-radius: var(--koyomi-radius);
+  background-color: var(--koyomi-event-color, var(--koyomi-accent));
+  box-shadow: 0 0 0 1px var(--koyomi-bg);
+  color: var(--koyomi-event-fg);
+  font-size: 0.8em;
+}
+
+[data-koyomi="timegrid-event"]:hover {
+  box-shadow:
+    0 0 0 1px var(--koyomi-bg),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+[data-koyomi="timegrid-event"][data-continues-before] {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+[data-koyomi="timegrid-event"][data-continues-after] {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+[data-koyomi="timegrid-event-content"] {
+  overflow: hidden;
+  line-height: 1.3;
+}
+
+[data-koyomi="timegrid-resize"] {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+[data-koyomi="timegrid-resize"]:hover {
+  background-color: rgba(0, 0, 0, 0.15);
+}
+
+[data-koyomi="timegrid-preview"] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border: 1px dashed var(--koyomi-accent);
+  border-radius: var(--koyomi-radius);
+  background-color: var(--koyomi-accent);
+  opacity: 0.2;
+  pointer-events: none;
+}
+
+[data-koyomi="now-indicator"] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px solid #ea4335;
+  pointer-events: none;
+}
+
+[data-koyomi="now-indicator"]::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background-color: #ea4335;
+}
+
+/* ---------------------------------------------------------------------------
+ * リストビュー
+ * ------------------------------------------------------------------------ */
+
+[data-koyomi="list-day"] {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--koyomi-border);
+}
+
+[data-koyomi="list-day"][data-today] {
+  background-color: var(--koyomi-today-bg);
+}
+
+[data-koyomi="list-day-header"] {
+  margin-bottom: 4px;
+  font-size: 0.95em;
+  font-weight: 600;
+}
+
+[data-koyomi="list-event"] {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: var(--koyomi-radius);
+}
+
+[data-koyomi="list-event"]:hover {
+  background-color: var(--koyomi-border);
+}
+
+[data-koyomi="list-event-time"] {
+  flex: none;
+  width: 7em;
+  color: var(--koyomi-muted);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-koyomi="list-event-swatch"] {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 999px;
+  background-color: var(--koyomi-event-color, var(--koyomi-accent));
+}
+
+[data-koyomi="list-event-title"] {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+[data-koyomi="list-empty"] {
+  padding: 24px;
+  color: var(--koyomi-muted);
+  font-size: 0.9em;
+  text-align: center;
+}
