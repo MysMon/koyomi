@@ -7,7 +7,7 @@ Koyomi は「カレンダー全体の表示タイムゾーン」と「イベン�
 カレンダーの「今日」判定・月/週/日の境界・時間グリッドの目盛りなどはすべて **表示タイムゾーン**（`CalendarState.timeZone`）を基準に計算されます。`CalendarOptions.timeZone` で指定でき、省略時は実行環境（ブラウザ）のローカルタイムゾーンが使われます。
 
 ```tsx
-import { createCalendar, getLocalTimeZone } from '@koyomi/react';
+import { createCalendar, getLocalTimeZone } from '@koyomi-cal/react';
 
 // timeZone を省略すると実行環境のローカルタイムゾーンが使われる
 const local = createCalendar({});
@@ -21,7 +21,7 @@ console.log(tokyo.getState().timeZone); // => 'Asia/Tokyo'
 表示タイムゾーンは `CalendarApi.setTimeZone` で後から変更できます（`useCalendar` を使う React では `calendar.api.setTimeZone(...)`）。不正な IANA タイムゾーン ID を渡すと `Error` になります。
 
 ```tsx
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 calendar.setTimeZone('America/New_York');
@@ -50,7 +50,7 @@ try {
 次の例では、同じ `'2026-07-01T10:00'` という文字列でも、イベントの `timeZone` によって異なる絶対時刻に解決されます。
 
 ```tsx
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({
   timeZone: 'Asia/Tokyo',
@@ -82,7 +82,7 @@ console.log(nyOcc?.start.toISOString()); // => '2026-07-01T14:00:00.000Z'（NY 1
 繰り返し予定（`rrule`）は、イベントのタイムゾーンにおける**壁時計時刻を維持して展開**されます。夏時間（DST）の切り替えを跨いでも、現地時刻としては同じ時刻に発生し続けます（絶対時刻としての UTC オフセットは変わります）。
 
 ```tsx
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({
   timeZone: 'America/New_York',
@@ -117,7 +117,7 @@ console.log(occurrences.map((o) => o.start.toISOString()));
 表示タイムゾーンを変更しても、終日イベントが属する「日付」自体は変わりません（内部的には、その日付における表示 TZ の 0:00 が発生の絶対時刻になるため、絶対時刻の値は変わりますが、日付キーは変わりません）。
 
 ```tsx
-import { createCalendar, dateKeyInZone } from '@koyomi/react';
+import { createCalendar, dateKeyInZone } from '@koyomi-cal/react';
 
 const calendar = createCalendar({
   timeZone: 'Asia/Tokyo',
@@ -144,7 +144,7 @@ console.log(firstDayKey()); // => '2026-07-10'
 `CalendarOptions.now` は現在時刻を返す関数で、「今日」の判定（`isToday`）や時間グリッドの現在時刻線（`nowIndicator`）、`CalendarApi.today()` の移動先に使われます。省略時は `() => new Date()` です。テストやデモで日時を固定したい場合に指定します。
 
 ```tsx
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const fixedNow = new Date('2026-07-07T00:00:00Z');
 const calendar = createCalendar({ now: () => fixedNow, initialDate: fixedNow });
@@ -194,7 +194,7 @@ import {
   minutesOfDayInZone,
   parseDateValue,
   weekdayInZone,
-} from '@koyomi/react';
+} from '@koyomi-cal/react';
 
 // 壁時計成分 ⇔ 絶対時刻
 const instant = fromWallClock({ year: 2026, month: 7, day: 1, hours: 10 }, 'Asia/Tokyo');

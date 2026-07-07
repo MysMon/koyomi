@@ -16,14 +16,14 @@ TypeScript/React 製のヘッドレスカレンダーライブラリのモノレ
 | `pnpm build` | ライブラリを tsup でビルド |
 | `pnpm demo` | デモアプリ（Vite）を起動 |
 
-単一テストファイルの実行: `pnpm --filter @koyomi/react exec vitest run src/core/date-utils.test.ts`
+単一テストファイルの実行: `pnpm --filter @koyomi-cal/react exec vitest run src/core/date-utils.test.ts`
 
 ## 構成
 
-- `packages/react-calendar/` — ライブラリ本体（公開パッケージ `@koyomi/react`）
+- `packages/react-calendar/` — ライブラリ本体（公開パッケージ `@koyomi-cal/react`）
   - `src/core/` — **React 非依存**のコアロジック。日付/タイムゾーンユーティリティ、RRULE 展開、イベントストア、ビューモデル生成、レイアウトアルゴリズム
   - `src/react/` — React バインディング。フック、インタラクション（D&D 等）、ヘッドレスコンポーネント
-  - `src/theme/` — デフォルトテーマ CSS（`@koyomi/react/theme.css` として公開）
+  - `src/theme/` — デフォルトテーマ CSS（`@koyomi-cal/react/theme.css` として公開）
 - `apps/demo/` — Vite デモアプリ。ライブラリのソースを alias で直接参照する
 - `docs/` — 利用者向けドキュメント（日本語）
 

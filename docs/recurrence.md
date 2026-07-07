@@ -15,7 +15,7 @@ RFC 5545 の RRULE 文字列による繰り返し予定の指定方法と、Goog
 から自動的に補われます。
 
 ```ts
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 calendar.createEvent({
@@ -36,7 +36,7 @@ const occurrences = calendar.getOccurrences({
 例外が投げられます。
 
 ```ts
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 try {
@@ -51,7 +51,7 @@ RRULE 文字列を単体で検証・正規化したい場合は `normalizeRRuleS
 正規形（`'FREQ=...'`）を返します。
 
 ```ts
-import { normalizeRRuleString } from '@koyomi/react';
+import { normalizeRRuleString } from '@koyomi-cal/react';
 
 normalizeRRuleString('RRULE:FREQ=WEEKLY;BYDAY=MO,WE'); // => 'FREQ=WEEKLY;BYDAY=MO,WE'
 normalizeRRuleString('freq=daily;count=3'); // => 'FREQ=DAILY;COUNT=3'
@@ -66,7 +66,7 @@ normalizeRRuleString('freq=daily;count=3'); // => 'FREQ=DAILY;COUNT=3'
 はこれを内部で利用しています）。
 
 ```ts
-import { expandRecurrence } from '@koyomi/react';
+import { expandRecurrence } from '@koyomi-cal/react';
 
 const dtstart = new Date('2026-07-01T00:00:00Z'); // 東京 7/1 9:00（水曜日）
 const oneMonth = { start: dtstart, end: new Date('2026-08-01T00:00:00Z') };
@@ -147,7 +147,7 @@ expandRecurrence({
 オーバーライドを作らずそのオーバーライドに直接適用されます。
 
 ```ts
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 calendar.createEvent({
@@ -193,7 +193,7 @@ calendar.updateEvent(override!.id, { title: '朝会（社内向け）' });
 起きません。
 
 ```ts
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 calendar.createEvent({
@@ -238,7 +238,7 @@ calendar.updateEvent(
 維持されます。
 
 ```ts
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 calendar.createEvent({
@@ -287,7 +287,7 @@ EXDATE に追加**します（`updateEvent` と異なり、`target` を省略し
 シリーズに対して適用されます。
 
 ```ts
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 calendar.createEvent({
@@ -337,7 +337,7 @@ calendar.deleteEvent('standup');
 レコードとして保存し、`setEvents` でまとめてカレンダーに渡す形が典型的です。
 
 ```ts
-import { createCalendar } from '@koyomi/react';
+import { createCalendar } from '@koyomi-cal/react';
 
 const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 
@@ -380,7 +380,7 @@ const occurrences = calendar.getOccurrences({
 変わります）。
 
 ```ts
-import { expandRecurrence } from '@koyomi/react';
+import { expandRecurrence } from '@koyomi-cal/react';
 
 // America/New_York の毎日 9:00 は DST を跨いでも現地 9:00 に発生する
 const starts = expandRecurrence({
@@ -398,7 +398,7 @@ const starts = expandRecurrence({
 サフィックスが付きますが、実際の UTC 時刻としては扱われません。
 
 ```ts
-import { expandRecurrence } from '@koyomi/react';
+import { expandRecurrence } from '@koyomi-cal/react';
 
 // dtstart: 2026-07-01 09:00 America/New_York（壁時計）= 2026-07-01T13:00:00Z
 const starts = expandRecurrence({

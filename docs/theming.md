@@ -15,7 +15,7 @@ Koyomi のビルトインコンポーネントはヘッドレスです。ロジ�
 そのまま使えるデフォルトテーマが同梱されています。エントリポイントで一度 CSS を読み込むだけで、`data-koyomi="root"` を持つ要素（`CalendarView` が描画するルート要素）配下に見た目が適用されます。
 
 ```ts
-import '@koyomi/react/theme.css';
+import '@koyomi-cal/react/theme.css';
 ```
 
 デフォルトテーマは `[data-koyomi="root"]` 配下すべてに `box-sizing: border-box` を適用し、ボタンのブラウザ既定スタイル（余白・枠線など）をリセットしたうえで、各部位の見た目を組み立てます。フォーカス時のアウトライン（`:focus-visible`）やドラッグ中の半透明表示（`[data-koyomi-dragging="true"]`）もここに含まれます。
@@ -147,7 +147,7 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 
 ```tsx
 import { render } from '@testing-library/react';
-import { CalendarProvider, CalendarView, useCalendar } from '@koyomi/react';
+import { CalendarProvider, CalendarView, useCalendar } from '@koyomi-cal/react';
 
 function Demo() {
   const calendar = useCalendar({
@@ -196,7 +196,7 @@ console.log(eventEl?.style.getPropertyValue('--koyomi-event-color')); // => '#e6
 `CalendarView` を使う場合は、`renderMonthEvent` / `renderTimeGridEvent` / `renderListEvent` prop がそれぞれのビューへ転送されます。
 
 ```tsx
-import { CalendarProvider, MonthView, useCalendar } from '@koyomi/react';
+import { CalendarProvider, MonthView, useCalendar } from '@koyomi-cal/react';
 
 function MonthDemo() {
   const calendar = useCalendar({
@@ -213,7 +213,7 @@ function MonthDemo() {
 ```
 
 ```tsx
-import { CalendarProvider, ListView, useCalendar } from '@koyomi/react';
+import { CalendarProvider, ListView, useCalendar } from '@koyomi-cal/react';
 
 function ListDemo() {
   const calendar = useCalendar({
@@ -233,7 +233,7 @@ function ListDemo() {
 ```
 
 ```tsx
-import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi/react';
+import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
 
 function DayDemo() {
   const calendar = useCalendar({
@@ -257,7 +257,7 @@ function DayDemo() {
 `CalendarView` でビューを出し分けている場合は、3 つの render prop をまとめて渡せます。
 
 ```tsx
-import { CalendarProvider, CalendarView, useCalendar } from '@koyomi/react';
+import { CalendarProvider, CalendarView, useCalendar } from '@koyomi-cal/react';
 
 function App() {
   const calendar = useCalendar({

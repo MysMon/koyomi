@@ -16,7 +16,7 @@ import type {
   RecurringEditScope,
   TimeZoneId,
   Weekday,
-} from '@koyomi/react';
+} from '@koyomi-cal/react';
 import {
   addDaysInZone,
   dateFromKey,
@@ -25,7 +25,7 @@ import {
   getWallClock,
   parseDateValue,
   weekdayInZone,
-} from '@koyomi/react';
+} from '@koyomi-cal/react';
 import { type FormEvent, type ReactElement, useEffect, useId, useRef, useState } from 'react';
 import type { ScopeAction } from './ScopeDialog';
 

@@ -1,7 +1,7 @@
 /*
  * Koyomi デモアプリ用スタイル。
  *
- * カレンダー本体（[data-koyomi="..."]）の見た目は @koyomi/react/theme.css に
+ * カレンダー本体（[data-koyomi="..."]）の見た目は @koyomi-cal/react/theme.css に
  * 委ね、ここではページ全体のレイアウト・ヘッダー・ダイアログ・ログ領域のみを
  * 定義する。ライト/ダーク両方に対応し、既定は prefers-color-scheme に従う。
  * App がダークモードボタンで <html data-koyomi-theme="dark|light"> を

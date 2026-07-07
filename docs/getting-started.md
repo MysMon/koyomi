@@ -1,6 +1,6 @@
 # はじめに
 
-`@koyomi/react` は、TypeScript/React 製のヘッドレスなカレンダーライブラリです。このページでは、インストールから最小構成のカレンダー表示、予定データの受け渡し、クリック・ドラッグでの操作までを順を追って説明します。
+`@koyomi-cal/react` は、TypeScript/React 製のヘッドレスなカレンダーライブラリです。このページでは、インストールから最小構成のカレンダー表示、予定データの受け渡し、クリック・ドラッグでの操作までを順を追って説明します。
 
 ## Koyomi とは
 
@@ -9,7 +9,7 @@ Koyomi はロジックとマークアップのみを提供する**ヘッドレ�
 ## インストール
 
 ```bash
-pnpm add @koyomi/react
+pnpm add @koyomi-cal/react
 ```
 
 `react` と `react-dom` は peerDependencies です。バージョン 18 以上が必要です。
@@ -25,11 +25,11 @@ pnpm add @koyomi/react
 
 ## 最小の使い方
 
-カレンダーの状態は `useCalendar` フックで作成し、`CalendarProvider` で配下のビルトインコンポーネント（`Toolbar` / `CalendarView` など）に共有します。デフォルトの見た目を使う場合は `@koyomi/react/theme.css` を読み込みます。
+カレンダーの状態は `useCalendar` フックで作成し、`CalendarProvider` で配下のビルトインコンポーネント（`Toolbar` / `CalendarView` など）に共有します。デフォルトの見た目を使う場合は `@koyomi-cal/react/theme.css` を読み込みます。
 
 ```tsx
-import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi/react';
-import '@koyomi/react/theme.css';
+import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
 
 function App() {
   const calendar = useCalendar();
@@ -54,9 +54,9 @@ function App() {
 予定は `CalendarEvent` の配列として `useCalendar` に渡します。最小限必要なのは `id` / `title` / `start` です（`end` は省略可能で、省略時は時間指定イベントは `defaultEventMinutes`（既定 60 分）後、終日イベントは 1 日後になります）。日時は `Date` でも ISO 8601 文字列でも構いません。
 
 ```tsx
-import type { CalendarEvent } from '@koyomi/react';
-import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi/react';
-import '@koyomi/react/theme.css';
+import type { CalendarEvent } from '@koyomi-cal/react';
+import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
 
 const events: CalendarEvent[] = [
   {
@@ -89,9 +89,9 @@ function App() {
 月ビュー・週/日ビューでは、空き領域をクリックまたはドラッグすると新規予定の範囲選択ができます。`CalendarProvider` の `callbacks` に `onSelectRange` を渡すと、選択が確定した時点でその内容（`range` / `allDay`）を受け取れます。
 
 ```tsx
-import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi/react';
-import type { RangeSelection } from '@koyomi/react';
-import '@koyomi/react/theme.css';
+import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi-cal/react';
+import type { RangeSelection } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
 
 function App() {
   const calendar = useCalendar();
@@ -128,9 +128,9 @@ function App() {
 
 ```tsx
 import { useState } from 'react';
-import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi/react';
-import type { CalendarEvent, EventOccurrence } from '@koyomi/react';
-import '@koyomi/react/theme.css';
+import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi-cal/react';
+import type { CalendarEvent, EventOccurrence } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
 
 const events: CalendarEvent[] = [
   { id: '1', title: '定例ミーティング', start: '2026-07-08T10:00:00', end: '2026-07-08T11:00:00' },

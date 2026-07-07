@@ -2,7 +2,7 @@
  * Koyomi デフォルトテーマ
  * ============================================================================
  * 当て方:
- *   import '@koyomi/react/theme.css';
+ *   import '@koyomi-cal/react/theme.css';
  *
  * ビルトインコンポーネント（Toolbar / CalendarView / MonthView / TimeGridView /
  * ListView）はスタイルを一切持たないヘッドレスなコンポーネントで、DOM 上の

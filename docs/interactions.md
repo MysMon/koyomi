@@ -17,8 +17,8 @@
 - **クリックのみ（移動なし）** — `defaultEventMinutes` 分の長さの範囲になる
 
 ```tsx
-import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi/react';
-import type { RangeSelection } from '@koyomi/react';
+import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
+import type { RangeSelection } from '@koyomi-cal/react';
 
 function App() {
   const calendar = useCalendar({ initialView: 'week', defaultEventMinutes: 30 });
@@ -52,8 +52,8 @@ function App() {
 月ビューの日セル、および週/日ビューの終日行は**日単位**のドラッグになります。1 日だけクリックした場合も、2 日以上にまたがってドラッグした場合も、その日範囲がそのまま選択され、`selection.allDay` は常に `true` になります。
 
 ```tsx
-import { CalendarProvider, MonthView, useCalendar } from '@koyomi/react';
-import type { RangeSelection } from '@koyomi/react';
+import { CalendarProvider, MonthView, useCalendar } from '@koyomi-cal/react';
+import type { RangeSelection } from '@koyomi-cal/react';
 
 function App() {
   const calendar = useCalendar({ initialView: 'month' });
@@ -88,8 +88,8 @@ function App() {
 - **`editable: false`** — 表示・クリックは通常どおりできるが、移動・リサイズは無効になる。時間グリッドではリサイズハンドル自体が描画されない
 
 ```tsx
-import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi/react';
-import type { CalendarEvent, EventChange } from '@koyomi/react';
+import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
+import type { CalendarEvent, EventChange } from '@koyomi-cal/react';
 
 const events: CalendarEvent[] = [
   { id: '1', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
@@ -133,8 +133,8 @@ function App() {
 実際のアプリではダイアログを表示し、ユーザーの選択で `resolve` するのが典型的な実装です。ここでは実装を簡略化し、常に同じ値を返す例で挙動を示します。
 
 ```tsx
-import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi/react';
-import type { RecurringEditScope } from '@koyomi/react';
+import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
+import type { RecurringEditScope } from '@koyomi-cal/react';
 
 // 実際にはここでダイアログを表示し、ユーザーの選択で resolve する。
 // （この例では簡略化のため、常に「これ以降のすべての予定」を選んだことにする）
@@ -186,7 +186,7 @@ async function resolveRecurringScope(): Promise<RecurringEditScope | null> {
 `useCalendarShortcuts` を使うと、Google カレンダー準拠のキーボードショートカットが有効になります。`document` への `keydown` を監視するため、`CalendarProvider` の外でも（コンポーネントツリーのどこでも）呼び出せます。
 
 ```tsx
-import { useCalendar, useCalendarShortcuts } from '@koyomi/react';
+import { useCalendar, useCalendarShortcuts } from '@koyomi-cal/react';
 
 function App() {
   const calendar = useCalendar();
@@ -240,8 +240,8 @@ function App() {
 `getDayCellProps` の `ref` はコールバック形式で、要素をポインタ位置 → 日の判定に使う内部レジストリへ登録します。複数日にまたがるドラッグを正しく機能させるには、返された `ref` を実際の要素に接続する必要があります。
 
 ```tsx
-import { useCalendar, useDayDrag } from '@koyomi/react';
-import type { RangeSelection } from '@koyomi/react';
+import { useCalendar, useDayDrag } from '@koyomi-cal/react';
+import type { RangeSelection } from '@koyomi-cal/react';
 
 function CustomDayRow() {
   const calendar = useCalendar({ initialView: 'month' });

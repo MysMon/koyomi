@@ -15,14 +15,14 @@ import type {
   RecurringEditScope,
   TimeZoneId,
   Weekday,
-} from '@koyomi/react';
+} from '@koyomi-cal/react';
 import {
   CalendarProvider,
   CalendarView,
   Toolbar,
   useCalendar,
   useCalendarShortcuts,
-} from '@koyomi/react';
+} from '@koyomi-cal/react';
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EventDialog, type EventDialogMode } from './EventDialog';
 import { type ScopeAction, ScopeDialog } from './ScopeDialog';
@@ -93,7 +93,7 @@ export function App(): ReactElement {
   const scopeResolverRef = useRef<((scope: RecurringEditScope | null) => void) | null>(null);
 
   // ダークモード切替を data-koyomi-theme 属性としてルートに反映する
-  // （@koyomi/react/theme.css がこの属性を見て配色を切り替える）
+  // （@koyomi-cal/react/theme.css がこの属性を見て配色を切り替える）
   useEffect(() => {
     document.documentElement.setAttribute('data-koyomi-theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
