@@ -7,6 +7,9 @@
  * - 下端・上端ハンドルのドラッグ → リサイズ（終了・開始時刻の変更）
  * - 矢印キーによる移動・リサイズ（フォーカス中の発生に対して）
  * - ドラッグ中は Escape / pointercancel でキャンセルし、画面端に近づくと自動スクロールする
+ * - イベント本体の移動ドラッグ中にポインタが終日行（`use-day-drag.ts` が担当する領域）に
+ *   乗ると、終日イベントへの変換プレビューに切り替わる（Google カレンダー相当の
+ *   「時間指定 ⇔ 終日」変換。反対方向の変換は `use-day-drag.ts` が担当する）
  *
  * プロップゲッターパターンを採用する。コンポーネントは
  * {@link TimeGridDragHandlers.getDayProps} などを対応する要素に
@@ -25,13 +28,20 @@ import type {
 } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { dragPreviewRange, timeAtGridPosition } from '../core/interaction';
-import { addDaysInZone, addMinutesInZone, minutesOfDayInZone } from '../core/timezone';
+import {
+  addDaysInZone,
+  addMinutesInZone,
+  dateFromKey,
+  dateKeyInZone,
+  minutesOfDayInZone,
+} from '../core/timezone';
 import type {
   DateRange,
   EventOccurrence,
   PositionedOccurrence,
   RecurringEditScope,
   TimeGridDay,
+  TimeZoneId,
 } from '../core/types';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 
@@ -102,6 +112,9 @@ export interface TimeGridDragHandlers {
   /**
    * 指定日のドラッグプレビュー区間を返す（その日に重ならなければ `null`）。
    * コンポーネントはこれをオーバーレイとして描画する。
+   *
+   * ドラッグ中のイベントが終日行への変換プレビュー中（`allDay: true`）の場合は
+   * `null` を返す（そちらは `useDayDrag` 側の終日行プレビューが担当する）。
    */
   previewFor(day: TimeGridDay): TimeGridPreviewSegment | null;
   /** ドラッグ操作が進行中か。 */
@@ -143,6 +156,15 @@ interface DragSession {
    * クリックによる `onEventClick` が抑制されてしまったりする。
    */
   hasMoved: boolean;
+  /**
+   * 終日帯への変換ドラッグ中の確定用範囲。
+   *
+   * `mode === 'move'` のセッションでポインタが終日行（`allday-cells` /
+   * `allday-cell` / `allday-row`）の上にある間だけ非 `null` になる。
+   * 非 `null` の間に pointerup すると、この範囲・`allDay: true` で
+   * 終日イベントへの変換として確定する（{@link TimeGridDragHandlers} 参照）。
+   */
+  allDayConversion: DateRange | null;
   /** document に登録したリスナーを解除し、オートスクロールを停止する。 */
   cleanup: () => void;
 }
@@ -183,6 +205,46 @@ function fractionYFromClientY(rect: DOMRect, clientY: number): number {
     return 0;
   }
   return (clientY - rect.top) / rect.height;
+}
+
+/** 1 日のミリ秒数。 */
+const MS_PER_DAY = 86_400_000;
+
+/** 終日行の領域を示す `data-koyomi` 属性のセレクタ（セル・行いずれの要素でも一致する）。 */
+const ALLDAY_REGION_SELECTOR =
+  '[data-koyomi="allday-cells"], [data-koyomi="allday-cell"], [data-koyomi="allday-row"]';
+
+/**
+ * ポインタ位置が終日行（`allday-cells` / `allday-cell` / `allday-row`）の上にあるかを判定する。
+ *
+ * `document.elementFromPoint` が存在しない環境（jsdom では未実装のことがある）では
+ * 安全に「領域外」（`false`）と判定する。テストでは `vi.spyOn(document, 'elementFromPoint')`
+ * でモックする。
+ */
+function isOverAlldayRegion(clientX: number, clientY: number): boolean {
+  if (typeof document.elementFromPoint !== 'function') {
+    return false;
+  }
+  const target = document.elementFromPoint(clientX, clientY);
+  return target?.closest(ALLDAY_REGION_SELECTOR) != null;
+}
+
+/**
+ * 日時範囲が表示タイムゾーンで何暦日にまたがるかを求める（最低でも 1）。
+ *
+ * `end` は排他的なので、`end` の 1 ミリ秒前が属する日を最終日とする
+ * （終日変換時、時間指定発生の複数日にまたがる長さを終日の日数に換算するために使う）。
+ * 日数差は日付キーを UTC 0:00 に載せて求めるため、DST 切り替えの影響を受けない。
+ */
+function calendarDaySpan(range: DateRange, timeZone: TimeZoneId): number {
+  const startKey = dateKeyInZone(range.start, timeZone);
+  const lastInstant =
+    range.end.getTime() > range.start.getTime() ? new Date(range.end.getTime() - 1) : range.start;
+  const endKey = dateKeyInZone(lastInstant, timeZone);
+  const startUtcMs = dateFromKey(startKey, 'UTC').getTime();
+  const endUtcMs = dateFromKey(endKey, 'UTC').getTime();
+  const diffDays = Math.round((endUtcMs - startUtcMs) / MS_PER_DAY);
+  return Math.max(1, diffDays + 1);
 }
 
 /**
@@ -424,7 +486,11 @@ export function useTimeGridDrag(params: {
       if (callbacks?.onSelectRange) {
         callbacks.onSelectRange({ range, allDay: false });
       } else {
-        calendar.api.createEvent({ title: '(タイトルなし)', start: range.start, end: range.end });
+        calendar.api.createEvent({
+          title: calendar.state.options.defaultEventTitle,
+          start: range.start,
+          end: range.end,
+        });
       }
     }
     paramsRef.current.calendar.api.setDragPreview(null);
@@ -461,6 +527,31 @@ export function useTimeGridDrag(params: {
   }
 
   /**
+   * 時間指定の発生を終日イベントに変換して適用し、`onEventChange`（`allDay: true`）を
+   * 通知する（スコープ解決済みの前提）。{@link applyOccurrenceRange} と同様、常に
+   * 同期的に完結させる（理由も同じ）。
+   */
+  function applyAllDayConversion(
+    occurrence: EventOccurrence,
+    recurringScope: RecurringEditScope | null,
+    range: DateRange,
+  ): void {
+    paramsRef.current.calendar.api.updateEvent(
+      occurrence.eventId,
+      { start: range.start, end: range.end, allDay: true },
+      recurringScope === null
+        ? undefined
+        : { occurrenceStart: occurrence.originalStart, scope: recurringScope },
+    );
+    paramsRef.current.callbacks?.onEventChange?.({
+      occurrence,
+      newRange: range,
+      allDay: true,
+      scope: recurringScope,
+    });
+  }
+
+  /**
    * 繰り返し発生のスコープを解決する。呼び出し元は `occurrence.isRecurring` が
    * `true` の場合にのみ呼ぶこと（単発発生は呼び出し元で `null` 固定とし、
    * この関数を経由しない＝ `await` を発生させない）。
@@ -478,6 +569,11 @@ export function useTimeGridDrag(params: {
   /**
    * 移動・リサイズドラッグの確定処理。移動がなかった場合は何もしない（クリックは onClick に任せる）。
    *
+   * `session.allDayConversion` が非 `null`（'move' セッション中にポインタが終日行の
+   * 上で確定した）の場合は、その範囲・`allDay: true` で終日イベントへの変換として
+   * 確定する（{@link applyAllDayConversion}）。それ以外は通常どおり時間指定のまま
+   * 移動・リサイズを確定する。
+   *
    * 単発発生（繰り返しでない）の場合は `await` が一度も発生せず同期的に完結する
    * （{@link applyOccurrenceRange} 参照）。これは、ドラッグ確定直後にブラウザが
    * 発火するネイティブ `click` に対して `suppressNextClickRef` の設定を間に合わせるために
@@ -493,6 +589,20 @@ export function useTimeGridDrag(params: {
       }
       const occurrence = session.occurrence;
       if (occurrence === null) {
+        return;
+      }
+      if (session.allDayConversion !== null) {
+        const conversionRange = session.allDayConversion;
+        let conversionScope: RecurringEditScope | null = null;
+        if (occurrence.isRecurring) {
+          const resolved = await resolveScopeForRecurring(occurrence, 'move');
+          if (resolved === null) {
+            return;
+          }
+          conversionScope = resolved;
+        }
+        applyAllDayConversion(occurrence, conversionScope, conversionRange);
+        suppressNextClickRef.current = true;
         return;
       }
       const range = computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY);
@@ -599,6 +709,7 @@ export function useTimeGridDrag(params: {
       anchor,
       baselineRange,
       hasMoved: false,
+      allDayConversion: null,
       cleanup: () => {
         document.removeEventListener('pointermove', handlePointerMove);
         document.removeEventListener('pointerup', handlePointerUp);
@@ -618,8 +729,44 @@ export function useTimeGridDrag(params: {
 
     // jsdom は PointerEvent 未実装のことがあるため、MouseEvent 互換の型で受け取る。
     const handlePointerMove = (nativeEvent: MouseEvent): void => {
-      updateAutoScroll(nativeEvent.clientX, nativeEvent.clientY);
-      const range = computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY);
+      const { clientX, clientY } = nativeEvent;
+
+      // 'move' セッション中にポインタが終日行の上にあれば、終日帯への変換プレビューに切り替える。
+      if (
+        session.mode === 'move' &&
+        session.occurrence !== null &&
+        isOverAlldayRegion(clientX, clientY)
+      ) {
+        const column = findColumnForClientX(clientX);
+        if (column !== null) {
+          // 終日行の上ではグリッド本体のオートスクロールは不要。
+          stopAutoScroll();
+          const { state } = paramsRef.current.calendar;
+          const occurrence = session.occurrence;
+          const dayCount = calendarDaySpan(
+            { start: occurrence.start, end: occurrence.end },
+            state.timeZone,
+          );
+          const range: DateRange = {
+            start: column.date,
+            end: addDaysInZone(column.date, dayCount, state.timeZone),
+          };
+          session.hasMoved = true;
+          session.allDayConversion = range;
+          paramsRef.current.calendar.api.setDragPreview({
+            kind: 'move',
+            occurrenceKey: occurrence.key,
+            range,
+            allDay: true,
+          });
+          return;
+        }
+      }
+
+      // 終日行の外に戻った（または最初から終日行上でない）場合は変換を解除する。
+      session.allDayConversion = null;
+      updateAutoScroll(clientX, clientY);
+      const range = computeRangeFromEvent(session, clientX, clientY);
       if (range === null) {
         return;
       }

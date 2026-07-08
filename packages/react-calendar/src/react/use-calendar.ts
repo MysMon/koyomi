@@ -26,6 +26,7 @@ export interface UseCalendarOptions extends CalendarOptions {
  * 安全側に倒して開発扱いにする（警告は本番最適化ビルドでのみ除去される）。
  */
 function isDevBuild(): boolean {
+  // biome-ignore lint/complexity/useLiteralKeys: TS の noPropertyAccessFromIndexSignature 相当の制約でブラケット記法が必須
   return typeof process === 'undefined' || process.env['NODE_ENV'] !== 'production';
 }
 

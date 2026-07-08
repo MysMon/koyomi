@@ -118,7 +118,7 @@
   background: none;
   color: inherit;
   font: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 
@@ -132,6 +132,14 @@
 [data-koyomi="root"] button:focus-visible {
   outline: 2px solid var(--koyomi-accent);
   outline-offset: 2px;
+}
+
+/* キーボード操作可能な日セル・日列（tabindex 付き div）のフォーカスリング */
+[data-koyomi="month-day"]:focus-visible,
+[data-koyomi="timegrid-day"]:focus-visible,
+[data-koyomi="allday-cell"]:focus-visible {
+  outline: 2px solid var(--koyomi-accent);
+  outline-offset: -2px;
 }
 
 /* ドラッグ中の要素は薄く表示する（月・終日行・時間グリッド共通） */
@@ -191,7 +199,9 @@
 
 [data-koyomi="month-weekdays"] {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  /* 列数は子要素数に追従する（hiddenWeekdays で 7 未満になりうる） */
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   border-bottom: 1px solid var(--koyomi-border);
 }
 
@@ -209,19 +219,23 @@
 
 [data-koyomi="month-days"] {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  /* 列数は子要素数に追従する（hiddenWeekdays で 7 未満になりうる） */
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   /* 日番号行 + dayMaxEvents 既定値（4 レーン）+ 「+N 件」の 1 行分を目安にした最小高さ */
   min-height: calc(var(--koyomi-month-header-height) + var(--koyomi-lane-height) * 4 + 16px);
 }
 
 [data-koyomi="month-day"] {
   overflow: hidden;
-  border-right: 1px solid var(--koyomi-border);
+  border-inline-end: 1px solid var(--koyomi-border);
   padding: 0 4px 4px;
+  /* 日セルからの作成ドラッグをタッチのスクロールに奪われないようにする */
+  touch-action: none;
 }
 
 [data-koyomi="month-day"]:last-child {
-  border-right: none;
+  border-inline-end: none;
 }
 
 [data-koyomi="month-day"][data-today] {
@@ -286,6 +300,8 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   pointer-events: auto;
+  /* ドラッグ移動をタッチのスクロールに奪われないようにする */
+  touch-action: none;
 }
 
 [data-koyomi="month-event"]:hover {
@@ -313,13 +329,13 @@
 }
 
 [data-koyomi="month-event"][data-continues-before] {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
 }
 
 [data-koyomi="month-event"][data-continues-after] {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
 }
 
 [data-koyomi="day-selection"] {
@@ -355,12 +371,12 @@
   flex: 1 1 0;
   min-width: 0;
   padding: 4px;
-  border-left: 1px solid var(--koyomi-border);
+  border-inline-start: 1px solid var(--koyomi-border);
   text-align: center;
 }
 
 [data-koyomi="timegrid-day-header"]:first-child {
-  border-left: none;
+  border-inline-start: none;
 }
 
 [data-koyomi="timegrid-day-header"][data-today] {
@@ -405,11 +421,13 @@
 [data-koyomi="allday-cell"] {
   flex: 1 1 0;
   min-width: 0;
-  border-left: 1px solid var(--koyomi-border);
+  border-inline-start: 1px solid var(--koyomi-border);
+  /* 終日行からの作成ドラッグをタッチのスクロールに奪われないようにする */
+  touch-action: none;
 }
 
 [data-koyomi="allday-cell"]:first-child {
-  border-left: none;
+  border-inline-start: none;
 }
 
 [data-koyomi="allday-event"] {
@@ -425,6 +443,8 @@
   font-size: 0.8em;
   white-space: nowrap;
   text-overflow: ellipsis;
+  /* ドラッグ移動をタッチのスクロールに奪われないようにする */
+  touch-action: none;
 }
 
 [data-koyomi="allday-event"]:hover {
@@ -432,13 +452,13 @@
 }
 
 [data-koyomi="allday-event"][data-continues-before] {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
 }
 
 [data-koyomi="allday-event"][data-continues-after] {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
 }
 
 [data-koyomi="timegrid-body"] {
@@ -450,17 +470,18 @@
 [data-koyomi="time-axis"] {
   flex: none;
   width: var(--koyomi-time-axis-width);
-  border-right: 1px solid var(--koyomi-border);
+  border-inline-end: 1px solid var(--koyomi-border);
 }
 
 /* 既定の slotMinutes（60 分）を前提にした高さ。変更する場合は利用側で上書きする */
 [data-koyomi="time-slot-label"] {
   height: var(--koyomi-hour-height);
-  padding: 2px 6px 0 0;
+  padding-block: 2px 0;
+  padding-inline: 0 6px;
   border-top: 1px solid var(--koyomi-border);
   color: var(--koyomi-muted);
   font-size: 0.75em;
-  text-align: right;
+  text-align: end;
 }
 
 [data-koyomi="time-slot-label"]:first-child {
@@ -478,11 +499,13 @@
   flex: 1 1 0;
   min-width: 0;
   height: calc(24 * var(--koyomi-hour-height));
-  border-left: 1px solid var(--koyomi-border);
+  border-inline-start: 1px solid var(--koyomi-border);
+  /* 空き領域からの作成ドラッグをタッチのスクロールに奪われないようにする */
+  touch-action: none;
 }
 
 [data-koyomi="timegrid-day"]:first-child {
-  border-left: none;
+  border-inline-start: none;
 }
 
 [data-koyomi="timegrid-day"][data-today] {
@@ -491,8 +514,7 @@
 
 [data-koyomi="timegrid-slot"] {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   border-top: 1px solid var(--koyomi-border);
   pointer-events: none;
 }
@@ -500,6 +522,10 @@
 [data-koyomi="timegrid-event"] {
   position: absolute;
   overflow: hidden;
+  /* 短時間・長さ 0 の予定でもタイトル 1 行分は読めるようにする */
+  min-height: 1.25em;
+  /* ドラッグ移動をタッチのスクロールに奪われないようにする */
+  touch-action: none;
   padding: 2px 4px;
   border-radius: var(--koyomi-radius);
   background-color: var(--koyomi-event-color, var(--koyomi-accent));
@@ -532,20 +558,51 @@
 [data-koyomi="timegrid-resize"] {
   position: absolute;
   bottom: 0;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   height: 6px;
   cursor: ns-resize;
+  touch-action: none;
+}
+
+/* 上端ハンドル（開始時刻の変更） */
+[data-koyomi="timegrid-resize"][data-edge="start"] {
+  top: 0;
+  bottom: auto;
 }
 
 [data-koyomi="timegrid-resize"]:hover {
   background-color: rgba(0, 0, 0, 0.15);
 }
 
+/* 帯セグメント（月ビュー・終日行）の左右端リサイズハンドル */
+[data-koyomi="month-event-resize"],
+[data-koyomi="allday-resize"] {
+  position: absolute;
+  inset-block: 0;
+  width: 6px;
+  cursor: ew-resize;
+  touch-action: none;
+  pointer-events: auto;
+}
+
+[data-koyomi="month-event-resize"][data-edge="start"],
+[data-koyomi="allday-resize"][data-edge="start"] {
+  inset-inline-start: 0;
+}
+
+[data-koyomi="month-event-resize"][data-edge="end"],
+[data-koyomi="allday-resize"][data-edge="end"] {
+  inset-inline-end: 0;
+}
+
+[data-koyomi="month-event-resize"]:hover,
+[data-koyomi="allday-resize"]:hover {
+  background-color: rgba(0, 0, 0, 0.15);
+}
+
 [data-koyomi="timegrid-preview"] {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   border: 1px dashed var(--koyomi-accent);
   border-radius: var(--koyomi-radius);
   background-color: var(--koyomi-accent);
@@ -555,8 +612,7 @@
 
 [data-koyomi="now-indicator"] {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   height: 0;
   border-top: 2px solid #ea4335;
   pointer-events: none;
@@ -566,7 +622,7 @@
   content: "";
   position: absolute;
   top: -4px;
-  left: -4px;
+  inset-inline-start: -4px;
   width: 8px;
   height: 8px;
   border-radius: 999px;

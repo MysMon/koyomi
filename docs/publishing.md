@@ -34,6 +34,14 @@
    `README.md`、`LICENSE`、`package.json`。`src/` やテストが含まれていたら
    `files` フィールドを確認してください。
 
+4. パッケージ検査（CI でも同じ検査が自動実行されます）:
+
+   ```bash
+   cd packages/react-calendar
+   pnpm dlx publint
+   pnpm dlx @arethetypeswrong/cli --pack . --profile esm-only --exclude-entrypoints ./theme.css
+   ```
+
 ## 公開
 
 ```bash
@@ -60,7 +68,13 @@ pnpm --filter @koyomi-cal/react publish --dry-run
 
 ## 補足
 
-- **配布形式**: ESM のみ（`type: "module"`、`exports` マップ）。CommonJS は提供しません
+- **配布形式**: ESM のみ（`type: "module"`、`exports` マップ）。CommonJS ビルドは
+  提供しませんが、`exports` の `default` 条件により Node 20.19 以降の
+  `require(esm)` からは読み込めます（`engines.node: ">=20.19.0"`）
+- **rrule のバンドル**: `rrule` は CJS-only パッケージのため、tsup の
+  `noExternal: ['rrule']` で dist にバンドルしています（素の Node ESM から
+  import できるようにするため）。`date-fns` / `@date-fns/tz` は ESM ネイティブ
+  なので external のままです
 - **workspace 依存**: デモアプリの `workspace:*` 依存は publish 時に pnpm が
   実バージョンへ自動置換しますが、デモは `private: true` のため公開対象外です
 - **GitHub Actions での自動公開**（任意）: タグ push で publish するワークフローを

@@ -200,6 +200,31 @@ describe('createCalendar', () => {
       // 未指定のオプションは維持される
       expect(calendar.getState().options.slotMinutes).toBe(60);
     });
+
+    it('updateOptions({ events }) でイベント一覧を差し替えられる（onEventsChange は呼ばれない）', () => {
+      const onEventsChange = vi.fn();
+      const calendar = makeCalendar({ onEventsChange });
+      calendar.updateOptions({ events: [MEETING] });
+      expect(calendar.getEvents()).toEqual([MEETING]);
+      expect(onEventsChange).not.toHaveBeenCalled();
+    });
+
+    it('updateOptions({ onEventsChange }) でコールバックを差し替えられる', () => {
+      const first = vi.fn();
+      const second = vi.fn();
+      const calendar = makeCalendar({ onEventsChange: first });
+      calendar.updateOptions({ onEventsChange: second });
+      calendar.createEvent({ title: '追加', start: '2026-07-15T13:00' });
+      expect(first).not.toHaveBeenCalled();
+      expect(second).toHaveBeenCalledTimes(1);
+    });
+
+    it('updateOptions({ timeZone }) は表示タイムゾーンを変更し、不正な値は Error になる', () => {
+      const calendar = makeCalendar();
+      calendar.updateOptions({ timeZone: 'America/New_York' });
+      expect(calendar.getState().timeZone).toBe('America/New_York');
+      expect(() => calendar.updateOptions({ timeZone: 'Invalid/Zone' })).toThrow();
+    });
   });
 
   describe('イベント CRUD', () => {

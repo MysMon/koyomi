@@ -4,20 +4,44 @@
  */
 
 import type { ReactElement, ReactNode } from 'react';
-import type { EventOccurrence, EventSegment, PositionedOccurrence } from '../../core/types';
+import type {
+  EventOccurrence,
+  EventSegment,
+  ListDay,
+  PositionedOccurrence,
+} from '../../core/types';
 import { useCalendarContext } from '../context';
 import { ListView } from './list-view';
 import { MonthView } from './month-view';
 import { TimeGridView } from './time-grid-view';
 
-/** `CalendarView` の props。各ビューのカスタム描画関数を転送する。 */
+/**
+ * `CalendarView` の props。各ビューのカスタム描画関数・ラベル props を転送する。
+ *
+ * 命名は転送先のビュー名を接頭辞に持つ（例: `renderListEvent` → `ListView`
+ * の `renderEvent`）。これは複数のビューが同名の prop（例: 各ビューの
+ * `renderDayHeader`）を持ちうるため、1 つの `CalendarViewProps` 内で
+ * 衝突しないようにする命名規則。
+ */
 export interface CalendarViewProps {
-  /** 月ビューのセグメントのカスタム描画。 */
+  /** 月ビューのセグメントのカスタム描画。`MonthView` の `renderEvent` に転送する。 */
   renderMonthEvent?: (segment: EventSegment) => ReactNode;
-  /** 週/日ビューのイベントブロックのカスタム描画。 */
+  /** 週/日ビューのイベントブロックのカスタム描画。`TimeGridView` の `renderEvent` に転送する。 */
   renderTimeGridEvent?: (item: PositionedOccurrence) => ReactNode;
-  /** リストビューのイベント行のカスタム描画。 */
+  /** リストビューのイベント行のカスタム描画。`ListView` の `renderEvent` に転送する。 */
   renderListEvent?: (occurrence: EventOccurrence) => ReactNode;
+  /**
+   * リストビューの終日イベント時刻ラベル。`ListView` の `allDayLabel` に転送する。
+   * 省略時は「終日」。
+   */
+  listAllDayLabel?: ReactNode;
+  /**
+   * リストビューの空状態メッセージ。`ListView` の `emptyLabel` に転送する。
+   * 省略時は「予定はありません」。
+   */
+  listEmptyLabel?: ReactNode;
+  /** リストビューの日付見出しのカスタム描画。`ListView` の `renderDayHeader` に転送する。 */
+  renderListDayHeader?: (day: ListDay, defaultContent: ReactNode) => ReactNode;
 }
 
 /**
@@ -58,7 +82,12 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
         );
       case 'list':
         return (
-          <ListView {...(props.renderListEvent ? { renderEvent: props.renderListEvent } : {})} />
+          <ListView
+            {...(props.renderListEvent ? { renderEvent: props.renderListEvent } : {})}
+            {...(props.listAllDayLabel !== undefined ? { allDayLabel: props.listAllDayLabel } : {})}
+            {...(props.listEmptyLabel !== undefined ? { emptyLabel: props.listEmptyLabel } : {})}
+            {...(props.renderListDayHeader ? { renderDayHeader: props.renderListDayHeader } : {})}
+          />
         );
     }
   }

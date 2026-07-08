@@ -6,9 +6,9 @@
  * `docs/internal/components-dom.md` の「リストビュー」セクションに従って検証する。
  */
 import { fireEvent, render } from '@testing-library/react';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import type { CalendarEvent, CalendarViewType, EventOccurrence } from '../../core/types';
+import type { CalendarEvent, CalendarViewType, EventOccurrence, ListDay } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { CalendarInteractionCallbacks } from '../types';
 import { useCalendar } from '../use-calendar';
@@ -26,6 +26,9 @@ function TestListView(props: {
   events?: readonly CalendarEvent[];
   callbacks?: CalendarInteractionCallbacks;
   renderEvent?: ListViewProps['renderEvent'];
+  allDayLabel?: ListViewProps['allDayLabel'];
+  emptyLabel?: ListViewProps['emptyLabel'];
+  renderDayHeader?: ListViewProps['renderDayHeader'];
   view?: CalendarViewType;
   timeZone?: string;
 }): ReactElement {
@@ -44,7 +47,12 @@ function TestListView(props: {
       value={calendar}
       {...(props.callbacks !== undefined ? { callbacks: props.callbacks } : {})}
     >
-      <ListView {...(props.renderEvent !== undefined ? { renderEvent: props.renderEvent } : {})} />
+      <ListView
+        {...(props.renderEvent !== undefined ? { renderEvent: props.renderEvent } : {})}
+        {...(props.allDayLabel !== undefined ? { allDayLabel: props.allDayLabel } : {})}
+        {...(props.emptyLabel !== undefined ? { emptyLabel: props.emptyLabel } : {})}
+        {...(props.renderDayHeader !== undefined ? { renderDayHeader: props.renderDayHeader } : {})}
+      />
     </CalendarProvider>
   );
 }
@@ -234,5 +242,41 @@ describe('ListView', () => {
     const { container } = render(<TestListView view="month" />);
     expect(container.querySelector('[data-koyomi="list"]')).toBeNull();
     expect(container.innerHTML).toBe('');
+  });
+
+  it('allDayLabel を指定すると終日イベントの時刻ラベルに反映される（省略時は「終日」）', () => {
+    const events: CalendarEvent[] = [
+      { id: 'allday', title: '終日イベント', start: '2026-07-16', end: '2026-07-17', allDay: true },
+    ];
+    const { container } = render(<TestListView events={events} allDayLabel="All day" />);
+
+    const time = container.querySelector('[data-koyomi="list-event-time"]');
+    expect(time?.textContent).toBe('All day');
+  });
+
+  it('emptyLabel を指定すると予定なし時のメッセージに反映される（省略時は「予定はありません」）', () => {
+    const { container } = render(<TestListView events={[]} emptyLabel="No events" />);
+
+    const empty = container.querySelector('[data-koyomi="list-empty"]');
+    expect(empty?.textContent).toBe('No events');
+  });
+
+  it('renderDayHeader を指定すると日付見出しの内容をカスタマイズできる（第2引数に既定内容を渡す）', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const renderDayHeader = (day: ListDay, defaultContent: ReactNode) => (
+      <span data-testid="custom-header">
+        {day.key}:{defaultContent}
+      </span>
+    );
+    const { container } = render(
+      <TestListView events={events} renderDayHeader={renderDayHeader} />,
+    );
+
+    const header = container.querySelector('[data-koyomi="list-day-header"]');
+    expect(header?.querySelector('[data-testid="custom-header"]')?.textContent).toBe(
+      '2026-07-16:7月16日(木)',
+    );
   });
 });

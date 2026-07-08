@@ -12,7 +12,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactElement, Ref } from 'react';
 import { useRef, useSyncExternalStore } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createCalendar } from '../core/calendar';
 import { parseDateValue } from '../core/timezone';
 import type {
@@ -20,10 +20,18 @@ import type {
   CalendarEvent,
   EventOccurrence,
   RecurringEditScope,
+  TimeGridDay,
 } from '../core/types';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 import type { TimeGridDragHandlers } from './use-time-grid-drag';
 import { autoScrollVelocity, useTimeGridDrag } from './use-time-grid-drag';
+
+// jsdom はこの環境で document.elementFromPoint を実装していない（typeof が 'undefined'）。
+// vi.spyOn は既存の関数にしかスパイできないため、既定実装（常に null＝領域外）を
+// 一度だけ用意しておく（各テストでは vi.spyOn でこれを上書きし、afterEach で復元する）。
+if (typeof document.elementFromPoint !== 'function') {
+  document.elementFromPoint = () => null;
+}
 
 const TOKYO = 'Asia/Tokyo';
 const NOW = new Date('2026-07-15T01:00:00Z');
@@ -195,6 +203,14 @@ function firePointerDown(element: Element, clientX: number, clientY: number): vo
   );
 }
 
+/** 非左ボタン（右クリック等）の pointerdown ディスパッチ。 */
+function fireNonPrimaryPointerDown(element: Element, clientX: number, clientY: number): void {
+  fireEvent(
+    element,
+    new MouseEvent('pointerdown', { clientX, clientY, button: 2, bubbles: true, cancelable: true }),
+  );
+}
+
 /** document への pointermove ディスパッチ（同期）。 */
 function movePointer(clientX: number, clientY: number): void {
   act(() => {
@@ -228,6 +244,26 @@ function firePointerCancel(): void {
   act(() => {
     document.dispatchEvent(new MouseEvent('pointercancel', { bubbles: true }));
   });
+}
+
+/**
+ * テスト用の終日行の要素（`data-koyomi="allday-cell"`）を作る。
+ * `document.elementFromPoint` のモック戻り値として使う。DOM に接続しなくても
+ * `Element#closest` は自身の祖先チェーンだけを辿るため機能する。
+ */
+function makeAlldayCellElement(): HTMLElement {
+  const element = document.createElement('div');
+  element.setAttribute('data-koyomi', 'allday-cell');
+  return element;
+}
+
+/** ハーネスが描画している時間グリッドビューの `days` を取得する。 */
+function getTimeGridDays(sink: Sink): readonly TimeGridDay[] {
+  const { viewModel } = sink.calendar;
+  if (viewModel.type !== 'timeGrid') {
+    throw new Error('テストは時間グリッドビューを前提とする');
+  }
+  return viewModel.days;
 }
 
 describe('useTimeGridDrag', () => {
@@ -563,6 +599,39 @@ describe('useTimeGridDrag', () => {
     expect(sink.current?.drag.previewFor(tuesday)).toBeNull();
 
     releasePointer(x, 690);
+  });
+
+  it('非左クリック（button !== 0）では作成・移動・リサイズのドラッグが一切開始されない', () => {
+    const event: CalendarEvent = {
+      id: 'ev-rightclick',
+      title: '対象',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-rightclick@${at(`${TUE}T10:00`).toISOString()}`;
+    const dayEl = screen.getByTestId(`day-${MON}`);
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const handleEl = screen.getByTestId(`resize-${occurrenceKey}`);
+    const x = columnCenterX(TUE);
+
+    // 作成
+    fireNonPrimaryPointerDown(dayEl, columnCenterX(MON), 600);
+    movePointer(columnCenterX(MON), 700);
+    releasePointer(columnCenterX(MON), 700);
+    // 移動
+    fireNonPrimaryPointerDown(eventEl, x, 630);
+    movePointer(x, 720);
+    releasePointer(x, 720);
+    // リサイズ
+    fireNonPrimaryPointerDown(handleEl, x, 660);
+    movePointer(x, 750);
+    releasePointer(x, 750);
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ start: `${TUE}T10:00`, end: `${TUE}T11:00` });
+    expect(sink.current?.calendar.state.dragPreview).toBeNull();
   });
 
   it('onKeyDown: Delete で単発イベントが削除される', () => {
@@ -1082,6 +1151,227 @@ describe('useTimeGridDrag', () => {
       movePointer(x, 0); // オートスクロール対象領域（上端）へ
       releasePointer(x, 0);
     }).not.toThrow();
+  });
+});
+
+describe('useTimeGridDrag - 終日行への変換ドラッグ', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('時間指定イベントを終日行の上で離すと allDay: true・その日 1 日のイベントに変換される', () => {
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-to-allday',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [event], callbacks: { onEventChange } });
+    const occurrenceKey = `ev-to-allday@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(TUE);
+
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(makeAlldayCellElement());
+
+    firePointerDown(eventEl, x, 600); // 10:00 を掴む
+    movePointer(x, 10); // 終日行相当の位置（elementFromPoint モックで判定）
+    releasePointer(x, 10);
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      allDay: true,
+      start: at(`${TUE}T00:00`),
+      end: at(`${WED}T00:00`),
+    });
+    expect(onEventChange).toHaveBeenCalledWith({
+      occurrence: expect.objectContaining({ eventId: 'ev-to-allday' }),
+      newRange: { start: at(`${TUE}T00:00`), end: at(`${WED}T00:00`) },
+      allDay: true,
+      scope: null,
+    });
+  });
+
+  it('複数日にまたがる時間指定イベントを終日行の上で離すと、暦日数分の終日イベントに変換される', () => {
+    const event: CalendarEvent = {
+      id: 'ev-to-allday-multiday',
+      title: '夜間出張',
+      start: `${TUE}T22:00`,
+      end: `${WED}T02:00`,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-to-allday-multiday@${at(`${TUE}T22:00`).toISOString()}`;
+    // 日をまたぐ時間指定イベントは日ごとに分割されて描画されるため、TUE 側の断片を使う。
+    const eventEl = screen.getAllByTestId(`event-${occurrenceKey}`)[0];
+    if (eventEl === undefined) {
+      throw new Error('イベント要素が見つかりません');
+    }
+    const x = columnCenterX(TUE);
+
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(makeAlldayCellElement());
+
+    firePointerDown(eventEl, x, 1350); // TUE 22:30 相当を掴む
+    movePointer(x, 10); // 終日行相当の位置（TUE 列のまま）
+    releasePointer(x, 10);
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      allDay: true,
+      start: at(`${TUE}T00:00`),
+      end: at(`${THU}T00:00`), // TUE・WED の 2 暦日分
+    });
+  });
+
+  it('変換ドラッグ中はプレビューが allDay: true になり、時間グリッド側の previewFor は null を返す', () => {
+    const event: CalendarEvent = {
+      id: 'ev-preview-allday',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-preview-allday@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(TUE);
+
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(makeAlldayCellElement());
+
+    firePointerDown(eventEl, x, 600);
+    movePointer(x, 10);
+
+    if (sink.current === null) {
+      throw new Error('sink が設定されていません');
+    }
+    const preview = sink.current.calendar.state.dragPreview;
+    expect(preview?.allDay).toBe(true);
+    expect(preview?.range).toEqual({ start: at(`${TUE}T00:00`), end: at(`${WED}T00:00`) });
+
+    const tueDay = getTimeGridDays(sink.current).find((day) => day.key === TUE);
+    if (tueDay === undefined) {
+      throw new Error('TUE の列が見つかりません');
+    }
+    // allDay: true のプレビューは時間グリッド側では描画しない（useDayDrag 側が担当する）
+    expect(sink.current.drag.previewFor(tueDay)).toBeNull();
+
+    releasePointer(x, 10);
+  });
+
+  it('elementFromPoint が領域外（null）を返す場合は従来どおり時間グリッド内の移動として扱われる', () => {
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-no-conversion',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [event], callbacks: { onEventChange } });
+    const occurrenceKey = `ev-no-conversion@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(TUE);
+
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(null);
+
+    firePointerDown(eventEl, x, 600); // 10:00
+    movePointer(x, 720); // 12:00（+2h、同じ列内の通常移動）
+    releasePointer(x, 720);
+
+    // 通常移動は allDay を patch に含めないため、変換されていないことは
+    // イベント自体に allDay: true が付与されていないことで確認する。
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]?.allDay).not.toBe(true);
+    expect(events[0]).toMatchObject({
+      start: at(`${TUE}T12:00`),
+      end: at(`${TUE}T13:00`),
+    });
+    expect(onEventChange).toHaveBeenCalledWith({
+      occurrence: expect.objectContaining({ eventId: 'ev-no-conversion' }),
+      newRange: { start: at(`${TUE}T12:00`), end: at(`${TUE}T13:00`) },
+      allDay: false,
+      scope: null,
+    });
+  });
+
+  it('終日行から時間グリッドへ戻ると通常の move プレビュー（allDay: false）に戻る', () => {
+    const event: CalendarEvent = {
+      id: 'ev-back-to-grid',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-back-to-grid@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(TUE);
+
+    const spy = vi.spyOn(document, 'elementFromPoint');
+    spy.mockReturnValue(makeAlldayCellElement());
+
+    firePointerDown(eventEl, x, 600);
+    movePointer(x, 10); // 終日行へ
+    expect(sink.current?.calendar.state.dragPreview?.allDay).toBe(true);
+
+    spy.mockReturnValue(null); // 時間グリッドへ戻る
+    movePointer(x, 720); // 12:00
+
+    const previewBack = sink.current?.calendar.state.dragPreview;
+    expect(previewBack?.allDay).toBe(false);
+    expect(previewBack?.range).toEqual({ start: at(`${TUE}T12:00`), end: at(`${TUE}T13:00`) });
+
+    releasePointer(x, 720);
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]?.allDay).not.toBe(true);
+    expect(events[0]).toMatchObject({
+      start: at(`${TUE}T12:00`),
+      end: at(`${TUE}T13:00`),
+    });
+  });
+
+  it('繰り返しイベントの終日変換では resolveRecurringScope が呼ばれ、解決したスコープで適用される', async () => {
+    const resolveRecurringScope = vi.fn(
+      async (
+        _occurrence: EventOccurrence,
+        _action: 'move' | 'resize' | 'delete' | 'update',
+      ): Promise<RecurringEditScope | null> => 'this',
+    );
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'recurring-to-allday',
+      title: '定例',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      rrule: 'FREQ=WEEKLY;BYDAY=WE',
+    };
+    const { sink } = renderHarness({
+      events: [event],
+      callbacks: { resolveRecurringScope, onEventChange },
+    });
+    const occurrenceKey = `recurring-to-allday@${at(`${WED}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(WED);
+
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(makeAlldayCellElement());
+
+    firePointerDown(eventEl, x, 600); // 10:00
+    movePointer(x, 10); // 終日行相当
+    await releasePointerAsync(x, 10);
+
+    expect(resolveRecurringScope).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: 'recurring-to-allday' }),
+      'move',
+    );
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    const override = events.find(
+      (candidate) => candidate.recurringEventId === 'recurring-to-allday',
+    );
+    expect(override).toMatchObject({
+      allDay: true,
+      start: at(`${WED}T00:00`),
+      end: at(`${THU}T00:00`),
+    });
+    expect(onEventChange).toHaveBeenCalledWith(
+      expect.objectContaining({ allDay: true, scope: 'this' }),
+    );
   });
 });
 

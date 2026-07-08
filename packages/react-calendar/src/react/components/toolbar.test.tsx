@@ -15,6 +15,7 @@ import { CalendarProvider } from '../context';
 import type { UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
 import { formatDayTitle, formatMonthTitle, formatRangeTitle } from './format';
+import type { ToolbarProps } from './toolbar';
 import { Toolbar } from './toolbar';
 
 /** テスト用の固定「現在時刻」。東京の 2026-07-15 10:00。 */
@@ -24,7 +25,7 @@ const NOW = new Date('2026-07-15T01:00:00Z');
  * `useCalendar` を呼び出し `Toolbar` を包んで描画するテスト用ラッパ。
  * `capture.current` から最新の `UseCalendarResult` を取得できる。
  */
-function renderToolbar(initialView?: CalendarViewType) {
+function renderToolbar(initialView?: CalendarViewType, labels?: ToolbarProps['labels']) {
   const capture: { current: UseCalendarResult | null } = { current: null };
 
   function Harness(): ReactElement {
@@ -39,7 +40,7 @@ function renderToolbar(initialView?: CalendarViewType) {
     capture.current = calendar;
     return (
       <CalendarProvider value={calendar}>
-        <Toolbar />
+        <Toolbar {...(labels !== undefined ? { labels } : {})} />
       </CalendarProvider>
     );
   }
@@ -213,5 +214,45 @@ describe('Toolbar', () => {
       const button = container.querySelector(`[data-koyomi-action="${action}"]`);
       expect(button?.getAttribute('type')).toBe('button');
     }
+  });
+
+  it('labels でビュー切替ボタンの表示文字列を差し替えられる（省略時は既定の日本語）', () => {
+    const { container } = renderToolbar('month', {
+      month: 'Month',
+      week: 'Week',
+      day: 'Day',
+      list: 'List',
+    });
+
+    expect(container.querySelector('[data-koyomi-action="view-month"]')?.textContent).toBe('Month');
+    expect(container.querySelector('[data-koyomi-action="view-week"]')?.textContent).toBe('Week');
+    expect(container.querySelector('[data-koyomi-action="view-day"]')?.textContent).toBe('Day');
+    expect(container.querySelector('[data-koyomi-action="view-list"]')?.textContent).toBe('List');
+  });
+
+  it('labels.today を指定すると today ボタンの表示文字列と aria-label が差し替わる', () => {
+    const { container } = renderToolbar('month', { today: 'Today' });
+    const today = container.querySelector('[data-koyomi-action="today"]');
+    expect(today?.textContent).toBe('Today');
+    expect(today?.getAttribute('aria-label')).toBe('Today');
+  });
+
+  it('labels.prev / labels.next を指定すると aria-label のみ差し替わり、表示アイコンは変わらない', () => {
+    const { container } = renderToolbar('month', { prev: 'Previous', next: 'Next' });
+    const prev = container.querySelector('[data-koyomi-action="prev"]');
+    const next = container.querySelector('[data-koyomi-action="next"]');
+
+    expect(prev?.getAttribute('aria-label')).toBe('Previous');
+    expect(prev?.textContent).toBe('‹');
+    expect(next?.getAttribute('aria-label')).toBe('Next');
+    expect(next?.textContent).toBe('›');
+  });
+
+  it('labels を省略すると既定の日本語文字列のまま（後方互換）', () => {
+    const { container } = renderToolbar('month');
+    expect(container.querySelector('[data-koyomi-action="view-month"]')?.textContent).toBe('月');
+    expect(
+      container.querySelector('[data-koyomi-action="today"]')?.getAttribute('aria-label'),
+    ).toBe('今日');
   });
 });
