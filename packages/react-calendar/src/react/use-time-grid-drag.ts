@@ -490,8 +490,14 @@ export function useTimeGridDrag(params: {
     paramsRef.current.callbacks?.onEventClick?.(occurrence, event.nativeEvent);
   }
 
-  /** 繰り返し発生の削除。スコープ解決が必要な場合は解決してから削除する。 */
+  /**
+   * 繰り返し発生の削除。スコープ解決が必要な場合は解決してから削除する。
+   * `editable: false` のイベントは削除しない（ドラッグ移動・リサイズと同じ契約）。
+   */
   async function deleteOccurrence(occurrence: EventOccurrence): Promise<void> {
+    if (occurrence.event.editable === false) {
+      return;
+    }
     if (!occurrence.isRecurring) {
       paramsRef.current.calendar.api.deleteEvent(occurrence.eventId);
       return;

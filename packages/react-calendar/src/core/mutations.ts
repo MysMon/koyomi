@@ -138,27 +138,48 @@ function findEventOrThrow(events: readonly CalendarEvent[], id: EventId): Calend
   return found;
 }
 
-/** イベントの日時解釈に使うタイムゾーン（イベント TZ、なければ表示 TZ）。 */
-function resolveTimeZone(event: CalendarEvent, context: MutationContext): TimeZoneId {
-  return event.timeZone ?? context.displayTimeZone;
+/**
+ * イベントの日時解釈に使うタイムゾーン。
+ *
+ * expansion.ts の展開時と同じ「イベント TZ → マスター TZ → 表示 TZ」の順で
+ * フォールバックする。オーバーライドイベントが `timeZone` を持たない場合
+ * （外部データ同期で timeZone フィールドを省略したケース）でも、マスターと
+ * 同じ壁時計解釈になることを保証する。
+ *
+ * @param master - オーバーライドの親（マスター）イベント。分かる場合のみ渡す
+ */
+function resolveTimeZone(
+  event: CalendarEvent,
+  context: MutationContext,
+  master?: CalendarEvent,
+): TimeZoneId {
+  return event.timeZone ?? master?.timeZone ?? context.displayTimeZone;
 }
 
 /** イベントの開始を絶対時刻として解釈する。 */
-function parseStart(event: CalendarEvent, context: MutationContext): Date {
-  return parseDateValue(event.start, resolveTimeZone(event, context), event.allDay ?? false);
+function parseStart(event: CalendarEvent, context: MutationContext, master?: CalendarEvent): Date {
+  return parseDateValue(
+    event.start,
+    resolveTimeZone(event, context, master),
+    event.allDay ?? false,
+  );
 }
 
 /**
  * オーバーライドの本来の開始（`originalStart`）を絶対時刻として解釈する。
  * `originalStart` を持たない場合は `null` を返す。
  */
-function parseOriginalStart(event: CalendarEvent, context: MutationContext): Date | null {
+function parseOriginalStart(
+  event: CalendarEvent,
+  context: MutationContext,
+  master?: CalendarEvent,
+): Date | null {
   if (event.originalStart === undefined) {
     return null;
   }
   return parseDateValue(
     event.originalStart,
-    resolveTimeZone(event, context),
+    resolveTimeZone(event, context, master),
     event.allDay ?? false,
   );
 }
@@ -166,9 +187,16 @@ function parseOriginalStart(event: CalendarEvent, context: MutationContext): Dat
 /**
  * オーバーライドが対象とする発生の開始時刻を返す。
  * 通常は `originalStart`、欠落している場合は現在の開始で代用する。
+ *
+ * @param master - オーバーライドの親イベント。日時文字列の解釈をマスター TZ に
+ *   フォールバックさせるために渡す（expansion.ts の解釈と揃える）
  */
-function overrideAnchor(event: CalendarEvent, context: MutationContext): Date {
-  return parseOriginalStart(event, context) ?? parseStart(event, context);
+function overrideAnchor(
+  event: CalendarEvent,
+  context: MutationContext,
+  master?: CalendarEvent,
+): Date {
+  return parseOriginalStart(event, context, master) ?? parseStart(event, context, master);
 }
 
 /**
@@ -177,8 +205,12 @@ function overrideAnchor(event: CalendarEvent, context: MutationContext): Date {
  * `end` があれば `start` との差分。なければ終日イベントは 1 日、
  * 時間指定イベントは `defaultEventMinutes` 分とみなす。
  */
-function occurrenceDurationMs(event: CalendarEvent, context: MutationContext): number {
-  const timeZone = resolveTimeZone(event, context);
+function occurrenceDurationMs(
+  event: CalendarEvent,
+  context: MutationContext,
+  master?: CalendarEvent,
+): number {
+  const timeZone = resolveTimeZone(event, context, master);
   const allDay = event.allDay ?? false;
   if (event.end === undefined) {
     return allDay ? DAY_MS : context.defaultEventMinutes * MINUTE_MS;
@@ -208,20 +240,20 @@ function appendExdate(event: CalendarEvent, occurrenceStart: Date): CalendarEven
  */
 function findOverrideFor(
   events: readonly CalendarEvent[],
-  masterId: EventId,
+  master: CalendarEvent,
   occurrenceStart: Date,
   context: MutationContext,
 ): CalendarEvent | undefined {
   const time = occurrenceStart.getTime();
   return events.find((event) => {
-    if (event.recurringEventId !== masterId) {
+    if (event.recurringEventId !== master.id) {
       return false;
     }
-    const original = parseOriginalStart(event, context);
+    const original = parseOriginalStart(event, context, master);
     if (original !== null && original.getTime() === time) {
       return true;
     }
-    return parseStart(event, context).getTime() === time;
+    return parseStart(event, context, master).getTime() === time;
   });
 }
 
@@ -313,7 +345,7 @@ function updateThisOccurrence(
   occurrenceStart: Date,
   context: MutationContext,
 ): CalendarEvent[] {
-  const existing = findOverrideFor(events, master.id, occurrenceStart, context);
+  const existing = findOverrideFor(events, master, occurrenceStart, context);
   if (existing !== undefined) {
     return mapPatch(events, existing.id, patch);
   }
@@ -385,7 +417,7 @@ function splitSeries(
     if (event.recurringEventId !== master.id) {
       return event;
     }
-    return overrideAnchor(event, context).getTime() >= splitTime
+    return overrideAnchor(event, context, master).getTime() >= splitTime
       ? { ...event, recurringEventId: newId }
       : event;
   });
@@ -424,7 +456,7 @@ function truncateSeries(
       if (event.recurringEventId !== master.id) {
         return true;
       }
-      return overrideAnchor(event, context).getTime() < splitTime;
+      return overrideAnchor(event, context, master).getTime() < splitTime;
     })
     .map((event) => (event.id === master.id ? updatedMaster : event));
 }
@@ -492,7 +524,7 @@ export function updateEventIn(
   // （'thisAndFollowing' の分割点はオーバーライドの originalStart）
   if (event.recurringEventId !== undefined && target !== undefined && target.scope !== 'this') {
     const parent = findEventOrThrow(events, event.recurringEventId);
-    const occurrenceStart = overrideAnchor(event, context);
+    const occurrenceStart = overrideAnchor(event, context, parent);
     return updateEventIn(
       events,
       parent.id,
@@ -551,14 +583,15 @@ export function deleteEventIn(
   if (event.recurringEventId !== undefined) {
     const scope: RecurringEditScope = target?.scope ?? 'this';
     if (scope === 'this') {
-      // オーバーライドを除去し、元発生（originalStart）を親の EXDATE に追加する
-      const original = overrideAnchor(event, context);
       const parentId = event.recurringEventId;
+      const parentEvent = events.find((other) => other.id === parentId);
       const remaining = events.filter((other) => other.id !== id);
-      if (!remaining.some((other) => other.id === parentId)) {
+      if (parentEvent === undefined) {
         // 親が見つからない場合はオーバーライドの除去のみ行う
         return remaining;
       }
+      // オーバーライドを除去し、元発生（originalStart）を親の EXDATE に追加する
+      const original = overrideAnchor(event, context, parentEvent);
       return remaining.map((other) =>
         other.id === parentId ? appendExdate(other, original) : other,
       );
@@ -566,7 +599,7 @@ export function deleteEventIn(
     // 'thisAndFollowing' / 'all' は親シリーズに対して適用する
     // （'thisAndFollowing' の分割点はオーバーライドの originalStart）
     const parent = findEventOrThrow(events, event.recurringEventId);
-    const occurrenceStart = overrideAnchor(event, context);
+    const occurrenceStart = overrideAnchor(event, context, parent);
     return deleteEventIn(events, parent.id, { occurrenceStart, scope }, context);
   }
 
@@ -581,10 +614,10 @@ export function deleteEventIn(
   }
 
   if (target.scope === 'this') {
-    const override = findOverrideFor(events, id, target.occurrenceStart, context);
+    const override = findOverrideFor(events, event, target.occurrenceStart, context);
     if (override !== undefined) {
       // オーバーライド済みの発生: オーバーライドを除去し、元発生を EXDATE に追加する
-      const original = overrideAnchor(override, context);
+      const original = overrideAnchor(override, context, event);
       return events
         .filter((other) => other.id !== override.id)
         .map((other) => (other.id === id ? appendExdate(other, original) : other));
@@ -639,12 +672,16 @@ export function moveOccurrenceIn(
   // マスターの既定の長さではなく、そのオーバーライド固有の長さを維持する
   const override =
     event.rrule !== undefined
-      ? findOverrideFor(events, event.id, params.occurrenceStart, context)
+      ? findOverrideFor(events, event, params.occurrenceStart, context)
       : undefined;
-  const durationSource = override ?? event;
   const end =
     params.newEnd === undefined
-      ? new Date(params.newStart.getTime() + occurrenceDurationMs(durationSource, context))
+      ? new Date(
+          params.newStart.getTime() +
+            (override !== undefined
+              ? occurrenceDurationMs(override, context, event)
+              : occurrenceDurationMs(event, context)),
+        )
       : new Date(params.newEnd.getTime());
   const patch: CalendarEventPatch = { start: new Date(params.newStart.getTime()), end };
   if (params.allDay !== undefined) {

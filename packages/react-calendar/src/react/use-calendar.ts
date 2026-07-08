@@ -9,6 +9,14 @@ import type { CalendarEvent, CalendarOptions } from '../core/types';
 import type { UseCalendarResult } from './types';
 
 /**
+ * 開発ビルドかどうか。バンドラなしのブラウザ実行（`process` 未定義）では
+ * 安全側に倒して開発扱いにする（警告は本番最適化ビルドでのみ除去される）。
+ */
+function isDevBuild(): boolean {
+  return typeof process === 'undefined' || process.env['NODE_ENV'] !== 'production';
+}
+
+/**
  * カレンダーエンジンを作成し、React の状態として購読する。
  *
  * エンジン（{@link createCalendar}）はマウント時に一度だけ作成され、
@@ -60,7 +68,29 @@ export function useCalendar(options?: CalendarOptions): UseCalendarResult {
   }
   const api = apiRef.current;
 
-  const state = useSyncExternalStore(api.subscribe, api.getState);
+  // 「events はマウント時の初期値のみ有効」という仕様は、fetch した配列を
+  // そのまま props として渡し続ける利用者が黙ってハマりやすい。開発時のみ、
+  // 初回と異なる events 参照が渡されたことを一度だけ警告する。
+  const initialEventsRef = useRef(options?.events);
+  const warnedEventsRef = useRef(false);
+  if (
+    isDevBuild() &&
+    !warnedEventsRef.current &&
+    options?.events !== undefined &&
+    options.events !== initialEventsRef.current
+  ) {
+    warnedEventsRef.current = true;
+    // biome-ignore lint/suspicious/noConsole: 開発ビルド限定の意図的な利用者向け警告
+    console.warn(
+      '[koyomi] useCalendar の options.events は初期値としてのみ使われ、マウント後の変更は反映されません。' +
+        'イベントを動的に更新するには calendar.api.setEvents(nextEvents) を使ってください。',
+    );
+  }
+
+  // 第三引数（getServerSnapshot）を渡すことで SSR（renderToString / Next.js 等）でも
+  // 例外にならず初期スナップショットを描画できる。スナップショットは
+  // キャッシュされた同一参照を返すため、サーバーレンダー中の一貫性も保たれる。
+  const state = useSyncExternalStore(api.subscribe, api.getState, api.getState);
   const viewModel = api.getViewModel();
 
   /**
