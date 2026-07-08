@@ -407,6 +407,44 @@ describe('dragPreviewRange', () => {
       expect(range.end.getTime()).toBeGreaterThan(range.start.getTime());
     });
   });
+
+  describe('resize-start（上端リサイズ）', () => {
+    const occurrence = makeOccurrence({
+      start: at('2026-07-07T10:00', TOKYO),
+      end: at('2026-07-07T11:00', TOKYO),
+    });
+
+    it('終了は固定され、ポインタ位置が開始時刻になる', () => {
+      const state: TimeGridDragState = {
+        mode: 'resize-start',
+        occurrence,
+        anchor: at('2026-07-07T10:00', TOKYO),
+      };
+      const range = dragPreviewRange(state, at('2026-07-07T09:00', TOKYO), context);
+      expect(range.start).toEqual(at('2026-07-07T09:00', TOKYO));
+      expect(range.end).toEqual(at('2026-07-07T11:00', TOKYO));
+    });
+
+    it('ポインタが終了より後でも最小 snap 分の長さを保つ', () => {
+      const state: TimeGridDragState = {
+        mode: 'resize-start',
+        occurrence,
+        anchor: at('2026-07-07T10:00', TOKYO),
+      };
+      const range = dragPreviewRange(state, at('2026-07-07T12:00', TOKYO), context);
+      expect(range.start).toEqual(at('2026-07-07T10:45', TOKYO));
+      expect(range.end).toEqual(at('2026-07-07T11:00', TOKYO));
+    });
+
+    it('occurrence が null なら Error を投げる', () => {
+      const state: TimeGridDragState = {
+        mode: 'resize-start',
+        occurrence: null,
+        anchor: at('2026-07-07T10:00', TOKYO),
+      };
+      expect(() => dragPreviewRange(state, at('2026-07-07T09:00', TOKYO), context)).toThrow(/発生/);
+    });
+  });
 });
 
 describe('dayDragPreviewRange', () => {
@@ -533,6 +571,93 @@ describe('dayDragPreviewRange', () => {
           TOKYO,
         ),
       ).toThrow(/発生/);
+    });
+  });
+
+  describe('resize-end（帯の右端リサイズ）', () => {
+    // 7/1〜7/2 の 2 日間の終日イベント（end 排他で 7/3 0:00）
+    const occurrence = makeOccurrence({
+      start: dateFromKey('2026-07-01', TOKYO),
+      end: dateFromKey('2026-07-03', TOKYO),
+      allDay: true,
+    });
+
+    it('ポインタ日までの日数差だけ終了が伸びる（開始は固定）', () => {
+      const range = dayDragPreviewRange(
+        { mode: 'resize-end', occurrence },
+        dateFromKey('2026-07-04', TOKYO),
+        dateFromKey('2026-07-02', TOKYO), // 表示上の最終日からドラッグ開始
+        TOKYO,
+      );
+      expect(range.start).toEqual(dateFromKey('2026-07-01', TOKYO));
+      expect(range.end).toEqual(dateFromKey('2026-07-05', TOKYO));
+    });
+
+    it('開始日より前へ縮めても最低 1 日分の長さを保つ', () => {
+      const range = dayDragPreviewRange(
+        { mode: 'resize-end', occurrence },
+        dateFromKey('2026-06-28', TOKYO),
+        dateFromKey('2026-07-02', TOKYO),
+        TOKYO,
+      );
+      expect(range.start).toEqual(dateFromKey('2026-07-01', TOKYO));
+      expect(range.end).toEqual(dateFromKey('2026-07-02', TOKYO));
+    });
+
+    it('時間指定の複数日イベントは終了の壁時計時刻を維持したまま日数が変わる', () => {
+      const timed = makeOccurrence({
+        start: at('2026-07-01T10:00', TOKYO),
+        end: at('2026-07-03T11:00', TOKYO),
+      });
+      const range = dayDragPreviewRange(
+        { mode: 'resize-end', occurrence: timed },
+        dateFromKey('2026-07-05', TOKYO),
+        dateFromKey('2026-07-03', TOKYO),
+        TOKYO,
+      );
+      expect(range.start).toEqual(at('2026-07-01T10:00', TOKYO));
+      expect(range.end).toEqual(at('2026-07-05T11:00', TOKYO));
+    });
+
+    it('occurrence が null なら Error を投げる', () => {
+      expect(() =>
+        dayDragPreviewRange(
+          { mode: 'resize-end', occurrence: null },
+          dateFromKey('2026-07-04', TOKYO),
+          dateFromKey('2026-07-02', TOKYO),
+          TOKYO,
+        ),
+      ).toThrow(/発生/);
+    });
+  });
+
+  describe('resize-start（帯の左端リサイズ）', () => {
+    const occurrence = makeOccurrence({
+      start: dateFromKey('2026-07-01', TOKYO),
+      end: dateFromKey('2026-07-03', TOKYO),
+      allDay: true,
+    });
+
+    it('ポインタ日までの日数差だけ開始がずれる（終了は固定）', () => {
+      const range = dayDragPreviewRange(
+        { mode: 'resize-start', occurrence },
+        dateFromKey('2026-06-29', TOKYO),
+        dateFromKey('2026-07-01', TOKYO),
+        TOKYO,
+      );
+      expect(range.start).toEqual(dateFromKey('2026-06-29', TOKYO));
+      expect(range.end).toEqual(dateFromKey('2026-07-03', TOKYO));
+    });
+
+    it('終了日以降へ縮めても最低 1 日分の長さを保つ', () => {
+      const range = dayDragPreviewRange(
+        { mode: 'resize-start', occurrence },
+        dateFromKey('2026-07-05', TOKYO),
+        dateFromKey('2026-07-01', TOKYO),
+        TOKYO,
+      );
+      expect(range.start).toEqual(dateFromKey('2026-07-02', TOKYO));
+      expect(range.end).toEqual(dateFromKey('2026-07-03', TOKYO));
     });
   });
 });

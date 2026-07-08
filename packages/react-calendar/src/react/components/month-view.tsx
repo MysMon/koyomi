@@ -239,10 +239,10 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
   }
 
   /** 「+N 件」クリック。`onOverflowClick` があればそれを呼び、なければ day ビューへ切り替える。 */
-  function handleOverflowClick(day: MonthDay): void {
+  function handleOverflowClick(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]): void {
     const onOverflowClick = callbacks.onOverflowClick;
     if (onOverflowClick !== undefined) {
-      onOverflowClick(day);
+      onOverflowClick(day, hiddenOccurrences);
       return;
     }
     goToDay(day.date);
@@ -285,7 +285,7 @@ function MonthWeekRow(props: {
   dayDrag: DayDragHandlers;
   renderEvent: ((segment: EventSegment) => ReactNode) | undefined;
   onDayNumberClick: (date: Date) => void;
-  onOverflowClick: (day: MonthDay) => void;
+  onOverflowClick: (day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => void;
 }): ReactElement {
   const {
     week,
@@ -302,10 +302,21 @@ function MonthWeekRow(props: {
     previewRange !== null ? computeWeekSelectionSpan(week.days, previewRange, timeZone) : null;
   const visibleSegments = week.segments.filter((segment) => !segment.hidden);
 
+  /** 指定列（可視列インデックス）を覆う非表示セグメントの発生一覧を開始時刻順で返す。 */
+  function hiddenOccurrencesAt(col: number): readonly EventOccurrence[] {
+    return week.segments
+      .filter(
+        (segment) =>
+          segment.hidden && col >= segment.startCol && col < segment.startCol + segment.span,
+      )
+      .map((segment) => segment.occurrence)
+      .sort((a, b) => a.start.getTime() - b.start.getTime());
+  }
+
   return (
     <div data-koyomi="month-week">
       <div data-koyomi="month-days">
-        {week.days.map((day) => {
+        {week.days.map((day, dayCol) => {
           const { ref, ...cellProps } = dayDrag.getDayCellProps(day);
           return (
             <div
@@ -329,7 +340,7 @@ function MonthWeekRow(props: {
                   type="button"
                   data-koyomi="month-overflow"
                   onPointerDown={stopPropagation}
-                  onClick={() => onOverflowClick(day)}
+                  onClick={() => onOverflowClick(day, hiddenOccurrencesAt(dayCol))}
                 >
                   {`+${day.overflowCount} 件`}
                 </button>

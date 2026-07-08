@@ -18,6 +18,9 @@ import type { EventOccurrence, ListDay, ListViewModel, TimeZoneId } from '../typ
  * - 範囲は表示タイムゾーンにおける基準日の 0:00 から始まり、日の重なり判定は
  *   `[その日の 0:00, 翌日の 0:00)` との交差（`end` 排他）で行う。
  *   したがって、ちょうど 0:00 に終わる発生はその日には出現しない
+ * - `start === end`（長さ 0、リマインダー等）の発生は区間交差では常に
+ *   「重なりなし」と判定されてしまうため特別扱いする。`start` が属する日
+ *   （`[その日の 0:00, 翌日の 0:00)` に含まれる日）に 1 件として表示する
  * - 日内の並び順: 終日イベントが先、その後は開始時刻昇順（同時刻は長い方が先、
  *   それも同じ場合は `eventId` の辞書順）
  * - `isToday` は `now` が表示タイムゾーンで同じ日かどうかで判定する
@@ -55,13 +58,21 @@ export function buildListViewModel(params: {
     // 0:00〜1:00 の発生が当日・翌日の両方に重複出現する。startOfDayInZone で
     // dayEnd を日初へ再正規化して防ぐ（eachDayInRange と同じ理由）
     const dayEnd = startOfDayInZone(addDaysInZone(dayStart, 1, timeZone), timeZone);
-    // [day, 翌日) と重なる発生を集める（end 排他の交差判定）
-    const dayOccurrences = occurrences.filter((occurrence) =>
-      rangesOverlap(
+    // [day, 翌日) と重なる発生を集める（end 排他の交差判定）。
+    // start === end（長さ 0）の発生は区間交差判定では決して重ならないため、
+    // start がこの日に属するかどうかで直接判定する
+    const dayOccurrences = occurrences.filter((occurrence) => {
+      if (occurrence.start.getTime() === occurrence.end.getTime()) {
+        return (
+          occurrence.start.getTime() >= dayStart.getTime() &&
+          occurrence.start.getTime() < dayEnd.getTime()
+        );
+      }
+      return rangesOverlap(
         { start: occurrence.start, end: occurrence.end },
         { start: dayStart, end: dayEnd },
-      ),
-    );
+      );
+    });
     // 発生が 1 件もない日は出力しない
     if (dayOccurrences.length === 0) {
       continue;

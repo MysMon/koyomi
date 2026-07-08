@@ -4,8 +4,9 @@
  *
  * - 空き領域のクリック / ドラッグ → 範囲選択（新規作成）
  * - イベント本体のドラッグ → 移動（列をまたぐ移動・スナップ対応）
- * - 下端ハンドルのドラッグ → リサイズ（終了時刻の変更）
- * - ドラッグ中は Escape でキャンセル
+ * - 下端・上端ハンドルのドラッグ → リサイズ（終了・開始時刻の変更）
+ * - 矢印キーによる移動・リサイズ（フォーカス中の発生に対して）
+ * - ドラッグ中は Escape / pointercancel でキャンセルし、画面端に近づくと自動スクロールする
  *
  * プロップゲッターパターンを採用する。コンポーネントは
  * {@link TimeGridDragHandlers.getDayProps} などを対応する要素に
@@ -50,7 +51,7 @@ export interface TimeGridEventProps {
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   /** クリック（ドラッグに至らなかった場合）で `onEventClick` を呼ぶ。 */
   onClick: (event: ReactMouseEvent<HTMLElement>) => void;
-  /** キーボード操作（Enter = クリック相当、Delete = 削除）。 */
+  /** キーボード操作（Enter = クリック相当、Delete = 削除、矢印キー = 移動・リサイズ）。 */
   onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
   /** フォーカス可能にする。 */
   tabIndex: number;
@@ -70,8 +71,8 @@ export interface TimeGridResizeHandleProps {
    * 発火させてしまうのを防ぐ。
    */
   onClick: (event: ReactMouseEvent<HTMLElement>) => void;
-  /** スタイルフック。 */
-  'data-koyomi-resize-handle': 'true';
+  /** スタイルフック。どちらの端のハンドルかを示す。 */
+  'data-koyomi-resize-handle': 'start' | 'end';
 }
 
 /** 1 日分のドラッグプレビューの表示位置。 */
@@ -90,8 +91,14 @@ export interface TimeGridDragHandlers {
   getDayProps(day: TimeGridDay): TimeGridDayProps;
   /** イベントブロック用の props を返す。 */
   getEventProps(item: PositionedOccurrence): TimeGridEventProps;
-  /** リサイズハンドル用の props を返す。 */
-  getResizeHandleProps(item: PositionedOccurrence): TimeGridResizeHandleProps;
+  /**
+   * リサイズハンドル用の props を返す。
+   * @param edge - どちらの端のハンドルか。省略時は `'end'`（下端、終了時刻の変更）
+   */
+  getResizeHandleProps(
+    item: PositionedOccurrence,
+    edge?: 'start' | 'end',
+  ): TimeGridResizeHandleProps;
   /**
    * 指定日のドラッグプレビュー区間を返す（その日に重ならなければ `null`）。
    * コンポーネントはこれをオーバーレイとして描画する。
@@ -111,8 +118,8 @@ interface ColumnEntry {
 
 /** ドラッグセッション（開始から終了までの内部状態）。 */
 interface DragSession {
-  /** 操作の種類。 */
-  mode: 'create' | 'move' | 'resize';
+  /** 操作の種類。`resize-start` は上端ハンドルによる開始時刻の変更。 */
+  mode: 'create' | 'move' | 'resize' | 'resize-start';
   /** 対象の発生（`create` では `null`）。 */
   occurrence: EventOccurrence | null;
   /** ドラッグ開始時のポインタ位置に対応する日時（スナップ済み）。 */
@@ -120,7 +127,8 @@ interface DragSession {
   /**
    * セッション開始時点（ポインタが実質的に未移動の状態）を基準とするプレビュー範囲。
    * `create` ではクリック相当のプレビュー長（`anchor` から snap 分）、
-   * `move` / `resize` では対象発生の現在の範囲（`occurrence.start`〜`occurrence.end`）。
+   * `move` / `resize` / `resize-start` では対象発生の現在の範囲
+   * （`occurrence.start`〜`occurrence.end`）。
    * {@link DragSession.hasMoved} の判定基準として使う。
    */
   baselineRange: DateRange;
@@ -135,7 +143,7 @@ interface DragSession {
    * クリックによる `onEventClick` が抑制されてしまったりする。
    */
   hasMoved: boolean;
-  /** document に登録したリスナーを解除する。 */
+  /** document に登録したリスナーを解除し、オートスクロールを停止する。 */
   cleanup: () => void;
 }
 
@@ -144,7 +152,7 @@ interface DragSession {
  *
  * - `create`（`occurrence === null`）— ポインタが `anchor` から動いていない場合に
  *   {@link dragPreviewRange} が返す範囲（クリック相当の snap 分の長さ）と同じ式で計算する
- * - `move` / `resize`（`occurrence !== null`）— 対象発生の現在の範囲そのもの。
+ * - `move` / `resize` / `resize-start`（`occurrence !== null`）— 対象発生の現在の範囲そのもの。
  *   `anchor` からの移動量が 0 のときの {@link dragPreviewRange} の計算結果と一致する
  */
 function baselineRangeForSession(
@@ -159,6 +167,14 @@ function baselineRangeForSession(
 }
 
 /**
+ * ドラッグセッションの種類を {@link TimeGridPreviewSegment.kind} に変換する。
+ * `resize-start`（上端ハンドル）は見た目上は `resize` と同じプレビュー種別として扱う。
+ */
+function previewKindForMode(mode: DragSession['mode']): 'create' | 'move' | 'resize' {
+  return mode === 'resize-start' ? 'resize' : mode;
+}
+
+/**
  * 列要素の矩形内でのポインタの縦位置（0〜1）を求める。
  * 矩形の高さが 0 以下の場合は 0 を返す（0 除算・NaN の防御）。
  */
@@ -167,6 +183,119 @@ function fractionYFromClientY(rect: DOMRect, clientY: number): number {
     return 0;
   }
   return (clientY - rect.top) / rect.height;
+}
+
+/**
+ * ドラッグ中のポインタ位置からオートスクロールの速度を計算する。
+ *
+ * `pointer` がスクロールコンテナの上端（`edgeStart`）から `threshold` 未満の
+ * 距離にあれば負（上スクロール）、下端（`edgeEnd`）から `threshold` 未満の距離に
+ * あれば正（下スクロール）の速度を返す。端に近いほど速く、最大でも `maxSpeed` を
+ * 超えない。それ以外の範囲では `0`（スクロールしない）。
+ *
+ * @param params.edgeStart - スクロールコンテナの上端の座標（px）
+ * @param params.edgeEnd - スクロールコンテナの下端の座標（px）
+ * @param params.pointer - 現在のポインタの縦位置（px、`edgeStart` と同じ座標系）
+ * @param params.threshold - 端からオートスクロールが始まる距離（px）。既定は `24`
+ * @param params.maxSpeed - 最大スクロール速度（px/フレーム相当）。既定は `16`
+ * @returns スクロール速度（負 = 上スクロール、正 = 下スクロール、`0` = 停止）
+ * @example
+ * ```ts
+ * autoScrollVelocity({ edgeStart: 0, edgeEnd: 600, pointer: 0 }); // => -16（上端で最大速度）
+ * autoScrollVelocity({ edgeStart: 0, edgeEnd: 600, pointer: 300 }); // => 0（中央では停止）
+ * ```
+ */
+export function autoScrollVelocity(params: {
+  edgeStart: number;
+  edgeEnd: number;
+  pointer: number;
+  threshold?: number;
+  maxSpeed?: number;
+}): number {
+  const { edgeStart, edgeEnd, pointer, threshold = 24, maxSpeed = 16 } = params;
+  if (threshold <= 0) {
+    return 0;
+  }
+  const topBoundary = edgeStart + threshold;
+  if (pointer < topBoundary) {
+    const depth = Math.min(topBoundary - pointer, threshold);
+    return -(depth / threshold) * maxSpeed;
+  }
+  const bottomBoundary = edgeEnd - threshold;
+  if (pointer > bottomBoundary) {
+    const depth = Math.min(pointer - bottomBoundary, threshold);
+    return (depth / threshold) * maxSpeed;
+  }
+  return 0;
+}
+
+/**
+ * 矢印キー操作に対応する「操作種別・変更後の日時範囲」を計算する。
+ * 対象外のキーなら `null` を返す。
+ *
+ * - `ArrowUp` / `ArrowDown` — 発生を ∓/± `snap` 分移動する（開始・終了とも壁時計移動）
+ * - `Shift+ArrowUp` / `Shift+ArrowDown` — 終了時刻を ∓/± `snap` 分リサイズする。
+ *   最小長 `snap` 分を下回る場合は変更しない（`range` は現状の範囲のまま返す）
+ * - `ArrowLeft` / `ArrowRight` — 発生を ∓/± 1 日移動する
+ */
+function arrowKeyChange(
+  occurrence: EventOccurrence,
+  key: string,
+  shiftKey: boolean,
+  context: { timeZone: string; snap: number },
+): { action: 'move' | 'resize'; range: DateRange } | null {
+  const { timeZone, snap } = context;
+  switch (key) {
+    case 'ArrowUp':
+      if (shiftKey) {
+        const minEnd = addMinutesInZone(occurrence.start, snap, timeZone);
+        const candidate = addMinutesInZone(occurrence.end, -snap, timeZone);
+        const end = candidate.getTime() < minEnd.getTime() ? occurrence.end : candidate;
+        return { action: 'resize', range: { start: occurrence.start, end } };
+      }
+      return {
+        action: 'move',
+        range: {
+          start: addMinutesInZone(occurrence.start, -snap, timeZone),
+          end: addMinutesInZone(occurrence.end, -snap, timeZone),
+        },
+      };
+    case 'ArrowDown':
+      if (shiftKey) {
+        return {
+          action: 'resize',
+          range: {
+            start: occurrence.start,
+            end: addMinutesInZone(occurrence.end, snap, timeZone),
+          },
+        };
+      }
+      return {
+        action: 'move',
+        range: {
+          start: addMinutesInZone(occurrence.start, snap, timeZone),
+          end: addMinutesInZone(occurrence.end, snap, timeZone),
+        },
+      };
+    case 'ArrowLeft':
+      return {
+        action: 'move',
+        range: {
+          start: addDaysInZone(occurrence.start, -1, timeZone),
+          end: addDaysInZone(occurrence.end, -1, timeZone),
+        },
+      };
+    case 'ArrowRight':
+      return {
+        action: 'move',
+        range: {
+          start: addDaysInZone(occurrence.start, 1, timeZone),
+          end: addDaysInZone(occurrence.end, 1, timeZone),
+        },
+      };
+    default:
+      return null;
+  }
 }
 
 /**
@@ -192,7 +321,7 @@ export function useTimeGridDrag(params: {
   const registryRef = useRef(new Map<string, ColumnEntry>());
   /** 進行中のドラッグセッション（非ドラッグ中は `null`）。 */
   const dragSessionRef = useRef<DragSession | null>(null);
-  /** 直後の click イベントを 1 回だけ抑制するフラグ（ドラッグ確定直後用）。 */
+  /** 直後の click イベントを 1 回だけ抑制するフラグ（ドラッグ確定・Escape キャンセル直後用）。 */
   const suppressNextClickRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -203,6 +332,21 @@ export function useTimeGridDrag(params: {
       dragSessionRef.current = null;
     };
   }, []);
+
+  /**
+   * インタラクション中の非同期処理で発生した例外を報告する。
+   * `callbacks.onError` があればそれを呼び、なければ console.error に出力する
+   * （{@link CalendarInteractionCallbacks.onError} の既定動作）。
+   */
+  function reportError(error: unknown): void {
+    const onError = paramsRef.current.callbacks?.onError;
+    if (onError) {
+      onError(error);
+      return;
+    }
+    // biome-ignore lint/suspicious/noConsole: onError 未指定時の既定動作
+    console.error(error);
+  }
 
   /**
    * clientX を含む列（なければ中心距離が最も近い列）を探す。
@@ -286,35 +430,21 @@ export function useTimeGridDrag(params: {
     paramsRef.current.calendar.api.setDragPreview(null);
   }
 
-  /** 移動・リサイズドラッグの確定処理。移動がなかった場合は何もしない（クリックは onClick に任せる）。 */
-  async function commitMoveOrResize(session: DragSession, nativeEvent: MouseEvent): Promise<void> {
-    if (!session.hasMoved) {
-      return;
-    }
-    const occurrence = session.occurrence;
-    if (occurrence === null) {
-      return;
-    }
-    const range = computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY);
-    if (range === null) {
-      paramsRef.current.calendar.api.setDragPreview(null);
-      return;
-    }
-
-    let recurringScope: RecurringEditScope | null = null;
-    if (occurrence.isRecurring) {
-      const action: 'move' | 'resize' = session.mode === 'resize' ? 'resize' : 'move';
-      const resolveRecurringScope = paramsRef.current.callbacks?.resolveRecurringScope;
-      const resolved = resolveRecurringScope
-        ? await resolveRecurringScope(occurrence, action)
-        : 'this';
-      if (resolved === null) {
-        paramsRef.current.calendar.api.setDragPreview(null);
-        return;
-      }
-      recurringScope = resolved;
-    }
-
+  /**
+   * 発生の日時範囲変更を実際に適用し、`onEventChange` を通知する（スコープ解決済みの前提）。
+   *
+   * 常に同期的に完結させる（`async` にしない）。`resolveRecurringScope` の解決を
+   * ここに含めて `await` してしまうと、繰り返しでない発生に対しても呼び出し元
+   * （{@link commitMoveOrResize}）の完了が 1 マイクロタスク遅れてしまい、
+   * ドラッグ確定直後にブラウザが発火するネイティブ `click` に対する
+   * `suppressNextClickRef` の設定が間に合わなくなる。
+   * ドラッグ確定（{@link commitMoveOrResize}）とキーボード操作の両方から共通で使う。
+   */
+  function applyOccurrenceRange(
+    occurrence: EventOccurrence,
+    recurringScope: RecurringEditScope | null,
+    range: DateRange,
+  ): void {
     paramsRef.current.calendar.api.updateEvent(
       occurrence.eventId,
       { start: range.start, end: range.end },
@@ -328,8 +458,61 @@ export function useTimeGridDrag(params: {
       allDay: false,
       scope: recurringScope,
     });
-    suppressNextClickRef.current = true;
-    paramsRef.current.calendar.api.setDragPreview(null);
+  }
+
+  /**
+   * 繰り返し発生のスコープを解決する。呼び出し元は `occurrence.isRecurring` が
+   * `true` の場合にのみ呼ぶこと（単発発生は呼び出し元で `null` 固定とし、
+   * この関数を経由しない＝ `await` を発生させない）。
+   *
+   * @returns 解決されたスコープ。キャンセルされた場合は `null`
+   */
+  async function resolveScopeForRecurring(
+    occurrence: EventOccurrence,
+    action: 'move' | 'resize' | 'delete' | 'update',
+  ): Promise<RecurringEditScope | null> {
+    const resolveRecurringScope = paramsRef.current.callbacks?.resolveRecurringScope;
+    return resolveRecurringScope ? resolveRecurringScope(occurrence, action) : 'this';
+  }
+
+  /**
+   * 移動・リサイズドラッグの確定処理。移動がなかった場合は何もしない（クリックは onClick に任せる）。
+   *
+   * 単発発生（繰り返しでない）の場合は `await` が一度も発生せず同期的に完結する
+   * （{@link applyOccurrenceRange} 参照）。これは、ドラッグ確定直後にブラウザが
+   * 発火するネイティブ `click` に対して `suppressNextClickRef` の設定を間に合わせるために
+   * 必要（繰り返し発生の場合のみ `resolveRecurringScope` の解決を待つ）。
+   *
+   * `finally` で必ず `setDragPreview(null)` を呼ぶ。`resolveRecurringScope` が
+   * 例外を投げた場合や途中で早期リターンした場合でもプレビューが残留しないようにするため。
+   */
+  async function commitMoveOrResize(session: DragSession, nativeEvent: MouseEvent): Promise<void> {
+    try {
+      if (!session.hasMoved) {
+        return;
+      }
+      const occurrence = session.occurrence;
+      if (occurrence === null) {
+        return;
+      }
+      const range = computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY);
+      if (range === null) {
+        return;
+      }
+      const action: 'move' | 'resize' = session.mode === 'move' ? 'move' : 'resize';
+      let recurringScope: RecurringEditScope | null = null;
+      if (occurrence.isRecurring) {
+        const resolved = await resolveScopeForRecurring(occurrence, action);
+        if (resolved === null) {
+          return;
+        }
+        recurringScope = resolved;
+      }
+      applyOccurrenceRange(occurrence, recurringScope, range);
+      suppressNextClickRef.current = true;
+    } finally {
+      paramsRef.current.calendar.api.setDragPreview(null);
+    }
   }
 
   /** セッションの種類に応じて確定処理を振り分ける。 */
@@ -338,12 +521,12 @@ export function useTimeGridDrag(params: {
       commitCreate(session, nativeEvent);
       return;
     }
-    void commitMoveOrResize(session, nativeEvent);
+    void commitMoveOrResize(session, nativeEvent).catch(reportError);
   }
 
   /**
-   * ドラッグセッションを開始する。document に pointermove / pointerup / keydown の
-   * リスナーを登録し、`cleanup` でそれらを解除できるようにする。
+   * ドラッグセッションを開始する。document に pointermove / pointerup / pointercancel /
+   * keydown のリスナーを登録し、`cleanup` でそれらを解除できるようにする。
    */
   function startSession(
     mode: DragSession['mode'],
@@ -359,6 +542,57 @@ export function useTimeGridDrag(params: {
       snap: state.options.snapMinutes,
     });
 
+    // オートスクロール用の状態。セッションごとに独立させるため startSession の
+    // クロージャ内に閉じ込める（同時に有効なドラッグセッションは 1 つだけなので安全）。
+    let scrollContainer: Element | null = null;
+    let scrollVelocity = 0;
+    let scrollFrameId: number | null = null;
+
+    const scrollStep = (): void => {
+      if (scrollContainer === null || scrollVelocity === 0) {
+        scrollFrameId = null;
+        return;
+      }
+      scrollContainer.scrollTop += scrollVelocity;
+      scrollFrameId = requestAnimationFrame(scrollStep);
+    };
+
+    const stopAutoScroll = (): void => {
+      if (scrollFrameId !== null) {
+        cancelAnimationFrame(scrollFrameId);
+        scrollFrameId = null;
+      }
+      scrollContainer = null;
+      scrollVelocity = 0;
+    };
+
+    /** ポインタ位置からオートスクロールの要否・速度を求め、必要なら rAF ループを開始する。 */
+    const updateAutoScroll = (clientX: number, clientY: number): void => {
+      const column = findColumnForClientX(clientX);
+      const container = column?.element.closest('[data-koyomi="timegrid-body"]') ?? null;
+      if (container === null) {
+        stopAutoScroll();
+        return;
+      }
+      const rect = container.getBoundingClientRect();
+      scrollContainer = container;
+      scrollVelocity = autoScrollVelocity({
+        edgeStart: rect.top,
+        edgeEnd: rect.bottom,
+        pointer: clientY,
+      });
+      if (scrollVelocity === 0) {
+        if (scrollFrameId !== null) {
+          cancelAnimationFrame(scrollFrameId);
+          scrollFrameId = null;
+        }
+        return;
+      }
+      if (scrollFrameId === null) {
+        scrollFrameId = requestAnimationFrame(scrollStep);
+      }
+    };
+
     const session: DragSession = {
       mode,
       occurrence,
@@ -368,12 +602,23 @@ export function useTimeGridDrag(params: {
       cleanup: () => {
         document.removeEventListener('pointermove', handlePointerMove);
         document.removeEventListener('pointerup', handlePointerUp);
+        document.removeEventListener('pointercancel', handlePointerCancel);
         document.removeEventListener('keydown', handleKeyDown);
+        stopAutoScroll();
       },
+    };
+
+    /** ドラッグを中断してプレビューを破棄する（コミットしない）。Escape / pointercancel 共通の経路。 */
+    const cancelSession = (): void => {
+      session.cleanup();
+      dragSessionRef.current = null;
+      setIsDragging(false);
+      paramsRef.current.calendar.api.setDragPreview(null);
     };
 
     // jsdom は PointerEvent 未実装のことがあるため、MouseEvent 互換の型で受け取る。
     const handlePointerMove = (nativeEvent: MouseEvent): void => {
+      updateAutoScroll(nativeEvent.clientX, nativeEvent.clientY);
       const range = computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY);
       if (range === null) {
         return;
@@ -385,7 +630,7 @@ export function useTimeGridDrag(params: {
         session.hasMoved = true;
       }
       paramsRef.current.calendar.api.setDragPreview({
-        kind: session.mode,
+        kind: previewKindForMode(session.mode),
         occurrenceKey: session.occurrence?.key ?? null,
         range,
         allDay: false,
@@ -399,18 +644,22 @@ export function useTimeGridDrag(params: {
       commitSession(session, nativeEvent);
     };
 
+    const handlePointerCancel = (): void => {
+      cancelSession();
+    };
+
     const handleKeyDown = (nativeEvent: KeyboardEvent): void => {
       if (nativeEvent.key !== 'Escape') {
         return;
       }
-      session.cleanup();
-      dragSessionRef.current = null;
-      setIsDragging(false);
-      paramsRef.current.calendar.api.setDragPreview(null);
+      // 直後に発火するネイティブ click で onEventClick が誤って発火しないようにする。
+      suppressNextClickRef.current = true;
+      cancelSession();
     };
 
     document.addEventListener('pointermove', handlePointerMove);
     document.addEventListener('pointerup', handlePointerUp);
+    document.addEventListener('pointercancel', handlePointerCancel);
     document.addEventListener('keydown', handleKeyDown);
 
     dragSessionRef.current = session;
@@ -463,9 +712,12 @@ export function useTimeGridDrag(params: {
   /**
    * リサイズハンドルのドラッグを開始する。`editable: false` の場合は開始しない。
    * `stopPropagation` を常に呼ぶ理由は {@link handleEventPointerDown} と同じ。
+   *
+   * @param edge - `'end'`（下端、終了時刻の変更）か `'start'`（上端、開始時刻の変更）か
    */
   function handleResizePointerDown(
     occurrence: EventOccurrence,
+    edge: 'start' | 'end',
     event: ReactPointerEvent<HTMLElement>,
   ): void {
     event.stopPropagation();
@@ -473,6 +725,10 @@ export function useTimeGridDrag(params: {
       return;
     }
     if (event.button !== 0) {
+      return;
+    }
+    if (edge === 'start') {
+      startSession('resize-start', occurrence, anchorFromPointer(event, occurrence.start));
       return;
     }
     startSession('resize', occurrence, anchorFromPointer(event, occurrence.end));
@@ -493,6 +749,8 @@ export function useTimeGridDrag(params: {
   /**
    * 繰り返し発生の削除。スコープ解決が必要な場合は解決してから削除する。
    * `editable: false` のイベントは削除しない（ドラッグ移動・リサイズと同じ契約）。
+   * 削除が実際に適用された後（スコープ解決がキャンセルでなかった場合）に
+   * `callbacks.onEventDelete` を通知する。
    */
   async function deleteOccurrence(occurrence: EventOccurrence): Promise<void> {
     if (occurrence.event.editable === false) {
@@ -500,12 +758,10 @@ export function useTimeGridDrag(params: {
     }
     if (!occurrence.isRecurring) {
       paramsRef.current.calendar.api.deleteEvent(occurrence.eventId);
+      paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope: null });
       return;
     }
-    const resolveRecurringScope = paramsRef.current.callbacks?.resolveRecurringScope;
-    const scope = resolveRecurringScope
-      ? await resolveRecurringScope(occurrence, 'delete')
-      : 'this';
+    const scope = await resolveScopeForRecurring(occurrence, 'delete');
     if (scope === null) {
       return;
     }
@@ -513,9 +769,41 @@ export function useTimeGridDrag(params: {
       occurrenceStart: occurrence.originalStart,
       scope,
     });
+    paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope });
   }
 
-  /** キーボード操作（Enter/Space = クリック相当、Delete/Backspace = 削除）。 */
+  /**
+   * 矢印キー操作による変更を確定する。単発発生の場合は `await` を発生させず
+   * 同期的に完結する（{@link commitMoveOrResize} と同じ理由）。
+   */
+  async function commitArrowKeyChange(
+    occurrence: EventOccurrence,
+    action: 'move' | 'resize',
+    range: DateRange,
+  ): Promise<void> {
+    let recurringScope: RecurringEditScope | null = null;
+    if (occurrence.isRecurring) {
+      const resolved = await resolveScopeForRecurring(occurrence, action);
+      if (resolved === null) {
+        return;
+      }
+      recurringScope = resolved;
+    }
+    applyOccurrenceRange(occurrence, recurringScope, range);
+  }
+
+  /**
+   * キーボード操作。
+   * - `Enter` / `Space` — クリック相当（`onEventClick` を呼ぶ）
+   * - `Delete` / `Backspace` — 削除
+   * - `ArrowUp` / `ArrowDown` — ± `snapMinutes` 分移動、`Shift` 併用で終了時刻を
+   *   ∓/± `snapMinutes` 分リサイズ
+   * - `ArrowLeft` / `ArrowRight` — ∓/± 1 日移動
+   *
+   * 矢印キーの操作は認識した時点で `preventDefault` を呼ぶ。`editable: false` の
+   * 発生には適用しない。繰り返し発生は `resolveRecurringScope` で解決し、
+   * `null` ならキャンセルする。
+   */
   function handleEventKeyDown(
     occurrence: EventOccurrence,
     event: ReactKeyboardEvent<HTMLElement>,
@@ -526,8 +814,30 @@ export function useTimeGridDrag(params: {
       return;
     }
     if (event.key === 'Delete' || event.key === 'Backspace') {
-      void deleteOccurrence(occurrence);
+      void deleteOccurrence(occurrence).catch(reportError);
+      return;
     }
+
+    const { state } = paramsRef.current.calendar;
+    const change = arrowKeyChange(occurrence, event.key, event.shiftKey, {
+      timeZone: state.timeZone,
+      snap: state.options.snapMinutes,
+    });
+    if (change === null) {
+      return;
+    }
+    event.preventDefault();
+    if (occurrence.event.editable === false) {
+      return;
+    }
+    if (
+      change.range.start.getTime() === occurrence.start.getTime() &&
+      change.range.end.getTime() === occurrence.end.getTime()
+    ) {
+      // 最小長のクランプなどで実質的な変更がない場合は何もしない
+      return;
+    }
+    void commitArrowKeyChange(occurrence, change.action, change.range).catch(reportError);
   }
 
   function getDayProps(day: TimeGridDay): TimeGridDayProps {
@@ -567,16 +877,19 @@ export function useTimeGridDrag(params: {
     return base;
   }
 
-  function getResizeHandleProps(item: PositionedOccurrence): TimeGridResizeHandleProps {
+  function getResizeHandleProps(
+    item: PositionedOccurrence,
+    edge: 'start' | 'end' = 'end',
+  ): TimeGridResizeHandleProps {
     const occurrence = item.occurrence;
     return {
       onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
-        handleResizePointerDown(occurrence, event);
+        handleResizePointerDown(occurrence, edge, event);
       },
       onClick: (event: ReactMouseEvent<HTMLElement>) => {
         event.stopPropagation();
       },
-      'data-koyomi-resize-handle': 'true',
+      'data-koyomi-resize-handle': edge,
     };
   }
 

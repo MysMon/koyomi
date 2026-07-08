@@ -107,6 +107,37 @@ describe('useCalendar', () => {
     expect(secondHandler).toHaveBeenCalledTimes(1);
   });
 
+  it('refreshSeconds を指定すると時間経過で viewModel が再構築される（現在時刻線の追従）', () => {
+    vi.useFakeTimers();
+    try {
+      let current = new Date('2026-07-15T01:00:00Z'); // 東京 10:00
+      const { result } = renderHook(() =>
+        useCalendar({
+          timeZone: 'Asia/Tokyo',
+          initialDate: new Date('2026-07-15T01:00:00Z'),
+          initialView: 'week',
+          now: () => current,
+          refreshSeconds: 60,
+        }),
+      );
+
+      const vmBefore = result.current.viewModel;
+      if (vmBefore.type !== 'timeGrid') throw new Error('unreachable');
+      expect(vmBefore.nowIndicator?.minutes).toBe(600);
+
+      current = new Date('2026-07-15T01:05:00Z'); // 東京 10:05
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+
+      const vmAfter = result.current.viewModel;
+      if (vmAfter.type !== 'timeGrid') throw new Error('unreachable');
+      expect(vmAfter.nowIndicator?.minutes).toBe(605);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('SSR（renderToString）でも例外にならず初期状態を描画できる', () => {
     function ServerComponent(): ReactElement {
       const calendar = useCalendar({

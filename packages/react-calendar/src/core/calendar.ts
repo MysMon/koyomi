@@ -30,6 +30,7 @@ import type {
   EventOccurrence,
   ResolvedCalendarOptions,
   TimeZoneId,
+  Weekday,
 } from './types';
 import { buildListViewModel } from './views/list-view';
 import { buildMonthViewModel } from './views/month-view';
@@ -44,7 +45,17 @@ const DEFAULT_OPTIONS: Omit<ResolvedCalendarOptions, 'now'> = {
   defaultEventMinutes: 60,
   listDays: 30,
   locale: 'ja',
+  hiddenWeekdays: [],
 };
+
+/**
+ * `hiddenWeekdays` を正規化する。重複を除き、7 曜日すべてが指定された場合は
+ * 表示できる日がなくなるため無効な設定として空配列を返す。
+ */
+function normalizeHiddenWeekdays(hiddenWeekdays: readonly Weekday[]): readonly Weekday[] {
+  const unique = [...new Set(hiddenWeekdays)];
+  return unique.length >= 7 ? [] : unique;
+}
 
 /** 自動採番 ID のプレフィックス。 */
 const ID_PREFIX = 'koyomi-';
@@ -66,8 +77,31 @@ function resolveOptions(
     defaultEventMinutes: options?.defaultEventMinutes ?? current.defaultEventMinutes,
     listDays: options?.listDays ?? current.listDays,
     locale: options?.locale ?? current.locale,
+    hiddenWeekdays:
+      options?.hiddenWeekdays !== undefined
+        ? normalizeHiddenWeekdays(options.hiddenWeekdays)
+        : current.hiddenWeekdays,
     now: options?.now ?? current.now,
   };
+}
+
+/**
+ * 解決済みオプション同士を浅く比較する。
+ * `hiddenWeekdays` は配列の中身（順序込み）で比較する。
+ */
+function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOptions): boolean {
+  return (
+    a.weekStartsOn === b.weekStartsOn &&
+    a.dayMaxEvents === b.dayMaxEvents &&
+    a.snapMinutes === b.snapMinutes &&
+    a.slotMinutes === b.slotMinutes &&
+    a.defaultEventMinutes === b.defaultEventMinutes &&
+    a.listDays === b.listDays &&
+    a.locale === b.locale &&
+    a.now === b.now &&
+    a.hiddenWeekdays.length === b.hiddenWeekdays.length &&
+    a.hiddenWeekdays.every((weekday, index) => weekday === b.hiddenWeekdays[index])
+  );
 }
 
 /** タイムゾーンを検証し、不正なら例外を投げる。 */
@@ -92,7 +126,9 @@ function assertValidDate(date: Date): void {
  *
  * @remarks
  * - `getState()` が返すスナップショットは、状態が変わらない限り同一の
- *   オブジェクト参照を返す（`useSyncExternalStore` との整合のため）
+ *   オブジェクト参照を返す（`useSyncExternalStore` との整合のため）。
+ *   値が実際に変わらない設定操作（同じ view / timeZone / 日時、同一の
+ *   イベント配列参照、内容が同じオプションパッチなど）は通知自体を発生させない
  * - `getViewModel()` の結果は、ビューモデルに影響する状態
  *   （ビュー・基準日・タイムゾーン・イベント・オプション）が変わるまで
  *   キャッシュされる。`setDragPreview` はキャッシュを無効化しない
@@ -203,6 +239,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           occurrences,
           weekStartsOn: resolvedOptions.weekStartsOn,
           dayMaxEvents: resolvedOptions.dayMaxEvents,
+          hiddenWeekdays: resolvedOptions.hiddenWeekdays,
           now,
         });
       case 'week':
@@ -214,6 +251,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           occurrences,
           weekStartsOn: resolvedOptions.weekStartsOn,
           slotMinutes: resolvedOptions.slotMinutes,
+          hiddenWeekdays: resolvedOptions.hiddenWeekdays,
           now,
         });
       case 'list':
@@ -280,28 +318,50 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
 
     goTo(date: Date): void {
       assertValidDate(date);
+      if (date.getTime() === currentDate.getTime()) {
+        return;
+      }
       currentDate = date;
       commit(true);
     },
 
     setTimeZone(next: TimeZoneId): void {
       assertTimeZone(next);
+      if (next === timeZone) {
+        return;
+      }
       timeZone = next;
       commit(true);
     },
 
-    updateOptions(patch: Partial<CalendarOptions>): void {
-      if (patch.timeZone !== undefined) {
+    updateOptions(patch: Partial<Omit<CalendarOptions, 'initialView' | 'initialDate'>>): void {
+      let changed = false;
+      if (patch.timeZone !== undefined && patch.timeZone !== timeZone) {
         assertTimeZone(patch.timeZone);
         timeZone = patch.timeZone;
+        changed = true;
       }
-      if (patch.events !== undefined) {
+      if (patch.events !== undefined && patch.events !== events) {
         events = patch.events;
+        changed = true;
       }
       if (patch.onEventsChange !== undefined) {
+        // コールバックの差し替えは state スナップショットに影響しないため通知しない
         onEventsChange = patch.onEventsChange;
       }
-      resolvedOptions = resolveOptions(patch, resolvedOptions);
+      const nextResolved = resolveOptions(patch, resolvedOptions);
+      if (!resolvedOptionsEqual(nextResolved, resolvedOptions)) {
+        resolvedOptions = nextResolved;
+        changed = true;
+      }
+      if (changed) {
+        commit(true);
+      }
+    },
+
+    refresh(): void {
+      // 状態は変えず、ビューモデルキャッシュを破棄して通知する。
+      // 再構築時に now() が再評価され、「今日」判定と現在時刻線が最新になる
       commit(true);
     },
 
@@ -312,6 +372,9 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
     },
 
     setEvents(next: readonly CalendarEvent[]): void {
+      if (next === events) {
+        return;
+      }
       // 外部同期の入口なので onEventsChange は呼ばない（エコーループ防止）
       events = next;
       commit(true);
@@ -353,6 +416,9 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
     // --- ドラッグプレビュー ---
 
     setDragPreview(preview: DragPreview | null): void {
+      if (preview === dragPreview) {
+        return;
+      }
       dragPreview = preview;
       // プレビューはビューモデルに影響しない（オーバーレイ描画用）
       commit(false);

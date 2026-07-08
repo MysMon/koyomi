@@ -3,10 +3,23 @@
  * `useCalendar` — カレンダーエンジンを React に接続するメインフック。
  */
 
-import { useMemo, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { createCalendar } from '../core/calendar';
 import type { CalendarEvent, CalendarOptions } from '../core/types';
 import type { UseCalendarResult } from './types';
+
+/**
+ * `useCalendar` のオプション。{@link CalendarOptions} に React 層固有の
+ * 設定を加えたもの。
+ */
+export interface UseCalendarOptions extends CalendarOptions {
+  /**
+   * 指定秒数ごとに {@link CalendarApi.refresh} を呼び、「今日」の判定と
+   * 現在時刻線を時間経過に追従させる。省略時（または 0 以下）は自動更新しない。
+   * 現在時刻線の分解能は分単位なので、通常は `60` で十分。
+   */
+  refreshSeconds?: number;
+}
 
 /**
  * 開発ビルドかどうか。バンドラなしのブラウザ実行（`process` 未定義）では
@@ -26,7 +39,8 @@ function isDevBuild(): boolean {
  * @param options - カレンダーのオプション。**初期値として一度だけ** 使われる
  *   （後から変更しても反映されない。動的に変更する場合は
  *   `api.updateOptions` / `api.setEvents` / `api.setTimeZone` を使う）。
- *   ただし `onEventsChange` コールバックは常に最新の関数が呼ばれる。
+ *   ただし `onEventsChange` コールバックと `refreshSeconds` は例外で、
+ *   常に最新の値が反映される。
  * @returns {@link UseCalendarResult}
  *
  * @example
@@ -47,7 +61,7 @@ function isDevBuild(): boolean {
  * }
  * ```
  */
-export function useCalendar(options?: CalendarOptions): UseCalendarResult {
+export function useCalendar(options?: UseCalendarOptions): UseCalendarResult {
   /** 最新の `onEventsChange` を保持する参照。エンジンには安定ラッパのみを渡す。 */
   const onEventsChangeRef = useRef(options?.onEventsChange);
   onEventsChangeRef.current = options?.onEventsChange;
@@ -92,6 +106,21 @@ export function useCalendar(options?: CalendarOptions): UseCalendarResult {
   // キャッシュされた同一参照を返すため、サーバーレンダー中の一貫性も保たれる。
   const state = useSyncExternalStore(api.subscribe, api.getState, api.getState);
   const viewModel = api.getViewModel();
+
+  // refreshSeconds による現在時刻の自動追従（0 以下なら何もしない）。
+  // onEventsChange と同様に、レンダーごとの最新値が反映される
+  const refreshSeconds = options?.refreshSeconds ?? 0;
+  useEffect(() => {
+    if (refreshSeconds <= 0) {
+      return undefined;
+    }
+    const timer = setInterval(() => {
+      api.refresh();
+    }, refreshSeconds * 1000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [refreshSeconds, api]);
 
   /**
    * `api` / `state` / `viewModel` はいずれも安定（不変なら参照が変わらない）だが、
