@@ -18,6 +18,8 @@ import { TimeGridView } from './time-grid-view';
 const TOKYO = 'Asia/Tokyo';
 /** テスト用の固定「現在時刻」。Asia/Tokyo で 2026-07-15（水） 10:00。 */
 const NOW = new Date('2026-07-15T01:00:00Z');
+/** events 未指定時に毎レンダー同じ参照を渡し、useCalendar の開発時警告を避ける。 */
+const EMPTY_EVENTS: readonly CalendarEvent[] = [];
 
 /** テスト用ハーネスの props。 */
 interface HarnessProps {
@@ -40,7 +42,7 @@ function Harness(props: HarnessProps): ReactElement {
     now: () => NOW,
     initialDate: NOW,
     initialView: props.initialView,
-    events: props.events ?? [],
+    events: props.events ?? EMPTY_EVENTS,
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -216,6 +218,53 @@ describe('TimeGridView', () => {
     expect(onEventClick).toHaveBeenCalledTimes(1);
     const [occurrence] = onEventClick.mock.calls[0] as [{ eventId: string }];
     expect(occurrence.eventId).toBe('e1');
+  });
+
+  it('イベント上の Enter / Space は既定動作を抑制し、onEventClick を 1 回だけ呼ぶ', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+    ];
+    const onEventClick = vi.fn();
+    const { container } = render(
+      <Harness initialView="day" events={events} callbacks={{ onEventClick }} />,
+    );
+    const eventEl = container.querySelector('[data-koyomi="timegrid-event"]');
+    expect(eventEl).not.toBeNull();
+    if (eventEl === null) {
+      throw new Error('timegrid-event が見つかりません');
+    }
+
+    expect(fireEvent.keyDown(eventEl, { key: 'Enter' })).toBe(false);
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+    expect(fireEvent.keyDown(eventEl, { key: ' ' })).toBe(false);
+    expect(onEventClick).toHaveBeenCalledTimes(2);
+  });
+
+  it('イベント上の Delete / Backspace は既定動作を抑制し、削除操作に使われる', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '削除対象', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+    ];
+    const { container } = render(<Harness initialView="day" events={events} sink={sink} />);
+    const deleteTarget = container.querySelector('[data-koyomi="timegrid-event"]');
+    expect(deleteTarget).not.toBeNull();
+    if (deleteTarget === null) {
+      throw new Error('timegrid-event が見つかりません');
+    }
+
+    expect(fireEvent.keyDown(deleteTarget, { key: 'Delete' })).toBe(false);
+    expect(sink.current?.api.getEvents()).toHaveLength(0);
+
+    act(() => {
+      sink.current?.api.setEvents(events);
+    });
+    const backspaceTarget = container.querySelector('[data-koyomi="timegrid-event"]');
+    expect(backspaceTarget).not.toBeNull();
+    if (backspaceTarget === null) {
+      throw new Error('timegrid-event が見つかりません');
+    }
+    expect(fireEvent.keyDown(backspaceTarget, { key: 'Backspace' })).toBe(false);
+    expect(sink.current?.api.getEvents()).toHaveLength(0);
   });
 
   it('日番号ボタンをクリックすると、その日へ移動して day ビューに切り替わる', () => {

@@ -956,11 +956,12 @@ export function useTimeGridDrag(params: {
     event: ReactKeyboardEvent<HTMLElement>,
   ): void {
     if (event.key === 'Enter' || event.key === ' ') {
-      // キーボード操作由来のためポインタ座標を持たない MouseEvent を新規に作成する。
-      paramsRef.current.callbacks?.onEventClick?.(occurrence, new MouseEvent('click'));
+      event.preventDefault();
+      event.currentTarget.click();
       return;
     }
     if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault();
       void deleteOccurrence(occurrence).catch(reportError);
       return;
     }
