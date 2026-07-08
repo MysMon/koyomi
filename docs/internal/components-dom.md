@@ -44,24 +44,32 @@ div[data-koyomi="toolbar"]
 ## 月ビュー（MonthView）
 
 ```
-div[data-koyomi="month"]
-  div[data-koyomi="month-weekdays"]
-    div[data-koyomi="month-weekday"] × 7            … 曜日ラベル（Intl、週開始順）
-  div[data-koyomi="month-weeks"]
+div[data-koyomi="month"] (role="grid")
+  div[data-koyomi="month-weekdays"] (role="row")
+    div[data-koyomi="month-weekday"] (role="columnheader") × 可視列数
+                                                      … 曜日ラベル（Intl、週開始順、hiddenWeekdays 除外後）
+  div[data-koyomi="month-weeks"] (role="rowgroup")
     div[data-koyomi="month-week"] × 4..6            … position: relative の基準（テーマ側）
-      div[data-koyomi="month-days"]
+      div[data-koyomi="month-days"] (role="row")
         div[data-koyomi="month-day"][data-koyomi-date="YYYY-MM-DD"]
-           [data-today?][data-outside?] × 7          … useDayDrag.getDayCellProps を展開
+           (role="gridcell", tabIndex=0, aria-label=完全な日付, aria-current="date"?)
+           [data-today?][data-outside?] × 可視列数    … useDayDrag.getDayCellProps を展開
+                                                       （Enter/Space でその日 1 日分の範囲選択）
+          … 内容は renderDayCell で差し替え可能（既定は以下）
           button[data-koyomi="month-day-number"]     … クリックでその日の day ビューへ
-          button[data-koyomi="month-overflow"]?      … 「+N 件」（overflowCount > 0 のとき）
-      div[data-koyomi="month-events"]                … セグメント層（クリックを透過させる）
+          button[data-koyomi="month-overflow"]?      … 「+N 件」（overflowCount > 0 のとき、
+                                                        文言は overflowLabel で差し替え可）
+      div[data-koyomi="month-events"] (aria-hidden への配慮は role="presentation")
         button[data-koyomi="month-event"] × n        … useDayDrag.getSegmentProps を展開
            [data-all-day?][data-continues-before?][data-continues-after?][data-koyomi-dragging?]
-           style: left/width は %、top は calc(var(--koyomi-month-header-height, 24px)
+           style: insetInlineStart/width は %（可視列数基準）、top は
+                  calc(var(--koyomi-month-header-height, 24px)
                   + lane × var(--koyomi-lane-height, 24px))
            内容既定: 時間指定は開始時刻＋タイトル、終日はタイトル
-      div[data-koyomi="day-selection"]?              … ドラッグ選択・プレビューのハイライト
-           style: left/width %（その週と previewRange の交差から計算）
+          span[data-koyomi="month-event-resize"][data-edge="start|end"]?
+             … getSegmentResizeHandleProps。editable: false / continues 側には出力しない
+      div[data-koyomi="day-selection"]? (aria-hidden)  … ドラッグ選択・プレビューのハイライト
+           style: insetInlineStart/width %（その週と previewRange の交差から計算）
 ```
 
 - `hidden: true` のセグメントは DOM に出力しない（「+N 件」に集約）
@@ -73,14 +81,17 @@ div[data-koyomi="month"]
 div[data-koyomi="timegrid"][data-koyomi-days="7|1"]
   div[data-koyomi="timegrid-header"]
     div[data-koyomi="timegrid-axis-gutter"]          … 左上の空き（時間軸幅の確保）
-    div[data-koyomi="timegrid-day-header"][data-koyomi-date][data-today?] × days
-      … 曜日＋日番号。日番号は button[data-koyomi="timegrid-day-number"]（day ビューへ）
+    div[data-koyomi="timegrid-day-header"][data-koyomi-date][data-today?][aria-current="date"?] × days
+      … 曜日＋日番号（renderDayHeader で差し替え可）。
+        日番号は button[data-koyomi="timegrid-day-number"]（aria-label=完全な日付、day ビューへ）
   div[data-koyomi="allday-row"]
     div[data-koyomi="timegrid-axis-gutter"]
     div[data-koyomi="allday-cells"]                  … position: relative の基準
       div[data-koyomi="allday-cell"][data-koyomi-date] × days   … getDayCellProps（allDay 作成用）
-      button[data-koyomi="allday-event"] × n         … getSegmentProps。style: left/width %、
+      button[data-koyomi="allday-event"] × n         … getSegmentProps。style: insetInlineStart/width %、
            top: lane × var(--koyomi-lane-height, 24px)。continues/dragging 属性は月と同じ
+        span[data-koyomi="allday-resize"][data-edge="start|end"]?
+           … getSegmentResizeHandleProps（editable: false / continues 側には出力しない）
       div[data-koyomi="day-selection"]?              … allDay プレビュー
   div[data-koyomi="timegrid-body"]
     div[data-koyomi="time-axis"]
@@ -93,11 +104,15 @@ div[data-koyomi="timegrid"][data-koyomi-days="7|1"]
            [data-continues-before?][data-continues-after?][data-koyomi-dragging?]
            style: top/height/left/width すべて %（top = startMinutes/1440 など）
           div[data-koyomi="timegrid-event-content"]  … 内容既定: 時刻範囲＋タイトル
-          div[data-koyomi="timegrid-resize"]?        … getResizeHandleProps を展開
-                                                       （editable: false のイベントには出力しない）
-        div[data-koyomi="timegrid-preview"][data-kind="create|move|resize"]?
+          div[data-koyomi="timegrid-resize"][data-edge="start"]?
+             … getResizeHandleProps(item, 'start')。上端 = 開始時刻の変更
+               （editable: false / continuesBefore のイベントには出力しない）
+          div[data-koyomi="timegrid-resize"][data-edge="end"]?
+             … getResizeHandleProps(item, 'end')。下端 = 終了時刻の変更
+               （editable: false / continuesAfter のイベントには出力しない）
+        div[data-koyomi="timegrid-preview"][data-kind="create|move|resize"]? (aria-hidden)
            … previewFor(day) の分区間。style: top/height %
-        div[data-koyomi="now-indicator"]?            … style: top %（nowIndicator の日のみ）
+        div[data-koyomi="now-indicator"]? (aria-hidden) … style: top %（nowIndicator の日のみ）
 ```
 
 ## リストビュー（ListView）
@@ -105,12 +120,12 @@ div[data-koyomi="timegrid"][data-koyomi-days="7|1"]
 ```
 div[data-koyomi="list"]
   section[data-koyomi="list-day"][data-koyomi-date][data-today?] × n
-    h3[data-koyomi="list-day-header"]                … 日付ラベル（Intl）
+    h3[data-koyomi="list-day-header"]                … 日付ラベル（Intl、renderDayHeader で差し替え可）
     button[data-koyomi="list-event"] × n
-      span[data-koyomi="list-event-time"]            … 「終日」または「HH:mm〜HH:mm」
+      span[data-koyomi="list-event-time"]            … allDayLabel（既定「終日」）または「HH:mm〜HH:mm」
       span[data-koyomi="list-event-swatch"]          … 色見本（--koyomi-event-color）
       span[data-koyomi="list-event-title"]
-  div[data-koyomi="list-empty"]?                     … isEmpty のとき「予定はありません」
+  div[data-koyomi="list-empty"]?                     … isEmpty のとき emptyLabel（既定「予定はありません」）
 ```
 
 - リストのイベントはクリックで `onEventClick`（ドラッグなし）。Enter/Space も同様
@@ -118,4 +133,13 @@ div[data-koyomi="list"]
 ## CalendarView
 
 `state.view` に応じて `MonthView` / `TimeGridView` / `ListView` を出し分けるだけのスイッチ。
-props（renderEvent 等）は各ビューへ転送する。
+props はビュー名を接頭辞にした名前で各ビューへ転送する（`renderMonthEvent` /
+`renderMonthDayCell` / `monthOverflowLabel` / `renderTimeGridEvent` /
+`renderTimeGridDayHeader` / `renderListEvent` / `listAllDayLabel` / `listEmptyLabel` /
+`renderListDayHeader`）。
+
+## Toolbar の文言
+
+`ToolbarProps.labels`（`ToolbarLabels`）で「今日 / ‹ / › / 月 / 週 / 日 / リスト」の
+全文言を差し替えられる。prev/next は表示アイコン（‹/›）は固定で、`labels` の値が
+文字列の場合のみ aria-label に反映する。

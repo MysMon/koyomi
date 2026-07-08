@@ -104,6 +104,7 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 | 日番号ボタン | `month-day-number` |
 | 「+N 件」ボタン | `month-overflow` |
 | イベントセグメント層 / 各セグメント | `month-events` / `month-event` |
+| 帯の左右端リサイズハンドル | `month-event-resize`（`data-edge="start\|end"`） |
 | ドラッグ選択・プレビューの帯 | `day-selection` |
 
 ### 週/日ビュー（時間グリッド）
@@ -112,11 +113,13 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 | --- | --- |
 | 時間グリッド本体 | `timegrid`（`data-koyomi-days="7\|1"`） |
 | 終日イベント行 / セル / イベント | `allday-row` / `allday-cell` / `allday-event` |
+| 終日イベントの左右端リサイズハンドル | `allday-resize`（`data-edge="start\|end"`） |
 | 日ヘッダー / 日番号ボタン | `timegrid-day-header`（`data-koyomi-date`）/ `timegrid-day-number` |
 | 時刻軸ラベル | `time-slot-label` |
 | 日列 | `timegrid-day`（`data-koyomi-date`） |
 | 罫線 | `timegrid-slot` |
-| 時間指定イベント / 内容 / リサイズハンドル | `timegrid-event` / `timegrid-event-content` / `timegrid-resize` |
+| 時間指定イベント / 内容 | `timegrid-event` / `timegrid-event-content` |
+| 上下端リサイズハンドル | `timegrid-resize`（`data-edge="start\|end"`。`start` が上端 = 開始時刻） |
 | ドラッグ・作成のプレビュー | `timegrid-preview`（`data-kind="create\|move\|resize"`） |
 | 現在時刻線 | `now-indicator` |
 
@@ -184,6 +187,9 @@ console.log(eventEl?.style.getPropertyValue('--koyomi-event-color')); // => '#e6
 - **inline の % は祖先の実寸に依存する**: 上記の基準要素には、% が正しく解決されるよう明示的な高さ（または `min-height`）が必要です。例えば `[data-koyomi="timegrid-day"]` の `top` / `height` は 1 日（1440 分）に対する割合なので、その要素の高さが 0 のままだとイベントは潰れて表示されます（デフォルトテーマでは `height: calc(24 * var(--koyomi-hour-height))` を設定しています）。同様に月ビューの `[data-koyomi="month-days"]` にも `dayMaxEvents` のレーン数を見込んだ `min-height` が必要です。
 - **クラス名は生成されない**: セレクタは常に `[data-koyomi="..."]` 属性セレクタを使います。子孫の見た目（罫線・余白・フォントなど）はすべて自分で用意する必要があります（デフォルトテーマの `src/theme/default.css` を出発点にすると早く済みます）。
 - **イベント色**: `event.color` を持つイベントには inline で `--koyomi-event-color` が設定されるだけなので、それを使うかどうか（`background-color: var(--koyomi-event-color, 既定色)` のように参照するか）は自前 CSS 側で決める必要があります。
+- **タッチデバイスの `touch-action`**: ドラッグ起点となる要素（`month-day` / `month-event` / `allday-cell` / `allday-event` / `timegrid-day` / `timegrid-event` / 各リサイズハンドル）には `touch-action: none` が必要です。これがないとタッチ操作のドラッグがブラウザのスクロールに奪われます（デフォルトテーマでは設定済み）。
+- **キーボードフォーカス**: 予定要素と日セルは `tabindex` によりフォーカス可能です。`:focus-visible` のアウトライン等、フォーカスリングのスタイルを必ず用意してください（デフォルトテーマでは設定済み）。
+- **RTL（右書き言語）**: イベントの水平位置はデフォルトコンポーネントが `insetInlineStart`（論理プロパティ）で出力するため、`dir="rtl"` の文書では自動で反転します。自前 CSS でも `border-inline-start` などの論理プロパティを使うと RTL 対応が保たれます（デフォルトテーマは論理プロパティで記述されています）。
 
 ## renderEvent によるイベント内容のカスタマイズ
 
@@ -192,6 +198,8 @@ console.log(eventEl?.style.getPropertyValue('--koyomi-event-color')); // => '#e6
 - `MonthView`: `renderEvent?: (segment: EventSegment) => ReactNode`
 - `TimeGridView`: `renderEvent?: (item: PositionedOccurrence) => ReactNode`（終日行のイベント内容はカスタマイズ対象外）
 - `ListView`: `renderEvent?: (occurrence: EventOccurrence) => ReactNode`
+
+イベント以外にも、日セルへのコンテンツ注入（`renderDayCell`）、日ヘッダー・日付見出し（`renderDayHeader`）、「+N 件」等の UI 文字列（`overflowLabel` / `allDayLabel` / `emptyLabel` / `Toolbar` の `labels`）を差し替えられます。一覧は [ビュー: ビューコンポーネントのカスタマイズ props](./views.md#ビューコンポーネントのカスタマイズ-props) を参照してください。
 
 `CalendarView` を使う場合は、`renderMonthEvent` / `renderTimeGridEvent` / `renderListEvent` prop がそれぞれのビューへ転送されます。
 

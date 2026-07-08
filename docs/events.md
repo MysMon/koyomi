@@ -19,16 +19,42 @@
 | `timeZone` | `string`（省略可） | このイベントのタイムゾーン（IANA ID）。繰り返しの展開（壁時計維持、DST 跨ぎ）に使用します。省略時はカレンダーの表示タイムゾーン。 |
 | `rrule` | `string`（省略可） | RFC 5545 の繰り返しルール。詳細は [繰り返し予定](./recurrence.md) を参照。 |
 | `exdates` | `readonly (Date \| string)[]`（省略可） | 繰り返しから除外する発生の開始日時（EXDATE 相当）。 |
+| `rdates` | `readonly (Date \| string)[]`（省略可） | 繰り返しに追加する発生の開始日時（RDATE 相当）。`rrule` と併用可。 |
 | `recurringEventId` | `string`（省略可） | 繰り返し例外イベントの場合、元となる繰り返しイベントの ID。 |
 | `originalStart` | `Date \| string`（省略可） | 繰り返し例外イベントの場合、置き換え対象となる発生の本来の開始日時。 |
 | `color` | `string`（省略可） | 表示色。デフォルトテーマでは背景色として使用される（CSS の color 値）。 |
 | `location` | `string`（省略可） | 場所。 |
 | `description` | `string`（省略可） | 説明文。 |
-| `editable` | `boolean`（省略可） | ドラッグ移動・リサイズを許可するか。既定は `true`。`false` の場合、表示・クリックは可能だが変更操作は無効になります。 |
+| `editable` | `boolean`（省略可） | 変更操作を許可するか。既定は `true`。`false` の場合、表示・クリックは可能だがドラッグ移動・リサイズ・キーボードでの移動/リサイズ/削除はすべて無効になります。 |
 | `extendedProps` | `Record<string, unknown>`（省略可） | 利用者定義の任意データ。ライブラリは内容に関知しません。 |
 
-`rrule` / `exdates` / `recurringEventId` / `originalStart` の詳細な挙動は
+`rrule` / `exdates` / `rdates` / `recurringEventId` / `originalStart` の詳細な挙動は
 [繰り返し予定](./recurrence.md) にまとめています。
+
+### extendedProps に型を付けて使う
+
+`extendedProps` は意図的に `Record<string, unknown>` のままにしています（型引数をライブラリ全体（`CalendarApi` / ビューモデル / 全コンポーネント props）に伝播させると利用側の型が複雑になりすぎるため）。アプリ固有の型で扱いたい場合は、読み出し側で絞り込むヘルパを 1 つ用意するのが簡単です。
+
+```ts
+import type { CalendarEvent } from '@koyomi-cal/react';
+
+/** アプリ固有のメタデータ。 */
+interface MyEventMeta {
+  ownerId: string;
+  category: 'work' | 'private';
+}
+
+/** extendedProps をアプリ固有の型として読み出す（キャスト不要の絞り込み）。 */
+function metaOf(event: CalendarEvent): MyEventMeta | undefined {
+  const meta = event.extendedProps;
+  const ownerId = meta?.['ownerId'];
+  const category = meta?.['category'];
+  if (typeof ownerId === 'string' && (category === 'work' || category === 'private')) {
+    return { ownerId, category };
+  }
+  return undefined;
+}
+```
 
 ### start / end の指定形式
 

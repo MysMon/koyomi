@@ -10,7 +10,7 @@ Koyomi は月・週・日・リスト（スケジュール）の 4 つのビュ�
 
 ### 週/日ビュー（week / day）
 
-`TimeGridView` が描画します。上部に日ヘッダー（曜日と日番号のボタン）、その下に終日イベント行、本体には時間軸（`slotMinutes` 間隔の目盛り）と日列が並びます。日列には時間指定の予定がブロックとして配置され、下端にリサイズ用のハンドルがあります。表示範囲に「今日」が含まれる場合は現在時刻を示す線も表示されます。`week` は 7 日分、`day` は 1 日分の列になります。
+`TimeGridView` が描画します。上部に日ヘッダー（曜日と日番号のボタン）、その下に終日イベント行、本体には時間軸（`slotMinutes` 間隔の目盛り）と日列が並びます。日列には時間指定の予定がブロックとして配置され、上端・下端にリサイズ用のハンドルがあります。表示範囲に「今日」が含まれる場合は現在時刻を示す線も表示されます。`week` は 7 日分（`hiddenWeekdays` 指定時はその分少ない列数）、`day` は 1 日分の列になります。
 
 ### リストビュー（list）
 
@@ -164,7 +164,7 @@ function BareMonthGrid() {
 
 // 期待される動作:
 // - MonthView を使わず、viewModel.weeks / week.days だけで最小限の月グリッドを描画できる
-// - 各週は必ず 7 日（week.days.length === 7）
+// - 各週の日数は「7 - hiddenWeekdays の数」（既定では 7）
 // - 2026年7月（週開始が既定の日曜）は 5 週になる
 ```
 
@@ -180,6 +180,54 @@ function BareMonthGrid() {
 | `dayMaxEvents` | `number` | `4` | 月ビューで 1 日に表示する予定の最大数。超過分は「+N 件」に集約される |
 | `slotMinutes` | `number` | `60` | 週/日ビュー（時間グリッド）の時間軸の目盛り間隔（分） |
 | `listDays` | `number` | `30` | リストビューが表示する日数。`next()`/`prev()` の移動単位にもなる |
+| `hiddenWeekdays` | `readonly Weekday[]` | `[]` | 月・週ビューの列から除外する曜日（下記参照） |
+
+## 週末などの曜日を隠す（hiddenWeekdays）
+
+`hiddenWeekdays` に曜日番号の配列を渡すと、月ビューと週ビューの列からその曜日が除外されます（Google カレンダーの「週末を表示しない」相当）。
+
+```tsx
+const calendar = useCalendar({ hiddenWeekdays: [0, 6] }); // 日曜・土曜を隠す
+
+// 後から切り替える場合
+calendar.api.updateOptions({ hiddenWeekdays: [0, 6] }); // 隠す
+calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
+
+// 期待される動作:
+// - 月ビュー・週ビューが月〜金の 5 列になる
+// - 金曜〜月曜にまたがる予定は、可視列上で金・月が連続した 1 本の帯として描画される
+// - 土日にしか存在しない予定は表示されず、「+N 件」にも数えられない
+// - 日ビューは hiddenWeekdays を無視する（土曜へ goTo すれば表示される）
+// - 「今日」が非表示曜日の場合、現在時刻線（nowIndicator）は表示されない
+```
+
+7 曜日すべてを指定した場合は無効な設定として無視されます（すべて表示のまま）。
+
+## ビューコンポーネントのカスタマイズ props
+
+各ビューには、UI 文字列の差し替えや日単位のコンテンツ注入のための props があります（すべて省略可能）。`CalendarView` 経由で使う場合はビュー名を接頭辞にした名前で転送されます（括弧内）。
+
+| コンポーネント | prop | 用途 |
+| --- | --- | --- |
+| `MonthView` | `renderEvent`（`renderMonthEvent`） | セグメントの表示内容 |
+| `MonthView` | `renderDayCell`（`renderMonthDayCell`） | 日セルに祝日ラベルやバッジ等を注入（第 2 引数で既定内容を受け取る） |
+| `MonthView` | `overflowLabel`（`monthOverflowLabel`） | 「+N 件」の文言（`(count) => ReactNode`） |
+| `TimeGridView` | `renderEvent`（`renderTimeGridEvent`） | イベントブロックの表示内容 |
+| `TimeGridView` | `renderDayHeader`（`renderTimeGridDayHeader`） | 日ヘッダーの内容 |
+| `ListView` | `renderEvent`（`renderListEvent`） | 予定行の表示内容 |
+| `ListView` | `allDayLabel`（`listAllDayLabel`） | 終日予定の時刻ラベル（既定「終日」） |
+| `ListView` | `emptyLabel`（`listEmptyLabel`） | 空状態のメッセージ |
+| `ListView` | `renderDayHeader`（`renderListDayHeader`） | 日付見出しの内容 |
+| `Toolbar` | `labels`（`ToolbarLabels`） | 「月/週/日/リスト/今日」等の全文言 |
+
+```tsx
+<Toolbar labels={{ month: 'Month', week: 'Week', day: 'Day', list: 'List', today: 'Today' }} />
+<CalendarView
+  monthOverflowLabel={(count) => `+${count} more`}
+  listAllDayLabel="All day"
+  listEmptyLabel="No events"
+/>
+```
 
 ## 関連ページ
 

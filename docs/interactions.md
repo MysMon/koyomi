@@ -4,7 +4,7 @@
 
 ## クリック・ドラッグでの予定作成
 
-空き領域のクリック・ドラッグで範囲が選択されると `onSelectRange` が呼ばれます。**省略した場合**は既定動作として、`'(タイトルなし)'` というタイトルの予定がその場で即時作成されます（`createEvent` 相当）。
+空き領域のクリック・ドラッグで範囲が選択されると `onSelectRange` が呼ばれます。**省略した場合**は既定動作として、`defaultEventTitle` オプション（既定 `'(タイトルなし)'`）のタイトルの予定がその場で即時作成されます（`createEvent` 相当）。
 
 コールバックには `RangeSelection` が渡されます。
 
@@ -81,11 +81,15 @@ function App() {
 
 ## ドラッグ移動・リサイズ
 
-予定本体をドラッグすると**移動**、時間グリッドの予定下端のハンドルをドラッグすると**リサイズ**（終了時刻の変更）になります。移動・リサイズが確定すると、ライブラリが変更を適用したうえで `onEventChange` を呼びます。
+予定本体をドラッグすると**移動**、ハンドルをドラッグすると**リサイズ**になります。移動・リサイズが確定すると、ライブラリが変更を適用したうえで `onEventChange` を呼びます。
 
 - **移動** — 時間グリッドでは列をまたいだ移動が可能（`snapMinutes` 単位でスナップ）。月ビュー・終日行では日単位の移動になり、期間と壁時計時刻（時間指定イベントの場合）が維持される
-- **リサイズ** — 時間グリッドの予定にのみ下端のハンドルがあり、終了時刻を変更できる。最小でも `snapMinutes` 分の長さが保たれる
-- **`editable: false`** — 表示・クリックは通常どおりできるが、移動・リサイズは無効になる。時間グリッドではリサイズハンドル自体が描画されない
+- **リサイズ（時間グリッド）** — 予定の**下端**ハンドルで終了時刻、**上端**ハンドルで開始時刻を変更できる。いずれも最小 `snapMinutes` 分の長さが保たれる。日をまたいで表示が分割されている場合、分割された端（`continuesBefore` / `continuesAfter`）にはハンドルが出ない
+- **リサイズ（月ビュー・終日行の帯）** — 帯セグメントの**左右端**ハンドルで開始日・終了日を日単位で変更できる。最低 1 日分の長さが保たれ、時間指定の複数日イベントでは壁時計時刻を維持したまま日数だけが変わる
+- **終日 ⇔ 時間指定の変換** — 週/日ビューで、時間指定の予定を上部の終日行までドラッグすると**終日イベントに変換**され、終日行の予定を時間グリッドへドラッグすると**時間指定イベント**（ドロップ位置の時刻から `defaultEventMinutes` 分）**に変換**されます（Google カレンダーと同じ操作感）
+- **`editable: false`** — 表示・クリックは通常どおりできるが、移動・リサイズ・**キーボードでの削除（Delete/Backspace）**はすべて無効になる。リサイズハンドル自体が描画されない
+- **タッチデバイス** — デフォルトテーマがドラッグ起点の要素に `touch-action: none` を設定しているため、ドラッグがスクロールに奪われません。独自 CSS でテーマを構築する場合は同様の設定が必要です（[テーマとスタイリング](./theming.md) 参照）。ブラウザがポインタを中断した場合（`pointercancel`）はドラッグが安全にキャンセルされます
+- **オートスクロール** — 時間グリッドの縦スクロール領域では、ドラッグ中にポインタが上下端へ近づくと自動でスクロールします
 
 ```tsx
 import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
@@ -175,11 +179,13 @@ async function resolveRecurringScope(): Promise<RecurringEditScope | null> {
 
 | コールバック | 呼ばれるタイミング | 省略時の既定動作 |
 | --- | --- | --- |
-| `onSelectRange` | 空き領域のクリック・ドラッグで範囲選択が確定したとき | `'(タイトルなし)'` で即時作成する |
+| `onSelectRange` | 空き領域のクリック・ドラッグで範囲選択が確定したとき | `defaultEventTitle`（既定 `'(タイトルなし)'`）で即時作成する |
 | `onEventClick` | 予定がクリック、または Enter・Space で選択されたとき | 何もしない |
-| `onEventChange` | ドラッグによる移動・リサイズが確定し、変更が適用された後 | （通知のみ。変更の適用自体は常にライブラリが行う） |
+| `onEventChange` | ドラッグ・キーボードによる移動・リサイズが確定し、変更が適用された後 | （通知のみ。変更の適用自体は常にライブラリが行う） |
+| `onEventDelete` | キーボード（Delete/Backspace）による削除が適用された後 | （通知のみ。undo UI やトーストの起点に使える） |
+| `onError` | インタラクション中の非同期処理（スコープ解決や適用）が例外を投げたとき | `console.error` に出力する |
 | `resolveRecurringScope` | 繰り返し予定の移動・リサイズ・削除・更新の適用範囲を決めるとき | 常に `'this'`（この予定のみ） |
-| `onOverflowClick` | 月ビューの「+N 件」がクリックされたとき | その日の日ビューに切り替える |
+| `onOverflowClick` | 月ビューの「+N 件」がクリックされたとき。第 2 引数で非表示の発生一覧（`hiddenOccurrences`）を受け取れる | その日の日ビューに切り替える |
 
 ## キーボードショートカット
 
@@ -218,11 +224,28 @@ function App() {
 
 大文字・小文字は区別しません。`Ctrl` / `Cmd` / `Alt` などの修飾キーを伴う場合は無視されます。`input` / `textarea` / `select` にフォーカスがある間、および `contenteditable` 要素の内側では、すべてのショートカットが無効になります。`enabled: false` を渡すと一時的に無効化できます。
 
-なお、月・週/日ビューの予定要素自体にもキーボード操作があります。フォーカスした状態で Enter または Space を押すと `onEventClick` 相当のクリックになり、Delete または Backspace を押すとその発生を削除します（繰り返し予定の場合は上記の `resolveRecurringScope` が呼ばれます）。リストビューの予定行は Enter・Space によるクリックのみに対応します。
+## キーボードのみでの予定操作
 
-## Escape でのドラッグキャンセル
+マウスを使わなくても、予定と日セルへのフォーカスだけで一通りの操作ができます（`editable: false` の予定では移動・リサイズ・削除は無効です）。
 
-作成・移動・リサイズのドラッグ中に `Escape` キーを押すと、その場でドラッグが取り消されます。変更は一切適用されず、`onSelectRange` / `onEventChange` も呼ばれません。この挙動は `useDayDrag` / `useTimeGridDrag`（およびそれらを使うビルトインコンポーネント）に組み込まれており、追加の設定は不要です。
+**予定要素にフォーカスした状態:**
+
+| キー | 時間グリッド（週/日） | 月ビュー・終日行の帯 |
+| --- | --- | --- |
+| `Enter` / `Space` | `onEventClick` 相当のクリック | 同左 |
+| `Delete` / `Backspace` | 発生を削除（繰り返しはスコープ解決） | 同左 |
+| `↑` / `↓` | ∓/± `snapMinutes` 分の移動 | ∓/± 7 日（1 週間）の移動 |
+| `←` / `→` | ∓/± 1 日の移動 | ∓/± 1 日の移動 |
+| `Shift+↑` / `Shift+↓` | 終了時刻を ∓/± `snapMinutes` 分リサイズ | — |
+| `Shift+←` / `Shift+→` | — | 終了日を ∓/± 1 日リサイズ |
+
+移動・リサイズは最小長（時間グリッドは `snapMinutes` 分、帯は 1 日）を下回る操作を無視します。繰り返し予定では `resolveRecurringScope` が呼ばれ、適用後に `onEventChange`（削除は `onEventDelete`）が通知されます。
+
+**日セルにフォーカスした状態（月ビュー・終日行）:** `Enter` または `Space` でその日 1 日分の範囲選択（`onSelectRange`、`allDay: true`）が発火します。リストビューの予定行は Enter・Space によるクリックのみに対応します。
+
+## Escape / pointercancel でのドラッグキャンセル
+
+作成・移動・リサイズのドラッグ中に `Escape` キーを押すと、その場でドラッグが取り消されます。変更は一切適用されず、`onSelectRange` / `onEventChange` も呼ばれません（キャンセル直後にブラウザが発火するネイティブ `click` も抑制されるため、`onEventClick` が誤発火することもありません）。ブラウザによるポインタの強制中断（`pointercancel`。タッチ操作の割り込み等）も同じ扱いになります。この挙動は `useDayDrag` / `useTimeGridDrag`（およびそれらを使うビルトインコンポーネント）に組み込まれており、追加の設定は不要です。
 
 ## 自前 UI を作る上級編
 
@@ -232,9 +255,10 @@ function App() {
 
 `useDayDrag({ calendar, callbacks })` は次を返します。
 
-- `getDayCellProps(day)` — 日セル用の props（`ref` / `onPointerDown` / `data-koyomi-date`）。空きセルでの作成ドラッグを開始する
+- `getDayCellProps(day)` — 日セル用の props（`ref` / `onPointerDown` / `onKeyDown` / `tabIndex` / `data-koyomi-date`）。空きセルでの作成ドラッグと Enter/Space での作成を開始する
 - `getSegmentProps(segment)` — 帯セグメント用の props（`onPointerDown` / `onClick` / `onKeyDown` / `tabIndex` / `data-koyomi-occurrence` / ドラッグ中なら `data-koyomi-dragging`）。移動ドラッグ・クリック・キーボード操作を担う
-- `previewRange` — 現在のドラッグプレビューの日範囲（非ドラッグ中は `null`）
+- `getSegmentResizeHandleProps(segment, edge)` — 帯の左右端リサイズハンドル用の props（`edge` は `'start' | 'end'`）
+- `previewRange` — 現在のドラッグプレビューの日範囲（非ドラッグ中、および時間グリッドへの変換プレビュー中は `null`）
 - `isDragging` — ドラッグ操作が進行中か
 
 `getDayCellProps` の `ref` はコールバック形式で、要素をポインタ位置 → 日の判定に使う内部レジストリへ登録します。複数日にまたがるドラッグを正しく機能させるには、返された `ref` を実際の要素に接続する必要があります。
@@ -285,8 +309,8 @@ function CustomDayRow() {
 
 - `getDayProps(day)` — 日列用の props（`ref` / `onPointerDown` / `data-koyomi-date`）。空き領域での作成ドラッグを開始する
 - `getEventProps(item)` — イベントブロック用の props（`onPointerDown` / `onClick` / `onKeyDown` / `tabIndex` / `data-koyomi-occurrence` / ドラッグ中なら `data-koyomi-dragging`）。移動ドラッグ・クリック・キーボード操作を担う
-- `getResizeHandleProps(item)` — リサイズハンドル用の props（`onPointerDown` / `onClick` / `data-koyomi-resize-handle`）
-- `previewFor(day)` — 指定日のドラッグプレビュー区間（`{ kind, startMinutes, endMinutes }`。その日に重ならなければ `null`）
+- `getResizeHandleProps(item, edge?)` — リサイズハンドル用の props（`onPointerDown` / `onClick` / `data-koyomi-resize-handle`）。`edge` は `'start'`（上端 = 開始時刻）または `'end'`（下端 = 終了時刻。省略時の既定）
+- `previewFor(day)` — 指定日のドラッグプレビュー区間（`{ kind, startMinutes, endMinutes }`。その日に重ならない場合と、終日行への変換プレビュー中は `null`）
 - `isDragging` — ドラッグ操作が進行中か
 
 いずれの `get*Props` も、対象の要素（`<div>` や `<button>` など）にそのままスプレッドして使います。`ref` はコールバック形式で、要素の矩形（`getBoundingClientRect`）からポインタ位置に対応する日時を計算するための内部レジストリに登録されます。
