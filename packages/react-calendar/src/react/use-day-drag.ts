@@ -7,6 +7,10 @@
  * - 帯セグメントの左右端ハンドルのドラッグ → 日単位のリサイズ（開始日・終了日の変更）
  * - 帯セグメントのキーボード操作（矢印キー） → 日単位の移動・リサイズ
  * - ドラッグ中は Escape または pointercancel でキャンセル
+ * - 帯セグメントの移動ドラッグ中にポインタが時間グリッドの日列（`use-time-grid-drag.ts`
+ *   が担当する領域）に乗ると、時間指定イベントへの変換プレビューに切り替わる
+ *   （Google カレンダー相当の「終日 ⇔ 時間指定」変換。反対方向の変換は
+ *   `use-time-grid-drag.ts` が担当する）
  *
  * 時間グリッドと同様のプロップゲッターパターン。セル要素は
  * `getDayCellProps` の `ref` でレジストリに登録され、ポインタ座標から
@@ -21,9 +25,15 @@ import type {
 } from 'react';
 import { useEffect, useRef } from 'react';
 import type { DayDragMode } from '../core/interaction';
-import { dayDragPreviewRange } from '../core/interaction';
-import { addDaysInZone, startOfDayInZone } from '../core/timezone';
-import type { DateRange, EventOccurrence, EventSegment, RecurringEditScope } from '../core/types';
+import { dayDragPreviewRange, timeAtGridPosition } from '../core/interaction';
+import { addDaysInZone, addMinutesInZone, dateFromKey, startOfDayInZone } from '../core/timezone';
+import type {
+  DateRange,
+  EventOccurrence,
+  EventSegment,
+  RecurringEditScope,
+  ResolvedCalendarOptions,
+} from '../core/types';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 
 /** 日セル要素に付与する props。 */
@@ -91,6 +101,9 @@ export interface DayDragHandlers {
   /**
    * 現在のドラッグプレビューの日範囲（日 0:00 起点、`end` 排他）。
    * コンポーネントは各週に投影してハイライトを描画する。
+   *
+   * ドラッグ中のイベントが時間グリッドへの変換プレビュー中（`allDay: false`）の
+   * 場合は `null` を返す（そちらは `useTimeGridDrag` 側のプレビューが担当する）。
    */
   previewRange: DateRange | null;
   /** ドラッグ操作が進行中か。 */
@@ -121,8 +134,48 @@ interface DragSession {
   moved: boolean;
   /** 直近のポインタ位置から計算したプレビュー範囲。 */
   lastRange: DateRange;
+  /**
+   * 時間グリッドへの変換ドラッグ中の確定用範囲。
+   *
+   * `kind === 'move'` のセッションでポインタが時間グリッドの日列
+   * （`timegrid-day`）の上にある間だけ非 `null` になる。非 `null` の間に
+   * pointerup すると、この範囲・`allDay: false` で時間指定イベントへの
+   * 変換として確定する（`use-time-grid-drag.ts` 側の終日変換と対になる機能）。
+   */
+  timedConversion: DateRange | null;
   /** このセッションが登録した document リスナーを解除する関数。 */
   cleanup: () => void;
+}
+
+/** 時間グリッドの日列要素を示す `data-koyomi` 属性のセレクタ。 */
+const TIMEGRID_DAY_SELECTOR = '[data-koyomi="timegrid-day"]';
+
+/**
+ * ポインタ位置が時間グリッドの日列（`timegrid-day`）の上にあれば、その列要素を返す。
+ * 月ビューには `timegrid-day` が存在しないため、月ビューでは常に `null` になる。
+ *
+ * `document.elementFromPoint` が存在しない環境（jsdom では未実装のことがある）では
+ * 安全に「領域外」（`null`）と判定する。テストでは `vi.spyOn(document, 'elementFromPoint')`
+ * でモックする。
+ */
+function findTimeGridDayColumn(clientX: number, clientY: number): HTMLElement | null {
+  if (typeof document.elementFromPoint !== 'function') {
+    return null;
+  }
+  const target = document.elementFromPoint(clientX, clientY);
+  const match = target?.closest(TIMEGRID_DAY_SELECTOR) ?? null;
+  return match instanceof HTMLElement ? match : null;
+}
+
+/**
+ * 列要素の矩形内でのポインタの縦位置（0〜1）を求める。
+ * 矩形の高さが 0 以下の場合は 0 を返す（0 除算・NaN の防御）。
+ */
+function fractionYFromClientY(rect: DOMRect, clientY: number): number {
+  if (rect.height <= 0) {
+    return 0;
+  }
+  return (clientY - rect.top) / rect.height;
 }
 
 /**
@@ -160,6 +213,9 @@ export function useDayDrag(params: {
   timeZoneRef.current = calendar.state.timeZone;
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
+  /** 時間グリッドへの変換ドラッグ（`snapMinutes` / `defaultEventMinutes`）で参照する。 */
+  const optionsRef = useRef<ResolvedCalendarOptions>(calendar.state.options);
+  optionsRef.current = calendar.state.options;
 
   // アンマウント時、ドラッグ中であれば document リスナーを解除する
   useEffect(() => {
@@ -243,7 +299,7 @@ export function useDayDrag(params: {
       return;
     }
     apiRef.current.createEvent({
-      title: '(タイトルなし)',
+      title: apiRef.current.getState().options.defaultEventTitle,
       start: range.start,
       end: range.end,
       allDay: true,
@@ -285,6 +341,50 @@ export function useDayDrag(params: {
         occurrence,
         newRange: range,
         allDay: occurrence.allDay,
+        scope,
+      });
+    } finally {
+      apiRef.current.setDragPreview(null);
+    }
+  }
+
+  /**
+   * 発生を時間指定イベントに変換して適用する（繰り返しならスコープを解決してから適用する）。
+   * `commitMove` と異なり、変更後は常に `allDay: false` にする（`occurrence.allDay` が
+   * `true`（変換元）であっても上書きする）。失敗時にドラッグプレビューが残らないよう
+   * `finally` で確実に解除する（`commitMove` と同じ理由）。
+   */
+  async function commitTimedConversion(
+    occurrence: EventOccurrence,
+    range: DateRange,
+  ): Promise<void> {
+    try {
+      let scope: RecurringEditScope | null = null;
+      if (occurrence.isRecurring) {
+        const resolveRecurringScope = callbacksRef.current?.resolveRecurringScope;
+        scope =
+          resolveRecurringScope === undefined
+            ? 'this'
+            : await resolveRecurringScope(occurrence, 'move');
+        if (scope === null) {
+          return;
+        }
+        apiRef.current.updateEvent(
+          occurrence.eventId,
+          { start: range.start, end: range.end, allDay: false },
+          { occurrenceStart: occurrence.originalStart, scope },
+        );
+      } else {
+        apiRef.current.updateEvent(occurrence.eventId, {
+          start: range.start,
+          end: range.end,
+          allDay: false,
+        });
+      }
+      callbacksRef.current?.onEventChange?.({
+        occurrence,
+        newRange: range,
+        allDay: false,
         scope,
       });
     } finally {
@@ -344,6 +444,41 @@ export function useDayDrag(params: {
       if (session === null) {
         return;
       }
+
+      // 'move' セッション中にポインタが時間グリッドの日列上にあれば、
+      // 時間指定イベントへの変換プレビューに切り替える。
+      if (kind === 'move' && occurrence !== null) {
+        const column = findTimeGridDayColumn(event.clientX, event.clientY);
+        const dateKey = column?.getAttribute('data-koyomi-date') ?? null;
+        if (column !== null && dateKey !== null) {
+          const timeZone = timeZoneRef.current;
+          const day = dateFromKey(dateKey, timeZone);
+          const fractionY = fractionYFromClientY(column.getBoundingClientRect(), event.clientY);
+          const time = timeAtGridPosition({
+            day,
+            fractionY,
+            timeZone,
+            snap: optionsRef.current.snapMinutes,
+          });
+          const range: DateRange = {
+            start: time,
+            end: addMinutesInZone(time, optionsRef.current.defaultEventMinutes, timeZone),
+          };
+          session.moved = true;
+          session.timedConversion = range;
+          session.lastRange = range;
+          apiRef.current.setDragPreview({
+            kind: 'move',
+            occurrenceKey: occurrence.key,
+            range,
+            allDay: false,
+          });
+          return;
+        }
+      }
+
+      // 時間グリッドの外に戻った（または最初から時間グリッド上でない）場合は変換を解除する。
+      session.timedConversion = null;
       const pointerDay = locateDay(event.clientX, event.clientY) ?? anchorDay;
       const range = computeRange(pointerDay);
       // 基準日と異なる日に乗った場合にのみ「移動した」とみなす。
@@ -384,6 +519,10 @@ export function useDayDrag(params: {
       // resolveRecurringScope の解決を待つ前（同期のうち）にフラグを立てることで、
       // 確定処理が非同期でも click 到達前に確実に反映されるようにする。
       suppressNextClickRef.current = true;
+      if (session.timedConversion !== null) {
+        void commitTimedConversion(occurrence, session.timedConversion).catch(reportError);
+        return;
+      }
       const action: 'move' | 'resize' = kind === 'move' ? 'move' : 'resize';
       void commitMove(occurrence, session.lastRange, action).catch(reportError);
     };
@@ -435,6 +574,7 @@ export function useDayDrag(params: {
       anchorDay,
       moved: false,
       lastRange: computeRange(anchorDay),
+      timedConversion: null,
       cleanup,
     };
   }
@@ -591,7 +731,9 @@ export function useDayDrag(params: {
     getDayCellProps,
     getSegmentProps,
     getSegmentResizeHandleProps,
-    previewRange: dragPreview !== null ? dragPreview.range : null,
+    // allDay: false（時間グリッドへの変換中）のプレビューは本フックの領域（帯）では
+    // 描画しない。そちらは `useTimeGridDrag` 側の `previewFor` が担当する。
+    previewRange: dragPreview?.allDay ? dragPreview.range : null,
     isDragging: dragPreview !== null,
   };
 }

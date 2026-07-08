@@ -114,7 +114,7 @@ export {
 export { ListView, type ListViewProps } from './react/components/list-view';
 export { MonthView, type MonthViewProps } from './react/components/month-view';
 export { TimeGridView, type TimeGridViewProps } from './react/components/time-grid-view';
-export { Toolbar } from './react/components/toolbar';
+export { Toolbar, type ToolbarLabels, type ToolbarProps } from './react/components/toolbar';
 // React: コンテキスト
 export { CalendarProvider, type CalendarProviderProps, useCalendarContext } from './react/context';
 // React: 型

@@ -500,6 +500,13 @@ describe('buildTimeGridViewModel', () => {
       expect(model.slots[1]).toEqual({ minutes: 30, label: '00:30' });
       expect(model.slots[47]).toEqual({ minutes: 1410, label: '23:30' });
     });
+
+    it('slotMinutes が 0 以下・非有限の場合は空配列になる（無限ループ防止ガード）', () => {
+      expect(build({ slotMinutes: 0 }).slots).toEqual([]);
+      expect(build({ slotMinutes: -15 }).slots).toEqual([]);
+      expect(build({ slotMinutes: Number.NaN }).slots).toEqual([]);
+      expect(build({ slotMinutes: Number.POSITIVE_INFINITY }).slots).toEqual([]);
+    });
   });
 
   describe('nowIndicator（現在時刻線）', () => {

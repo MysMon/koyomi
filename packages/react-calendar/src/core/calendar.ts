@@ -43,6 +43,7 @@ const DEFAULT_OPTIONS: Omit<ResolvedCalendarOptions, 'now'> = {
   snapMinutes: 15,
   slotMinutes: 60,
   defaultEventMinutes: 60,
+  defaultEventTitle: '(タイトルなし)',
   listDays: 30,
   locale: 'ja',
   hiddenWeekdays: [],
@@ -75,6 +76,7 @@ function resolveOptions(
     snapMinutes: options?.snapMinutes ?? current.snapMinutes,
     slotMinutes: options?.slotMinutes ?? current.slotMinutes,
     defaultEventMinutes: options?.defaultEventMinutes ?? current.defaultEventMinutes,
+    defaultEventTitle: options?.defaultEventTitle ?? current.defaultEventTitle,
     listDays: options?.listDays ?? current.listDays,
     locale: options?.locale ?? current.locale,
     hiddenWeekdays:
@@ -96,6 +98,7 @@ function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOpt
     a.snapMinutes === b.snapMinutes &&
     a.slotMinutes === b.slotMinutes &&
     a.defaultEventMinutes === b.defaultEventMinutes &&
+    a.defaultEventTitle === b.defaultEventTitle &&
     a.listDays === b.listDays &&
     a.locale === b.locale &&
     a.now === b.now &&

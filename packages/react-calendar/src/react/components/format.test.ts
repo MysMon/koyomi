@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { DateRange } from '../../core/types';
 import {
   formatDayHeader,
@@ -108,5 +108,43 @@ describe('formatDayHeader', () => {
     const instant = new Date('2026-07-15T01:00:00Z');
     expect(formatDayHeader(instant, 'Asia/Tokyo', 'ja')).toBe('15 (水)');
     expect(formatDayHeader(instant, 'America/New_York', 'ja')).toBe('14 (火)');
+  });
+});
+
+describe('Intl.DateTimeFormat のキャッシュ', () => {
+  // 他の describe ブロックで使われていない locale/timeZone を使い、このブロックの
+  // アサーションが他テストの実行順序（＝キャッシュのウォーム状態）に依存しないようにする。
+  const CACHE_TEST_LOCALE = 'fr-FR';
+  const CACHE_TEST_TZ = 'Europe/Paris';
+
+  it('同じ locale/timeZone/書式種別の組み合わせでは Intl.DateTimeFormat を再生成しない', () => {
+    const date = new Date('2026-07-15T01:00:00Z');
+    formatTime(date, CACHE_TEST_TZ, CACHE_TEST_LOCALE); // ウォームアップ
+
+    const spy = vi.spyOn(Intl, 'DateTimeFormat');
+    formatTime(date, CACHE_TEST_TZ, CACHE_TEST_LOCALE);
+    formatTime(date, CACHE_TEST_TZ, CACHE_TEST_LOCALE);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('locale が異なれば別の Intl.DateTimeFormat を生成する', () => {
+    const date = new Date('2026-07-15T01:00:00Z');
+    formatTime(date, CACHE_TEST_TZ, CACHE_TEST_LOCALE); // ウォームアップ
+
+    const spy = vi.spyOn(Intl, 'DateTimeFormat');
+    formatTime(date, CACHE_TEST_TZ, 'de-DE');
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it('書式の種別が異なれば（同じ locale/timeZone でも）別の Intl.DateTimeFormat を生成する', () => {
+    const date = new Date('2026-07-15T01:00:00Z');
+    formatTime(date, CACHE_TEST_TZ, CACHE_TEST_LOCALE); // ウォームアップ（'time' 種別）
+
+    const spy = vi.spyOn(Intl, 'DateTimeFormat');
+    formatMonthTitle(date, CACHE_TEST_TZ, CACHE_TEST_LOCALE); // 'month-title' 種別は未キャッシュ
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
   });
 });

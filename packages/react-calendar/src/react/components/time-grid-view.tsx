@@ -8,6 +8,7 @@
  */
 
 import type { CSSProperties, ReactElement, ReactNode, Ref } from 'react';
+import { memo, useCallback, useRef, useState } from 'react';
 import { addDaysInZone } from '../../core/timezone';
 import type {
   DateRange,
@@ -21,7 +22,7 @@ import type {
 import { useCalendarContext } from '../context';
 import type { DayDragHandlers } from '../use-day-drag';
 import { useDayDrag } from '../use-day-drag';
-import type { TimeGridDragHandlers } from '../use-time-grid-drag';
+import type { TimeGridDragHandlers, TimeGridPreviewSegment } from '../use-time-grid-drag';
 import { useTimeGridDrag } from '../use-time-grid-drag';
 import { formatWeekday } from './format';
 
@@ -36,6 +37,25 @@ export interface TimeGridViewProps {
    * 終日行（`allday-event`）の内容はこの prop では変更できない（既定でタイトルのみ）。
    */
   renderEvent?: (item: PositionedOccurrence) => ReactNode;
+  /**
+   * 日ヘッダー（曜日ラベル＋日番号ボタン）の表示内容をカスタマイズする。
+   * `defaultContent` には省略時の内容（曜日ラベルと日番号ボタン）が渡されるので、
+   * それをラップしたり前後に要素を足したりする用途に使える。省略時は
+   * `defaultContent` をそのまま表示する。
+   *
+   * @example
+   * ```tsx
+   * <TimeGridView
+   *   renderDayHeader={(day, defaultContent) => (
+   *     <>
+   *       {defaultContent}
+   *       {day.isToday && <span data-koyomi="today-badge">今日</span>}
+   *     </>
+   *   )}
+   * />
+   * ```
+   */
+  renderDayHeader?: (day: TimeGridDay, defaultContent: ReactNode) => ReactNode;
 }
 
 /** 2 桁ゼロ埋め。 */
@@ -55,24 +75,69 @@ function defaultTimedEventContent(item: PositionedOccurrence): string {
   return `${formatClockLabel(item.startMinutes)}〜${formatClockLabel(item.endMinutes)} ${item.occurrence.event.title}`;
 }
 
+/** キャッシュする `Intl.DateTimeFormat` の種別。 */
+type DateTimeFormatterKind = 'dayNumber' | 'date' | 'fullDate' | 'timeOfDay';
+
+/** 種別ごとの `Intl.DateTimeFormat` オプション（`timeZone` は取得時に合成する）。 */
+const DATE_TIME_FORMAT_OPTIONS: Record<DateTimeFormatterKind, Intl.DateTimeFormatOptions> = {
+  dayNumber: { day: 'numeric' },
+  date: { month: 'long', day: 'numeric' },
+  fullDate: { year: 'numeric', month: 'long', day: 'numeric' },
+  timeOfDay: { hour: 'numeric', minute: '2-digit', hourCycle: 'h23' },
+};
+
+/**
+ * `Intl.DateTimeFormat` インスタンスをモジュールレベルでキャッシュする。
+ *
+ * 生成コストのある `Intl.DateTimeFormat` を、時間グリッドのセル・イベントの数だけ
+ * 描画のたびに毎回 `new` してしまうのを避けるため、`ロケール・タイムゾーン・種別`
+ * の組ごとに 1 つだけ生成して使い回す。
+ */
+const dateTimeFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * キャッシュ済みの `Intl.DateTimeFormat` を取得する（未生成ならキャッシュに追加する）。
+ * キーは `${locale}|${timeZone}|${種別}`。
+ */
+function getDateTimeFormatter(
+  locale: string,
+  timeZone: TimeZoneId,
+  kind: DateTimeFormatterKind,
+): Intl.DateTimeFormat {
+  const cacheKey = `${locale}|${timeZone}|${kind}`;
+  const cached = dateTimeFormatterCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const formatter = new Intl.DateTimeFormat(locale, {
+    ...DATE_TIME_FORMAT_OPTIONS[kind],
+    timeZone,
+  });
+  dateTimeFormatterCache.set(cacheKey, formatter);
+  return formatter;
+}
+
 /** 日番号ラベル（例: `'15'`）を Intl で生成する。 */
 function formatDayNumberLabel(date: Date, timeZone: TimeZoneId, locale: string): string {
-  return new Intl.DateTimeFormat(locale, { timeZone, day: 'numeric' }).format(date);
+  return getDateTimeFormatter(locale, timeZone, 'dayNumber').format(date);
 }
 
 /** 日付ラベル（`'M月d日'` 相当）を Intl で生成する。 */
 function formatDateLabel(date: Date, timeZone: TimeZoneId, locale: string): string {
-  return new Intl.DateTimeFormat(locale, { timeZone, month: 'long', day: 'numeric' }).format(date);
+  return getDateTimeFormatter(locale, timeZone, 'date').format(date);
+}
+
+/**
+ * 完全な日付ラベル（`'YYYY年M月d日'` 相当、年を含む）を Intl で生成する。
+ * 日ヘッダーの日番号ボタンの `aria-label` に使う。
+ */
+function formatFullDateLabel(date: Date, timeZone: TimeZoneId, locale: string): string {
+  return getDateTimeFormatter(locale, timeZone, 'fullDate').format(date);
 }
 
 /** 時刻ラベル（`'H:mm'`、時は非ゼロ埋めの 24 時間制）を Intl で生成する。 */
 function formatTimeOfDayLabel(date: Date, timeZone: TimeZoneId, locale: string): string {
-  return new Intl.DateTimeFormat(locale, {
-    timeZone,
-    hour: 'numeric',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).format(date);
+  return getDateTimeFormatter(locale, timeZone, 'timeOfDay').format(date);
 }
 
 /**
@@ -174,6 +239,111 @@ function computeDaySpan(
 }
 
 /**
+ * `TimeGridDayColumn` / `TimeGridEventButton` が実際に必要とするドラッグハンドラだけを
+ * 抜き出した型。`previewFor` はここに含めない（{@link TimeGridView} 側で解決済みの値を
+ * `preview` prop として渡すため）。
+ */
+interface TimeGridColumnDragHandlers {
+  getDayProps: TimeGridDragHandlers['getDayProps'];
+  getEventProps: TimeGridDragHandlers['getEventProps'];
+  getResizeHandleProps: TimeGridDragHandlers['getResizeHandleProps'];
+}
+
+/**
+ * `useTimeGridDrag` の戻り値は毎レンダー新しいオブジェクト（関数含む）になるため、
+ * そのまま `memo` 化した子コンポーネントの props に渡すと再レンダー抑制が効かない。
+ * ここで参照が変わらないラッパーを 1 度だけ作り、呼び出し時に ref 経由で常に最新の
+ * ハンドラへ委譲することで、props の同一性を保ったまま最新の挙動を保証する。
+ */
+function useStableColumnDrag(drag: TimeGridDragHandlers): TimeGridColumnDragHandlers {
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
+  const [stable] = useState<TimeGridColumnDragHandlers>(() => ({
+    getDayProps: (day) => dragRef.current.getDayProps(day),
+    getEventProps: (item) => dragRef.current.getEventProps(item),
+    getResizeHandleProps: (item, edge) => dragRef.current.getResizeHandleProps(item, edge),
+  }));
+  return stable;
+}
+
+/** `TimeSlot` 配列の内容が等しいかどうかを比較する。 */
+function sameSlots(a: readonly TimeSlot[], b: readonly TimeSlot[]): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((slot, index) => slot.minutes === b[index]?.minutes);
+}
+
+/** `PositionedOccurrence` 1 件分の、表示に影響する内容が等しいかどうかを比較する。 */
+function samePositionedOccurrence(a: PositionedOccurrence, b: PositionedOccurrence): boolean {
+  if (a === b) {
+    return true;
+  }
+  return (
+    a.occurrence.key === b.occurrence.key &&
+    a.occurrence.event.title === b.occurrence.event.title &&
+    a.occurrence.event.color === b.occurrence.event.color &&
+    a.occurrence.event.editable === b.occurrence.event.editable &&
+    a.occurrence.start.getTime() === b.occurrence.start.getTime() &&
+    a.occurrence.end.getTime() === b.occurrence.end.getTime() &&
+    a.startMinutes === b.startMinutes &&
+    a.endMinutes === b.endMinutes &&
+    a.left === b.left &&
+    a.width === b.width &&
+    a.continuesBefore === b.continuesBefore &&
+    a.continuesAfter === b.continuesAfter
+  );
+}
+
+/** `PositionedOccurrence` 配列の内容が等しいかどうかを比較する。 */
+function samePositionedOccurrences(
+  a: readonly PositionedOccurrence[],
+  b: readonly PositionedOccurrence[],
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((item, index) => {
+    const other = b[index];
+    return other !== undefined && samePositionedOccurrence(item, other);
+  });
+}
+
+/** `TimeGridDay` の、表示に影響する内容が等しいかどうかを比較する。 */
+function sameTimeGridDay(a: TimeGridDay, b: TimeGridDay): boolean {
+  if (a === b) {
+    return true;
+  }
+  return (
+    a.key === b.key &&
+    a.isToday === b.isToday &&
+    a.weekday === b.weekday &&
+    a.date.getTime() === b.date.getTime() &&
+    samePositionedOccurrences(a.items, b.items)
+  );
+}
+
+/** `TimeGridPreviewSegment` の内容が等しいかどうかを比較する。 */
+function samePreviewSegment(
+  a: TimeGridPreviewSegment | null,
+  b: TimeGridPreviewSegment | null,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a === null || b === null) {
+    return false;
+  }
+  return a.kind === b.kind && a.startMinutes === b.startMinutes && a.endMinutes === b.endMinutes;
+}
+
+/**
  * 週/日ビュー（時間グリッド）を描画する。
  *
  * `useCalendarContext()` からビューモデルを取得し、`viewModel.type !== 'timeGrid'`
@@ -191,11 +361,22 @@ function computeDaySpan(
  * ```
  */
 export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
-  const { renderEvent } = props;
+  const { renderEvent, renderDayHeader } = props;
   const { api, state, viewModel, callbacks } = useCalendarContext();
   const calendar = { api, state, viewModel };
   const dayDrag = useDayDrag({ calendar, callbacks });
   const timeGridDrag = useTimeGridDrag({ calendar, callbacks });
+  // `timeGridDrag` は毎レンダー新しいオブジェクトになるため、日列・イベントボタンの
+  // memo 化が効くよう、参照が変わらないラッパー経由で渡す（詳細は関数コメント参照）。
+  const stableDrag = useStableColumnDrag(timeGridDrag);
+
+  const selectAndGoToDay = useCallback(
+    (date: Date): void => {
+      api.goTo(date);
+      api.setView('day');
+    },
+    [api],
+  );
 
   if (viewModel.type !== 'timeGrid') {
     return null;
@@ -206,11 +387,6 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
   const { locale } = options;
   const columnCount = days.length;
 
-  const selectAndGoToDay = (date: Date): void => {
-    api.goTo(date);
-    api.setView('day');
-  };
-
   const alldayPreviewRange = state.dragPreview?.allDay ? state.dragPreview.range : null;
   const alldaySelectionSpan =
     alldayPreviewRange !== null ? computeDaySpan(days, alldayPreviewRange, timeZone) : null;
@@ -219,23 +395,34 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
     <div data-koyomi="timegrid" data-koyomi-days={String(columnCount)}>
       <div data-koyomi="timegrid-header">
         <div data-koyomi="timegrid-axis-gutter" />
-        {days.map((day) => (
-          <div
-            key={day.key}
-            data-koyomi="timegrid-day-header"
-            data-koyomi-date={day.key}
-            data-today={day.isToday ? 'true' : undefined}
-          >
-            <span>{formatWeekday(day.weekday, locale)}</span>
-            <button
-              type="button"
-              data-koyomi="timegrid-day-number"
-              onClick={() => selectAndGoToDay(day.date)}
+        {days.map((day) => {
+          const defaultDayHeaderContent = (
+            <>
+              <span>{formatWeekday(day.weekday, locale)}</span>
+              <button
+                type="button"
+                data-koyomi="timegrid-day-number"
+                aria-label={formatFullDateLabel(day.date, timeZone, locale)}
+                onClick={() => selectAndGoToDay(day.date)}
+              >
+                {formatDayNumberLabel(day.date, timeZone, locale)}
+              </button>
+            </>
+          );
+          return (
+            <div
+              key={day.key}
+              data-koyomi="timegrid-day-header"
+              data-koyomi-date={day.key}
+              data-today={day.isToday ? 'true' : undefined}
+              aria-current={day.isToday ? 'date' : undefined}
             >
-              {formatDayNumberLabel(day.date, timeZone, locale)}
-            </button>
-          </div>
-        ))}
+              {renderDayHeader
+                ? renderDayHeader(day, defaultDayHeaderContent)
+                : defaultDayHeaderContent}
+            </div>
+          );
+        })}
       </div>
 
       <div data-koyomi="allday-row">
@@ -263,8 +450,9 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
           {alldaySelectionSpan !== null && (
             <div
               data-koyomi="day-selection"
+              aria-hidden="true"
               style={{
-                left: `${(alldaySelectionSpan.startCol / columnCount) * 100}%`,
+                insetInlineStart: `${(alldaySelectionSpan.startCol / columnCount) * 100}%`,
                 width: `${(alldaySelectionSpan.span / columnCount) * 100}%`,
               }}
             />
@@ -291,7 +479,9 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
               nowIndicatorDayKey={nowIndicator?.dayKey ?? null}
               nowIndicatorMinutes={nowIndicator?.minutes ?? null}
               renderEvent={renderEvent}
-              drag={timeGridDrag}
+              drag={stableDrag}
+              isDragging={timeGridDrag.isDragging}
+              preview={timeGridDrag.previewFor(day)}
             />
           ))}
         </div>
@@ -311,9 +501,10 @@ function AllDaySegmentButton(props: {
   const { segment, columnCount, timeZone, locale, dayDrag } = props;
   const occurrence = segment.occurrence;
   const segmentProps = dayDrag.getSegmentProps(segment);
+  const isEditable = occurrence.event.editable !== false;
   const style = withEventColorStyle(
     {
-      left: `${(segment.startCol / columnCount) * 100}%`,
+      insetInlineStart: `${(segment.startCol / columnCount) * 100}%`,
       width: `${(segment.span / columnCount) * 100}%`,
       top: `calc(${segment.lane} * var(--koyomi-lane-height, 24px))`,
     },
@@ -331,12 +522,26 @@ function AllDaySegmentButton(props: {
       aria-label={formatOccurrenceAriaLabel(occurrence, timeZone, locale)}
     >
       {occurrence.event.title}
+      {isEditable && !segment.continuesBefore && (
+        <span
+          {...dayDrag.getSegmentResizeHandleProps(segment, 'start')}
+          data-koyomi="allday-resize"
+          data-edge="start"
+        />
+      )}
+      {isEditable && !segment.continuesAfter && (
+        <span
+          {...dayDrag.getSegmentResizeHandleProps(segment, 'end')}
+          data-koyomi="allday-resize"
+          data-edge="end"
+        />
+      )}
     </button>
   );
 }
 
 /** 時間グリッドの日列（1 列分）。罫線・イベント・プレビュー・現在時刻線を描画する。 */
-function TimeGridDayColumn(props: {
+function TimeGridDayColumnImpl(props: {
   day: TimeGridDay;
   slots: readonly TimeSlot[];
   timeZone: TimeZoneId;
@@ -344,7 +549,11 @@ function TimeGridDayColumn(props: {
   nowIndicatorDayKey: string | null;
   nowIndicatorMinutes: number | null;
   renderEvent: ((item: PositionedOccurrence) => ReactNode) | undefined;
-  drag: TimeGridDragHandlers;
+  drag: TimeGridColumnDragHandlers;
+  /** ドラッグ操作が進行中か（{@link TimeGridEventButton} の memo 判定に使う）。 */
+  isDragging: boolean;
+  /** この日に表示すべきドラッグプレビュー区間（親側で解決済み、交差しなければ `null`）。 */
+  preview: TimeGridPreviewSegment | null;
 }): ReactElement {
   const {
     day,
@@ -355,9 +564,10 @@ function TimeGridDayColumn(props: {
     nowIndicatorMinutes,
     renderEvent,
     drag,
+    isDragging,
+    preview,
   } = props;
   const { ref, ...dayProps } = drag.getDayProps(day);
-  const preview = drag.previewFor(day);
   const showNowIndicator = nowIndicatorDayKey === day.key && nowIndicatorMinutes !== null;
 
   return (
@@ -382,12 +592,14 @@ function TimeGridDayColumn(props: {
           locale={locale}
           renderEvent={renderEvent}
           drag={drag}
+          isDragging={isDragging}
         />
       ))}
       {preview !== null && (
         <div
           data-koyomi="timegrid-preview"
           data-kind={preview.kind}
+          aria-hidden="true"
           style={{
             top: `${(preview.startMinutes / MINUTES_PER_DAY) * 100}%`,
             height: `${((preview.endMinutes - preview.startMinutes) / MINUTES_PER_DAY) * 100}%`,
@@ -397,6 +609,7 @@ function TimeGridDayColumn(props: {
       {showNowIndicator && nowIndicatorMinutes !== null && (
         <div
           data-koyomi="now-indicator"
+          aria-hidden="true"
           style={{ top: `${(nowIndicatorMinutes / MINUTES_PER_DAY) * 100}%` }}
         />
       )}
@@ -404,13 +617,39 @@ function TimeGridDayColumn(props: {
   );
 }
 
+/**
+ * {@link TimeGridDayColumnImpl} を `memo` でラップしたもの。
+ *
+ * `viewModel` は状態が変わるたびに丸ごと再構築されるため、既定の浅い比較（参照比較）
+ * では `day` / `slots` が常に「変わった」ことになり意味がない。表示に影響する値だけを
+ * 比較するカスタム比較関数を使うことで、ドラッグ中に無関係な列が再レンダーされない
+ * ようにする（`isDragging` はドラッグ開始・終了の瞬間だけ変化するので、その際は
+ * 全列が 1 回だけ再評価され、対象イベントの `data-koyomi-dragging` 表示が正しく更新される）。
+ */
+const TimeGridDayColumn = memo(TimeGridDayColumnImpl, (prev, next) => {
+  return (
+    sameTimeGridDay(prev.day, next.day) &&
+    sameSlots(prev.slots, next.slots) &&
+    prev.timeZone === next.timeZone &&
+    prev.locale === next.locale &&
+    prev.nowIndicatorDayKey === next.nowIndicatorDayKey &&
+    prev.nowIndicatorMinutes === next.nowIndicatorMinutes &&
+    prev.renderEvent === next.renderEvent &&
+    prev.drag === next.drag &&
+    prev.isDragging === next.isDragging &&
+    samePreviewSegment(prev.preview, next.preview)
+  );
+});
+
 /** 時間グリッド内の時間指定イベント 1 件分のボタン（リサイズハンドルを含む）。 */
-function TimeGridEventButton(props: {
+function TimeGridEventButtonImpl(props: {
   item: PositionedOccurrence;
   timeZone: TimeZoneId;
   locale: string;
   renderEvent: ((item: PositionedOccurrence) => ReactNode) | undefined;
-  drag: TimeGridDragHandlers;
+  drag: TimeGridColumnDragHandlers;
+  /** ドラッグ操作が進行中か（このコンポーネント自体は使わないが、memo 判定に必要）。 */
+  isDragging: boolean;
 }): ReactElement {
   const { item, timeZone, locale, renderEvent, drag } = props;
   const occurrence = item.occurrence;
@@ -420,7 +659,7 @@ function TimeGridEventButton(props: {
     {
       top: `${(item.startMinutes / MINUTES_PER_DAY) * 100}%`,
       height: `${((item.endMinutes - item.startMinutes) / MINUTES_PER_DAY) * 100}%`,
-      left: `${item.left * 100}%`,
+      insetInlineStart: `${item.left * 100}%`,
       width: `${item.width * 100}%`,
     },
     occurrence.event.color,
@@ -439,7 +678,38 @@ function TimeGridEventButton(props: {
       <div data-koyomi="timegrid-event-content">
         {renderEvent ? renderEvent(item) : defaultTimedEventContent(item)}
       </div>
-      {isEditable && <div data-koyomi="timegrid-resize" {...drag.getResizeHandleProps(item)} />}
+      {isEditable && !item.continuesBefore && (
+        <div
+          {...drag.getResizeHandleProps(item, 'start')}
+          data-koyomi="timegrid-resize"
+          data-edge="start"
+        />
+      )}
+      {isEditable && !item.continuesAfter && (
+        <div
+          {...drag.getResizeHandleProps(item, 'end')}
+          data-koyomi="timegrid-resize"
+          data-edge="end"
+        />
+      )}
     </button>
   );
 }
+
+/**
+ * {@link TimeGridEventButtonImpl} を `memo` でラップしたもの。
+ * `item`（`PositionedOccurrence`）は `viewModel` 再構築のたびに新しい参照になるため、
+ * 内容が等しいかどうかを {@link samePositionedOccurrence} で比較する。`isDragging` は
+ * ドラッグ開始・終了の瞬間だけ変化する値で、変化時には全イベントボタンを再評価させ、
+ * ドラッグ対象になった／外れたイベントの `data-koyomi-dragging` を正しく反映させる。
+ */
+const TimeGridEventButton = memo(TimeGridEventButtonImpl, (prev, next) => {
+  return (
+    samePositionedOccurrence(prev.item, next.item) &&
+    prev.timeZone === next.timeZone &&
+    prev.locale === next.locale &&
+    prev.renderEvent === next.renderEvent &&
+    prev.drag === next.drag &&
+    prev.isDragging === next.isDragging
+  );
+});

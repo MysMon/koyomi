@@ -5,10 +5,17 @@
  * `useCalendar` / `CalendarProvider` を通した結合テストとして、
  * `container.querySelector('[data-koyomi="..."]')` で DOM 契約を検証する。
  */
-import { fireEvent, render } from '@testing-library/react';
-import type { ReactElement } from 'react';
+import { act, fireEvent, render } from '@testing-library/react';
+import type { ReactElement, ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import type { CalendarApi, CalendarEvent, CalendarViewType, EventSegment } from '../../core/types';
+import type {
+  CalendarApi,
+  CalendarEvent,
+  CalendarViewType,
+  EventSegment,
+  MonthDay,
+  Weekday,
+} from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { CalendarInteractionCallbacks } from '../types';
 import { useCalendar } from '../use-calendar';
@@ -25,7 +32,10 @@ function Harness(props: {
   initialView?: CalendarViewType;
   callbacks?: CalendarInteractionCallbacks;
   dayMaxEvents?: number;
+  hiddenWeekdays?: readonly Weekday[];
   renderEvent?: (segment: EventSegment) => ReactElement;
+  overflowLabel?: (count: number) => ReactNode;
+  renderDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
   apiRef?: { current: CalendarApi | null };
 }): ReactElement {
   const calendar = useCalendar({
@@ -38,6 +48,7 @@ function Harness(props: {
     // そのままキーに設定できない（省略とキー存在+undefinedが区別される）ため、
     // 未指定時はキー自体を省く
     ...(props.dayMaxEvents !== undefined ? { dayMaxEvents: props.dayMaxEvents } : {}),
+    ...(props.hiddenWeekdays !== undefined ? { hiddenWeekdays: props.hiddenWeekdays } : {}),
   });
   if (props.apiRef !== undefined) {
     props.apiRef.current = calendar.api;
@@ -47,7 +58,11 @@ function Harness(props: {
       value={calendar}
       {...(props.callbacks !== undefined ? { callbacks: props.callbacks } : {})}
     >
-      <MonthView {...(props.renderEvent !== undefined ? { renderEvent: props.renderEvent } : {})} />
+      <MonthView
+        {...(props.renderEvent !== undefined ? { renderEvent: props.renderEvent } : {})}
+        {...(props.overflowLabel !== undefined ? { overflowLabel: props.overflowLabel } : {})}
+        {...(props.renderDayCell !== undefined ? { renderDayCell: props.renderDayCell } : {})}
+      />
     </CalendarProvider>
   );
 }
@@ -100,7 +115,7 @@ describe('MonthView - イベントセグメント', () => {
     }
 
     // 2026-07-08（水）は第2週の 4 列目（週開始=日曜、startCol=3）
-    expect(segment.style.left).toBe(`${(3 / 7) * 100}%`);
+    expect(segment.style.insetInlineStart).toBe(`${(3 / 7) * 100}%`);
     expect(segment.style.width).toBe(`${(1 / 7) * 100}%`);
     expect(segment).not.toHaveAttribute('data-all-day');
     expect(segment).not.toHaveAttribute('data-continues-before');
@@ -271,5 +286,211 @@ describe('MonthView - クリック操作', () => {
     expect(onEventClick).toHaveBeenCalledTimes(1);
     const occurrence = onEventClick.mock.calls[0]?.[0];
     expect(occurrence?.event.title).toBe('朝会');
+  });
+});
+
+describe('MonthView - 帯セグメントのリサイズハンドル', () => {
+  it('editable なセグメント（継続なし）は開始・終了の両端にリサイズハンドルを描画する', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '朝会', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+    ];
+    const { container } = render(<Harness events={events} />);
+
+    const segment = container.querySelector('[data-koyomi="month-event"]');
+    expect(segment).toBeInstanceOf(HTMLElement);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    const startHandle = segment.querySelector(
+      '[data-koyomi="month-event-resize"][data-edge="start"]',
+    );
+    const endHandle = segment.querySelector('[data-koyomi="month-event-resize"][data-edge="end"]');
+    expect(startHandle).not.toBeNull();
+    expect(endHandle).not.toBeNull();
+    // getSegmentResizeHandleProps が返す data-koyomi-resize-handle 属性もそのまま反映される
+    expect(startHandle).toHaveAttribute('data-koyomi-resize-handle', 'start');
+    expect(endHandle).toHaveAttribute('data-koyomi-resize-handle', 'end');
+  });
+
+  it('editable: false のセグメントにはリサイズハンドルを描画しない', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '祝日',
+        start: '2026-07-08T09:00',
+        end: '2026-07-08T09:30',
+        editable: false,
+      },
+    ];
+    const { container } = render(<Harness events={events} />);
+
+    const segment = container.querySelector('[data-koyomi="month-event"]');
+    expect(segment?.querySelector('[data-koyomi="month-event-resize"]')).toBeNull();
+  });
+
+  it('週をまたぐセグメントは continuesBefore/continuesAfter に応じて片側のハンドルのみ描画する', () => {
+    // 第1週(6/28〜7/4)と第2週(7/5〜7/11)に分割される終日イベント（既存テストと同一条件）
+    const events: CalendarEvent[] = [
+      { id: 'e2', title: '出張', start: '2026-07-03', end: '2026-07-06', allDay: true },
+    ];
+    const { container } = render(<Harness events={events} />);
+
+    const segments = container.querySelectorAll('[data-koyomi="month-event"]');
+    expect(segments).toHaveLength(2);
+    const first = segments[0];
+    const second = segments[1];
+    if (!(first instanceof HTMLElement) || !(second instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    // 第1週セグメント: continuesAfter=true → end 側ハンドルなし、start 側はある
+    expect(
+      first.querySelector('[data-koyomi="month-event-resize"][data-edge="start"]'),
+    ).not.toBeNull();
+    expect(first.querySelector('[data-koyomi="month-event-resize"][data-edge="end"]')).toBeNull();
+
+    // 第2週セグメント: continuesBefore=true → start 側ハンドルなし、end 側はある
+    expect(
+      second.querySelector('[data-koyomi="month-event-resize"][data-edge="start"]'),
+    ).toBeNull();
+    expect(
+      second.querySelector('[data-koyomi="month-event-resize"][data-edge="end"]'),
+    ).not.toBeNull();
+  });
+});
+
+describe('MonthView - overflowLabel / renderDayCell', () => {
+  it('overflowLabel を渡すと「+N 件」の文言がカスタマイズされる', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+    ];
+    const { container } = render(
+      <Harness events={events} dayMaxEvents={1} overflowLabel={(count) => `他${count}件`} />,
+    );
+
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    expect(overflowButton?.textContent).toBe('他1件');
+  });
+
+  it('renderDayCell で日セルの内容を拡張できる（既定内容はそのまま利用可能）', () => {
+    const { container } = render(
+      <Harness
+        renderDayCell={(day, defaultContent) => (
+          <>
+            <span data-testid="badge">{day.key}</span>
+            {defaultContent}
+          </>
+        )}
+      />,
+    );
+
+    const cell = container.querySelector('[data-koyomi-date="2026-07-10"]');
+    expect(cell?.querySelector('[data-testid="badge"]')?.textContent).toBe('2026-07-10');
+    // 既定内容（日番号ボタン）は defaultContent 経由でそのまま描画される
+    expect(cell?.querySelector('[data-koyomi="month-day-number"]')).not.toBeNull();
+  });
+});
+
+describe('MonthView - ARIA', () => {
+  it('グリッドロールと日セルの aria-label / aria-current が正しい', () => {
+    const { container } = render(<Harness />);
+
+    expect(container.querySelector('[data-koyomi="month"]')).toHaveAttribute('role', 'grid');
+    expect(container.querySelector('[data-koyomi="month-weekdays"]')).toHaveAttribute(
+      'role',
+      'row',
+    );
+    expect(
+      container.querySelectorAll('[data-koyomi="month-weekday"][role="columnheader"]'),
+    ).toHaveLength(7);
+    expect(container.querySelector('[data-koyomi="month-weeks"]')).toHaveAttribute(
+      'role',
+      'rowgroup',
+    );
+    expect(container.querySelectorAll('[data-koyomi="month-days"][role="row"]')).toHaveLength(5);
+    expect(container.querySelectorAll('[data-koyomi="month-day"][role="gridcell"]')).toHaveLength(
+      35,
+    );
+    expect(container.querySelector('[data-koyomi="month-events"]')).toHaveAttribute(
+      'role',
+      'presentation',
+    );
+
+    const todayCell = container.querySelector('[data-koyomi-date="2026-07-15"]');
+    expect(todayCell).toHaveAttribute('aria-label', '2026年7月15日');
+    expect(todayCell).toHaveAttribute('aria-current', 'date');
+
+    const otherCell = container.querySelector('[data-koyomi-date="2026-07-14"]');
+    expect(otherCell).toHaveAttribute('aria-label', '2026年7月14日');
+    expect(otherCell).not.toHaveAttribute('aria-current');
+
+    // 前月の埋め草の日も完全な日付として読み上げられる（特別扱い不要）
+    const outsideCell = container.querySelector('[data-koyomi-date="2026-06-28"]');
+    expect(outsideCell).toHaveAttribute('aria-label', '2026年6月28日');
+  });
+});
+
+describe('MonthView - 可視列（hiddenWeekdays）', () => {
+  it('hiddenWeekdays で可視列が5列になった週は、可視列数を基準に幅・位置の%が計算される', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '朝会', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+    ];
+    const { container } = render(<Harness events={events} hiddenWeekdays={[0, 6]} />);
+
+    const weeks = container.querySelectorAll('[data-koyomi="month-week"]');
+    const secondWeek = weeks[1];
+    expect(secondWeek).toBeInstanceOf(HTMLElement);
+    if (!(secondWeek instanceof HTMLElement)) {
+      throw new Error('第2週が見つかりません');
+    }
+    expect(secondWeek.querySelectorAll('[data-koyomi="month-day"]')).toHaveLength(5);
+
+    const segment = container.querySelector('[data-koyomi="month-event"]');
+    expect(segment).toBeInstanceOf(HTMLElement);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+    // 7/8（水）は日・土を除いた可視列で 3 番目（月=0, 火=1, 水=2）、可視列数は 5
+    expect(segment.style.insetInlineStart).toBe(`${(2 / 5) * 100}%`);
+    expect(segment.style.width).toBe(`${(1 / 5) * 100}%`);
+  });
+});
+
+describe('MonthView - ドラッグプレビューの選択帯', () => {
+  it('setDragPreview で該当週に day-selection が描画され、insetInlineStart/width が交差範囲どおりになる', () => {
+    const apiRef: { current: CalendarApi | null } = { current: null };
+    const { container } = render(<Harness apiRef={apiRef} />);
+
+    expect(container.querySelector('[data-koyomi="day-selection"]')).toBeNull();
+
+    act(() => {
+      apiRef.current?.setDragPreview({
+        kind: 'create',
+        occurrenceKey: null,
+        range: {
+          start: new Date('2026-07-07T15:00:00Z'), // 2026-07-08 0:00 JST
+          end: new Date('2026-07-08T15:00:00Z'), // 2026-07-09 0:00 JST
+        },
+        allDay: true,
+      });
+    });
+
+    const selections = container.querySelectorAll('[data-koyomi="day-selection"]');
+    expect(selections).toHaveLength(1);
+    const selection = selections[0];
+    if (!(selection instanceof HTMLElement)) {
+      throw new Error('選択帯が見つかりません');
+    }
+    // 2026-07-08（水）は第2週の 4 列目（週開始=日曜、startCol=3、可視列数7）
+    expect(selection.style.insetInlineStart).toBe(`${(3 / 7) * 100}%`);
+    expect(selection.style.width).toBe(`${(1 / 7) * 100}%`);
+    expect(selection).toHaveAttribute('aria-hidden', 'true');
+
+    act(() => {
+      apiRef.current?.setDragPreview(null);
+    });
+    expect(container.querySelector('[data-koyomi="day-selection"]')).toBeNull();
   });
 });

@@ -4,13 +4,14 @@
  * `useCalendar` + `CalendarProvider` で実際のカレンダーエンジンを組み立て、
  * `TimeGridView` が生成する DOM を `data-koyomi="..."` 属性で検証する。
  */
-import { fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { CalendarEvent, CalendarViewType } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
+import type { TimeGridViewProps } from './time-grid-view';
 import { TimeGridView } from './time-grid-view';
 
 /** 表示タイムゾーン。 */
@@ -28,6 +29,8 @@ interface HarnessProps {
   callbacks?: CalendarInteractionCallbacks;
   /** `useCalendar` の戻り値を外部から観測するための入れ物。 */
   sink?: { current: UseCalendarResult | null };
+  /** `TimeGridView` へそのまま渡す追加 props（`renderEvent` / `renderDayHeader` など）。 */
+  viewProps?: TimeGridViewProps;
 }
 
 /** `TimeGridView` を `CalendarProvider` 配下で描画するテスト用ハーネス。 */
@@ -44,7 +47,7 @@ function Harness(props: HarnessProps): ReactElement {
   }
   return (
     <CalendarProvider value={calendar} callbacks={props.callbacks ?? {}}>
-      <TimeGridView />
+      <TimeGridView {...(props.viewProps ?? {})} />
     </CalendarProvider>
   );
 }
@@ -109,9 +112,10 @@ describe('TimeGridView', () => {
     const { container } = render(<Harness initialView="day" events={events} />);
     const items = Array.from(container.querySelectorAll('[data-koyomi="timegrid-event"]'));
     expect(items).toHaveLength(2);
-    const lefts = items.map((el) => (el as HTMLElement).style.left).sort();
+    // RTL 対応のため水平位置は insetInlineStart（論理プロパティ）で指定する
+    const insetStarts = items.map((el) => (el as HTMLElement).style.insetInlineStart).sort();
     const widths = items.map((el) => (el as HTMLElement).style.width);
-    expect(lefts).toEqual(['0%', '50%']);
+    expect(insetStarts).toEqual(['0%', '50%']);
     expect(widths.every((width) => width === '50%')).toBe(true);
   });
 
@@ -125,7 +129,8 @@ describe('TimeGridView', () => {
     expect(segment?.textContent).toBe('休暇');
     const style = (segment as HTMLElement).style;
     // 2026-07-14 は表示週（07-12日〜07-18土）の 3 列目（0 起点 index 2）
-    expect(style.left).toBe(`${(2 / 7) * 100}%`);
+    // RTL 対応のため水平位置は insetInlineStart（論理プロパティ）で指定する
+    expect(style.insetInlineStart).toBe(`${(2 / 7) * 100}%`);
     expect(style.width).toBe(`${(1 / 7) * 100}%`);
   });
 
@@ -170,7 +175,10 @@ describe('TimeGridView', () => {
     const otherColumn = container.querySelector(
       '[data-koyomi="timegrid-day"][data-koyomi-date="2026-07-14"]',
     );
-    expect(todayColumn?.querySelector('[data-koyomi="now-indicator"]')).not.toBeNull();
+    const nowIndicator = todayColumn?.querySelector('[data-koyomi="now-indicator"]');
+    expect(nowIndicator).not.toBeNull();
+    // 現在時刻線は視覚的な装飾であり、スクリーンリーダーには読み上げさせない
+    expect(nowIndicator).toHaveAttribute('aria-hidden', 'true');
     expect(otherColumn?.querySelector('[data-koyomi="now-indicator"]')).toBeNull();
   });
 
@@ -233,5 +241,161 @@ describe('TimeGridView', () => {
     const { container } = render(<Harness initialView="month" />);
     expect(container.querySelector('[data-koyomi="timegrid"]')).toBeNull();
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('編集可能なイベントには上端・下端の両方にリサイズハンドルが描画され、data-edge で区別できる', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+    ];
+    const { container } = render(<Harness initialView="day" events={events} />);
+    const eventEl = container.querySelector('[data-koyomi-occurrence^="e1"]');
+    const handles = eventEl?.querySelectorAll('[data-koyomi="timegrid-resize"]');
+    expect(handles).toHaveLength(2);
+    expect(
+      eventEl?.querySelector('[data-koyomi="timegrid-resize"][data-edge="start"]'),
+    ).not.toBeNull();
+    expect(
+      eventEl?.querySelector('[data-koyomi="timegrid-resize"][data-edge="end"]'),
+    ).not.toBeNull();
+  });
+
+  it('editable: false のイベントには上端・下端どちらのリサイズハンドルも描画されない', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'locked',
+        title: '編集不可',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T10:00',
+        editable: false,
+      },
+    ];
+    const { container } = render(<Harness initialView="day" events={events} />);
+    const eventEl = container.querySelector('[data-koyomi-occurrence^="locked"]');
+    expect(eventEl?.querySelectorAll('[data-koyomi="timegrid-resize"]')).toHaveLength(0);
+  });
+
+  it('日をまたぐイベントは continuesAfter 側の下端ハンドルと continuesBefore 側の上端ハンドルが出ない', () => {
+    const events: CalendarEvent[] = [
+      { id: 'cross', title: '夜間作業', start: '2026-07-14T22:00', end: '2026-07-15T02:00' },
+    ];
+    const { container } = render(<Harness initialView="week" events={events} />);
+    const day14Event = container
+      .querySelector('[data-koyomi="timegrid-day"][data-koyomi-date="2026-07-14"]')
+      ?.querySelector('[data-koyomi="timegrid-event"]');
+    const day15Event = container
+      .querySelector('[data-koyomi="timegrid-day"][data-koyomi-date="2026-07-15"]')
+      ?.querySelector('[data-koyomi="timegrid-event"]');
+
+    // 14 日側（continuesAfter）: 上端ハンドルはあるが下端ハンドルはない
+    expect(
+      day14Event?.querySelector('[data-koyomi="timegrid-resize"][data-edge="start"]'),
+    ).not.toBeNull();
+    expect(
+      day14Event?.querySelector('[data-koyomi="timegrid-resize"][data-edge="end"]'),
+    ).toBeNull();
+
+    // 15 日側（continuesBefore）: 下端ハンドルはあるが上端ハンドルはない
+    expect(
+      day15Event?.querySelector('[data-koyomi="timegrid-resize"][data-edge="start"]'),
+    ).toBeNull();
+    expect(
+      day15Event?.querySelector('[data-koyomi="timegrid-resize"][data-edge="end"]'),
+    ).not.toBeNull();
+  });
+
+  it('終日イベントの帯には左右にリサイズハンドルが描画される', () => {
+    const events: CalendarEvent[] = [
+      { id: 'ad1', title: '休暇', start: '2026-07-14', end: '2026-07-15', allDay: true },
+    ];
+    const { container } = render(<Harness initialView="week" events={events} />);
+    const segment = container.querySelector('[data-koyomi="allday-event"]');
+    expect(
+      segment?.querySelector('[data-koyomi="allday-resize"][data-edge="start"]'),
+    ).not.toBeNull();
+    expect(segment?.querySelector('[data-koyomi="allday-resize"][data-edge="end"]')).not.toBeNull();
+  });
+
+  it('editable: false の終日イベントには帯のリサイズハンドルが描画されない', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'ad-locked',
+        title: '固定休暇',
+        start: '2026-07-14',
+        end: '2026-07-15',
+        allDay: true,
+        editable: false,
+      },
+    ];
+    const { container } = render(<Harness initialView="week" events={events} />);
+    const segment = container.querySelector('[data-koyomi="allday-event"]');
+    expect(segment?.querySelectorAll('[data-koyomi="allday-resize"]')).toHaveLength(0);
+  });
+
+  it('renderDayHeader で日ヘッダーの表示内容をカスタマイズでき、defaultContent には既定の内容が渡る', () => {
+    const { container } = render(
+      <Harness
+        initialView="week"
+        viewProps={{
+          renderDayHeader: (day, defaultContent) => (
+            <div data-testid={`custom-header-${day.key}`}>{defaultContent}</div>
+          ),
+        }}
+      />,
+    );
+    const custom = container.querySelector('[data-testid="custom-header-2026-07-15"]');
+    expect(custom).not.toBeNull();
+    // 既定内容（曜日ラベル・日番号ボタン）がそのまま渡され描画されている
+    expect(custom?.querySelector('[data-koyomi="timegrid-day-number"]')?.textContent).toContain(
+      '15',
+    );
+  });
+
+  it('日番号ボタンに完全な日付の aria-label が付き、今日の列ヘッダーにのみ aria-current="date" が付く', () => {
+    const { container } = render(<Harness initialView="week" />);
+    const todayHeader = container.querySelector(
+      '[data-koyomi="timegrid-day-header"][data-koyomi-date="2026-07-15"]',
+    );
+    expect(todayHeader).toHaveAttribute('aria-current', 'date');
+
+    const otherHeader = container.querySelector(
+      '[data-koyomi="timegrid-day-header"][data-koyomi-date="2026-07-14"]',
+    );
+    expect(otherHeader).not.toHaveAttribute('aria-current');
+
+    const dayNumberButton = todayHeader?.querySelector('[data-koyomi="timegrid-day-number"]');
+    expect(dayNumberButton).toHaveAttribute('aria-label', '2026年7月15日');
+  });
+
+  it('setDragPreview 後、交差する列にのみ timegrid-preview が data-kind・top・height 付きで出現する', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+    ];
+    const { container } = render(<Harness initialView="day" events={events} sink={sink} />);
+
+    expect(container.querySelector('[data-koyomi="timegrid-preview"]')).toBeNull();
+
+    act(() => {
+      sink.current?.api.setDragPreview({
+        kind: 'resize',
+        occurrenceKey: 'e1@2026-07-15T01:00:00.000Z',
+        range: {
+          start: new Date('2026-07-15T01:00:00Z'), // 10:00 JST
+          end: new Date('2026-07-15T03:00:00Z'), // 12:00 JST
+        },
+        allDay: false,
+      });
+    });
+
+    const dayColumn = container.querySelector('[data-koyomi="timegrid-day"]');
+    const preview = dayColumn?.querySelector('[data-koyomi="timegrid-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).toHaveAttribute('data-kind', 'resize');
+    // ドラッグプレビューは装飾要素なので読み上げ対象から外す
+    expect(preview).toHaveAttribute('aria-hidden', 'true');
+    const style = (preview as HTMLElement).style;
+    // 10:00 = 600分 → 600/1440*100 ≈ 41.66...%、12:00 = 720分 → 高さ 120/1440*100 ≈ 8.33...%
+    expect(style.top).toContain('41.66');
+    expect(style.height).toContain('8.33');
   });
 });

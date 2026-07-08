@@ -404,6 +404,11 @@ export interface CalendarOptions {
   slotMinutes?: number;
   /** 時間指定イベントの既定の長さ（分）。`end` 省略時に使用。既定は `60`。 */
   defaultEventMinutes?: number;
+  /**
+   * 既定作成（`onSelectRange` 未指定時の即時作成）で使うイベントタイトル。
+   * ロケールに合わせて差し替えられる。既定は `'(タイトルなし)'`。
+   */
+  defaultEventTitle?: string;
   /** リストビューが表示する日数。既定は `30`。 */
   listDays?: number;
   /** 曜日・時刻ラベルのロケール。既定は `'ja'`。 */
@@ -438,6 +443,8 @@ export interface ResolvedCalendarOptions {
   slotMinutes: number;
   /** 時間指定イベントの既定の長さ（分）。 */
   defaultEventMinutes: number;
+  /** 既定作成で使うイベントタイトル。 */
+  defaultEventTitle: string;
   /** リストビューが表示する日数。 */
   listDays: number;
   /** ロケール。 */

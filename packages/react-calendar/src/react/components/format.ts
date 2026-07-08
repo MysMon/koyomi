@@ -16,12 +16,49 @@ import type { DateRange, TimeZoneId, Weekday } from '../../core/types';
 const WEEKDAY_REFERENCE_YEAR = 2023;
 
 /**
+ * `Intl.DateTimeFormat` インスタンスのキャッシュ。
+ *
+ * `Intl.DateTimeFormat` の構築はロケールデータの解決を伴いコストが高いため、
+ * `locale` / `timeZone` / 書式オプションの種別が同じであれば使い回す。
+ * キーは `` `${locale}|${timeZone}|${optionsKey}` `` の形式（`optionsKey` は
+ * 呼び出し側が書式オプションの種別ごとに割り当てる一意な文字列）。
+ */
+const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * `locale` / `timeZone` / `optionsKey` の組み合わせでキャッシュされた
+ * `Intl.DateTimeFormat` を取得する。未生成なら `options` から新規生成してキャッシュする。
+ *
+ * @param locale - ロケール
+ * @param timeZone - タイムゾーン
+ * @param optionsKey - 書式オプションの種別を表す一意なキー（呼び出し側の関数ごとに固定値を割り当てる）
+ * @param options - `Intl.DateTimeFormat` の書式オプション（`timeZone` は自動で補われる）
+ * @returns キャッシュされた、または新規生成した `Intl.DateTimeFormat`
+ */
+function getCachedDateTimeFormat(
+  locale: string,
+  timeZone: TimeZoneId,
+  optionsKey: string,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+  const cacheKey = `${locale}|${timeZone}|${optionsKey}`;
+  const cached = dateTimeFormatCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const formatter = new Intl.DateTimeFormat(locale, { ...options, timeZone });
+  dateTimeFormatCache.set(cacheKey, formatter);
+  return formatter;
+}
+
+/**
  * 指定した書式オプションで整形した際の、特定の日付要素（年・月・日など）の
  * 値のみを取り出す。
  *
  * @param date - 対象の絶対時刻
  * @param timeZone - タイムゾーン
  * @param locale - ロケール
+ * @param optionsKey - `options` に対応する一意なキー（キャッシュ用）
  * @param options - `Intl.DateTimeFormat` の書式オプション
  * @param partType - 取り出す要素の種別（例: `'day'`）
  * @returns 該当要素の文字列（該当なしの場合は空文字列）
@@ -30,10 +67,11 @@ function extractPart(
   date: Date,
   timeZone: TimeZoneId,
   locale: string,
+  optionsKey: string,
   options: Intl.DateTimeFormatOptions,
   partType: Intl.DateTimeFormatPartTypes,
 ): string {
-  const parts = new Intl.DateTimeFormat(locale, { ...options, timeZone }).formatToParts(date);
+  const parts = getCachedDateTimeFormat(locale, timeZone, optionsKey, options).formatToParts(date);
   const part = parts.find((candidate) => candidate.type === partType);
   return part?.value ?? '';
 }
@@ -51,8 +89,7 @@ function extractPart(
  * ```
  */
 export function formatTime(date: Date, timeZone: TimeZoneId, locale: string): string {
-  return new Intl.DateTimeFormat(locale, {
-    timeZone,
+  return getCachedDateTimeFormat(locale, timeZone, 'time', {
     hour: 'numeric',
     minute: '2-digit',
     hourCycle: 'h23',
@@ -72,7 +109,10 @@ export function formatTime(date: Date, timeZone: TimeZoneId, locale: string): st
  * ```
  */
 export function formatMonthTitle(date: Date, timeZone: TimeZoneId, locale: string): string {
-  return new Intl.DateTimeFormat(locale, { timeZone, year: 'numeric', month: 'long' }).format(date);
+  return getCachedDateTimeFormat(locale, timeZone, 'month-title', {
+    year: 'numeric',
+    month: 'long',
+  }).format(date);
 }
 
 /**
@@ -88,8 +128,7 @@ export function formatMonthTitle(date: Date, timeZone: TimeZoneId, locale: strin
  * ```
  */
 export function formatDayTitle(date: Date, timeZone: TimeZoneId, locale: string): string {
-  return new Intl.DateTimeFormat(locale, {
-    timeZone,
+  return getCachedDateTimeFormat(locale, timeZone, 'day-title', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
@@ -122,13 +161,21 @@ export function formatRangeTitle(range: DateRange, timeZone: TimeZoneId, locale:
   // end は排他的なので、範囲に含まれる最後の瞬間（1ms 前）が属する日を終了日とする
   const endDate = new Date(range.end.getTime() - 1);
 
-  const yearFormatter = new Intl.DateTimeFormat(locale, { timeZone, year: 'numeric' });
+  const yearFormatter = getCachedDateTimeFormat(locale, timeZone, 'range-year', {
+    year: 'numeric',
+  });
   const sameYear = yearFormatter.format(startDate) === yearFormatter.format(endDate);
 
-  const options: Intl.DateTimeFormatOptions = sameYear
-    ? { timeZone, month: 'long', day: 'numeric' }
-    : { timeZone, year: 'numeric', month: 'long', day: 'numeric' };
-  const formatter = new Intl.DateTimeFormat(locale, options);
+  const formatter = sameYear
+    ? getCachedDateTimeFormat(locale, timeZone, 'range-same-year', {
+        month: 'long',
+        day: 'numeric',
+      })
+    : getCachedDateTimeFormat(locale, timeZone, 'range-diff-year', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
   return `${formatter.format(startDate)}〜${formatter.format(endDate)}`;
 }
 
@@ -148,7 +195,9 @@ export function formatRangeTitle(range: DateRange, timeZone: TimeZoneId, locale:
  */
 export function formatWeekday(weekday: Weekday, locale: string): string {
   const reference = new Date(Date.UTC(WEEKDAY_REFERENCE_YEAR, 0, 1 + weekday));
-  return new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' }).format(reference);
+  return getCachedDateTimeFormat(locale, 'UTC', 'weekday-short', { weekday: 'short' }).format(
+    reference,
+  );
 }
 
 /**
@@ -164,7 +213,9 @@ export function formatWeekday(weekday: Weekday, locale: string): string {
  * ```
  */
 export function formatDayHeader(date: Date, timeZone: TimeZoneId, locale: string): string {
-  const dayNumber = extractPart(date, timeZone, locale, { day: 'numeric' }, 'day');
-  const weekday = new Intl.DateTimeFormat(locale, { timeZone, weekday: 'short' }).format(date);
+  const dayNumber = extractPart(date, timeZone, locale, 'day-number', { day: 'numeric' }, 'day');
+  const weekday = getCachedDateTimeFormat(locale, timeZone, 'weekday-short', {
+    weekday: 'short',
+  }).format(date);
   return `${dayNumber} (${weekday})`;
 }
