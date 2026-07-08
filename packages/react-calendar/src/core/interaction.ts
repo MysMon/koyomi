@@ -95,8 +95,9 @@ export function timeAtGridPosition(params: {
  * - `create` — 空き領域のドラッグによる新規作成
  * - `move` — イベント本体のドラッグによる移動
  * - `resize` — 下端ハンドルのドラッグによる終了時刻の変更
+ * - `resize-start` — 上端ハンドルのドラッグによる開始時刻の変更
  */
-export type TimeGridDragMode = 'create' | 'move' | 'resize';
+export type TimeGridDragMode = 'create' | 'move' | 'resize' | 'resize-start';
 
 /**
  * 時間グリッドのドラッグ操作の状態（開始時に固定される情報）。
@@ -120,6 +121,8 @@ export interface TimeGridDragState {
  *   長さ（ミリ秒）は維持される
  * - `resize` — 発生の開始は固定し、終了をポインタ位置（スナップ済み）にする。
  *   最小でも `開始 + snap 分`（正規化後）の長さを保つ
+ * - `resize-start` — 発生の終了は固定し、開始をポインタ位置（スナップ済み）にする。
+ *   最小でも `終了 - snap 分`（正規化後）の長さを保つ
  *
  * `context.snap` が 1 未満（0・負数・小数）の場合は 1 として扱う
  * （{@link normalizeSnap}）。正規化しないと `create` のクリック相当で
@@ -175,8 +178,28 @@ export function dragPreviewRange(
       const end = pointer.getTime() > minEnd.getTime() ? new Date(pointer.getTime()) : minEnd;
       return { start, end };
     }
+    case 'resize-start': {
+      if (state.occurrence === null) {
+        throw new Error('resize-start 操作には対象の発生（occurrence）が必要です');
+      }
+      const end = new Date(state.occurrence.end.getTime());
+      // 最小でも snap（正規化後）分の長さを保つ（開始は end - snap 分が上限）
+      const maxStart = addMinutesInZone(end, -interval, timeZone);
+      const start = pointer.getTime() < maxStart.getTime() ? new Date(pointer.getTime()) : maxStart;
+      return { start, end };
+    }
   }
 }
+
+/**
+ * 日単位ドラッグ（月ビュー・終日行）の操作の種類。
+ *
+ * - `create` — 空きセルのドラッグによる新規作成
+ * - `move` — 帯セグメントのドラッグによる移動
+ * - `resize-start` — 帯の左端ハンドルのドラッグによる開始日の変更
+ * - `resize-end` — 帯の右端ハンドルのドラッグによる終了日の変更
+ */
+export type DayDragMode = 'create' | 'move' | 'resize-start' | 'resize-end';
 
 /**
  * 日単位ドラッグ（月ビュー・終日行）のプレビュー範囲を計算する。
@@ -184,22 +207,32 @@ export function dragPreviewRange(
  * - `create` — アンカー日とポインタ日の早い方から遅い方まで（end は翌日 0:00 で排他）
  * - `move` — 発生の開始日を「アンカー日からポインタ日までの日数差」だけずらす。
  *   日数（期間）は維持される。時間指定イベントの場合は壁時計時刻も維持される
+ * - `resize-start` — 発生の開始日を日数差だけずらす（終了は固定）。
+ *   最低でも 1 日分（`start < end`）の長さを保つ
+ * - `resize-end` — 発生の終了日を日数差だけずらす（開始は固定）。
+ *   最低でも 1 日分（`end > start`）の長さを保つ。
+ *   時間指定イベントの場合は壁時計時刻を維持したまま日数だけが変わる
  *
  * 日数差は日付キーを UTC に載せた差分で求めるため、DST 切り替えで
  * 1 日が 23/25 時間になっても暦上の日数として正しく計算される。
  *
- * @param state - ドラッグ状態（`resize` は日単位ドラッグでは未対応）
+ * @param state - ドラッグ状態
  * @param pointerDay - 現在ポインタが乗っている日の 0:00（絶対時刻）
  * @param anchorDay - ドラッグを開始した日の 0:00（絶対時刻）
  * @param timeZone - 表示タイムゾーン
- * @throws `move` で `state.occurrence` が `null` の場合は `Error`
+ * @throws `move` / `resize-start` / `resize-end` で `state.occurrence` が `null` の場合は `Error`
  */
 export function dayDragPreviewRange(
-  state: { mode: 'create' | 'move'; occurrence: EventOccurrence | null },
+  state: { mode: DayDragMode; occurrence: EventOccurrence | null },
   pointerDay: Date,
   anchorDay: Date,
   timeZone: TimeZoneId,
 ): DateRange {
+  // 日数差は日付キー同士を UTC に載せて求める（DST 安全）
+  const dayDiff =
+    (dateKeyToUtcMs(dateKeyInZone(pointerDay, timeZone)) -
+      dateKeyToUtcMs(dateKeyInZone(anchorDay, timeZone))) /
+    MS_PER_DAY;
   switch (state.mode) {
     case 'create': {
       // どちらも同じ TZ の 0:00 の絶対時刻なので、大小比較で日順が決まる
@@ -214,15 +247,34 @@ export function dayDragPreviewRange(
       if (state.occurrence === null) {
         throw new Error('move 操作には対象の発生（occurrence）が必要です');
       }
-      // 日数差は日付キー同士を UTC に載せて求める（DST 安全）
-      const dayDiff =
-        (dateKeyToUtcMs(dateKeyInZone(pointerDay, timeZone)) -
-          dateKeyToUtcMs(dateKeyInZone(anchorDay, timeZone))) /
-        MS_PER_DAY;
       return {
         start: addDaysInZone(state.occurrence.start, dayDiff, timeZone),
         end: addDaysInZone(state.occurrence.end, dayDiff, timeZone),
       };
+    }
+    case 'resize-start': {
+      if (state.occurrence === null) {
+        throw new Error('resize-start 操作には対象の発生（occurrence）が必要です');
+      }
+      const end = new Date(state.occurrence.end.getTime());
+      let start = addDaysInZone(state.occurrence.start, dayDiff, timeZone);
+      // 終了を追い越したら 1 日ずつ戻して最低 1 日分の長さを保つ
+      while (start.getTime() >= end.getTime()) {
+        start = addDaysInZone(start, -1, timeZone);
+      }
+      return { start, end };
+    }
+    case 'resize-end': {
+      if (state.occurrence === null) {
+        throw new Error('resize-end 操作には対象の発生（occurrence）が必要です');
+      }
+      const start = new Date(state.occurrence.start.getTime());
+      let end = addDaysInZone(state.occurrence.end, dayDiff, timeZone);
+      // 開始を追い越したら 1 日ずつ進めて最低 1 日分の長さを保つ
+      while (end.getTime() <= start.getTime()) {
+        end = addDaysInZone(end, 1, timeZone);
+      }
+      return { start, end };
     }
   }
 }

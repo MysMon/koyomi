@@ -226,6 +226,12 @@ function withExdates(event: CalendarEvent, exdates: readonly (Date | string)[]):
   return exdates.length === 0 ? rest : { ...rest, exdates };
 }
 
+/** `rdates` を差し替えた複製を返す（空配列ならキー自体を持たない）。 */
+function withRdates(event: CalendarEvent, rdates: readonly (Date | string)[]): CalendarEvent {
+  const { rdates: _dropped, ...rest } = event;
+  return rdates.length === 0 ? rest : { ...rest, rdates };
+}
+
 /** 対象発生の開始を EXDATE の末尾に追加した複製を返す。 */
 function appendExdate(event: CalendarEvent, occurrenceStart: Date): CalendarEvent {
   return {
@@ -358,7 +364,7 @@ function updateThisOccurrence(
  * - 分割点が最初の発生（dtstart と一致）なら `'all'` と同じ扱い
  * - 旧シリーズは分割点の直前で UNTIL 打ち切り（patch は適用しない）
  * - 新シリーズは分割点から始まり、`COUNT` は残数を引き継ぎ、patch を適用する
- * - 分割点以降（`>=`）の EXDATE とオーバーライドは新シリーズに付け替える
+ * - 分割点以降（`>=`）の EXDATE・RDATE とオーバーライドは新シリーズに付け替える
  */
 function splitSeries(
   events: readonly CalendarEvent[],
@@ -389,20 +395,35 @@ function splitSeries(
     }
   }
 
+  // RDATE も EXDATE と対称に分割点で振り分ける（分割点ちょうどは新シリーズへ）
+  const oldRdates: (Date | string)[] = [];
+  const movedRdates: (Date | string)[] = [];
+  for (const rdate of master.rdates ?? []) {
+    const time = parseDateValue(rdate, timeZone, allDay).getTime();
+    if (time < splitTime) {
+      oldRdates.push(rdate);
+    } else {
+      movedRdates.push(rdate);
+    }
+  }
+
   // 旧シリーズ: 分割点の直前で打ち切り。patch は適用しない
   const truncated = truncateRRule({ rrule, dtstart: masterStart, timeZone, until: splitPoint });
-  const oldMaster = withExdates({ ...master, rrule: truncated }, oldExdates);
+  const oldMaster = withRdates(withExdates({ ...master, rrule: truncated }, oldExdates), oldRdates);
 
   // 新シリーズ: 分割点から始まり、COUNT は残数を引き継ぎ、patch を適用する
   const newId = context.generateId();
-  const base = withExdates(
-    {
-      ...master,
-      id: newId,
-      start: new Date(splitTime),
-      rrule: remainingRRule(rrule, masterStart, timeZone, splitPoint),
-    },
-    movedExdates,
+  const base = withRdates(
+    withExdates(
+      {
+        ...master,
+        id: newId,
+        start: new Date(splitTime),
+        rrule: remainingRRule(rrule, masterStart, timeZone, splitPoint),
+      },
+      movedExdates,
+    ),
+    movedRdates,
   );
   if (master.end !== undefined) {
     base.end = new Date(splitTime + occurrenceDurationMs(master, context));
@@ -429,7 +450,7 @@ function splitSeries(
  *
  * - 分割点が最初の発生なら繰り返し全体（＋オーバーライド）を削除する
  * - それ以外は分割点の直前で UNTIL 打ち切りし、分割点以降（`>=`）の
- *   EXDATE とオーバーライドを取り除く
+ *   EXDATE・RDATE とオーバーライドを取り除く
  */
 function truncateSeries(
   events: readonly CalendarEvent[],
@@ -449,8 +470,14 @@ function truncateSeries(
   const keptExdates = (master.exdates ?? []).filter(
     (exdate) => parseDateValue(exdate, timeZone, allDay).getTime() < splitTime,
   );
+  const keptRdates = (master.rdates ?? []).filter(
+    (rdate) => parseDateValue(rdate, timeZone, allDay).getTime() < splitTime,
+  );
   const truncated = truncateRRule({ rrule, dtstart: masterStart, timeZone, until: splitPoint });
-  const updatedMaster = withExdates({ ...master, rrule: truncated }, keptExdates);
+  const updatedMaster = withRdates(
+    withExdates({ ...master, rrule: truncated }, keptExdates),
+    keptRdates,
+  );
   return events
     .filter((event) => {
       if (event.recurringEventId !== master.id) {

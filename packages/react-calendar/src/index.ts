@@ -22,6 +22,7 @@ export { expandEvents, occurrenceKey, resolveOccurrence } from './core/expansion
 // インタラクションの純粋計算
 export {
   type CalendarShortcut,
+  type DayDragMode,
   dayDragPreviewRange,
   dragPreviewRange,
   shortcutForKey,
@@ -121,11 +122,12 @@ export type {
   CalendarContextValue,
   CalendarInteractionCallbacks,
   EventChange,
+  EventDelete,
   RangeSelection,
   UseCalendarResult,
 } from './react/types';
 // React: フック
-export { useCalendar } from './react/use-calendar';
+export { type UseCalendarOptions, useCalendar } from './react/use-calendar';
 export { useCalendarShortcuts } from './react/use-calendar-shortcuts';
 export {
   type DayCellProps,

@@ -50,6 +50,7 @@ describe('createCalendar', () => {
         defaultEventMinutes: 60,
         listDays: 30,
         locale: 'ja',
+        hiddenWeekdays: [],
       });
     });
 
@@ -90,6 +91,60 @@ describe('createCalendar', () => {
       calendar.setView('week');
       expect(calendar.getState()).not.toBe(a);
       expect(calendar.getState().view).toBe('week');
+    });
+
+    it('値が変わらない設定操作では通知されず getState の参照も維持される', () => {
+      const calendar = makeCalendar({ events: [MEETING] });
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+      const before = calendar.getState();
+
+      calendar.setView('month'); // 既に month
+      calendar.setTimeZone('Asia/Tokyo'); // 既に Asia/Tokyo
+      calendar.goTo(new Date(NOW.getTime())); // 同じ日時（別インスタンス）
+      calendar.setEvents(calendar.getEvents()); // 同一配列参照
+      calendar.setDragPreview(null); // 既に null
+      calendar.updateOptions({}); // 空パッチ
+      calendar.updateOptions({ dayMaxEvents: 4, locale: 'ja' }); // 既定値と同じ
+
+      expect(listener).not.toHaveBeenCalled();
+      expect(calendar.getState()).toBe(before);
+    });
+
+    it('値が実際に変わる設定操作では従来どおり通知される', () => {
+      const calendar = makeCalendar();
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+
+      calendar.setTimeZone('America/New_York');
+      calendar.updateOptions({ dayMaxEvents: 2 });
+      calendar.setEvents([MEETING]);
+
+      expect(listener).toHaveBeenCalledTimes(3);
+    });
+
+    it('refresh はビューモデルを再構築して通知する（now の再評価）', () => {
+      let current = new Date('2026-07-15T01:00:00Z'); // 東京 7/15 10:00
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        initialDate: new Date('2026-07-15T01:00:00Z'),
+        initialView: 'week',
+        now: () => current,
+      });
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+
+      const vmBefore = calendar.getViewModel();
+      if (vmBefore.type !== 'timeGrid') throw new Error('unreachable');
+      expect(vmBefore.nowIndicator?.minutes).toBe(600); // 10:00
+
+      current = new Date('2026-07-15T02:30:00Z'); // 東京 11:30 に進める
+      calendar.refresh();
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      const vmAfter = calendar.getViewModel();
+      if (vmAfter.type !== 'timeGrid') throw new Error('unreachable');
+      expect(vmAfter.nowIndicator?.minutes).toBe(690); // 11:30
     });
   });
 

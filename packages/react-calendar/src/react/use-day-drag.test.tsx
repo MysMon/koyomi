@@ -67,6 +67,11 @@ function dispatchPointerUp(clientX: number, clientY = 25): void {
   document.dispatchEvent(new MouseEvent('pointerup', { clientX, clientY, bubbles: true }));
 }
 
+/** document に pointercancel をディスパッチする（jsdom は PointerEvent 未実装のため Event で代用）。 */
+function dispatchPointerCancel(): void {
+  document.dispatchEvent(new Event('pointercancel', { bubbles: true }));
+}
+
 /** document に Escape キーの keydown をディスパッチする。 */
 function dispatchEscape(): void {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -102,6 +107,8 @@ function TestGrid(props: {
   segments?: readonly EventSegment[];
   callbacks?: CalendarInteractionCallbacks;
   resultRef: { current: DayDragHandlers | null };
+  /** 各セグメントの左右端にリサイズハンドルを描画するか。 */
+  renderResizeHandles?: boolean;
 }): ReactElement {
   const state = useSyncExternalStore(props.api.subscribe, props.api.getState);
   const viewModel = props.api.getViewModel();
@@ -131,7 +138,20 @@ function TestGrid(props: {
             key={segment.occurrence.key}
             data-testid={`seg-${segment.occurrence.key}`}
             {...segmentProps}
-          />
+          >
+            {props.renderResizeHandles === true && (
+              <>
+                <div
+                  data-testid={`resize-start-${segment.occurrence.key}`}
+                  {...handlers.getSegmentResizeHandleProps(segment, 'start')}
+                />
+                <div
+                  data-testid={`resize-end-${segment.occurrence.key}`}
+                  {...handlers.getSegmentResizeHandleProps(segment, 'end')}
+                />
+              </>
+            )}
+          </div>
         );
       })}
     </div>
@@ -159,6 +179,18 @@ function makeSegment(occurrence: EventOccurrence): EventSegment {
     continuesAfter: false,
     hidden: false,
   };
+}
+
+/**
+ * 更新後の `start`/`end` が `Date`（`updateEvent` の patch 適用結果は文字列ではなく
+ * `Date` になる）であることを確認しつつ、日付キー基準で期待値と比較する。
+ */
+function expectDateKey(value: Date | string | undefined, expectedKey: string): void {
+  expect(value).toBeInstanceOf(Date);
+  if (!(value instanceof Date)) {
+    throw new Error('Date ではありません');
+  }
+  expect(value.getTime()).toBe(dateFromKey(expectedKey, TOKYO).getTime());
 }
 
 const WIDE_RANGE = {
@@ -956,5 +988,1098 @@ describe('useDayDrag - editable: false / Escape / previewRange / アンマウン
     });
 
     expect(api.getEvents()).toHaveLength(0);
+  });
+});
+
+describe('useDayDrag - beginDrag の自己回復', () => {
+  it('前のセッションが finish/cancel を経ずに残っていても、新しいドラッグを開始できる', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const onSelectRange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid api={api} callbacks={{ onSelectRange }} resultRef={resultRef} />,
+    );
+    setupCellRects(container);
+
+    const cell708 = container.querySelector('[data-testid="cell-2026-07-08"]');
+    const cell710 = container.querySelector('[data-testid="cell-2026-07-10"]');
+    if (!(cell708 instanceof HTMLElement) || !(cell710 instanceof HTMLElement)) {
+      throw new Error('セル要素が見つかりません');
+    }
+
+    // 1 つ目のドラッグを開始するが、pointerup/Escape/pointercancel を一切経由せず放置する
+    act(() => {
+      cell708.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    // dragPreview は pointermove で初めて設定されるため、まず動かして「進行中」を確定させる
+    act(() => {
+      dispatchPointerMove(cellCenterX(2));
+    });
+    expect(resultRef.current?.isDragging).toBe(true);
+
+    // 2 つ目のドラッグ開始（早期 return ガードだけだと、以前のセッションが残り無視されていた）
+    act(() => {
+      cell710.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(4),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(4));
+    });
+    expect(resultRef.current?.isDragging).toBe(true);
+    expect(resultRef.current?.previewRange?.start.getTime()).toBe(
+      dateFromKey('2026-07-10', TOKYO).getTime(),
+    );
+
+    act(() => {
+      dispatchPointerUp(cellCenterX(4));
+    });
+
+    // 新しいセッション（7/10 起点）のみが確定する
+    expect(onSelectRange).toHaveBeenCalledTimes(1);
+    const selection = onSelectRange.mock.calls[0]?.[0];
+    expect(selection?.range.start.getTime()).toBe(dateFromKey('2026-07-10', TOKYO).getTime());
+    expect(selection?.range.end.getTime()).toBe(dateFromKey('2026-07-11', TOKYO).getTime());
+  });
+});
+
+describe('useDayDrag - pointercancel によるキャンセル', () => {
+  it('ドラッグ中に pointercancel が発生するとキャンセルされ、イベントは変更されない', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(4));
+    });
+    expect(resultRef.current?.isDragging).toBe(true);
+
+    act(() => {
+      dispatchPointerCancel();
+    });
+
+    expect(resultRef.current?.isDragging).toBe(false);
+    expect(resultRef.current?.previewRange).toBeNull();
+    expect(onEventChange).not.toHaveBeenCalled();
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expect(updated?.start).toBe('2026-07-08');
+
+    // キャンセル後に pointerup が届いても、リスナーは解除済みのため何も起きない
+    act(() => {
+      dispatchPointerUp(cellCenterX(4));
+    });
+    expect(onEventChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('useDayDrag - Escape キャンセル直後の click 抑制', () => {
+  it('ドラッグ中に Escape でキャンセルした直後の click では onEventClick が発火しない', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const onEventClick = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventClick }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(4));
+    });
+    act(() => {
+      dispatchEscape();
+    });
+    // Escape 後、ブラウザが自動発火する click が届いても抑制される
+    act(() => {
+      segment.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(onEventClick).not.toHaveBeenCalled();
+
+    // 抑制は 1 回限り。次のクリックは通常どおり発火する
+    act(() => {
+      segment.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useDayDrag - 非同期コミットのエラー処理', () => {
+  it('繰り返し発生の移動確定で resolveRecurringScope が失敗した場合、onError に委譲される', async () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '朝会',
+      start: '2026-07-08T09:00',
+      rrule: 'FREQ=DAILY;COUNT=5',
+    });
+    const occurrence = api
+      .getOccurrences(WIDE_RANGE)
+      .find(
+        (occ) => occ.eventId === created.id && occ.originalStart.getTime() === occ.start.getTime(),
+      );
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const boom = new Error('scope resolution failed');
+    const resolveRecurringScope = vi.fn().mockRejectedValue(boom);
+    const onError = vi.fn();
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ resolveRecurringScope, onError, onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(3));
+    });
+    await act(async () => {
+      dispatchPointerUp(cellCenterX(3));
+      await flush();
+    });
+
+    expect(onError).toHaveBeenCalledWith(boom);
+    expect(onEventChange).not.toHaveBeenCalled();
+    // ドラッグプレビューは確定処理の成否によらず残らない
+    expect(api.getState().dragPreview).toBeNull();
+  });
+
+  it('onError が未指定の場合は console.error に既定動作として出力される', async () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '朝会',
+      start: '2026-07-08T09:00',
+      rrule: 'FREQ=DAILY;COUNT=5',
+    });
+    const occurrence = api
+      .getOccurrences(WIDE_RANGE)
+      .find(
+        (occ) => occ.eventId === created.id && occ.originalStart.getTime() === occ.start.getTime(),
+      );
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const boom = new Error('scope resolution failed');
+    const resolveRecurringScope = vi.fn().mockRejectedValue(boom);
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ resolveRecurringScope }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(3));
+    });
+    await act(async () => {
+      dispatchPointerUp(cellCenterX(3));
+      await flush();
+    });
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(boom);
+  });
+});
+
+describe('useDayDrag - onEventDelete 通知', () => {
+  it('単発イベントの削除確定後、scope: null で onEventDelete が呼ばれる', async () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const onEventDelete = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventDelete }}
+        resultRef={resultRef}
+      />,
+    );
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    await act(async () => {
+      segment.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+      await flush();
+    });
+
+    expect(api.getEvents()).toHaveLength(0);
+    expect(onEventDelete).toHaveBeenCalledTimes(1);
+    expect(onEventDelete.mock.calls[0]?.[0]).toEqual({ occurrence, scope: null });
+  });
+
+  it('繰り返し発生の削除確定後、解決したスコープで onEventDelete が呼ばれる', async () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '朝会',
+      start: '2026-07-08T09:00',
+      rrule: 'FREQ=DAILY;COUNT=5',
+    });
+    const occurrence = api
+      .getOccurrences(WIDE_RANGE)
+      .find(
+        (occ) => occ.eventId === created.id && occ.originalStart.getTime() === occ.start.getTime(),
+      );
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const resolveRecurringScope = vi.fn().mockResolvedValue('all');
+    const onEventDelete = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ resolveRecurringScope, onEventDelete }}
+        resultRef={resultRef}
+      />,
+    );
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    await act(async () => {
+      segment.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+      await flush();
+    });
+
+    expect(onEventDelete).toHaveBeenCalledTimes(1);
+    expect(onEventDelete.mock.calls[0]?.[0]).toEqual({ occurrence, scope: 'all' });
+  });
+
+  it('resolveRecurringScope が null を返すとキャンセルされ、onEventDelete は呼ばれない', async () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '朝会',
+      start: '2026-07-08T09:00',
+      rrule: 'FREQ=DAILY;COUNT=5',
+    });
+    const occurrence = api
+      .getOccurrences(WIDE_RANGE)
+      .find(
+        (occ) => occ.eventId === created.id && occ.originalStart.getTime() === occ.start.getTime(),
+      );
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const resolveRecurringScope = vi.fn().mockResolvedValue(null);
+    const onEventDelete = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ resolveRecurringScope, onEventDelete }}
+        resultRef={resultRef}
+      />,
+    );
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    await act(async () => {
+      segment.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+      await flush();
+    });
+
+    expect(onEventDelete).not.toHaveBeenCalled();
+  });
+});
+
+describe('useDayDrag - 帯セグメントの左右端リサイズ', () => {
+  it('右端ハンドルのドラッグで終了日だけが伸びる（開始日は変わらない）', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        renderResizeHandles
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const handle = container.querySelector(`[data-testid="resize-end-${occurrence.key}"]`);
+    if (!(handle instanceof HTMLElement)) {
+      throw new Error('リサイズハンドルが見つかりません');
+    }
+
+    act(() => {
+      handle.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(3), // 7/9（最終日）
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(5)); // 7/11（+2日）
+    });
+    // stopPropagation によりセグメント本体の 'move' セッションは開始されず、
+    // ハンドル発の 'resize-end'（見た目上は 'resize'）のみが有効になっている
+    expect(api.getState().dragPreview?.kind).toBe('resize');
+
+    act(() => {
+      dispatchPointerUp(cellCenterX(5));
+    });
+
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expectDateKey(updated?.start, '2026-07-08');
+    expectDateKey(updated?.end, '2026-07-12');
+  });
+
+  it('左端ハンドルのドラッグで開始日だけが変わる（終了日は変わらない）', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        renderResizeHandles
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const handle = container.querySelector(`[data-testid="resize-start-${occurrence.key}"]`);
+    if (!(handle instanceof HTMLElement)) {
+      throw new Error('リサイズハンドルが見つかりません');
+    }
+
+    act(() => {
+      handle.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2), // 7/8
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(0)); // 7/6（-2日）
+    });
+    act(() => {
+      dispatchPointerUp(cellCenterX(0));
+    });
+
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expectDateKey(updated?.start, '2026-07-06');
+    expectDateKey(updated?.end, '2026-07-10');
+  });
+
+  it('最低 1 日分の長さを下回らない（開始日より前まで縮めても 1 日分は残る）', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        renderResizeHandles
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const handle = container.querySelector(`[data-testid="resize-end-${occurrence.key}"]`);
+    if (!(handle instanceof HTMLElement)) {
+      throw new Error('リサイズハンドルが見つかりません');
+    }
+
+    act(() => {
+      handle.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(3), // 7/9（最終日）
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(0)); // 7/6（開始日より前まで縮めようとする）
+    });
+    act(() => {
+      dispatchPointerUp(cellCenterX(0));
+    });
+
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expectDateKey(updated?.start, '2026-07-08');
+    expectDateKey(updated?.end, '2026-07-09');
+  });
+
+  it('editable: false のイベントはリサイズハンドルのドラッグを開始しない', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '固定予定',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+      editable: false,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        renderResizeHandles
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const handle = container.querySelector(`[data-testid="resize-end-${occurrence.key}"]`);
+    if (!(handle instanceof HTMLElement)) {
+      throw new Error('リサイズハンドルが見つかりません');
+    }
+
+    act(() => {
+      handle.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(3),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    expect(resultRef.current?.isDragging).toBe(false);
+
+    act(() => {
+      dispatchPointerMove(cellCenterX(5));
+    });
+    act(() => {
+      dispatchPointerUp(cellCenterX(5));
+    });
+
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expect(updated?.end).toBe('2026-07-10');
+    expect(onEventChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('useDayDrag - セグメントのキーボード操作（移動・リサイズ）', () => {
+  it('ArrowRight で発生が 1 日後ろに移動する', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    });
+
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expectDateKey(updated?.start, '2026-07-09');
+    expectDateKey(updated?.end, '2026-07-11');
+    expect(onEventChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('ArrowLeft で発生が 1 日前に移動する', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid api={api} segments={[makeSegment(occurrence)]} resultRef={resultRef} />,
+    );
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    });
+
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expectDateKey(updated?.start, '2026-07-07');
+    expectDateKey(updated?.end, '2026-07-09');
+  });
+
+  it('ArrowDown で発生が 7 日後ろに移動する（月グリッドの下移動に対応）', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid api={api} segments={[makeSegment(occurrence)]} resultRef={resultRef} />,
+    );
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    });
+
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expectDateKey(updated?.start, '2026-07-15');
+    expectDateKey(updated?.end, '2026-07-17');
+  });
+
+  it('ArrowUp で発生が 7 日前に移動する（月グリッドの上移動に対応）', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid api={api} segments={[makeSegment(occurrence)]} resultRef={resultRef} />,
+    );
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    });
+
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expectDateKey(updated?.start, '2026-07-01');
+    expectDateKey(updated?.end, '2026-07-03');
+  });
+
+  it('Shift+ArrowRight で終了日だけが 1 日伸びる（開始日は変わらない）', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid api={api} segments={[makeSegment(occurrence)]} resultRef={resultRef} />,
+    );
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }),
+      );
+    });
+
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expectDateKey(updated?.start, '2026-07-08');
+    expectDateKey(updated?.end, '2026-07-11');
+  });
+
+  it('Shift+ArrowLeft で終了日だけが 1 日縮む', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-11',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid api={api} segments={[makeSegment(occurrence)]} resultRef={resultRef} />,
+    );
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowLeft', shiftKey: true, bubbles: true }),
+      );
+    });
+
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expectDateKey(updated?.start, '2026-07-08');
+    expectDateKey(updated?.end, '2026-07-10');
+  });
+
+  it('Shift+ArrowLeft は最低 1 日分の長さを下回る場合は変更しない', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-09',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowLeft', shiftKey: true, bubbles: true }),
+      );
+    });
+
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expect(updated?.start).toBe('2026-07-08');
+    expect(updated?.end).toBe('2026-07-09');
+    expect(onEventChange).not.toHaveBeenCalled();
+  });
+
+  it('editable: false の発生は矢印キー操作を無視する', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '固定予定',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+      editable: false,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    });
+    act(() => {
+      segment.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }),
+      );
+    });
+
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expect(updated?.start).toBe('2026-07-08');
+    expect(updated?.end).toBe('2026-07-10');
+    expect(onEventChange).not.toHaveBeenCalled();
+  });
+
+  it('繰り返し発生の ArrowRight 移動は resolveRecurringScope に action: "move" で問い合わせる', async () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '朝会',
+      start: '2026-07-08T09:00',
+      rrule: 'FREQ=DAILY;COUNT=5',
+    });
+    const occurrence = api
+      .getOccurrences(WIDE_RANGE)
+      .find(
+        (occ) => occ.eventId === created.id && occ.originalStart.getTime() === occ.start.getTime(),
+      );
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const resolveRecurringScope = vi.fn().mockResolvedValue('this');
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ resolveRecurringScope, onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    await act(async () => {
+      segment.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      await flush();
+    });
+
+    expect(resolveRecurringScope).toHaveBeenCalledWith(occurrence, 'move');
+    expect(onEventChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('繰り返し発生の Shift+ArrowRight リサイズは resolveRecurringScope に action: "resize" で問い合わせる', async () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '朝会',
+      start: '2026-07-08T09:00',
+      rrule: 'FREQ=DAILY;COUNT=5',
+    });
+    const occurrence = api
+      .getOccurrences(WIDE_RANGE)
+      .find(
+        (occ) => occ.eventId === created.id && occ.originalStart.getTime() === occ.start.getTime(),
+      );
+    if (occurrence === undefined) {
+      throw new Error('発生が見つかりません');
+    }
+
+    const resolveRecurringScope = vi.fn().mockResolvedValue('this');
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ resolveRecurringScope, onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    await act(async () => {
+      segment.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }),
+      );
+      await flush();
+    });
+
+    expect(resolveRecurringScope).toHaveBeenCalledWith(occurrence, 'resize');
+    expect(onEventChange).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useDayDrag - 日セルのキーボード作成', () => {
+  it('Enter でその日 1 日分の範囲について onSelectRange が呼ばれる', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const onSelectRange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid api={api} callbacks={{ onSelectRange }} resultRef={resultRef} />,
+    );
+
+    const cell709 = container.querySelector('[data-testid="cell-2026-07-09"]');
+    if (!(cell709 instanceof HTMLElement)) {
+      throw new Error('セル要素が見つかりません');
+    }
+
+    act(() => {
+      cell709.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+
+    expect(onSelectRange).toHaveBeenCalledTimes(1);
+    const selection = onSelectRange.mock.calls[0]?.[0];
+    expect(selection?.allDay).toBe(true);
+    expect(selection?.range.start.getTime()).toBe(dateFromKey('2026-07-09', TOKYO).getTime());
+    expect(selection?.range.end.getTime()).toBe(dateFromKey('2026-07-10', TOKYO).getTime());
+  });
+
+  it('Space キーでも同様に範囲選択される', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const onSelectRange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid api={api} callbacks={{ onSelectRange }} resultRef={resultRef} />,
+    );
+
+    const cell708 = container.querySelector('[data-testid="cell-2026-07-08"]');
+    if (!(cell708 instanceof HTMLElement)) {
+      throw new Error('セル要素が見つかりません');
+    }
+
+    act(() => {
+      cell708.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    });
+
+    expect(onSelectRange).toHaveBeenCalledTimes(1);
+    const selection = onSelectRange.mock.calls[0]?.[0];
+    expect(selection?.range.start.getTime()).toBe(dateFromKey('2026-07-08', TOKYO).getTime());
+    expect(selection?.range.end.getTime()).toBe(dateFromKey('2026-07-09', TOKYO).getTime());
+  });
+
+  it('コールバック省略時は Enter で allDay イベントが既定タイトルで即時作成される', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(<TestGrid api={api} resultRef={resultRef} />);
+
+    const cell708 = container.querySelector('[data-testid="cell-2026-07-08"]');
+    if (!(cell708 instanceof HTMLElement)) {
+      throw new Error('セル要素が見つかりません');
+    }
+
+    act(() => {
+      cell708.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+
+    const events = api.getEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.title).toBe('(タイトルなし)');
+    expect(events[0]?.allDay).toBe(true);
   });
 });

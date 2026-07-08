@@ -88,6 +88,13 @@ export interface CalendarEvent {
    */
   exdates?: readonly (Date | string)[];
   /**
+   * 繰り返しに追加する発生の開始日時（RFC 5545 の RDATE 相当）。
+   * `rrule` のパターン外の日時に発生を追加できる。`rrule` と併用でき、
+   * `rrule` なしで `rdates` のみの指定も可能（`start` ＋ `rdates` が発生になる）。
+   * `exdates` と重複する日時は除外が優先される。
+   */
+  rdates?: readonly (Date | string)[];
+  /**
    * 繰り返し例外（オーバーライド）イベントの場合、元となる繰り返しイベントの ID。
    * 「この予定のみ変更」した場合に、変更後の単発イベントがこの参照を持つ。
    */
@@ -369,9 +376,16 @@ export interface CalendarState {
  * すべて省略可能で、省略時は {@link ResolvedCalendarOptions} に記載の既定値が使われる。
  */
 export interface CalendarOptions {
-  /** 初期表示日。既定は現在日時。 */
+  /**
+   * 初期表示日。既定は現在日時。
+   * **作成時のみ有効**。作成後に基準日を変更するには
+   * {@link CalendarApi.goTo} / {@link CalendarApi.today} を使う。
+   */
   initialDate?: Date;
-  /** 初期ビュー。既定は `'month'`。 */
+  /**
+   * 初期ビュー。既定は `'month'`。
+   * **作成時のみ有効**。作成後にビューを変更するには {@link CalendarApi.setView} を使う。
+   */
   initialView?: CalendarViewType;
   /** 初期イベント。 */
   events?: readonly CalendarEvent[];
@@ -394,6 +408,12 @@ export interface CalendarOptions {
   listDays?: number;
   /** 曜日・時刻ラベルのロケール。既定は `'ja'`。 */
   locale?: string;
+  /**
+   * 非表示にする曜日。月・週ビューの列から除外される
+   * （例: `[0, 6]` で週末を隠す）。既定は `[]`（すべて表示）。
+   * 7 曜日すべてを指定した場合は無効な設定として無視される。
+   */
+  hiddenWeekdays?: readonly Weekday[];
   /**
    * 現在時刻を返す関数。「今日」の判定と現在時刻線に使用する。
    * テストでの時刻固定に利用できる。既定は `() => new Date()`。
@@ -422,6 +442,8 @@ export interface ResolvedCalendarOptions {
   listDays: number;
   /** ロケール。 */
   locale: string;
+  /** 非表示にする曜日。 */
+  hiddenWeekdays: readonly Weekday[];
   /** 現在時刻プロバイダ。 */
   now: () => Date;
 }
@@ -466,8 +488,22 @@ export interface CalendarApi {
   goTo(date: Date): void;
   /** 表示タイムゾーンを変更する。 */
   setTimeZone(timeZone: TimeZoneId): void;
-  /** オプションを部分的に更新する。 */
-  updateOptions(patch: Partial<CalendarOptions>): void;
+  /**
+   * オプションを部分的に更新する。
+   *
+   * `initialView` / `initialDate` は作成時専用のため型レベルで受け付けない
+   * （ビュー・基準日の変更には `setView` / `goTo` / `today` を使う）。
+   * 値が実際に変わらないパッチでは通知は発生しない。
+   */
+  updateOptions(patch: Partial<Omit<CalendarOptions, 'initialView' | 'initialDate'>>): void;
+  /**
+   * ビューモデルを再構築して購読者に通知する。
+   *
+   * 状態は変更しないが、`now()` が再評価されるため「今日」の判定と
+   * 現在時刻線が最新になる。時間経過に追従させる場合に `setInterval` などから
+   * 定期的に呼び出す（React では `useCalendar` の `refreshSeconds` を使う）。
+   */
+  refresh(): void;
 
   // --- イベント CRUD ---
 

@@ -3,8 +3,8 @@
  * イベントの展開（{@link CalendarEvent} → {@link EventOccurrence}）。
  *
  * ソースイベントの集合を表示範囲に対して展開し、発生（オカレンス）の
- * 一覧を生成する。繰り返しの展開、EXDATE による除外、オーバーライド
- * （「この予定のみ変更」）による置換をここで解決する。
+ * 一覧を生成する。繰り返しの展開、EXDATE による除外、RDATE による追加、
+ * オーバーライド（「この予定のみ変更」）による置換をここで解決する。
  *
  * ## 終日イベントとタイムゾーン
  *
@@ -170,6 +170,22 @@ function resolveExcludedInstants(event: CalendarEvent, interpretTimeZone: TimeZo
 }
 
 /**
+ * rdates を終日イベント用の「追加日付キー」配列に解決する。
+ * 形式は {@link resolveExcludedKeys} と同じ（`'YYYY-MM-DD'` でも、その日の
+ * どこかを指す `Date` でも同じキーになる）。
+ */
+function resolveRdateKeys(event: CalendarEvent, interpretTimeZone: TimeZoneId): string[] {
+  return (event.rdates ?? []).map((rdate) =>
+    dateKeyInZone(parseDateValue(rdate, interpretTimeZone, true), interpretTimeZone),
+  );
+}
+
+/** rdates を時間指定イベント用の絶対時刻に解決する。 */
+function resolveRdateInstants(event: CalendarEvent, interpretTimeZone: TimeZoneId): Date[] {
+  return (event.rdates ?? []).map((rdate) => parseDateValue(rdate, interpretTimeZone, false));
+}
+
+/**
  * オーバーライドイベント自身を発生として展開する（範囲に重なる場合のみ）。
  * `originalStart` には置換した元発生の開始時刻（解決済み）を渡す。
  */
@@ -219,8 +235,9 @@ function expandOverrideEvent(params: {
  * 終日の繰り返しを日付キー空間（UTC の 0:00）で展開する。
  *
  * 表示範囲を日付キーに変換して問い合わせ範囲とし、複数日スパンが範囲に
- * 食い込む分だけ手前に広げる。exdates・オーバーライド済みは日付キー一致で
- * 除外し、最終的に表示タイムゾーンへ射影してから範囲との重なりで確定する。
+ * 食い込む分だけ手前に広げる。rdates 由来のキーを合成したうえで、
+ * exdates・オーバーライド済みは日付キー一致で除外し、最終的に表示
+ * タイムゾーンへ射影してから範囲との重なりで確定する。
  */
 function expandAllDayRecurrence(params: {
   event: CalendarEvent;
@@ -230,8 +247,18 @@ function expandAllDayRecurrence(params: {
   displayTimeZone: TimeZoneId;
   interpretTimeZone: TimeZoneId;
   overriddenKeys: ReadonlySet<string>;
+  rdateKeys: readonly string[];
 }): EventOccurrence[] {
-  const { event, rrule, span, range, displayTimeZone, interpretTimeZone, overriddenKeys } = params;
+  const {
+    event,
+    rrule,
+    span,
+    range,
+    displayTimeZone,
+    interpretTimeZone,
+    overriddenKeys,
+    rdateKeys,
+  } = params;
   const excludedKeys = resolveExcludedKeys(event, interpretTimeZone);
   const queryStart = new Date(
     dateFromKey(dateKeyInZone(range.start, displayTimeZone), DATE_KEY_ZONE).getTime() -
@@ -246,9 +273,13 @@ function expandAllDayRecurrence(params: {
     timeZone: DATE_KEY_ZONE,
     range: { start: queryStart, end: queryEnd },
   });
+  // rrule 由来の発生キーに rdates 由来のキーを合成する（同一日付は Set が自然に重複排除する）
+  const keys = new Set(starts.map((startUtc) => dateKeyInZone(startUtc, DATE_KEY_ZONE)));
+  for (const rdateKey of rdateKeys) {
+    keys.add(rdateKey);
+  }
   const occurrences: EventOccurrence[] = [];
-  for (const startUtc of starts) {
-    const key = dateKeyInZone(startUtc, DATE_KEY_ZONE);
+  for (const key of keys) {
     if (excludedKeys.has(key) || overriddenKeys.has(key)) {
       continue;
     }
@@ -289,24 +320,53 @@ function expandRegularEvent(params: {
 
   if (event.allDay === true) {
     const span = resolveAllDaySpan(event, timeZone);
+    const rdateKeys = resolveRdateKeys(event, timeZone);
     if (event.rrule === undefined) {
-      if (overriddenKeys.has(span.startKey)) {
-        return [];
+      if (rdateKeys.length === 0) {
+        if (overriddenKeys.has(span.startKey)) {
+          return [];
+        }
+        const projected = projectAllDaySpan(span.startKey, span.dayCount, displayTimeZone);
+        if (!rangesOverlap(projected, range)) {
+          return [];
+        }
+        return [
+          buildOccurrence({
+            event,
+            start: projected.start,
+            end: projected.end,
+            allDay: true,
+            isRecurring: false,
+            originalStart: projected.start,
+          }),
+        ];
       }
-      const projected = projectAllDaySpan(span.startKey, span.dayCount, displayTimeZone);
-      if (!rangesOverlap(projected, range)) {
-        return [];
+      // rrule なし・rdates ありの終日イベント: start の発生 + 各 rdate の発生に
+      // 展開する（Google カレンダー同様、rdates を持つ時点で編集スコープの
+      // 対象になる繰り返し扱いとし isRecurring: true にする）
+      const excludedKeys = resolveExcludedKeys(event, timeZone);
+      const keys = new Set([span.startKey, ...rdateKeys]);
+      const occurrences: EventOccurrence[] = [];
+      for (const key of keys) {
+        if (excludedKeys.has(key) || overriddenKeys.has(key)) {
+          continue;
+        }
+        const projected = projectAllDaySpan(key, span.dayCount, displayTimeZone);
+        if (!rangesOverlap(projected, range)) {
+          continue;
+        }
+        occurrences.push(
+          buildOccurrence({
+            event,
+            start: projected.start,
+            end: projected.end,
+            allDay: true,
+            isRecurring: true,
+            originalStart: projected.start,
+          }),
+        );
       }
-      return [
-        buildOccurrence({
-          event,
-          start: projected.start,
-          end: projected.end,
-          allDay: true,
-          isRecurring: false,
-          originalStart: projected.start,
-        }),
-      ];
+      return occurrences;
     }
     return expandAllDayRecurrence({
       event,
@@ -316,45 +376,91 @@ function expandRegularEvent(params: {
       displayTimeZone,
       interpretTimeZone: timeZone,
       overriddenKeys,
+      rdateKeys,
     });
   }
 
   const span = resolveTimedSpan(event, timeZone, defaultEventMinutes);
+  const rdateInstants = resolveRdateInstants(event, timeZone);
   if (event.rrule === undefined) {
-    if (overriddenTimes.has(span.start.getTime())) {
-      return [];
+    if (rdateInstants.length === 0) {
+      if (overriddenTimes.has(span.start.getTime())) {
+        return [];
+      }
+      if (!rangesOverlap({ start: span.start, end: span.end }, range)) {
+        return [];
+      }
+      return [
+        buildOccurrence({
+          event,
+          start: span.start,
+          end: span.end,
+          allDay: false,
+          isRecurring: false,
+          originalStart: span.start,
+        }),
+      ];
     }
-    if (!rangesOverlap({ start: span.start, end: span.end }, range)) {
-      return [];
+    // rrule なし・rdates ありの時間指定イベント: start の発生 + 各 rdate の発生に展開する
+    const excludedTimes = new Set(
+      resolveExcludedInstants(event, timeZone).map((instant) => instant.getTime()),
+    );
+    const times = new Set([
+      span.start.getTime(),
+      ...rdateInstants.map((instant) => instant.getTime()),
+    ]);
+    const occurrences: EventOccurrence[] = [];
+    for (const time of times) {
+      if (excludedTimes.has(time) || overriddenTimes.has(time)) {
+        continue;
+      }
+      const occStart = new Date(time);
+      const occEnd = new Date(time + span.durationMs);
+      if (!rangesOverlap({ start: occStart, end: occEnd }, range)) {
+        continue;
+      }
+      occurrences.push(
+        buildOccurrence({
+          event,
+          start: occStart,
+          end: occEnd,
+          allDay: false,
+          isRecurring: true,
+          originalStart: occStart,
+        }),
+      );
     }
-    return [
-      buildOccurrence({
-        event,
-        start: span.start,
-        end: span.end,
-        allDay: false,
-        isRecurring: false,
-        originalStart: span.start,
-      }),
-    ];
+    return occurrences;
   }
 
   // 範囲開始前に始まり範囲に食い込む発生を取りこぼさないよう、
   // 問い合わせ範囲をイベントの長さ分だけ手前に広げる
   const startMargin = Math.max(0, span.durationMs);
+  const excludedInstants = resolveExcludedInstants(event, timeZone);
+  const excludedTimes = new Set(excludedInstants.map((instant) => instant.getTime()));
   const starts = expandRecurrence({
     rrule: event.rrule,
     dtstart: span.start,
     timeZone,
-    exdates: resolveExcludedInstants(event, timeZone),
+    exdates: excludedInstants,
     range: { start: new Date(range.start.getTime() - startMargin), end: range.end },
   });
+  // rrule 由来の発生時刻に rdates 由来の時刻を合成する（同一ミリ秒は Set が自然に
+  // 重複排除する。rdates も exdates による除外を受ける）
+  const times = new Set(starts.map((occStart) => occStart.getTime()));
+  for (const rdateInstant of rdateInstants) {
+    const time = rdateInstant.getTime();
+    if (!excludedTimes.has(time)) {
+      times.add(time);
+    }
+  }
   const occurrences: EventOccurrence[] = [];
-  for (const occStart of starts) {
-    if (overriddenTimes.has(occStart.getTime())) {
+  for (const time of times) {
+    if (overriddenTimes.has(time)) {
       continue;
     }
-    const occEnd = new Date(occStart.getTime() + span.durationMs);
+    const occStart = new Date(time);
+    const occEnd = new Date(time + span.durationMs);
     if (!rangesOverlap({ start: occStart, end: occEnd }, range)) {
       continue;
     }
@@ -405,6 +511,11 @@ function compareOccurrences(a: EventOccurrence, b: EventOccurrence): number {
  *   日数を維持する。`UNTIL` はイベント TZ の壁時計として解釈される
  * - **EXDATE**（`exdates`）— 該当する発生を除外する。時間指定イベントは
  *   発生開始のミリ秒一致、終日イベントは日付キー一致で判定する
+ * - **RDATE**（`rdates`）— `rrule` の発生に追加の発生を合成する。`rrule` と
+ *   同一時刻の `rdate` は重複させない。`exdates` は `rdate` 由来の発生にも
+ *   適用される（除外が優先）。`rrule` なしで `rdates` のみを持つイベントは
+ *   `start` の発生と各 `rdate` の発生に展開され、`isRecurring: true` になる
+ *   （繰り返し扱いとして編集スコープの対象になる）
  * - **オーバーライド**（`recurringEventId` + `originalStart` あり）—
  *   参照先イベントの `originalStart` の発生を置き換える。オーバーライド
  *   自身の `[start, end)` が範囲と重なれば発生として出力される

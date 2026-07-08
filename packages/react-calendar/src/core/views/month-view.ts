@@ -61,6 +61,20 @@ function daySpanOf(occurrence: EventOccurrence, timeZone: TimeZoneId): Occurrenc
  *   （週をまたぐ発生は週ごとに分かれ、`continuesBefore` / `continuesAfter` が立つ）
  * - 週ごとに帯レイアウト（{@link layoutBandItems}）でレーンを割り当て、
  *   `dayMaxEvents` を超えた分は `hidden` にして各日の `overflowCount` に集計する
+ * - `hiddenWeekdays` が指定された場合、該当曜日の列をグリッドから除外する。
+ *   セグメントの `startCol` / `span` は除外後の「可視列」基準で計算し直され、
+ *   非表示曜日を跨ぐ複数日イベントは可視列上で連続した 1 本のセグメントになる
+ *   （例: 金・月のイベントで土日を非表示にすると、金・月の 2 列分 `span: 2` になる）。
+ *   発生が非表示曜日のみに存在する場合はセグメントを生成せず、`overflowCount` にも数えない
+ *
+ * @remarks
+ * レーン割当は週ごとに独立して行う（Google カレンダーと同じ）。複数週にまたがる
+ * イベントは各週で {@link layoutBandItems} により再レイアウトされるため、
+ * 先行週で下位レーンに配置されていても、後続週では（その週の中で最も早く始まる
+ * イベントとして扱われるため）上位レーンに詰められることがある。
+ * ソート順（開始時刻昇順 → 長いもの優先）により、継続中のイベントの `sortStart` は
+ * 常に週の開始より前の実際の開始時刻になるため、継続中のイベントは
+ * 常にその週の上位レーンに配置される。
  *
  * @param params.currentDate - 表示対象月に含まれる基準日
  * @param params.timeZone - 表示タイムゾーン
@@ -68,6 +82,7 @@ function daySpanOf(occurrence: EventOccurrence, timeZone: TimeZoneId): Occurrenc
  * @param params.weekStartsOn - 週の開始曜日
  * @param params.dayMaxEvents - 1 日に表示する最大イベント数
  * @param params.now - 現在時刻（`isToday` 判定に使用）
+ * @param params.hiddenWeekdays - 非表示にする曜日。省略時は `[]`（すべて表示）
  */
 export function buildMonthViewModel(params: {
   currentDate: Date;
@@ -76,8 +91,17 @@ export function buildMonthViewModel(params: {
   weekStartsOn: Weekday;
   dayMaxEvents: number;
   now: Date;
+  hiddenWeekdays?: readonly Weekday[];
 }): MonthViewModel {
-  const { currentDate, timeZone, occurrences, weekStartsOn, dayMaxEvents, now } = params;
+  const {
+    currentDate,
+    timeZone,
+    occurrences,
+    weekStartsOn,
+    dayMaxEvents,
+    now,
+    hiddenWeekdays = [],
+  } = params;
 
   const anchor = startOfMonthInZone(currentDate, timeZone);
   const anchorWall = getWallClock(anchor, timeZone);
@@ -92,6 +116,24 @@ export function buildMonthViewModel(params: {
   const indexByKey = new Map<string, number>(gridKeys.map((key, index) => [key, index]));
   const firstGridKey = gridKeys[0] ?? '';
   const lastGridKey = gridKeys[gridKeys.length - 1] ?? '';
+
+  // 週内の列（0〜6）と曜日の対応は全週で共通（グリッドは週開始曜日で揃っているため）。
+  // これをもとに「可視列」（非表示曜日を除いた列）と、元の列 → 可視列インデックスの
+  // 対応表を作る。hiddenWeekdays が空なら全列が可視になり、既存の挙動と完全に一致する
+  const weekdayByCol: Weekday[] = gridDays.slice(0, 7).map((date) => weekdayInZone(date, timeZone));
+  const hiddenWeekdaySet = new Set(hiddenWeekdays);
+  const visibleCols: number[] = [];
+  const weekdays: Weekday[] = [];
+  weekdayByCol.forEach((weekday, col) => {
+    if (!hiddenWeekdaySet.has(weekday)) {
+      visibleCols.push(col);
+      weekdays.push(weekday);
+    }
+  });
+  const visibleColIndexByOrigCol = new Map<number, number>(
+    visibleCols.map((col, visibleIndex) => [col, visibleIndex]),
+  );
+  const visibleColCount = visibleCols.length;
 
   // 各発生の日付スパンをグリッド内インデックス範囲（両端含む）に解決する。
   // グリッドと重ならない発生はここで除外する。
@@ -138,10 +180,26 @@ export function buildMonthViewModel(params: {
       if (segStart > segEnd) {
         continue;
       }
+      // 週内の元の列範囲（0〜6）のうち可視列のみを対象に startCol/span を求め直す。
+      // 非表示曜日を跨ぐ場合も、可視列上で連続した 1 本のセグメントになる
+      let visibleStartCol: number | undefined;
+      let visibleEndCol: number | undefined;
+      for (let col = segStart - weekStartIndex; col <= segEnd - weekStartIndex; col += 1) {
+        const visibleIndex = visibleColIndexByOrigCol.get(col);
+        if (visibleIndex === undefined) {
+          continue;
+        }
+        visibleStartCol ??= visibleIndex;
+        visibleEndCol = visibleIndex;
+      }
+      if (visibleStartCol === undefined || visibleEndCol === undefined) {
+        // この週では非表示曜日にしか存在しない発生なのでセグメントを生成しない
+        continue;
+      }
       items.push({
         key: occurrence.key,
-        startCol: segStart - weekStartIndex,
-        span: segEnd - segStart + 1,
+        startCol: visibleStartCol,
+        span: visibleEndCol - visibleStartCol + 1,
         sortStart: occurrence.start.getTime(),
         sortDuration: occurrence.end.getTime() - occurrence.start.getTime(),
       });
@@ -154,7 +212,7 @@ export function buildMonthViewModel(params: {
       });
     }
 
-    const layout = layoutBandItems(items, 7, dayMaxEvents);
+    const layout = layoutBandItems(items, visibleColCount, dayMaxEvents);
 
     // placements は入力順を維持するため、items / itemMeta と同じ添字で対応付けられる
     const segments: EventSegment[] = items.map((item, index) => {
@@ -177,22 +235,24 @@ export function buildMonthViewModel(params: {
     // 表示順: レーン昇順 → 週内の開始列昇順
     segments.sort((a, b) => a.lane - b.lane || a.startCol - b.startCol);
 
-    const days: MonthDay[] = gridDays.slice(weekStartIndex, weekStartIndex + 7).map((date, col) => {
+    const days: MonthDay[] = visibleCols.map((col, visibleIndex) => {
+      const date = gridDays[weekStartIndex + col];
+      if (date === undefined) {
+        // visibleCols は 0〜6 の範囲に収まり、週は必ず 7 日分存在するためここには到達しない
+        throw new Error('グリッド内の日付が見つかりません');
+      }
       const wall = getWallClock(date, timeZone);
       return {
         date,
         key: gridKeys[weekStartIndex + col] ?? dateKeyInZone(date, timeZone),
         inCurrentMonth: wall.year === anchorWall.year && wall.month === anchorWall.month,
         isToday: isSameDayInZone(date, now, timeZone),
-        overflowCount: layout.overflowByCol[col] ?? 0,
+        overflowCount: layout.overflowByCol[visibleIndex] ?? 0,
       };
     });
 
     weeks.push({ days, segments, laneCount: layout.laneCount });
   }
-
-  // 曜日ヘッダーは 1 週目の各日の曜日（= 週開始曜日から始まる 7 曜日）
-  const weekdays: Weekday[] = gridDays.slice(0, 7).map((date) => weekdayInZone(date, timeZone));
 
   return { type: 'month', anchor, weeks, weekdays };
 }

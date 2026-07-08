@@ -57,6 +57,16 @@ export interface EventChange {
 }
 
 /**
+ * キーボード操作（Delete/Backspace）によるイベント削除の内容。
+ */
+export interface EventDelete {
+  /** 削除された発生。 */
+  occurrence: EventOccurrence;
+  /** 繰り返しイベントの場合に適用されたスコープ（単発は `null`）。 */
+  scope: RecurringEditScope | null;
+}
+
+/**
  * インタラクションのコールバック集。
  *
  * すべて省略可能で、省略時は次の既定動作になる:
@@ -64,6 +74,8 @@ export interface EventChange {
  * - `onEventClick` — 何もしない
  * - `resolveRecurringScope` — `'this'`（この予定のみ）を返す
  * - `onEventChange` — 通知のみの用途（変更の適用はライブラリが行う）
+ * - `onEventDelete` — 通知のみの用途（削除の適用はライブラリが行う）
+ * - `onError` — console.error に出力する
  * - `onOverflowClick` — その日の日ビューに切り替える
  */
 export interface CalendarInteractionCallbacks {
@@ -82,6 +94,16 @@ export interface CalendarInteractionCallbacks {
    */
   onEventChange?: (change: EventChange) => void;
   /**
+   * キーボード操作（Delete/Backspace）による削除が適用された後に呼ばれる。
+   * undo（元に戻す）UI やトースト表示の起点に使う。
+   */
+  onEventDelete?: (deletion: EventDelete) => void;
+  /**
+   * インタラクション中の非同期処理（`resolveRecurringScope` や変更の適用）が
+   * 例外を投げた場合に呼ばれる。省略時は console.error に出力される。
+   */
+  onError?: (error: unknown) => void;
+  /**
    * 繰り返しイベントの変更・削除時に、適用範囲（この予定のみ / これ以降 /
    * すべて）を決めるために呼ばれる。ダイアログを表示して選択させる用途。
    * `null` を返すと操作はキャンセルされる。
@@ -95,8 +117,12 @@ export interface CalendarInteractionCallbacks {
   ) => Promise<RecurringEditScope | null>;
   /**
    * 月ビューの「+N 件」がクリックされたときに呼ばれる。
+   *
+   * @param day - 対象の日
+   * @param hiddenOccurrences - その日で「+N 件」に集約された非表示の発生一覧
+   *   （開始時刻順）。ポップオーバーで隠れた予定を一覧表示する用途に使える
    */
-  onOverflowClick?: (day: MonthDay) => void;
+  onOverflowClick?: (day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => void;
 }
 
 /**

@@ -568,6 +568,21 @@ describe("updateEventIn: scope 'thisAndFollowing'（シリーズ分割）", () =
     expect(findById(result, 'gen-1').exdates).toEqual([new Date('2026-07-04T00:00:00Z')]);
   });
 
+  it('RDATE は EXDATE と対称に分割点を境（>= は新シリーズ）に振り分けられる', () => {
+    const master = makeMaster({
+      rdates: [new Date('2026-07-03T05:00:00Z'), new Date('2026-07-04T05:00:00Z')],
+    });
+    const result = updateEventIn(
+      [master],
+      'master-1',
+      {},
+      { occurrenceStart: splitPoint, scope: 'thisAndFollowing' },
+      makeContext(),
+    );
+    expect(findById(result, 'master-1').rdates).toEqual([new Date('2026-07-03T05:00:00Z')]);
+    expect(findById(result, 'gen-1').rdates).toEqual([new Date('2026-07-04T05:00:00Z')]);
+  });
+
   it('UNTIL 付きルールの分割では新シリーズが UNTIL をそのまま引き継ぐ', () => {
     const master = makeMaster({ rrule: 'FREQ=DAILY;UNTIL=20260710T090000Z' });
     const result = updateEventIn(
@@ -930,6 +945,21 @@ describe('deleteEventIn: 繰り返しイベント', () => {
     expect(updated.exdates).toEqual([new Date('2026-07-03T00:00:00Z')]);
     expect(findById(result, 'ov-2')).toEqual(before);
     expect(result.some((event) => event.id === 'ov-4')).toBe(false);
+  });
+
+  it("scope 'thisAndFollowing' の打ち切りは分割点以降（>=）の RDATE も取り除く", () => {
+    const master = makeMaster({
+      rdates: [new Date('2026-07-03T05:00:00Z'), new Date('2026-07-04T05:00:00Z')],
+    });
+    const result = deleteEventIn(
+      [master],
+      'master-1',
+      { occurrenceStart: new Date('2026-07-04T00:00:00Z'), scope: 'thisAndFollowing' },
+      makeContext(),
+    );
+    const updated = findById(result, 'master-1');
+    expect(updated.rrule).toBe('FREQ=DAILY;UNTIL=20260703T090000Z');
+    expect(updated.rdates).toEqual([new Date('2026-07-03T05:00:00Z')]);
   });
 
   it("scope 'thisAndFollowing' の打ち切り後は分割点より前の発生だけが残る", () => {

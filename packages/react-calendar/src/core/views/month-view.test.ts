@@ -410,4 +410,93 @@ describe('buildMonthViewModel', () => {
       }
     });
   });
+
+  describe('週をまたぐレーン再配置（回帰）', () => {
+    it('2 週にまたがるイベントが後続週で先頭レーンに配置される（週ごとの再レイアウト）', () => {
+      // 1 週目（7/5〜7/11）で "early"（7/5〜7/7）と重なり、後方の列を専有するため
+      // "spanning"（7/6〜7/13）はレーン 1 に追いやられる
+      const early = makeOccurrence('early', at(TOKYO, 2026, 7, 5, 8), at(TOKYO, 2026, 7, 7, 9));
+      const spanning = makeOccurrence(
+        'spanning',
+        at(TOKYO, 2026, 7, 6, 10),
+        at(TOKYO, 2026, 7, 13, 10),
+      );
+      const vm = build({ occurrences: [early, spanning] });
+
+      const week1 = segmentsOf(vm, spanning.key).find((placed) => placed.week === 1);
+      expect(week1?.segment).toMatchObject({ lane: 1, continuesAfter: true });
+
+      // 2 週目（7/12〜7/18）では "spanning" 単独になり、週ごとに独立してレーンが
+      // 再計算されるため、1 週目でレーン 1 だったにもかかわらずレーン 0 に戻る
+      const week2 = segmentsOf(vm, spanning.key).find((placed) => placed.week === 2);
+      expect(week2?.segment).toMatchObject({ lane: 0, continuesBefore: true });
+    });
+  });
+
+  describe('hiddenWeekdays（非表示曜日）', () => {
+    it('weekdays から非表示曜日が除外される', () => {
+      const vm = build({ hiddenWeekdays: [0, 6] });
+      expect(vm.weekdays).toEqual([1, 2, 3, 4, 5]);
+    });
+
+    it('各週の days が可視列のみになり、列数は 7 - 非表示曜日数になる', () => {
+      const vm = build({ hiddenWeekdays: [0, 6] });
+      for (const week of vm.weeks) {
+        expect(week.days).toHaveLength(5);
+      }
+      // 7/5(日) 始まりの週（週インデックス 1）は 7/6〜7/10（月〜金）になる
+      expect(vm.weeks[1]?.days.map((day) => day.key)).toEqual([
+        '2026-07-06',
+        '2026-07-07',
+        '2026-07-08',
+        '2026-07-09',
+        '2026-07-10',
+      ]);
+    });
+
+    it('非表示曜日を跨ぐイベントは可視列上で連続した 1 本のセグメントになる', () => {
+      // 火(7/7)〜木(7/9) のイベントで水曜(3)を非表示にすると、可視列は
+      // 日・月・火・木・金・土（6 列）になり、火・木が隣接した span:2 のセグメントになる
+      const occ = makeOccurrence('tue-thu', at(TOKYO, 2026, 7, 7, 9), at(TOKYO, 2026, 7, 9, 18));
+      const vm = build({ occurrences: [occ], hiddenWeekdays: [3] });
+      const placed = segmentsOf(vm, occ.key);
+      expect(placed).toHaveLength(1);
+      expect(placed[0]?.week).toBe(1);
+      // 可視列: 日(0),月(1),火(2),木(3),金(4),土(5) → 火は列 2、木は列 3
+      expect(placed[0]?.segment).toMatchObject({
+        startCol: 2,
+        span: 2,
+        continuesBefore: false,
+        continuesAfter: false,
+      });
+    });
+
+    it('非表示曜日のみに存在する発生はセグメントを生成せず overflowCount にも数えない', () => {
+      // 土曜（6）のみの 2 件の予定。週末を非表示にし dayMaxEvents=1 にしても
+      // どちらもセグメント化されず、あふれとしても計上されない
+      const a = makeOccurrence('sat-a', at(TOKYO, 2026, 7, 11, 9), at(TOKYO, 2026, 7, 11, 10));
+      const b = makeOccurrence('sat-b', at(TOKYO, 2026, 7, 11, 10), at(TOKYO, 2026, 7, 11, 11));
+      const vm = build({ occurrences: [a, b], hiddenWeekdays: [0, 6], dayMaxEvents: 1 });
+      expect(segmentsOf(vm, a.key)).toHaveLength(0);
+      expect(segmentsOf(vm, b.key)).toHaveLength(0);
+      expect(vm.weeks[1]?.days.every((day) => day.overflowCount === 0)).toBe(true);
+    });
+
+    it('あふれ判定は可視列数（columnCount）を基準に行われる', () => {
+      // 週末を非表示にし、火曜(7/7)に 3 件重ねて dayMaxEvents=2 にすると
+      // 3 件目が hidden になる。可視列は月〜金（列 0〜4）なので、火曜は
+      // 可視列上で 2 番目（インデックス 1）になり、そこに overflowCount=1 が付く
+      const a = makeOccurrence('a', at(TOKYO, 2026, 7, 7, 9), at(TOKYO, 2026, 7, 7, 10));
+      const b = makeOccurrence('b', at(TOKYO, 2026, 7, 7, 10), at(TOKYO, 2026, 7, 7, 11));
+      const c = makeOccurrence('c', at(TOKYO, 2026, 7, 7, 11), at(TOKYO, 2026, 7, 7, 12));
+      const vm = build({
+        occurrences: [a, b, c],
+        hiddenWeekdays: [0, 6],
+        dayMaxEvents: 2,
+      });
+      const week = vm.weeks[1];
+      expect(week?.days.map((day) => day.overflowCount)).toEqual([0, 1, 0, 0, 0]);
+      expect(week?.laneCount).toBe(2);
+    });
+  });
 });

@@ -222,6 +222,37 @@ describe('buildListViewModel', () => {
     });
   });
 
+  describe('長さ 0 の発生（リマインダー等）', () => {
+    it('長さ 0 の発生は start が属する日に表示される', () => {
+      const model = build({
+        currentDate: '2026-07-01T00:00:00+09:00',
+        occurrences: [
+          makeOccurrence({
+            id: 'reminder',
+            start: '2026-07-02T09:00:00+09:00',
+            end: '2026-07-02T09:00:00+09:00',
+          }),
+        ],
+      });
+      expect(dayKeys(model)).toEqual(['2026-07-02']);
+      expect(model.days[0]?.occurrences.map((o) => o.eventId)).toEqual(['reminder']);
+    });
+
+    it('長さ 0 の発生がちょうど日の 0:00 の場合はその日に表示され、前日には出現しない', () => {
+      const model = build({
+        currentDate: '2026-07-01T00:00:00+09:00',
+        occurrences: [
+          makeOccurrence({
+            id: 'at-midnight',
+            start: '2026-07-02T00:00:00+09:00',
+            end: '2026-07-02T00:00:00+09:00',
+          }),
+        ],
+      });
+      expect(dayKeys(model)).toEqual(['2026-07-02']);
+    });
+  });
+
   describe('日内の並び順', () => {
     it('終日イベントは、より早く始まる時間指定イベントよりも先に並ぶ', () => {
       // 時間指定は前日 23:00 から続いており、開始時刻は終日（7/1 0:00）より早い

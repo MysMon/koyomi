@@ -23,7 +23,7 @@ import type {
 } from '../core/types';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 import type { TimeGridDragHandlers } from './use-time-grid-drag';
-import { useTimeGridDrag } from './use-time-grid-drag';
+import { autoScrollVelocity, useTimeGridDrag } from './use-time-grid-drag';
 
 const TOKYO = 'Asia/Tokyo';
 const NOW = new Date('2026-07-15T01:00:00Z');
@@ -106,21 +106,23 @@ function Harness(props: {
   }
 
   return (
-    <div>
+    <div data-koyomi="timegrid-body" data-testid="timegrid-body">
       {viewModel.days.map((day) => {
         const { ref: dayRef, ...dayProps } = drag.getDayProps(day);
         return (
           <div key={day.key} {...dayProps} ref={toDivRef(dayRef)} data-testid={`day-${day.key}`}>
             {day.items.map((item) => {
               const eventProps = drag.getEventProps(item);
-              const resizeProps = drag.getResizeHandleProps(item);
+              const endResizeProps = drag.getResizeHandleProps(item);
+              const startResizeProps = drag.getResizeHandleProps(item, 'start');
               return (
                 <div
                   key={item.occurrence.key}
                   {...eventProps}
                   data-testid={`event-${item.occurrence.key}`}
                 >
-                  <div {...resizeProps} data-testid={`resize-${item.occurrence.key}`} />
+                  <div {...startResizeProps} data-testid={`resize-start-${item.occurrence.key}`} />
+                  <div {...endResizeProps} data-testid={`resize-${item.occurrence.key}`} />
                 </div>
               );
             })}
@@ -218,6 +220,13 @@ async function releasePointerAsync(clientX: number, clientY: number): Promise<vo
 function pressEscape(): void {
   act(() => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+}
+
+/** document への pointercancel ディスパッチ。 */
+function firePointerCancel(): void {
+  act(() => {
+    document.dispatchEvent(new MouseEvent('pointercancel', { bubbles: true }));
   });
 }
 
@@ -711,5 +720,402 @@ describe('useTimeGridDrag', () => {
     const events = sink.current?.calendar.api.getEvents() ?? [];
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ start: `${TUE}T10:00`, end: `${TUE}T11:00` });
+  });
+
+  it('pointercancel でドラッグをキャンセルする（イベントは変更されない、コミットもされない）', () => {
+    const event: CalendarEvent = {
+      id: 'ev-cancel',
+      title: '会議',
+      start: `${SAT}T10:00`,
+      end: `${SAT}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-cancel@${at(`${SAT}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(SAT);
+
+    firePointerDown(eventEl, x, 600);
+    movePointer(x, 720);
+    expect(sink.current?.calendar.state.dragPreview).not.toBeNull();
+    expect(sink.current?.drag.isDragging).toBe(true);
+
+    firePointerCancel();
+
+    expect(sink.current?.calendar.state.dragPreview).toBeNull();
+    expect(sink.current?.drag.isDragging).toBe(false);
+
+    // pointercancel 後は document のリスナーが外れているため、以降の pointerup は無視される
+    releasePointer(x, 720);
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ start: `${SAT}T10:00`, end: `${SAT}T11:00` });
+  });
+
+  it('Escape キャンセル直後の click では onEventClick が呼ばれない', () => {
+    const onEventClick = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-escape-click',
+      title: '会議',
+      start: `${SAT}T10:00`,
+      end: `${SAT}T11:00`,
+    };
+    renderHarness({ events: [event], callbacks: { onEventClick } });
+    const occurrenceKey = `ev-escape-click@${at(`${SAT}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(SAT);
+
+    firePointerDown(eventEl, x, 600);
+    movePointer(x, 720);
+    pressEscape();
+    releasePointer(x, 720);
+
+    // Escape によるキャンセル直後にブラウザが発火する click は抑制される
+    fireEvent.click(eventEl);
+
+    expect(onEventClick).not.toHaveBeenCalled();
+  });
+
+  it('resolveRecurringScope が reject した場合、dragPreview が null に戻り onError が呼ばれる', async () => {
+    const boom = new Error('boom');
+    const resolveRecurringScope = vi.fn().mockRejectedValue(boom);
+    const onError = vi.fn();
+    const event: CalendarEvent = {
+      id: 'recurring-error',
+      title: '定例',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      rrule: 'FREQ=WEEKLY;BYDAY=WE',
+    };
+    const { sink } = renderHarness({
+      events: [event],
+      callbacks: { resolveRecurringScope, onError },
+    });
+
+    const occurrenceKey = `recurring-error@${at(`${WED}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(WED);
+
+    firePointerDown(eventEl, x, 600);
+    movePointer(x, 720);
+    await releasePointerAsync(x, 720);
+
+    expect(onError).toHaveBeenCalledWith(boom);
+    expect(sink.current?.calendar.state.dragPreview).toBeNull();
+  });
+
+  it('onEventDelete: 単発イベントの削除で scope: null で通知される', () => {
+    const onEventDelete = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-delete-notify',
+      title: '削除対象',
+      start: `${TUE}T09:00`,
+      end: `${TUE}T09:30`,
+    };
+    renderHarness({ events: [event], callbacks: { onEventDelete } });
+    const occurrenceKey = `ev-delete-notify@${at(`${TUE}T09:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    fireEvent.keyDown(eventEl, { key: 'Delete' });
+
+    expect(onEventDelete).toHaveBeenCalledWith({
+      occurrence: expect.objectContaining({ eventId: 'ev-delete-notify' }),
+      scope: null,
+    });
+  });
+
+  it('onEventDelete: 繰り返しイベントの削除でスコープ込みで通知される', async () => {
+    const resolveRecurringScope = vi.fn().mockResolvedValue('this' as RecurringEditScope);
+    const onEventDelete = vi.fn();
+    const event: CalendarEvent = {
+      id: 'recurring-delete-notify',
+      title: '定例',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      rrule: 'FREQ=WEEKLY;BYDAY=WE',
+    };
+    renderHarness({ events: [event], callbacks: { resolveRecurringScope, onEventDelete } });
+    const occurrenceKey = `recurring-delete-notify@${at(`${WED}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'Delete' });
+    });
+
+    expect(onEventDelete).toHaveBeenCalledWith({
+      occurrence: expect.objectContaining({ eventId: 'recurring-delete-notify' }),
+      scope: 'this',
+    });
+  });
+
+  it('onEventDelete: スコープ解決がキャンセル（null）の場合は通知されない', async () => {
+    const resolveRecurringScope = vi.fn().mockResolvedValue(null);
+    const onEventDelete = vi.fn();
+    const event: CalendarEvent = {
+      id: 'recurring-delete-cancel',
+      title: '定例',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      rrule: 'FREQ=WEEKLY;BYDAY=WE',
+    };
+    renderHarness({ events: [event], callbacks: { resolveRecurringScope, onEventDelete } });
+    const occurrenceKey = `recurring-delete-cancel@${at(`${WED}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'Delete' });
+    });
+
+    expect(onEventDelete).not.toHaveBeenCalled();
+  });
+
+  it('上端ハンドルのドラッグ（resize-start）で開始時刻だけが変わる', () => {
+    const event: CalendarEvent = {
+      id: 'ev-resize-start',
+      title: '会議',
+      start: `${FRI}T10:00`,
+      end: `${FRI}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-resize-start@${at(`${FRI}T10:00`).toISOString()}`;
+    const handleEl = screen.getByTestId(`resize-start-${occurrenceKey}`);
+    const x = columnCenterX(FRI);
+
+    firePointerDown(handleEl, x, 600); // 10:00
+    movePointer(x, 540); // 9:00
+    releasePointer(x, 540);
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ start: at(`${FRI}T09:00`), end: at(`${FRI}T11:00`) });
+  });
+
+  it('上端ハンドルのリサイズは最小 snap 分の長さを下回らない（終了より後ろに動かしても start は終了-snap 分）', () => {
+    const event: CalendarEvent = {
+      id: 'ev-resize-start-min',
+      title: '会議',
+      start: `${FRI}T10:00`,
+      end: `${FRI}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-resize-start-min@${at(`${FRI}T10:00`).toISOString()}`;
+    const handleEl = screen.getByTestId(`resize-start-${occurrenceKey}`);
+    const x = columnCenterX(FRI);
+
+    firePointerDown(handleEl, x, 600); // 10:00
+    movePointer(x, 900); // 15:00（終了より後ろ）
+    releasePointer(x, 900);
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: at(`${FRI}T10:45`), end: at(`${FRI}T11:00`) });
+  });
+
+  it('data-koyomi-resize-handle は edge に応じて start/end になる', () => {
+    const event: CalendarEvent = {
+      id: 'ev-resize-attr',
+      title: '会議',
+      start: `${FRI}T10:00`,
+      end: `${FRI}T11:00`,
+    };
+    renderHarness({ events: [event] });
+    const occurrenceKey = `ev-resize-attr@${at(`${FRI}T10:00`).toISOString()}`;
+    const startHandle = screen.getByTestId(`resize-start-${occurrenceKey}`);
+    const endHandle = screen.getByTestId(`resize-${occurrenceKey}`);
+
+    expect(startHandle).toHaveAttribute('data-koyomi-resize-handle', 'start');
+    expect(endHandle).toHaveAttribute('data-koyomi-resize-handle', 'end');
+  });
+
+  it('矢印キー: ArrowDown で単発イベントが snapMinutes 分だけ後ろに移動する', async () => {
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-arrow-down',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [event], callbacks: { onEventChange } });
+    const occurrenceKey = `ev-arrow-down@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowDown' });
+    });
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: at(`${TUE}T10:15`), end: at(`${TUE}T11:15`) });
+    expect(onEventChange).toHaveBeenCalledWith({
+      occurrence: expect.objectContaining({ eventId: 'ev-arrow-down' }),
+      newRange: { start: at(`${TUE}T10:15`), end: at(`${TUE}T11:15`) },
+      allDay: false,
+      scope: null,
+    });
+  });
+
+  it('矢印キー: Shift+ArrowDown で終了時刻が snapMinutes 分だけ延長される', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-shift-arrow-down',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-shift-arrow-down@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowDown', shiftKey: true });
+    });
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: at(`${TUE}T10:00`), end: at(`${TUE}T11:15`) });
+  });
+
+  it('矢印キー: Shift+ArrowUp は最小 snap 分の長さを下回る場合は変更しない', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-shift-arrow-up-min',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T10:15`, // すでに snapMinutes（15 分）ちょうどの長さ
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-shift-arrow-up-min@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowUp', shiftKey: true });
+    });
+
+    // 変更が適用されなかったため、ソースイベントの start/end は元の文字列のまま
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: `${TUE}T10:00`, end: `${TUE}T10:15` });
+  });
+
+  it('矢印キー: ArrowLeft/ArrowRight で 1 日単位に移動する', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-arrow-day',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-arrow-day@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowRight' });
+    });
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: at(`${WED}T10:00`), end: at(`${WED}T11:00`) });
+  });
+
+  it('矢印キー: editable: false のイベントは無視される', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-arrow-locked',
+      title: '固定',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+      editable: false,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-arrow-locked@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowDown' });
+    });
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: `${TUE}T10:00`, end: `${TUE}T11:00` });
+  });
+
+  it('矢印キー: 繰り返しイベントは resolveRecurringScope で解決される', async () => {
+    const resolveRecurringScope = vi.fn(
+      async (
+        _occurrence: EventOccurrence,
+        _action: 'move' | 'resize' | 'delete' | 'update',
+      ): Promise<RecurringEditScope | null> => 'this',
+    );
+    const event: CalendarEvent = {
+      id: 'recurring-arrow',
+      title: '定例',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      rrule: 'FREQ=WEEKLY;BYDAY=WE',
+    };
+    const { sink } = renderHarness({ events: [event], callbacks: { resolveRecurringScope } });
+    const occurrenceKey = `recurring-arrow@${at(`${WED}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowDown' });
+    });
+
+    expect(resolveRecurringScope).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: 'recurring-arrow' }),
+      'move',
+    );
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    const override = events.find((candidate) => candidate.recurringEventId === 'recurring-arrow');
+    expect(override).toMatchObject({ start: at(`${WED}T10:15`), end: at(`${WED}T11:15`) });
+  });
+
+  it('ドラッグ中に自動スクロール対象領域へ移動してもクリーンアップでエラーにならない', () => {
+    const event: CalendarEvent = {
+      id: 'ev-autoscroll',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    renderHarness({ events: [event] });
+    const bodyEl = screen.getByTestId('timegrid-body');
+    vi.spyOn(bodyEl, 'getBoundingClientRect').mockReturnValue(
+      DOMRect.fromRect({ x: 0, y: 0, width: COLUMN_WIDTH * WEEK_KEYS.length, height: 600 }),
+    );
+    const occurrenceKey = `ev-autoscroll@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(TUE);
+
+    expect(() => {
+      firePointerDown(eventEl, x, 600);
+      movePointer(x, 0); // オートスクロール対象領域（上端）へ
+      releasePointer(x, 0);
+    }).not.toThrow();
+  });
+});
+
+describe('autoScrollVelocity', () => {
+  it('コンテナ中央では 0 を返す', () => {
+    expect(autoScrollVelocity({ edgeStart: 0, edgeEnd: 600, pointer: 300 })).toBe(0);
+  });
+
+  it('上端の threshold 境界ちょうどでは 0 を返す', () => {
+    expect(autoScrollVelocity({ edgeStart: 0, edgeEnd: 600, pointer: 24 })).toBe(0);
+  });
+
+  it('上端（pointer = edgeStart）では負の最大速度を返す', () => {
+    expect(autoScrollVelocity({ edgeStart: 0, edgeEnd: 600, pointer: 0 })).toBe(-16);
+  });
+
+  it('下端の threshold 境界ちょうどでは 0 を返す', () => {
+    expect(autoScrollVelocity({ edgeStart: 0, edgeEnd: 600, pointer: 576 })).toBe(0);
+  });
+
+  it('下端（pointer = edgeEnd）では正の最大速度を返す', () => {
+    expect(autoScrollVelocity({ edgeStart: 0, edgeEnd: 600, pointer: 600 })).toBe(16);
+  });
+
+  it('端に近いほど速度の絶対値が大きくなる（上端寄り）', () => {
+    const near = autoScrollVelocity({ edgeStart: 0, edgeEnd: 600, pointer: 6 });
+    const far = autoScrollVelocity({ edgeStart: 0, edgeEnd: 600, pointer: 18 });
+    expect(near).toBeLessThan(far);
+    expect(far).toBeLessThan(0);
+  });
+
+  it('threshold / maxSpeed をカスタマイズできる', () => {
+    expect(
+      autoScrollVelocity({ edgeStart: 0, edgeEnd: 600, pointer: 0, threshold: 10, maxSpeed: 40 }),
+    ).toBe(-40);
   });
 });

@@ -612,4 +612,94 @@ describe('buildTimeGridViewModel', () => {
       expect(model.slots).toHaveLength(24);
     });
   });
+
+  describe('hiddenWeekdays（非表示曜日）', () => {
+    it('week ビューでは非表示曜日の列が days から除外される', () => {
+      const model = build({ hiddenWeekdays: [0, 6] });
+      expect(model.days.map((d) => d.key)).toEqual([
+        '2026-06-29',
+        '2026-06-30',
+        '2026-07-01',
+        '2026-07-02',
+        '2026-07-03',
+      ]);
+      expect(model.days.map((d) => d.weekday)).toEqual([1, 2, 3, 4, 5]);
+    });
+
+    it('day ビューでは hiddenWeekdays を無視し、明示的に移動した日を表示する', () => {
+      // 7/4（土）は hiddenWeekdays=[0,6] に含まれるが、day ビューでは無視される
+      const model = build({
+        viewType: 'day',
+        currentDate: at('2026-07-04T00:00', TOKYO),
+        hiddenWeekdays: [0, 6],
+      });
+      expect(model.days).toHaveLength(1);
+      expect(model.days[0]?.key).toBe('2026-07-04');
+    });
+
+    it('非表示曜日を跨ぐ終日イベントは可視列上で連続した 1 本のセグメントになる', () => {
+      // 終日イベント 6/29(月)〜7/1(水)（end 排他で 7/2 0:00）で、火曜(2)を非表示に
+      // すると可視列は 日,月,水,木,金,土（6 列）になり、月・水が隣接した span:2 になる
+      const occ = occurrence({
+        id: 'mon-wed',
+        start: at('2026-06-29T00:00', TOKYO),
+        end: at('2026-07-02T00:00', TOKYO),
+        allDay: true,
+      });
+      const model = build({ occurrences: [occ], hiddenWeekdays: [2] });
+      expect(model.allDaySegments).toHaveLength(1);
+      // 可視列: 日(0),月(1),水(2),木(3),金(4),土(5) → 月は列 1、水は列 2
+      expect(model.allDaySegments[0]).toMatchObject({
+        startCol: 1,
+        span: 2,
+        continuesBefore: false,
+        continuesAfter: false,
+      });
+    });
+
+    it('非表示曜日のみに存在する終日イベントはセグメントを生成しない', () => {
+      // 土曜(7/4)のみの終日イベント。週末を非表示にすると現れない
+      const occ = occurrence({
+        id: 'sat-only',
+        start: at('2026-07-04T00:00', TOKYO),
+        end: at('2026-07-05T00:00', TOKYO),
+        allDay: true,
+      });
+      const model = build({ occurrences: [occ], hiddenWeekdays: [0, 6] });
+      expect(model.allDaySegments).toHaveLength(0);
+    });
+
+    it('あふれのない終日行レーンは可視列数（columnCount）で組まれる', () => {
+      const holiday = occurrence({
+        id: 'holiday',
+        start: at('2026-06-29T00:00', TOKYO),
+        end: at('2026-07-04T00:00', TOKYO),
+        allDay: true,
+      });
+      const model = build({ occurrences: [holiday], hiddenWeekdays: [0, 6] });
+      // 可視列は月〜金の 5 列。終日イベントは月(6/29)〜金(7/3)なので全 5 列を専有する
+      expect(model.allDaySegments[0]).toMatchObject({ startCol: 0, span: 5 });
+      expect(model.allDayLaneCount).toBe(1);
+    });
+
+    it('「今日」が非表示曜日なら nowIndicator は null になる', () => {
+      // now を 7/4（土）にし、週末を非表示にする
+      const model = build({ now: at('2026-07-04T10:00', TOKYO), hiddenWeekdays: [0, 6] });
+      expect(model.nowIndicator).toBeNull();
+      expect(model.days.every((d) => !d.isToday)).toBe(true);
+    });
+
+    it('時間指定イベントで非表示曜日の日に属する発生は days に現れない', () => {
+      const occ = occurrence({
+        id: 'saturday-meeting',
+        start: at('2026-07-04T10:00', TOKYO),
+        end: at('2026-07-04T11:00', TOKYO),
+      });
+      const model = build({ occurrences: [occ], hiddenWeekdays: [0, 6] });
+      expect(model.days.some((d) => d.key === '2026-07-04')).toBe(false);
+      for (const day of model.days) {
+        expect(day.items).toHaveLength(0);
+      }
+    });
+  });
 });

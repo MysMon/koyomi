@@ -75,11 +75,18 @@ function belongsToAllDayRow(occurrence: EventOccurrence, timeZone: TimeZoneId): 
  * 表示範囲全体（週なら 7 列、日なら 1 列）を 1 つの帯として扱い、
  * {@link layoutBandItems} でレーンを割り当てる。あふれ制限（`maxLanes`）はない。
  *
+ * `hiddenWeekdays` により一部の列が非表示の場合、`columnIndexByKey` で得た
+ * 「元の列」インデックスを `visibleColByOrigCol` で「可視列」インデックスへ
+ * 変換してからレイアウトする（月ビューと同じ規則）。非表示曜日を跨ぐ発生は
+ * 可視列上で連続した 1 本のセグメントになり、可視列を 1 つも含まない発生
+ * （非表示曜日にしか存在しない発生）はセグメントを生成しない。
+ *
  * @param occurrences - 終日行に振り分けられた発生
  * @param params.rangeStart - 表示範囲の開始（最初の日の 0:00）
  * @param params.rangeEnd - 表示範囲の終了（排他）
- * @param params.columnIndexByKey - 日付キー → 列番号の索引
- * @param params.columnCount - 列数（週なら 7、日なら 1）
+ * @param params.columnIndexByKey - 日付キー → 元の列番号（非表示曜日を含む全列）の索引
+ * @param params.visibleColByOrigCol - 元の列番号 → 可視列インデックスの対応表
+ * @param params.columnCount - 可視列数（結果の `startCol` / `span` はこの座標系）
  * @param params.timeZone - 表示タイムゾーン
  * @returns セグメント一覧と使用レーン数
  */
@@ -89,11 +96,13 @@ function buildAllDaySegments(
     rangeStart: Date;
     rangeEnd: Date;
     columnIndexByKey: ReadonlyMap<string, number>;
+    visibleColByOrigCol: ReadonlyMap<number, number>;
     columnCount: number;
     timeZone: TimeZoneId;
   },
 ): { segments: EventSegment[]; laneCount: number } {
-  const { rangeStart, rangeEnd, columnIndexByKey, columnCount, timeZone } = params;
+  const { rangeStart, rangeEnd, columnIndexByKey, visibleColByOrigCol, columnCount, timeZone } =
+    params;
 
   const bandInputs: BandItemInput[] = [];
   const metas: {
@@ -117,12 +126,29 @@ function buildAllDaySegments(
     const clampedStart = new Date(Math.max(occurrence.start.getTime(), rangeStart.getTime()));
     // 終端は排他的なので、1ms 前の時点が属する日が最終列になる
     const clampedLast = new Date(Math.min(effectiveEndMs, rangeEnd.getTime()) - 1);
-    const startCol = columnIndexByKey.get(dateKeyInZone(clampedStart, timeZone));
-    const endCol = columnIndexByKey.get(dateKeyInZone(clampedLast, timeZone));
-    if (startCol === undefined || endCol === undefined) {
+    const origStartCol = columnIndexByKey.get(dateKeyInZone(clampedStart, timeZone));
+    const origEndCol = columnIndexByKey.get(dateKeyInZone(clampedLast, timeZone));
+    if (origStartCol === undefined || origEndCol === undefined) {
       // 表示範囲にクランプ済みのため必ず見つかるはずだが、防御的にスキップする
       continue;
     }
+
+    // 元の列範囲のうち可視列のみを対象に startCol/span を求め直す
+    let startCol: number | undefined;
+    let endCol: number | undefined;
+    for (let col = origStartCol; col <= origEndCol; col += 1) {
+      const visibleCol = visibleColByOrigCol.get(col);
+      if (visibleCol === undefined) {
+        continue;
+      }
+      startCol ??= visibleCol;
+      endCol = visibleCol;
+    }
+    if (startCol === undefined || endCol === undefined) {
+      // 非表示曜日にしか存在しない発生なのでセグメントを生成しない
+      continue;
+    }
+
     const span = endCol - startCol + 1;
     bandInputs.push({
       key: occurrence.key,
@@ -322,6 +348,14 @@ function buildSlots(slotMinutes: number): TimeSlot[] {
  *   終了は 1440 分（24:00）になる
  * - 同じ日で重なる発生は {@link layoutTimeGridItems} で横並びになる
  *
+ * `hiddenWeekdays`（非表示曜日）:
+ * - `viewType: 'week'` のとき、該当曜日の列を `days` から除外する。
+ *   終日行（`allDaySegments`）の帯レイアウトも可視列基準になり、非表示曜日を
+ *   跨ぐ発生は可視列上で連続した 1 本のセグメントとして扱われる（月ビューと同じ規則）
+ * - `viewType: 'day'` のときは `hiddenWeekdays` を無視する（明示的にその日へ
+ *   移動した場合は表示する。Google カレンダーと同じ挙動）
+ * - 「今日」が非表示曜日で `days` に含まれない場合、`nowIndicator` は `null` になる
+ *
  * @param params.currentDate - 基準日
  * @param params.viewType - `'week'`（7 日）または `'day'`（1 日）
  * @param params.timeZone - 表示タイムゾーン
@@ -329,6 +363,7 @@ function buildSlots(slotMinutes: number): TimeSlot[] {
  * @param params.weekStartsOn - 週の開始曜日（`'week'` のときのみ使用）
  * @param params.slotMinutes - 時間軸の目盛り間隔（分）
  * @param params.now - 現在時刻（`isToday` 判定と現在時刻線に使用）
+ * @param params.hiddenWeekdays - 非表示にする曜日（`'week'` のときのみ有効）。省略時は `[]`
  */
 export function buildTimeGridViewModel(params: {
   currentDate: Date;
@@ -338,8 +373,18 @@ export function buildTimeGridViewModel(params: {
   weekStartsOn: Weekday;
   slotMinutes: number;
   now: Date;
+  hiddenWeekdays?: readonly Weekday[];
 }): TimeGridViewModel {
-  const { currentDate, viewType, timeZone, occurrences, weekStartsOn, slotMinutes, now } = params;
+  const {
+    currentDate,
+    viewType,
+    timeZone,
+    occurrences,
+    weekStartsOn,
+    slotMinutes,
+    now,
+    hiddenWeekdays = [],
+  } = params;
 
   // 表示範囲: week は週開始日から 7 日、day は基準日の 1 日
   const rangeStart =
@@ -351,10 +396,25 @@ export function buildTimeGridViewModel(params: {
   // ゾーン（例: America/Santiago）で rangeStart が 1:00 に前方解決されていると
   // 範囲が翌日側へ 1 時間はみ出し、日数が 1 日増えてしまう。日初へ再正規化する
   const rangeEnd = startOfDayInZone(addDaysInZone(rangeStart, dayCount, timeZone), timeZone);
+  // dayStarts / dayKeys / columnIndexByKey は非表示曜日を含む「元の」列（全 dayCount 列）。
+  // 終日行のレイアウトはここから可視列へ変換するため、まずは全列で構築しておく
   const dayStarts = eachDayInRange({ start: rangeStart, end: rangeEnd }, timeZone);
 
   const dayKeys = dayStarts.map((dayStart) => dateKeyInZone(dayStart, timeZone));
   const columnIndexByKey = new Map<string, number>(dayKeys.map((key, index) => [key, index]));
+
+  // 可視列（非表示曜日を除いた列）のインデックス一覧。day ビューでは
+  // hiddenWeekdays を無視し、常に全列（1 列）を可視として扱う
+  const hiddenWeekdaySet = new Set(hiddenWeekdays);
+  const visibleDayIndices: number[] = [];
+  dayStarts.forEach((dayStart, index) => {
+    if (viewType === 'day' || !hiddenWeekdaySet.has(weekdayInZone(dayStart, timeZone))) {
+      visibleDayIndices.push(index);
+    }
+  });
+  const visibleColByOrigCol = new Map<number, number>(
+    visibleDayIndices.map((origIndex, visibleIndex) => [origIndex, visibleIndex]),
+  );
 
   // 発生を終日行と時間グリッドに振り分ける
   const allDayRowOccurrences: EventOccurrence[] = [];
@@ -373,27 +433,38 @@ export function buildTimeGridViewModel(params: {
       rangeStart,
       rangeEnd,
       columnIndexByKey,
-      columnCount: dayStarts.length,
+      visibleColByOrigCol,
+      columnCount: visibleDayIndices.length,
       timeZone,
     },
   );
 
-  const days: TimeGridDay[] = dayStarts.map((dayStart, index) => ({
-    date: dayStart,
-    key: dayKeys[index] ?? dateKeyInZone(dayStart, timeZone),
-    isToday: isSameDayInZone(dayStart, now, timeZone),
-    weekday: weekdayInZone(dayStart, timeZone),
-    items: buildDayItems(timedOccurrences, {
-      dayStart,
-      // 最終日の翌日 0:00 は範囲終端と一致する
-      dayEnd: dayStarts[index + 1] ?? rangeEnd,
-      timeZone,
-    }),
-  }));
+  const days: TimeGridDay[] = visibleDayIndices.map((index) => {
+    const dayStart = dayStarts[index];
+    if (dayStart === undefined) {
+      // visibleDayIndices は dayStarts の添字から作られるためここには到達しない
+      throw new Error('表示範囲内の日付が見つかりません');
+    }
+    return {
+      date: dayStart,
+      key: dayKeys[index] ?? dateKeyInZone(dayStart, timeZone),
+      isToday: isSameDayInZone(dayStart, now, timeZone),
+      weekday: weekdayInZone(dayStart, timeZone),
+      items: buildDayItems(timedOccurrences, {
+        dayStart,
+        // 次の日の 0:00（非表示曜日で間引く前の、暦上連続する翌日の境界）。
+        // 最終日の翌日 0:00 は範囲終端と一致する
+        dayEnd: dayStarts[index + 1] ?? rangeEnd,
+        timeZone,
+      }),
+    };
+  });
 
-  // 現在時刻線: 表示範囲内に「今日」があればその列と壁時計の分を返す
+  // 現在時刻線: 「今日」が可視列に含まれる場合のみその列と壁時計の分を返す。
+  // 非表示曜日で days から除外された場合は自然に null になる
+  const visibleDayKeys = new Set(visibleDayIndices.map((index) => dayKeys[index]));
   const todayKey = dateKeyInZone(now, timeZone);
-  const nowIndicator = columnIndexByKey.has(todayKey)
+  const nowIndicator = visibleDayKeys.has(todayKey)
     ? { dayKey: todayKey, minutes: minutesOfDayInZone(now, timeZone) }
     : null;
 

@@ -317,6 +317,156 @@ describe('expandEvents', () => {
     });
   });
 
+  describe('RDATE（rrule のパターン外の発生追加）', () => {
+    it('rrule と rdates を合成し、rrule と重複する時刻は 1 件にまとめる', () => {
+      const source = makeEvent({
+        id: 'e1',
+        start: '2026-07-01T10:00:00',
+        end: '2026-07-01T11:00:00',
+        rrule: 'FREQ=DAILY;COUNT=3', // 7/1・7/2・7/3
+        rdates: ['2026-07-02T10:00:00', '2026-07-05T10:00:00'], // 7/2 は重複、7/5 は追加
+      });
+      const result = expand([source], {
+        start: '2026-06-30T15:00:00Z',
+        end: '2026-07-06T15:00:00Z',
+      });
+      expect(result.map((o) => o.start.toISOString())).toEqual([
+        '2026-07-01T01:00:00.000Z',
+        '2026-07-02T01:00:00.000Z', // rrule と rdate が重複しても 1 件のみ
+        '2026-07-03T01:00:00.000Z',
+        '2026-07-05T01:00:00.000Z', // rdate による追加発生
+      ]);
+      for (const occ of result) {
+        expect(occ.isRecurring).toBe(true);
+        expect(occ.end.getTime() - occ.start.getTime()).toBe(60 * 60 * 1000);
+      }
+    });
+
+    it('rrule なしで rdates のみの場合、start の発生と各 rdate の発生に展開される（isRecurring: true）', () => {
+      const source = makeEvent({
+        id: 'e2',
+        start: '2026-07-01T10:00:00',
+        end: '2026-07-01T11:00:00',
+        rdates: ['2026-07-03T10:00:00', '2026-07-05T10:00:00'],
+      });
+      const result = expand([source], {
+        start: '2026-06-30T15:00:00Z',
+        end: '2026-07-06T15:00:00Z',
+      });
+      expect(result.map((o) => o.start.toISOString())).toEqual([
+        '2026-07-01T01:00:00.000Z',
+        '2026-07-03T01:00:00.000Z',
+        '2026-07-05T01:00:00.000Z',
+      ]);
+      for (const occ of result) {
+        expect(occ.isRecurring).toBe(true);
+        expect(occ.originalStart).toEqual(occ.start);
+      }
+    });
+
+    it('rdate 由来の発生も exdates で除外される（除外が優先）', () => {
+      const source = makeEvent({
+        id: 'e3',
+        start: '2026-07-01T10:00:00',
+        end: '2026-07-01T11:00:00',
+        rdates: ['2026-07-03T10:00:00', '2026-07-05T10:00:00'],
+        exdates: ['2026-07-03T10:00:00'],
+      });
+      const result = expand([source], {
+        start: '2026-06-30T15:00:00Z',
+        end: '2026-07-06T15:00:00Z',
+      });
+      expect(result.map((o) => o.start.toISOString())).toEqual([
+        '2026-07-01T01:00:00.000Z',
+        '2026-07-05T01:00:00.000Z',
+      ]);
+    });
+
+    it('rdate 由来の発生にもオーバーライドが適用される', () => {
+      const master = makeEvent({
+        id: 'm1',
+        start: '2026-07-01T10:00:00',
+        end: '2026-07-01T11:00:00',
+        rdates: ['2026-07-05T10:00:00'],
+      });
+      const override = makeEvent({
+        id: 'o1',
+        recurringEventId: 'm1',
+        originalStart: '2026-07-05T10:00:00',
+        start: '2026-07-05T15:00:00',
+        end: '2026-07-05T16:00:00',
+      });
+      const result = expand([master, override], {
+        start: '2026-06-30T15:00:00Z',
+        end: '2026-07-06T15:00:00Z',
+      });
+      expect(result.map((o) => [o.eventId, o.start.toISOString()])).toEqual([
+        ['m1', '2026-07-01T01:00:00.000Z'],
+        ['o1', '2026-07-05T06:00:00.000Z'],
+      ]);
+      const overridden = result[1]!;
+      expect(overridden.originalStart).toEqual(new Date('2026-07-05T01:00:00Z'));
+      expect(overridden.isRecurring).toBe(true);
+    });
+
+    it('範囲外の rdate は展開結果に含まれない', () => {
+      const source = makeEvent({
+        id: 'e5',
+        start: '2026-07-01T10:00:00',
+        end: '2026-07-01T11:00:00',
+        rdates: ['2026-08-01T10:00:00'], // 範囲外
+      });
+      const result = expand([source], {
+        start: '2026-06-30T15:00:00Z',
+        end: '2026-07-06T15:00:00Z',
+      });
+      expect(result.map((o) => o.start.toISOString())).toEqual(['2026-07-01T01:00:00.000Z']);
+    });
+
+    it('終日イベントでも rrule と rdates が合成される', () => {
+      const source = makeEvent({
+        id: 'ad',
+        start: '2026-07-01',
+        allDay: true,
+        rrule: 'FREQ=WEEKLY;COUNT=2', // 7/1・7/8
+        rdates: ['2026-07-04'],
+      });
+      const result = expand([source], {
+        start: '2026-06-28T00:00:00Z',
+        end: '2026-07-20T00:00:00Z',
+      });
+      expect(result.map((o) => dateKeyInZone(o.start, TOKYO))).toEqual([
+        '2026-07-01',
+        '2026-07-04',
+        '2026-07-08',
+      ]);
+      for (const occ of result) {
+        expect(occ.isRecurring).toBe(true);
+        expect(occ.allDay).toBe(true);
+      }
+    });
+
+    it('rrule なし・終日で rdates のみの場合も start と各 rdate の発生に展開される', () => {
+      const source = makeEvent({
+        id: 'ad-only',
+        start: '2026-07-01',
+        allDay: true,
+        rdates: ['2026-07-03'],
+      });
+      const result = expand([source], {
+        start: '2026-06-28T00:00:00Z',
+        end: '2026-07-10T00:00:00Z',
+      });
+      expect(result.map((o) => dateKeyInZone(o.start, TOKYO))).toEqual([
+        '2026-07-01',
+        '2026-07-03',
+      ]);
+      for (const occ of result) {
+        expect(occ.isRecurring).toBe(true);
+      }
+    });
+  });
+
   describe('オーバーライド（繰り返し例外）', () => {
     it('exdate・移動・範囲外→内への移動・範囲内→外への移動の複合を解決する', () => {
       const master = makeEvent({
