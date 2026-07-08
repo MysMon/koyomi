@@ -25,6 +25,8 @@ import { MonthView } from './month-view';
 const TOKYO = 'Asia/Tokyo';
 /** 「現在時刻」として固定する日時（東京では 2026-07-15 10:00）。 */
 const NOW = new Date('2026-07-15T01:00:00Z');
+/** events 未指定時に毎レンダー同じ参照を渡し、useCalendar の開発時警告を避ける。 */
+const EMPTY_EVENTS: readonly CalendarEvent[] = [];
 
 /** `MonthView` を `CalendarProvider` 配下で描画するテスト用ラッパ。 */
 function Harness(props: {
@@ -43,7 +45,7 @@ function Harness(props: {
     now: () => NOW,
     initialDate: NOW,
     initialView: props.initialView ?? 'month',
-    events: props.events ?? [],
+    events: props.events ?? EMPTY_EVENTS,
     // exactOptionalPropertyTypes 下では、値が undefined になり得るプロパティを
     // そのままキーに設定できない（省略とキー存在+undefinedが区別される）ため、
     // 未指定時はキー自体を省く
