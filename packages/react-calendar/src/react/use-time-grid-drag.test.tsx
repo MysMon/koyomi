@@ -572,6 +572,45 @@ describe('useTimeGridDrag', () => {
     expect(sink.current?.calendar.api.getEvents()).toHaveLength(0);
   });
 
+  it('onKeyDown: editable: false の単発イベントは Delete でも削除されない', () => {
+    const event: CalendarEvent = {
+      id: 'ev-locked',
+      title: '固定（削除不可）',
+      start: `${TUE}T09:00`,
+      end: `${TUE}T09:30`,
+      editable: false,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-locked@${at(`${TUE}T09:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    fireEvent.keyDown(eventEl, { key: 'Delete' });
+    fireEvent.keyDown(eventEl, { key: 'Backspace' });
+
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(1);
+  });
+
+  it('onKeyDown: editable: false の繰り返しイベントは Delete でもスコープ解決すら呼ばれない', () => {
+    const resolveRecurringScope = vi.fn().mockResolvedValue('all' as RecurringEditScope);
+    const event: CalendarEvent = {
+      id: 'ev-locked-recurring',
+      title: '固定（繰り返し・削除不可）',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      rrule: 'FREQ=DAILY',
+      editable: false,
+    };
+    const { sink } = renderHarness({ events: [event], callbacks: { resolveRecurringScope } });
+    const occurrenceKey = `ev-locked-recurring@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    fireEvent.keyDown(eventEl, { key: 'Delete' });
+
+    expect(resolveRecurringScope).not.toHaveBeenCalled();
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(1);
+    expect(sink.current?.calendar.api.getEvents()[0]?.exdates).toBeUndefined();
+  });
+
   it('onKeyDown: Enter で onEventClick 相当の処理が呼ばれる', () => {
     const onEventClick = vi.fn();
     const event: CalendarEvent = {

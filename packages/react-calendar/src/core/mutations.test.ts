@@ -723,6 +723,92 @@ describe('updateEventIn: オーバーライドの ID で親シリーズに適用
   });
 });
 
+describe('オーバーライドの日時解釈: マスターの timeZone にフォールバックする', () => {
+  // 外部データ同期パターン: マスターに明示 TZ（America/New_York）があり、
+  // オーバーライド側は timeZone フィールドを持たない。
+  // originalStart 'YYYY-MM-DDTHH:mm' は expansion.ts と同じく
+  // 「オーバーライド TZ → マスター TZ → 表示 TZ」の順で解釈されるべき。
+  // 2026 年 7 月の NY は EDT（UTC-4）なので 10:00 NY = 14:00Z。
+  // 表示 TZ（Asia/Tokyo）で誤って解釈すると 01:00Z になり 13 時間ずれる。
+
+  /** 毎朝 10:00 NY 開始・FREQ=DAILY のマスター。 */
+  function makeNyMaster(): CalendarEvent {
+    return {
+      id: 'ny-master',
+      title: 'NY 定例',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      timeZone: NY,
+      rrule: 'FREQ=DAILY',
+    };
+  }
+
+  /** 7/3 の発生を 12:00 に移動したオーバーライド（timeZone フィールドなし）。 */
+  function makeNyOverride(): CalendarEvent {
+    return {
+      id: 'ny-ov',
+      title: '移動済み',
+      start: '2026-07-03T12:00',
+      end: '2026-07-03T13:00',
+      recurringEventId: 'ny-master',
+      originalStart: '2026-07-03T10:00',
+    };
+  }
+
+  it("deleteEventIn: オーバーライド ID の 'this' 削除で親に追加される EXDATE がマスター TZ 基準になる", () => {
+    const result = deleteEventIn(
+      [makeNyMaster(), makeNyOverride()],
+      'ny-ov',
+      undefined,
+      makeContext(),
+    );
+
+    const parent = findById(result, 'ny-master');
+    expect(toISO((parent.exdates ?? []).map((d) => new Date(d)))).toEqual([
+      '2026-07-03T14:00:00.000Z', // 10:00 EDT
+    ]);
+  });
+
+  it("updateEventIn: オーバーライド ID の 'thisAndFollowing' がマスター TZ 基準の分割点でシリーズを分割する", () => {
+    const result = updateEventIn(
+      [makeNyMaster(), makeNyOverride()],
+      'ny-ov',
+      { title: '以降変更' },
+      { occurrenceStart: new Date('2026-07-03T16:00:00Z'), scope: 'thisAndFollowing' },
+      makeContext(),
+    );
+
+    // 新シリーズは 7/3 10:00 NY（= 14:00Z）から始まる
+    const created = findById(result, 'gen-1');
+    expect(created.start).toEqual(new Date('2026-07-03T14:00:00Z'));
+    // 旧シリーズは 7/1・7/2 の 2 回のみ（分割点 14:00Z の直前で打ち切り）
+    const oldMaster = findById(result, 'ny-master');
+    const kept = expandRecurrence({
+      rrule: oldMaster.rrule ?? '',
+      dtstart: new Date('2026-07-01T14:00:00Z'),
+      timeZone: NY,
+      range: { start: new Date('2026-06-30T00:00:00Z'), end: new Date('2026-08-01T00:00:00Z') },
+    });
+    expect(toISO(kept)).toEqual(['2026-07-01T14:00:00.000Z', '2026-07-02T14:00:00.000Z']);
+    // オーバーライドは新シリーズに付け替わる
+    expect(findById(result, 'ny-ov').recurringEventId).toBe('gen-1');
+  });
+
+  it("updateEventIn: マスター ID + 'this' が既存オーバーライドをマスター TZ 基準で照合し、重複オーバーライドを作らない", () => {
+    const result = updateEventIn(
+      [makeNyMaster(), makeNyOverride()],
+      'ny-master',
+      { title: '再変更' },
+      { occurrenceStart: new Date('2026-07-03T14:00:00Z'), scope: 'this' },
+      makeContext(),
+    );
+
+    // 既存オーバーライドへの適用であり、新規イベントは増えない
+    expect(result).toHaveLength(2);
+    expect(findById(result, 'ny-ov').title).toBe('再変更');
+  });
+});
+
 describe('deleteEventIn: 単発イベント', () => {
   it('イベントを取り除く', () => {
     const single: CalendarEvent = {

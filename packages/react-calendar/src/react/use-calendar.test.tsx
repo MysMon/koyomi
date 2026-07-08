@@ -1,5 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import type { ReactElement } from 'react';
+import { renderToString } from 'react-dom/server';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CalendarEvent } from '../core/types';
 import { useCalendar } from './use-calendar';
 
@@ -103,5 +105,56 @@ describe('useCalendar', () => {
 
     expect(firstHandler).not.toHaveBeenCalled();
     expect(secondHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it('SSR（renderToString）でも例外にならず初期状態を描画できる', () => {
+    function ServerComponent(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: 'Asia/Tokyo',
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'week',
+      });
+      return <div>{calendar.state.view}</div>;
+    }
+
+    const html = renderToString(<ServerComponent />);
+
+    expect(html).toContain('week');
+  });
+
+  describe('開発時警告', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('マウント後に異なる events 配列を渡すと console.warn で一度だけ警告する', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const initialEvents: readonly CalendarEvent[] = [
+        { id: '1', title: '初期', start: '2026-07-15T10:00' },
+      ];
+      const nextEvents: readonly CalendarEvent[] = [
+        { id: '2', title: '更新', start: '2026-07-16T10:00' },
+      ];
+
+      const { rerender } = renderHook(
+        (props: { events: readonly CalendarEvent[] }) =>
+          useCalendar({
+            timeZone: 'Asia/Tokyo',
+            now: () => NOW,
+            initialDate: NOW,
+            events: props.events,
+          }),
+        { initialProps: { events: initialEvents } },
+      );
+
+      expect(warn).not.toHaveBeenCalled();
+
+      rerender({ events: nextEvents });
+      rerender({ events: nextEvents });
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain('setEvents');
+    });
   });
 });

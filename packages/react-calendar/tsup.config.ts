@@ -10,4 +10,8 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   external: ['react', 'react-dom'],
+  // rrule は CJS-only（UMD バンドル）のため、外部依存のままだと素の Node ESM から
+  // `import { RRule } from 'rrule'` の named export 解決に失敗し、パッケージ全体が
+  // 読み込み時に落ちる。dist にバンドルして Node 単体でも動くようにする。
+  noExternal: ['rrule'],
 });
