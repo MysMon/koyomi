@@ -2,6 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@koyomi-cal/react": ["../../packages/react-calendar/src/index.ts"],
+      "@koyomi-cal/react/theme.css": ["../../packages/react-calendar/src/theme/default.css"]
+    },
     "types": ["vite/client"]
   },
   "include": ["src", "vite.config.ts"]

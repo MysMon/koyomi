@@ -25,9 +25,17 @@ export interface UseCalendarOptions extends CalendarOptions {
  * 開発ビルドかどうか。バンドラなしのブラウザ実行（`process` 未定義）では
  * 安全側に倒して開発扱いにする（警告は本番最適化ビルドでのみ除去される）。
  */
+type GlobalWithProcess = typeof globalThis & {
+  process?: {
+    env?: {
+      NODE_ENV?: string;
+    };
+  };
+};
+
 function isDevBuild(): boolean {
-  // biome-ignore lint/complexity/useLiteralKeys: TS の noPropertyAccessFromIndexSignature 相当の制約でブラケット記法が必須
-  return typeof process === 'undefined' || process.env['NODE_ENV'] !== 'production';
+  const processLike = (globalThis as GlobalWithProcess).process;
+  return processLike?.env?.NODE_ENV !== 'production';
 }
 
 /**
