@@ -8,7 +8,9 @@ import type {
   EventOccurrence,
   EventSegment,
   ListDay,
+  MonthDay,
   PositionedOccurrence,
+  TimeGridDay,
 } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { ListView } from './list-view';
@@ -42,6 +44,15 @@ export interface CalendarViewProps {
   listEmptyLabel?: ReactNode;
   /** リストビューの日付見出しのカスタム描画。`ListView` の `renderDayHeader` に転送する。 */
   renderListDayHeader?: (day: ListDay, defaultContent: ReactNode) => ReactNode;
+  /** 月ビューの日セルのカスタム描画。`MonthView` の `renderDayCell` に転送する。 */
+  renderMonthDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
+  /**
+   * 月ビューの「+N 件」ラベル。`MonthView` の `overflowLabel` に転送する。
+   * 省略時は `+N 件`。
+   */
+  monthOverflowLabel?: (count: number) => ReactNode;
+  /** 週/日ビューの日ヘッダーのカスタム描画。`TimeGridView` の `renderDayHeader` に転送する。 */
+  renderTimeGridDayHeader?: (day: TimeGridDay, defaultContent: ReactNode) => ReactNode;
 }
 
 /**
@@ -71,13 +82,20 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
     switch (state.view) {
       case 'month':
         return (
-          <MonthView {...(props.renderMonthEvent ? { renderEvent: props.renderMonthEvent } : {})} />
+          <MonthView
+            {...(props.renderMonthEvent ? { renderEvent: props.renderMonthEvent } : {})}
+            {...(props.renderMonthDayCell ? { renderDayCell: props.renderMonthDayCell } : {})}
+            {...(props.monthOverflowLabel ? { overflowLabel: props.monthOverflowLabel } : {})}
+          />
         );
       case 'week':
       case 'day':
         return (
           <TimeGridView
             {...(props.renderTimeGridEvent ? { renderEvent: props.renderTimeGridEvent } : {})}
+            {...(props.renderTimeGridDayHeader
+              ? { renderDayHeader: props.renderTimeGridDayHeader }
+              : {})}
           />
         );
       case 'list':

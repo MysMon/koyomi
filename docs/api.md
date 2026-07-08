@@ -53,7 +53,8 @@ unsubscribe();
 | `today` | `(): void` | 今日へ移動する |
 | `goTo` | `(date: Date): void` | 指定日へ移動する |
 | `setTimeZone` | `(timeZone: TimeZoneId): void` | 表示タイムゾーンを変更する |
-| `updateOptions` | `(patch: Partial<CalendarOptions>): void` | オプションを部分的に更新する |
+| `updateOptions` | `(patch: Partial<Omit<CalendarOptions, 'initialView' \| 'initialDate'>>): void` | オプションを部分的に更新する（`initialView` / `initialDate` は作成時専用のため型レベルで受け付けない） |
+| `refresh` | `(): void` | 状態を変えずにビューモデルを再構築して通知する（`now()` の再評価。現在時刻線の追従用） |
 | `getEvents` | `(): readonly CalendarEvent[]` | すべてのソースイベントを返す |
 | `setEvents` | `(events: readonly CalendarEvent[]): void` | イベント一覧を置き換える（外部ストア同期用。`onEventsChange` は呼ばれない） |
 | `createEvent` | `(input: CalendarEventInput): CalendarEvent` | イベントを作成し、`id` 確定済みのイベントを返す |
@@ -103,6 +104,8 @@ console.log(occurrences.length); // => 1
 console.log(occurrences[0]?.event.title); // => '会議'
 ```
 
+値が実際に変わらない設定操作（同じ view / timeZone / 日時、同一のイベント配列参照、内容が同じオプションパッチなど）は通知自体を発生させません。`getState()` のスナップショットは状態が変わらない限り同一参照を返します（`useSyncExternalStore` と整合）。
+
 繰り返しイベントの `updateEvent` / `deleteEvent` におけるスコープの意味づけ、`moveOccurrenceIn` のような便利関数の詳細は [予定の管理](./events.md) と [繰り返し予定](./recurrence.md) を参照してください。
 
 ## React フック
@@ -110,14 +113,20 @@ console.log(occurrences[0]?.event.title); // => '会議'
 ### `useCalendar`
 
 ```ts
-function useCalendar(options?: CalendarOptions): UseCalendarResult
+function useCalendar(options?: UseCalendarOptions): UseCalendarResult
+
+interface UseCalendarOptions extends CalendarOptions {
+  /** 指定秒数ごとに api.refresh() を呼び、現在時刻線・「今日」判定を追従させる（既定: 自動更新なし） */
+  refreshSeconds?: number;
+}
 ```
 
 カレンダーエンジンを作成し、React の状態として購読するメインフックです。エンジンはマウント時に一度だけ作成され、`useSyncExternalStore` で購読されます。
 
-- `options` は**初期値として一度だけ**使われます（後から変更しても反映されません。動的に変更する場合は `api.updateOptions` / `api.setEvents` / `api.setTimeZone` を使います）。
-- `onEventsChange` コールバックだけは常に最新の関数が呼ばれます。
+- `options` は**初期値として一度だけ**使われます（後から変更しても反映されません。動的に変更する場合は `api.updateOptions` / `api.setEvents` / `api.setTimeZone` を使います）。マウント後に異なる `events` 参照を渡し続けた場合、開発ビルドでは一度だけ警告が表示されます。
+- `onEventsChange` コールバックと `refreshSeconds` だけは常に最新の値が反映されます。
 - 戻り値の `api` は再レンダリングを跨いで安定した参照です（`useEffect` の依存に安全に使えます）。
+- SSR（`renderToString` / Next.js）でも例外なく初期状態を描画できます（`getServerSnapshot` 対応済み）。Next.js App Router では `'use client'` が必要です。
 
 ```tsx
 import { CalendarProvider, CalendarView, useCalendar } from '@koyomi-cal/react';
@@ -185,15 +194,17 @@ function useDayDrag(params: {
 | --- | --- | --- |
 | `getDayCellProps` | `(day: { date: Date; key: string }): DayCellProps` | 日セル要素に付与する props を返す |
 | `getSegmentProps` | `(segment: EventSegment): SegmentProps` | 帯セグメント要素に付与する props を返す |
-| `previewRange` | `DateRange | null` | 現在のドラッグプレビューの日範囲 |
+| `getSegmentResizeHandleProps` | `(segment: EventSegment, edge: 'start' \| 'end'): SegmentResizeHandleProps` | 帯の左右端リサイズハンドル用の props を返す |
+| `previewRange` | `DateRange | null` | 現在のドラッグプレビューの日範囲（時間グリッドへの変換プレビュー中は `null`） |
 | `isDragging` | `boolean` | ドラッグ操作が進行中か |
 
 **関連する props 型**
 
 | 型 | フィールド |
 | --- | --- |
-| `DayCellProps` | `ref`, `onPointerDown`, `'data-koyomi-date'` |
+| `DayCellProps` | `ref`, `onPointerDown`, `onKeyDown`, `tabIndex`, `'data-koyomi-date'` |
 | `SegmentProps` | `onPointerDown`, `onClick`, `onKeyDown`, `tabIndex`, `'data-koyomi-occurrence'`, `'data-koyomi-dragging'?` |
+| `SegmentResizeHandleProps` | `onPointerDown`, `onClick`, `'data-koyomi-resize-handle': 'start' \| 'end'` |
 
 ```tsx
 import { renderHook } from '@testing-library/react';
@@ -228,8 +239,8 @@ function useTimeGridDrag(params: {
 | --- | --- | --- |
 | `getDayProps` | `(day: TimeGridDay): TimeGridDayProps` | 日列要素に付与する props を返す |
 | `getEventProps` | `(item: PositionedOccurrence): TimeGridEventProps` | イベントブロック要素に付与する props を返す |
-| `getResizeHandleProps` | `(item: PositionedOccurrence): TimeGridResizeHandleProps` | リサイズハンドル要素に付与する props を返す |
-| `previewFor` | `(day: TimeGridDay): TimeGridPreviewSegment | null` | 指定日のドラッグプレビュー区間を返す |
+| `getResizeHandleProps` | `(item: PositionedOccurrence, edge?: 'start' \| 'end'): TimeGridResizeHandleProps` | リサイズハンドル用の props を返す（`'start'` = 上端、省略時 `'end'` = 下端） |
+| `previewFor` | `(day: TimeGridDay): TimeGridPreviewSegment | null` | 指定日のドラッグプレビュー区間を返す（終日行への変換プレビュー中は `null`） |
 | `isDragging` | `boolean` | ドラッグ操作が進行中か |
 
 **関連する props 型**
@@ -238,7 +249,7 @@ function useTimeGridDrag(params: {
 | --- | --- |
 | `TimeGridDayProps` | `ref`, `onPointerDown`, `'data-koyomi-date'` |
 | `TimeGridEventProps` | `onPointerDown`, `onClick`, `onKeyDown`, `tabIndex`, `'data-koyomi-occurrence'`, `'data-koyomi-dragging'?` |
-| `TimeGridResizeHandleProps` | `onPointerDown`, `onClick`, `'data-koyomi-resize-handle': 'true'` |
+| `TimeGridResizeHandleProps` | `onPointerDown`, `onClick`, `'data-koyomi-resize-handle': 'start' \| 'end'` |
 | `TimeGridPreviewSegment` | `kind: 'create' | 'move' | 'resize'`, `startMinutes: number`, `endMinutes: number` |
 
 ```tsx
@@ -260,7 +271,7 @@ const dayProps = result.current.getDayProps({
 console.log(dayProps['data-koyomi-date']); // => '2026-07-01'
 ```
 
-インタラクションのコールバック（`onEventClick` / `onSelectRange` / `onEventChange` / `resolveRecurringScope` / `onOverflowClick`）の詳細は [インタラクション](./interactions.md) を参照してください。
+インタラクションのコールバック（`onEventClick` / `onSelectRange` / `onEventChange` / `onEventDelete` / `onError` / `resolveRecurringScope` / `onOverflowClick`）の詳細は [インタラクション](./interactions.md) を参照してください。
 
 ## コンポーネント
 
@@ -312,8 +323,14 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
 | `renderMonthEvent` | `(segment: EventSegment) => ReactNode` | 月ビューのセグメントのカスタム描画 |
+| `renderMonthDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 月ビューの日セルのカスタム描画（`MonthView.renderDayCell` へ転送） |
+| `monthOverflowLabel` | `(count: number) => ReactNode` | 月ビューの「+N 件」の文言（`MonthView.overflowLabel` へ転送） |
 | `renderTimeGridEvent` | `(item: PositionedOccurrence) => ReactNode` | 週/日ビューのイベントブロックのカスタム描画 |
+| `renderTimeGridDayHeader` | `(day: TimeGridDay, defaultContent: ReactNode) => ReactNode` | 週/日ビューの日ヘッダーのカスタム描画（`TimeGridView.renderDayHeader` へ転送） |
 | `renderListEvent` | `(occurrence: EventOccurrence) => ReactNode` | リストビューのイベント行のカスタム描画 |
+| `listAllDayLabel` | `ReactNode` | リストビューの終日ラベル（既定「終日」） |
+| `listEmptyLabel` | `ReactNode` | リストビューの空状態メッセージ（既定「予定はありません」） |
+| `renderListDayHeader` | `(day: ListDay, defaultContent: ReactNode) => ReactNode` | リストビューの日付見出しのカスタム描画 |
 
 ### `MonthView`
 
@@ -326,6 +343,10 @@ function MonthView(props: MonthViewProps): ReactElement | null
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
 | `renderEvent` | `(segment: EventSegment) => ReactNode` | セグメントの表示内容。省略時は終日・複数日セグメントはタイトルのみ、単日の時間指定セグメントは `'H:mm タイトル'` |
+| `renderDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 日セルの内容（日番号ボタン＋「+N 件」ボタン）をラップ・置換する。祝日ラベルやバッジの注入用 |
+| `overflowLabel` | `(count: number) => ReactNode` | 「+N 件」ボタンの文言（既定 `+N 件`） |
+
+ルート要素には WAI-ARIA の grid ロール（`grid` / `row` / `columnheader` / `gridcell`）と、各日セルへの完全な日付の `aria-label`・今日への `aria-current="date"` が付与されます。
 
 ### `TimeGridView`
 
@@ -338,6 +359,7 @@ function TimeGridView(props: TimeGridViewProps): ReactElement | null
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
 | `renderEvent` | `(item: PositionedOccurrence) => ReactNode` | 時間指定イベントの表示内容。省略時は `'H:mm〜H:mm タイトル'`。終日行の内容はこの prop では変更できない |
+| `renderDayHeader` | `(day: TimeGridDay, defaultContent: ReactNode) => ReactNode` | 日ヘッダー（曜日・日番号）の内容 |
 
 ### `ListView`
 
@@ -350,14 +372,32 @@ function ListView(props: ListViewProps): ReactElement | null
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
 | `renderEvent` | `(occurrence: EventOccurrence) => ReactNode` | イベント行の内容。省略時は時刻ラベル・色見本・タイトル |
+| `allDayLabel` | `ReactNode` | 終日予定の時刻ラベル（既定「終日」） |
+| `emptyLabel` | `ReactNode` | 空状態のメッセージ（既定「予定はありません」） |
+| `renderDayHeader` | `(day: ListDay, defaultContent: ReactNode) => ReactNode` | 日付見出しの内容 |
 
 ### `Toolbar`
 
 ```ts
-function Toolbar(): ReactElement
+function Toolbar(props: ToolbarProps): ReactElement
+
+interface ToolbarProps {
+  /** ボタン文言の差し替え（省略時は日本語の既定文言） */
+  labels?: ToolbarLabels;
+}
+
+interface ToolbarLabels {
+  month?: ReactNode;
+  week?: ReactNode;
+  day?: ReactNode;
+  list?: ReactNode;
+  today?: ReactNode;
+  prev?: ReactNode;
+  next?: ReactNode;
+}
 ```
 
-「今日」「前へ」「次へ」のナビゲーション、期間タイトル、ビュー切替（月・週・日・リスト）を提供します。props はありません。タイトルは現在のビューに応じて `formatMonthTitle` / `formatDayTitle` / `formatRangeTitle` のいずれかで整形されます。
+「今日」「前へ」「次へ」のナビゲーション、期間タイトル、ビュー切替（月・週・日・リスト）を提供します。タイトルは現在のビューに応じて `formatMonthTitle` / `formatDayTitle` / `formatRangeTitle` のいずれかで整形されます。`labels` で全ボタン文言を差し替えられます（i18n 対応）。
 
 ## 型
 
@@ -388,12 +428,13 @@ function Toolbar(): ReactElement
 | `timeZone?` | `TimeZoneId` | このイベントのタイムゾーン（省略時は表示タイムゾーン） |
 | `rrule?` | `string` | RFC 5545 の繰り返しルール |
 | `exdates?` | `readonly (Date | string)[]` | 繰り返しから除外する発生の開始日時 |
+| `rdates?` | `readonly (Date | string)[]` | 繰り返しに追加する発生の開始日時（RDATE 相当） |
 | `recurringEventId?` | `EventId` | 繰り返し例外イベントの場合、元イベントの ID |
 | `originalStart?` | `Date | string` | 繰り返し例外イベントの場合、置き換え対象の発生の本来の開始日時 |
 | `color?` | `string` | 表示色（CSS の color 値） |
 | `location?` | `string` | 場所 |
 | `description?` | `string` | 説明文 |
-| `editable?` | `boolean` | ドラッグ移動・リサイズを許可するか（既定 `true`） |
+| `editable?` | `boolean` | 変更操作（ドラッグ・キーボードの移動/リサイズ/削除）を許可するか（既定 `true`） |
 | `extendedProps?` | `Record<string, unknown>` | 利用者定義の任意データ |
 
 **`EventOccurrence` のフィールド**
@@ -426,12 +467,16 @@ function Toolbar(): ReactElement
 | `snapMinutes?` | `number` | `15` |
 | `slotMinutes?` | `number` | `60` |
 | `defaultEventMinutes?` | `number` | `60` |
+| `defaultEventTitle?` | `string` | `'(タイトルなし)'`（既定作成時のタイトル） |
 | `listDays?` | `number` | `30` |
 | `locale?` | `string` | `'ja'` |
+| `hiddenWeekdays?` | `readonly Weekday[]` | `[]`（非表示にする曜日。7 曜日全指定は無効） |
 | `now?` | `() => Date` | `() => new Date()` |
 | `onEventsChange?` | `(events: readonly CalendarEvent[]) => void` | なし |
 
-`ResolvedCalendarOptions` は既定値適用後の型で、`onEventsChange` を除くすべてのフィールドが必須になったものです（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `defaultEventMinutes` / `listDays` / `locale` / `now`）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list'` です。
+`initialDate` / `initialView` は**作成時専用**です（`updateOptions` は型レベルで受け付けません。変更には `goTo` / `setView` を使います）。
+
+`ResolvedCalendarOptions` は既定値適用後の型で、`onEventsChange` を除くすべてのフィールドが必須になったものです（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `locale` / `hiddenWeekdays` / `now`）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list'` です。
 
 ### 状態とビューモデル
 
@@ -459,7 +504,8 @@ function Toolbar(): ReactElement
 | `UseCalendarResult` | `{ api: CalendarApi; state: CalendarState; viewModel: CalendarViewModel }` | `useCalendar` の戻り値 |
 | `CalendarContextValue` | `UseCalendarResult & { callbacks: CalendarInteractionCallbacks }` | `useCalendarContext()` の戻り値 |
 | `RangeSelection` | `{ range: DateRange; allDay: boolean }` | 範囲選択（新規作成操作）の内容 |
-| `EventChange` | `{ occurrence: EventOccurrence; newRange: DateRange; allDay: boolean; scope: RecurringEditScope | null }` | ドラッグ・リサイズによるイベント変更の内容 |
+| `EventChange` | `{ occurrence: EventOccurrence; newRange: DateRange; allDay: boolean; scope: RecurringEditScope | null }` | ドラッグ・キーボードによるイベント変更の内容 |
+| `EventDelete` | `{ occurrence: EventOccurrence; scope: RecurringEditScope | null }` | キーボード削除の内容 |
 | `CalendarInteractionCallbacks` | 下表参照 | インタラクションのコールバック集 |
 
 **`CalendarInteractionCallbacks` のフィールド**（すべて省略可能）
@@ -467,10 +513,12 @@ function Toolbar(): ReactElement
 | フィールド | シグネチャ | 既定動作 |
 | --- | --- | --- |
 | `onEventClick?` | `(occurrence: EventOccurrence, domEvent: MouseEvent) => void` | 何もしない |
-| `onSelectRange?` | `(selection: RangeSelection) => void` | `'(タイトルなし)'` というタイトルでイベントを即時作成する |
+| `onSelectRange?` | `(selection: RangeSelection) => void` | `defaultEventTitle`（既定 `'(タイトルなし)'`）のタイトルでイベントを即時作成する |
 | `onEventChange?` | `(change: EventChange) => void` | 変更の適用はライブラリが行うため、これは通知のみ |
+| `onEventDelete?` | `(deletion: EventDelete) => void` | 削除の適用はライブラリが行うため、これは通知のみ |
+| `onError?` | `(error: unknown) => void` | `console.error` に出力する |
 | `resolveRecurringScope?` | `(occurrence: EventOccurrence, action: 'move' | 'resize' | 'delete' | 'update') => Promise<RecurringEditScope | null>` | `'this'`（この予定のみ）を返す |
-| `onOverflowClick?` | `(day: MonthDay) => void` | その日の日ビューに切り替える |
+| `onOverflowClick?` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => void` | その日の日ビューに切り替える |
 
 ## 低レベルユーティリティ
 
@@ -649,7 +697,8 @@ console.log(resolved?.start.getTime() === occurrences[1]!.start.getTime()); // =
 | `dayDragPreviewRange(state, pointerDay, anchorDay, timeZone): DateRange` | 日単位ドラッグ（月ビュー・終日行）のプレビュー範囲を計算する |
 | `shortcutForKey(key, modifiers?)` | キー入力を Google カレンダー準拠のショートカットに解釈する。戻り値は `CalendarShortcut` または `null` |
 | `CalendarShortcut`（型） | 判別共用体。`{ type: 'view', view }` / `{ type: 'today' }` / `{ type: 'next' }` / `{ type: 'prev' }` / `{ type: 'create' }` のいずれか |
-| `TimeGridDragMode`（型） | `'create'`、`'move'`、`'resize'` のいずれか |
+| `TimeGridDragMode`（型） | `'create'`、`'move'`、`'resize'`（下端 = 終了時刻）、`'resize-start'`（上端 = 開始時刻）のいずれか |
+| `DayDragMode`（型） | `'create'`、`'move'`、`'resize-start'`（帯の左端）、`'resize-end'`（帯の右端）のいずれか |
 | `TimeGridDragState`（型） | `{ mode: TimeGridDragMode, occurrence: EventOccurrence または null, anchor: Date }` |
 
 ```ts
@@ -666,8 +715,8 @@ console.log(shortcutForKey('s')); // => null（該当なし）
 
 | 関数 | 説明 |
 | --- | --- |
-| `buildMonthViewModel(params): MonthViewModel` | 月ビューのビューモデル（週・日・帯セグメント）を構築する |
-| `buildTimeGridViewModel(params): TimeGridViewModel` | 週/日ビューのビューモデル（終日行・時間グリッド配置）を構築する |
+| `buildMonthViewModel(params): MonthViewModel` | 月ビューのビューモデル（週・日・帯セグメント）を構築する。`hiddenWeekdays` で列を除外できる |
+| `buildTimeGridViewModel(params): TimeGridViewModel` | 週/日ビューのビューモデル（終日行・時間グリッド配置）を構築する。`hiddenWeekdays` 対応 |
 | `buildListViewModel(params): ListViewModel` | リストビューのビューモデル（日付ごとの発生一覧）を構築する |
 
 ```ts

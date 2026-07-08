@@ -10,6 +10,7 @@
 import type {
   CalendarInteractionCallbacks,
   EventChange,
+  EventDelete,
   EventOccurrence,
   RangeSelection,
   RecurringEditScope,
@@ -83,10 +84,13 @@ export function App(): ReactElement {
     locale: 'ja',
     events: sampleEvents,
     timeZone: 'Asia/Tokyo',
+    // 現在時刻線・「今日」判定を 1 分ごとに追従させる
+    refreshSeconds: 60,
   });
   const { api, state } = calendar;
 
   const [darkMode, setDarkMode] = useState(false);
+  const [hideWeekends, setHideWeekends] = useState(false);
   const [dialogMode, setDialogMode] = useState<EventDialogMode | null>(null);
   const [scopeRequest, setScopeRequest] = useState<ScopeRequest | null>(null);
   const [logEntries, setLogEntries] = useState<readonly LogEntry[]>([]);
@@ -138,6 +142,30 @@ export function App(): ReactElement {
     [api],
   );
 
+  /** キーボード削除（Delete/Backspace）の適用をログに追記する。 */
+  const handleEventDelete = useCallback((deletion: EventDelete) => {
+    const scopeLabel =
+      deletion.scope === null
+        ? ''
+        : `（${deletion.scope === 'this' ? 'この予定のみ' : deletion.scope === 'thisAndFollowing' ? 'これ以降' : 'すべて'}）`;
+    setLogEntries((prev) =>
+      [
+        { id: crypto.randomUUID(), text: `削除: ${deletion.occurrence.event.title}${scopeLabel}` },
+        ...prev,
+      ].slice(0, MAX_LOG_ENTRIES),
+    );
+  }, []);
+
+  /** インタラクション中の想定外エラーをログに出す。 */
+  const handleError = useCallback((error: unknown) => {
+    setLogEntries((prev) =>
+      [{ id: crypto.randomUUID(), text: `エラー: ${String(error)}` }, ...prev].slice(
+        0,
+        MAX_LOG_ENTRIES,
+      ),
+    );
+  }, []);
+
   const callbacks: CalendarInteractionCallbacks = useMemo(
     () => ({
       onSelectRange: (selection: RangeSelection) => {
@@ -148,8 +176,10 @@ export function App(): ReactElement {
       },
       resolveRecurringScope,
       onEventChange: handleEventChange,
+      onEventDelete: handleEventDelete,
+      onError: handleError,
     }),
-    [resolveRecurringScope, handleEventChange],
+    [resolveRecurringScope, handleEventChange, handleEventDelete, handleError],
   );
 
   useCalendarShortcuts({
@@ -198,6 +228,21 @@ export function App(): ReactElement {
               ))}
             </select>
           </label>
+          <label className="demo-control" htmlFor="demo-hide-weekends">
+            <input
+              id="demo-hide-weekends"
+              type="checkbox"
+              name="hideWeekends"
+              checked={hideWeekends}
+              onChange={(event) => {
+                const next = event.target.checked;
+                setHideWeekends(next);
+                // 週末（日曜=0・土曜=6）を月・週ビューの列から除外する
+                api.updateOptions({ hiddenWeekdays: next ? [0, 6] : [] });
+              }}
+            />
+            <span>週末を隠す</span>
+          </label>
           <button
             type="button"
             className="demo-theme-toggle"
@@ -228,6 +273,11 @@ export function App(): ReactElement {
             ))}
           </ul>
         )}
+        <p className="demo-log-hint">
+          キーボード操作: 予定にフォーカスして矢印キーで移動（Shift+矢印でリサイズ、 Delete
+          で削除）、日セルで Enter で作成。ショートカット: t=今日 / m・w・d・a=ビュー切替 /
+          j・k=前後の期間 / c=作成
+        </p>
       </section>
 
       <EventDialog

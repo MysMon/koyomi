@@ -138,5 +138,48 @@ describe('CalendarView', () => {
         '2026-07-15:7月15日(水)',
       );
     });
+
+    it('renderMonthDayCell が MonthView の renderDayCell へ転送される', () => {
+      const { container } = renderView('month', {
+        renderMonthDayCell: (day, defaultContent) => (
+          <span data-testid={`custom-cell-${day.key}`}>{defaultContent}★</span>
+        ),
+      });
+
+      const cell = container.querySelector('[data-testid="custom-cell-2026-07-15"]');
+      expect(cell).not.toBeNull();
+      expect(cell?.textContent).toContain('★');
+    });
+
+    it('monthOverflowLabel が MonthView の overflowLabel へ転送される', () => {
+      // dayMaxEvents 既定 4 を超えるイベントを同日に 6 件並べて「+N 件」を発生させる
+      const events: CalendarEvent[] = Array.from({ length: 6 }, (_, index) => ({
+        id: `ov-${index}`,
+        title: `予定${index}`,
+        start: '2026-07-15T10:00',
+        end: '2026-07-15T11:00',
+      }));
+      const { container } = renderView(
+        'month',
+        { monthOverflowLabel: (count) => `他 ${count} 件を表示` },
+        events,
+      );
+
+      const overflow = container.querySelector('[data-koyomi="month-overflow"]');
+      expect(overflow?.textContent).toContain('他');
+      expect(overflow?.textContent).toContain('件を表示');
+    });
+
+    it('renderTimeGridDayHeader が TimeGridView の renderDayHeader へ転送される', () => {
+      const { container } = renderView('week', {
+        renderTimeGridDayHeader: (day, defaultContent) => (
+          <span data-testid={`custom-day-header-${day.key}`}>{defaultContent}◎</span>
+        ),
+      });
+
+      const header = container.querySelector('[data-testid="custom-day-header-2026-07-15"]');
+      expect(header).not.toBeNull();
+      expect(header?.textContent).toContain('◎');
+    });
   });
 });
