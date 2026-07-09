@@ -29,13 +29,13 @@ export interface TimeGridItemPlacement {
 
 /**
  * レイアウト計算の内部作業用エントリ。
- * 入力アイテムに、重なり判定用の仮想終了分と配置結果を持たせたもの。
+ * 入力アイテムに、重なり判定用の実効終了分と配置結果を持たせたもの。
  */
 interface LayoutEntry {
   /** 元の入力アイテム。 */
   readonly item: TimeGridItemInput;
   /**
-   * 重なり判定に使う仮想終了分。
+   * 重なり判定に使う実効終了分。
    * `max(endMinutes, startMinutes + minSlotMinutes)` で、短いイベントも
    * 視覚上の最小長さを持つものとして扱う。
    */
@@ -51,7 +51,7 @@ interface LayoutEntry {
 /**
  * 2 つのエントリが重なり判定上衝突するかを返す。
  *
- * `[start, effectiveEnd)` の排他比較で判定する。仮想区間が空
+ * `[start, effectiveEnd)` の排他比較で判定する。実効区間が空
  * （`minSlotMinutes: 0` かつ長さ 0 以下）のエントリは何とも重ならない。
  */
 function overlaps(a: LayoutEntry, b: LayoutEntry): boolean {
@@ -83,7 +83,7 @@ function overlaps(a: LayoutEntry, b: LayoutEntry): boolean {
  *
  * @remarks
  * `startMinutes < endMinutes` の前提に反する入力（長さ 0 以下）でも例外は
- * 投げず、仮想長のルールにより `startMinutes + minSlotMinutes` までの区間と
+ * 投げず、実効長のルールにより `startMinutes + minSlotMinutes` までの区間と
  * して扱う（`minSlotMinutes: 0` の場合は空区間となり何とも重ならない）。
  *
  * @param items - 入力アイテム
@@ -135,7 +135,7 @@ export function layoutTimeGridItems(
   });
 
   // 2. 推移的に重なるエントリをクラスタにまとめる
-  //    （開始順に走査し、仮想終了分の最大値より前に始まるものは同一クラスタ）
+  //    （開始順に走査し、実効終了分の最大値より前に始まるものは同一クラスタ）
   const clusters: LayoutEntry[][] = [];
   let currentCluster: LayoutEntry[] = [];
   let clusterMaxEnd = Number.NEGATIVE_INFINITY;

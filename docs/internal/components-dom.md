@@ -1,6 +1,6 @@
-# コンポーネント DOM 契約（内部設計書）
+# コンポーネント DOM 仕様（内部設計書）
 
-ビルトインコンポーネントが生成する DOM 構造と `data-koyomi-*` 属性の契約。
+ビルトインコンポーネントが生成する DOM 構造と `data-koyomi-*` 属性の仕様。
 **テーマ CSS（`src/theme/default.css`）と利用者のカスタム CSS はこの属性のみをフックにする。**
 クラス名は生成しない（ヘッドレス原則）。
 
@@ -111,7 +111,7 @@ div[data-koyomi="timegrid"][data-koyomi-days="7|1"]
              … getResizeHandleProps(item, 'end')。下端 = 終了時刻の変更
                （editable: false / continuesAfter のイベントには出力しない）
         div[data-koyomi="timegrid-preview"][data-kind="create|move|resize"]? (aria-hidden)
-           … previewFor(day) の分区間。style: top/height %
+           … previewFor(day) のその日に該当する区間。style: top/height %
         div[data-koyomi="now-indicator"]? (aria-hidden) … style: top %（nowIndicator の日のみ）
 ```
 
@@ -141,5 +141,5 @@ props はビュー名を接頭辞にした名前で各ビューへ転送する�
 ## Toolbar の文言
 
 `ToolbarProps.labels`（`ToolbarLabels`）で「今日 / ‹ / › / 月 / 週 / 日 / リスト」の
-全文言を差し替えられる。prev/next は表示アイコン（‹/›）は固定で、`labels` の値が
+全文言を差し替えられる。prev/next の表示アイコン（‹/›）は固定で、`labels` の値が
 文字列の場合のみ aria-label に反映する。

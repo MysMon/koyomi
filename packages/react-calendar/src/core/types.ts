@@ -2,7 +2,7 @@
  * @packageDocumentation
  * Koyomi のコア型定義。
  *
- * このファイルはライブラリ全体の「契約」であり、core / react の全モジュールが
+ * このファイルはライブラリ全体の「仕様」であり、core / react の全モジュールが
  * この型定義に従って実装される。core モジュールは React に依存しない。
  */
 
@@ -43,7 +43,7 @@ export interface DateRange {
  * カレンダーイベント（ソースデータ）。
  *
  * 利用者がカレンダーに与える予定の定義。繰り返し予定の場合は 1 件の
- * `CalendarEvent` が複数の {@link EventOccurrence}（発生）に展開される。
+ * `CalendarEvent` が複数の {@link EventOccurrence}（オカレンス）に展開される。
  *
  * @remarks
  * - 終日イベント（`allDay: true`）の `start` / `end` は日付として解釈され、
@@ -52,7 +52,7 @@ export interface DateRange {
  * - 時間指定イベントの `end` も排他的（`start <= t < end` の区間を占有する）。
  * - 文字列で日時を与える場合は ISO 8601 形式。オフセットなしの文字列
  *   （例: `'2026-07-01T10:00:00'`）は `timeZone`（未指定ならカレンダーの
- *   表示タイムゾーン）の壁時計時刻として解釈される。
+ *   表示タイムゾーン）の現地時刻として解釈される。
  */
 export interface CalendarEvent {
   /** 一意な ID。繰り返し例外（オーバーライド）イベントも独自の ID を持つ。 */
@@ -71,7 +71,7 @@ export interface CalendarEvent {
   allDay?: boolean;
   /**
    * このイベントのタイムゾーン。
-   * 繰り返しの展開（「毎日 9:00」の壁時計維持、DST 跨ぎ）に使用される。
+   * 繰り返しの展開（「毎日 9:00」の現地時刻の維持、DST 跨ぎ）に使用される。
    * 省略時はカレンダーの表示タイムゾーン。
    */
   timeZone?: TimeZoneId;
@@ -83,14 +83,14 @@ export interface CalendarEvent {
    */
   rrule?: string;
   /**
-   * 繰り返しから除外する発生の開始日時（EXDATE 相当）。
-   * 「この予定のみ削除」した発生がここに追加される。
+   * 繰り返しから除外するオカレンスの開始日時（EXDATE 相当）。
+   * 「この予定のみ削除」したオカレンスがここに追加される。
    */
   exdates?: readonly (Date | string)[];
   /**
-   * 繰り返しに追加する発生の開始日時（RFC 5545 の RDATE 相当）。
-   * `rrule` のパターン外の日時に発生を追加できる。`rrule` と併用でき、
-   * `rrule` なしで `rdates` のみの指定も可能（`start` ＋ `rdates` が発生になる）。
+   * 繰り返しに追加するオカレンスの開始日時（RFC 5545 の RDATE 相当）。
+   * `rrule` のパターン外の日時にオカレンスを追加できる。`rrule` と併用でき、
+   * `rrule` なしで `rdates` のみの指定も可能（`start` ＋ `rdates` がオカレンスになる）。
    * `exdates` と重複する日時は除外が優先される。
    */
   rdates?: readonly (Date | string)[];
@@ -100,8 +100,8 @@ export interface CalendarEvent {
    */
   recurringEventId?: EventId;
   /**
-   * 繰り返し例外イベントの場合、置き換え対象となる発生の本来の開始日時。
-   * 展開時に、この日時の発生がオーバーライドの内容で置き換えられる。
+   * 繰り返し例外イベントの場合、置き換え対象となるオカレンスの本来の開始日時。
+   * 展開時に、この日時のオカレンスがオーバーライドの内容で置き換えられる。
    */
   originalStart?: Date | string;
   /** 表示色。デフォルトテーマでは背景色として使用される（CSS の color 値）。 */
@@ -120,15 +120,15 @@ export interface CalendarEvent {
 }
 
 /**
- * イベントの発生（オカレンス）。
+ * イベントのオカレンス。
  *
  * {@link CalendarEvent} を表示範囲に対して展開した結果の 1 回分。
- * 単発イベントは 1 件の発生になり、繰り返しイベントは範囲内の回数分の
- * 発生になる。`start` / `end` は絶対時刻（インスタント）。
+ * 単発イベントは 1 件のオカレンスになり、繰り返しイベントは範囲内の回数分の
+ * オカレンスになる。`start` / `end` は絶対時刻（時点）。
  */
 export interface EventOccurrence {
   /**
-   * 発生を一意に識別するキー。React の `key` などに利用できる。
+   * オカレンスを一意に識別するキー。React の `key` などに利用できる。
    * 形式: `` `${eventId}@${startのISO文字列}` ``
    */
   key: string;
@@ -136,18 +136,18 @@ export interface EventOccurrence {
   eventId: EventId;
   /** 元の {@link CalendarEvent}（オーバーライドの場合はオーバーライドイベント）。 */
   event: CalendarEvent;
-  /** この発生の開始（絶対時刻）。 */
+  /** このオカレンスの開始（絶対時刻）。 */
   start: Date;
-  /** この発生の終了（絶対時刻、排他的）。 */
+  /** このオカレンスの終了（絶対時刻、排他的）。 */
   end: Date;
   /** 終日イベントかどうか。 */
   allDay: boolean;
-  /** 繰り返しイベント由来の発生かどうか（オーバーライド含む）。 */
+  /** 繰り返しイベント由来のオカレンスかどうか（オーバーライド含む）。 */
   isRecurring: boolean;
   /**
-   * 繰り返し由来の場合、この発生の本来の開始日時。
+   * 繰り返し由来の場合、このオカレンスの本来の開始日時。
    * 「この予定のみ変更/削除」の照合キーとして使用する。
-   * オーバーライドの場合は元の発生の開始日時、それ以外は `start` と同値。
+   * オーバーライドの場合は元のオカレンスの開始日時、それ以外は `start` と同値。
    */
   originalStart: Date;
 }
@@ -156,8 +156,8 @@ export interface EventOccurrence {
  * 繰り返しイベントの編集・削除の適用範囲。
  * Google カレンダーの「この予定 / これ以降のすべての予定 / すべての予定」に対応する。
  *
- * - `this` — この発生のみ
- * - `thisAndFollowing` — この発生とそれ以降のすべて
+ * - `this` — このオカレンスのみ
+ * - `thisAndFollowing` — このオカレンスとそれ以降のすべて
  * - `all` — 繰り返し全体
  */
 export type RecurringEditScope = 'this' | 'thisAndFollowing' | 'all';
@@ -188,7 +188,7 @@ export type CalendarEventPatch = {
  * 複数日にまたがるイベントは週ごとに分割され、それぞれがセグメントになる。
  */
 export interface EventSegment {
-  /** 対応する発生。 */
+  /** 対応するオカレンス。 */
   occurrence: EventOccurrence;
   /** 週内での開始列（0 起点。週の 1 日目 = 0）。 */
   startCol: number;
@@ -213,7 +213,7 @@ export interface MonthDay {
   date: Date;
   /** 表示タイムゾーンにおける `'YYYY-MM-DD'` 形式のキー。 */
   key: string;
-  /** 表示中の月に属する日かどうか（前後月の埋め草は `false`）。 */
+  /** 表示中の月に属する日かどうか（前後月の日付は `false`）。 */
   inCurrentMonth: boolean;
   /** 今日かどうか（表示タイムゾーン基準）。 */
   isToday: boolean;
@@ -246,11 +246,11 @@ export interface MonthViewModel {
 }
 
 /**
- * 時間グリッド（週/日ビュー）に配置された発生。
+ * 時間グリッド（週/日ビュー）に配置されたオカレンス。
  * 位置はすべて割合・分単位で表現され、ピクセルには依存しない。
  */
 export interface PositionedOccurrence {
-  /** 対応する発生。 */
+  /** 対応するオカレンス。 */
   occurrence: EventOccurrence;
   /** 日内での表示開始（その日の 0:00 からの分。日をまたぐ場合はクランプ済み）。 */
   startMinutes: number;
@@ -260,9 +260,9 @@ export interface PositionedOccurrence {
   left: number;
   /** 水平方向の幅（0〜1 の割合）。 */
   width: number;
-  /** 発生がこの日より前から続いているか。 */
+  /** オカレンスがこの日より前から続いているか。 */
   continuesBefore: boolean;
-  /** 発生がこの日より後に続くか。 */
+  /** オカレンスがこの日より後に続くか。 */
   continuesAfter: boolean;
 }
 
@@ -347,7 +347,7 @@ export type CalendarViewModel = MonthViewModel | TimeGridViewModel | ListViewMod
 export interface DragPreview {
   /** 操作の種類。 */
   kind: 'create' | 'move' | 'resize';
-  /** 移動・リサイズの対象となる発生のキー。作成時は `null`。 */
+  /** 移動・リサイズの対象となるオカレンスのキー。作成時は `null`。 */
   occurrenceKey: string | null;
   /** プレビュー中の日時範囲。 */
   range: DateRange;
@@ -527,7 +527,7 @@ export interface CalendarApi {
    * イベントを更新する。
    * @param id - 対象イベントの ID
    * @param patch - 変更内容
-   * @param target - 繰り返しイベントの場合の対象発生と適用範囲。
+   * @param target - 繰り返しイベントの場合の対象オカレンスと適用範囲。
    *   単発イベントでは省略する。
    */
   updateEvent(
@@ -538,7 +538,7 @@ export interface CalendarApi {
   /**
    * イベントを削除する。
    * @param id - 対象イベントの ID
-   * @param target - 繰り返しイベントの場合の対象発生と適用範囲。
+   * @param target - 繰り返しイベントの場合の対象オカレンスと適用範囲。
    *   単発イベントでは省略する。
    */
   deleteEvent(id: EventId, target?: { occurrenceStart: Date; scope: RecurringEditScope }): void;
@@ -549,7 +549,7 @@ export interface CalendarApi {
   getViewModel(): CalendarViewModel;
   /** 現在のビューが表示している日時範囲を返す。 */
   getVisibleRange(): DateRange;
-  /** 指定範囲の発生一覧を返す（開始時刻順）。 */
+  /** 指定範囲のオカレンス一覧を返す（開始時刻順）。 */
   getOccurrences(range: DateRange): readonly EventOccurrence[];
 
   // --- ドラッグプレビュー ---

@@ -2,7 +2,7 @@
  * @packageDocumentation
  * 週/日ビュー（時間グリッド）のビューモデル構築。
  *
- * 発生を「終日行」（帯）と「時間グリッド」（縦配置）に振り分け、
+ * オカレンスを「終日行」（帯）と「時間グリッド」（縦配置）に振り分け、
  * 日ごとに重なりレイアウトを適用する。
  */
 
@@ -31,26 +31,26 @@ import type {
   Weekday,
 } from '../types';
 
-/** 1 日の名目分数（24:00）。DST 日でも表示グリッドは 24 時間として扱う。 */
+/** 1 日の分（24:00 = 1440 分）。DST 日でも表示グリッドは 24 時間として扱う。 */
 const MINUTES_PER_DAY = 1440;
 
 /** 時間指定イベントを終日行へ振り分ける最小継続時間（24 時間、ミリ秒）。 */
 const ALL_DAY_ROW_MIN_DURATION_MS = 24 * 60 * 60 * 1000;
 
 /**
- * 発生を終日行（帯）に振り分けるべきかを判定する。
+ * オカレンスを終日行（帯）に振り分けるべきかを判定する。
  *
  * 振り分けルール:
- * - `allDay: true` の発生は常に終日行
+ * - `allDay: true` のオカレンスは常に終日行
  * - 時間指定イベントでも、表示タイムゾーンで複数日にまたがり
  *   （`dateKeyInZone(start)` と「`end` の 1ms 前」の日付キーが異なる）、
- *   かつ 24 時間以上続く発生は終日行に入る
- * - 24 時間未満で日をまたぐ発生（例: 22:00〜翌 2:00）は時間グリッド側で
+ *   かつ 24 時間以上続くオカレンスは終日行に入る
+ * - 24 時間未満で日をまたぐオカレンス（例: 22:00〜翌 2:00）は時間グリッド側で
  *   日ごとに分割表示する（{@link buildDayItems} が
  *   `continuesBefore` / `continuesAfter` を立てて 0 / 1440 分にクランプする）
- * - 長さ 0（以下）の発生は単日扱い（時間グリッド）
+ * - 長さ 0（以下）のオカレンスは単日扱い（時間グリッド）
  *
- * @param occurrence - 判定する発生
+ * @param occurrence - 判定するオカレンス
  * @param timeZone - 表示タイムゾーン
  * @returns 終日行に入れるべきなら `true`
  */
@@ -77,11 +77,11 @@ function belongsToAllDayRow(occurrence: EventOccurrence, timeZone: TimeZoneId): 
  *
  * `hiddenWeekdays` により一部の列が非表示の場合、`columnIndexByKey` で得た
  * 「元の列」インデックスを `visibleColByOrigCol` で「可視列」インデックスへ
- * 変換してからレイアウトする（月ビューと同じ規則）。非表示曜日を跨ぐ発生は
- * 可視列上で連続した 1 本のセグメントになり、可視列を 1 つも含まない発生
- * （非表示曜日にしか存在しない発生）はセグメントを生成しない。
+ * 変換してからレイアウトする（月ビューと同じ規則）。非表示曜日を跨ぐオカレンスは
+ * 可視列上で連続した 1 本のセグメントになり、可視列を 1 つも含まないオカレンス
+ * （非表示曜日にしか存在しないオカレンス）はセグメントを生成しない。
  *
- * @param occurrences - 終日行に振り分けられた発生
+ * @param occurrences - 終日行に振り分けられたオカレンス
  * @param params.rangeStart - 表示範囲の開始（最初の日の 0:00）
  * @param params.rangeEnd - 表示範囲の終了（排他）
  * @param params.columnIndexByKey - 日付キー → 元の列番号（非表示曜日を含む全列）の索引
@@ -114,9 +114,9 @@ function buildAllDaySegments(
   }[] = [];
 
   for (const occurrence of occurrences) {
-    // 長さ 0 の発生でも開始日 1 日分の帯として扱えるよう、終端を最低 1ms 確保する
+    // 長さ 0 のオカレンスでも開始日 1 日分の帯として扱えるよう、終端を最低 1ms 確保する
     const effectiveEndMs = Math.max(occurrence.end.getTime(), occurrence.start.getTime() + 1);
-    // 表示範囲と重ならない発生は無視する（範囲展開済みの入力に対する防御）
+    // 表示範囲と重ならないオカレンスは無視する（範囲展開済みの入力に対する防御）
     if (
       occurrence.start.getTime() >= rangeEnd.getTime() ||
       effectiveEndMs <= rangeStart.getTime()
@@ -145,7 +145,7 @@ function buildAllDaySegments(
       endCol = visibleCol;
     }
     if (startCol === undefined || endCol === undefined) {
-      // 非表示曜日にしか存在しない発生なのでセグメントを生成しない
+      // 非表示曜日にしか存在しないオカレンスなのでセグメントを生成しない
       continue;
     }
 
@@ -186,15 +186,15 @@ function buildAllDaySegments(
 
 /** 時間グリッド 1 日分の作業用エントリ。 */
 interface GridEntry {
-  /** 対応する発生。 */
+  /** 対応するオカレンス。 */
   occurrence: EventOccurrence;
   /** 日内での表示開始（分）。 */
   startMinutes: number;
   /** 日内での表示終了（分、排他）。 */
   endMinutes: number;
-  /** 発生がこの日より前から続いているか。 */
+  /** オカレンスがこの日より前から続いているか。 */
   continuesBefore: boolean;
-  /** 発生がこの日より後に続くか。 */
+  /** オカレンスがこの日より後に続くか。 */
   continuesAfter: boolean;
 }
 
@@ -223,20 +223,20 @@ function compareGridEntries(a: GridEntry, b: GridEntry): number {
 /**
  * 1 日分の時間グリッド配置を構築する。
  *
- * `[dayStart, dayEnd)` と重なる発生について:
- * - その日に始まる発生は `minutesOfDayInZone(start)`（壁時計基準）、
- *   前日から続く発生は 0 分から表示し `continuesBefore` を立てる
+ * `[dayStart, dayEnd)` と重なるオカレンスについて:
+ * - その日に始まるオカレンスは `minutesOfDayInZone(start)`（現地時刻基準）、
+ *   前日から続くオカレンスは 0 分から表示し `continuesBefore` を立てる
  * - `end` が翌日 0:00 以降なら 1440 分（24:00）にクランプし、
  *   翌日 0:00 より後に続く場合は `continuesAfter` を立てる
- * - 長さ 0（以下）の発生は開始時点の 1 点として単日扱いする
+ * - 長さ 0（以下）のオカレンスは開始時点の 1 点として単日扱いする
  *
  * 重なりの横並びは {@link layoutTimeGridItems}（既定の `minSlotMinutes`）で計算する。
  *
- * @param occurrences - 時間グリッドに振り分けられた発生
+ * @param occurrences - 時間グリッドに振り分けられたオカレンス
  * @param params.dayStart - 対象日の 0:00（絶対時刻）
  * @param params.dayEnd - 翌日の 0:00（絶対時刻、排他）
  * @param params.timeZone - 表示タイムゾーン
- * @returns 表示順（開始分昇順 → 長い方が先 → key）に並んだ配置済み発生
+ * @returns 表示順（開始分昇順 → 長い方が先 → key）に並んだ配置済みオカレンス
  */
 function buildDayItems(
   occurrences: readonly EventOccurrence[],
@@ -250,7 +250,7 @@ function buildDayItems(
     const endMs = occurrence.end.getTime();
 
     if (endMs <= startMs) {
-      // 長さ 0（以下）の発生は開始時点の 1 点として単日扱いする
+      // 長さ 0（以下）のオカレンスは開始時点の 1 点として単日扱いする
       if (startMs < dayStart.getTime() || startMs >= dayEnd.getTime()) {
         continue;
       }
@@ -335,23 +335,23 @@ function buildSlots(slotMinutes: number): TimeSlot[] {
  * 週/日ビューのビューモデルを構築する。
  *
  * 振り分けルール（Google カレンダーと同じ帯方式）:
- * - `allDay: true` の発生、または表示タイムゾーンで複数日にまたがり
+ * - `allDay: true` のオカレンス、または表示タイムゾーンで複数日にまたがり
  *   （開始の日付キーと「終了の 1ms 前」の日付キーが異なる。長さ 0 は単日扱い）
- *   かつ 24 時間以上続く発生は終日行のセグメントになる
+ *   かつ 24 時間以上続くオカレンスは終日行のセグメントになる
  *   （帯レイアウトでレーン割当。あふれ制限はなし）
  * - それ以外（24 時間未満の時間指定イベント）は該当日の時間グリッドに配置される。
  *   日をまたぐもの（例: 22:00〜翌 2:00）は日ごとに分割される
  *
  * 時間グリッドの配置:
- * - 発生の日内位置は `minutesOfDayInZone` による壁時計の分で決まる
+ * - オカレンスの日内位置は `minutesOfDayInZone` による現地時刻の分で決まる
  * - 日をまたいでクランプされた場合は `continuesBefore` / `continuesAfter` が立ち、
  *   終了は 1440 分（24:00）になる
- * - 同じ日で重なる発生は {@link layoutTimeGridItems} で横並びになる
+ * - 同じ日で重なるオカレンスは {@link layoutTimeGridItems} で横並びになる
  *
  * `hiddenWeekdays`（非表示曜日）:
  * - `viewType: 'week'` のとき、該当曜日の列を `days` から除外する。
  *   終日行（`allDaySegments`）の帯レイアウトも可視列基準になり、非表示曜日を
- *   跨ぐ発生は可視列上で連続した 1 本のセグメントとして扱われる（月ビューと同じ規則）
+ *   跨ぐオカレンスは可視列上で連続した 1 本のセグメントとして扱われる（月ビューと同じ規則）
  * - `viewType: 'day'` のときは `hiddenWeekdays` を無視する（明示的にその日へ
  *   移動した場合は表示する。Google カレンダーと同じ挙動）
  * - 「今日」が非表示曜日で `days` に含まれない場合、`nowIndicator` は `null` になる
@@ -359,7 +359,7 @@ function buildSlots(slotMinutes: number): TimeSlot[] {
  * @param params.currentDate - 基準日
  * @param params.viewType - `'week'`（7 日）または `'day'`（1 日）
  * @param params.timeZone - 表示タイムゾーン
- * @param params.occurrences - 表示範囲で展開済みの発生一覧
+ * @param params.occurrences - 表示範囲で展開済みのオカレンス一覧
  * @param params.weekStartsOn - 週の開始曜日（`'week'` のときのみ使用）
  * @param params.slotMinutes - 時間軸の目盛り間隔（分）
  * @param params.now - 現在時刻（`isToday` 判定と現在時刻線に使用）
@@ -392,9 +392,9 @@ export function buildTimeGridViewModel(params: {
       ? startOfWeekInZone(currentDate, timeZone, weekStartsOn)
       : startOfDayInZone(currentDate, timeZone);
   const dayCount = viewType === 'week' ? 7 : 1;
-  // addDaysInZone は加算前の壁時計時刻を維持するため、深夜 0:00 に DST が切り替わる
-  // ゾーン（例: America/Santiago）で rangeStart が 1:00 に前方解決されていると
-  // 範囲が翌日側へ 1 時間はみ出し、日数が 1 日増えてしまう。日初へ再正規化する
+  // addDaysInZone は加算前の現地時刻を維持するため、深夜 0:00 に DST が切り替わる
+  // ゾーン（例: America/Santiago）で rangeStart が 1:00 に繰り上げられていると
+  // 範囲が翌日側へ 1 時間はみ出し、日数が 1 日増えてしまう。日の開始へ再正規化する
   const rangeEnd = startOfDayInZone(addDaysInZone(rangeStart, dayCount, timeZone), timeZone);
   // dayStarts / dayKeys / columnIndexByKey は非表示曜日を含む「元の」列（全 dayCount 列）。
   // 終日行のレイアウトはここから可視列へ変換するため、まずは全列で構築しておく
@@ -416,7 +416,7 @@ export function buildTimeGridViewModel(params: {
     visibleDayIndices.map((origIndex, visibleIndex) => [origIndex, visibleIndex]),
   );
 
-  // 発生を終日行と時間グリッドに振り分ける
+  // オカレンスを終日行と時間グリッドに振り分ける
   const allDayRowOccurrences: EventOccurrence[] = [];
   const timedOccurrences: EventOccurrence[] = [];
   for (const occurrence of occurrences) {
@@ -460,7 +460,7 @@ export function buildTimeGridViewModel(params: {
     };
   });
 
-  // 現在時刻線: 「今日」が可視列に含まれる場合のみその列と壁時計の分を返す。
+  // 現在時刻線: 「今日」が可視列に含まれる場合のみその列と現地時刻の分を返す。
   // 非表示曜日で days から除外された場合は自然に null になる
   const visibleDayKeys = new Set(visibleDayIndices.map((index) => dayKeys[index]));
   const todayKey = dateKeyInZone(now, timeZone);

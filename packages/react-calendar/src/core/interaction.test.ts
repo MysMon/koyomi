@@ -25,7 +25,7 @@ const NY = 'America/New_York';
 const UTC = 'UTC';
 
 /**
- * 指定タイムゾーンの壁時計 `'YYYY-MM-DDTHH:mm'` から絶対時刻を作るテストヘルパ。
+ * 指定タイムゾーンの現地時刻 `'YYYY-MM-DDTHH:mm'` から絶対時刻を作るテストヘルパ。
  */
 function at(isoLocal: string, timeZone: TimeZoneId): Date {
   return parseDateValue(isoLocal, timeZone, false);
@@ -101,7 +101,7 @@ describe('timeAtGridPosition', () => {
     expect(result).toEqual(dayTokyo);
   });
 
-  it('fractionY = 0.5 は壁時計 12:00 を返す', () => {
+  it('fractionY = 0.5 は現地時刻 12:00 を返す', () => {
     const result = timeAtGridPosition({
       day: dayTokyo,
       fractionY: 0.5,
@@ -175,14 +175,14 @@ describe('timeAtGridPosition', () => {
       expect(result.toISOString()).toBe('2026-03-08T05:00:00.000Z');
     });
 
-    it('fractionY = 0.5 は壁時計 12:00 EDT（UTC-4）に対応する', () => {
+    it('fractionY = 0.5 は現地時刻 12:00 EDT（UTC-4）に対応する', () => {
       const result = timeAtGridPosition({ day: dstDay, fractionY: 0.5, timeZone: NY, snap: 15 });
       expect(getWallClock(result, NY)).toMatchObject({ hours: 12, minutes: 0, day: 8 });
       expect(result.toISOString()).toBe('2026-03-08T16:00:00.000Z');
     });
 
-    it('存在しない時刻（2:00）に相当する位置は前方（3:00 EDT）に解決される', () => {
-      // 120 分 = 壁時計 2:00 は存在しない → 3:00 EDT に解決
+    it('存在しない時刻（2:00）に相当する位置は直後の実在時刻（3:00 EDT）に繰り上げて解決される', () => {
+      // 120 分 = 現地時刻 2:00 は存在しない → 3:00 EDT に繰り上げて解決
       const result = timeAtGridPosition({
         day: dstDay,
         fractionY: 120 / 1440,
@@ -193,7 +193,7 @@ describe('timeAtGridPosition', () => {
       expect(result.toISOString()).toBe('2026-03-08T07:00:00.000Z');
     });
 
-    it('fractionY = 1 は壁時計 23:45 EDT にクランプされる', () => {
+    it('fractionY = 1 は現地時刻 23:45 EDT にクランプされる', () => {
       const result = timeAtGridPosition({ day: dstDay, fractionY: 1, timeZone: NY, snap: 15 });
       expect(getWallClock(result, NY)).toMatchObject({ hours: 23, minutes: 45, day: 8 });
       expect(result.toISOString()).toBe('2026-03-09T03:45:00.000Z');
@@ -325,7 +325,9 @@ describe('dragPreviewRange', () => {
         occurrence: null,
         anchor: at('2026-07-07T10:00', TOKYO),
       };
-      expect(() => dragPreviewRange(state, at('2026-07-07T11:00', TOKYO), context)).toThrow(/発生/);
+      expect(() => dragPreviewRange(state, at('2026-07-07T11:00', TOKYO), context)).toThrow(
+        /オカレンス/,
+      );
     });
   });
 
@@ -374,7 +376,9 @@ describe('dragPreviewRange', () => {
         occurrence: null,
         anchor: at('2026-07-07T11:00', TOKYO),
       };
-      expect(() => dragPreviewRange(state, at('2026-07-07T12:00', TOKYO), context)).toThrow(/発生/);
+      expect(() => dragPreviewRange(state, at('2026-07-07T12:00', TOKYO), context)).toThrow(
+        /オカレンス/,
+      );
     });
 
     it('snap が 0 でも最小 1 分の長さを保つ（正規化）', () => {
@@ -442,7 +446,9 @@ describe('dragPreviewRange', () => {
         occurrence: null,
         anchor: at('2026-07-07T10:00', TOKYO),
       };
-      expect(() => dragPreviewRange(state, at('2026-07-07T09:00', TOKYO), context)).toThrow(/発生/);
+      expect(() => dragPreviewRange(state, at('2026-07-07T09:00', TOKYO), context)).toThrow(
+        /オカレンス/,
+      );
     });
   });
 });
@@ -483,7 +489,7 @@ describe('dayDragPreviewRange', () => {
       expect(range.end).toEqual(dateFromKey('2026-07-11', TOKYO));
     });
 
-    it('DST 開始日（NY 2026-03-08）を含む範囲でも end は翌日 0:00 の壁時計になる', () => {
+    it('DST 開始日（NY 2026-03-08）を含む範囲でも end は翌日の現地時刻 0:00 になる', () => {
       const range = dayDragPreviewRange(
         { mode: 'create', occurrence: null },
         dateFromKey('2026-03-08', NY),
@@ -545,7 +551,7 @@ describe('dayDragPreviewRange', () => {
       expect(range.end).toEqual(at('2026-07-08T10:00', TOKYO));
     });
 
-    it('DST 跨ぎの移動（NY 3/7 → 3/9）でも壁時計 9:00 が維持される', () => {
+    it('DST 跨ぎの移動（NY 3/7 → 3/9）でも現地時刻 9:00 が維持される', () => {
       const occurrence = makeOccurrence({
         start: at('2026-03-07T09:00', NY),
         end: at('2026-03-07T10:00', NY),
@@ -556,7 +562,7 @@ describe('dayDragPreviewRange', () => {
         dateFromKey('2026-03-07', NY),
         NY,
       );
-      // 3/7 は EST（UTC-5）、3/9 は EDT（UTC-4）だが壁時計 9:00 が維持される
+      // 3/7 は EST（UTC-5）、3/9 は EDT（UTC-4）だが現地時刻 9:00 が維持される
       expect(getWallClock(range.start, NY)).toMatchObject({ day: 9, hours: 9, minutes: 0 });
       expect(getWallClock(range.end, NY)).toMatchObject({ day: 9, hours: 10, minutes: 0 });
       expect(range.start.toISOString()).toBe('2026-03-09T13:00:00.000Z');
@@ -570,7 +576,7 @@ describe('dayDragPreviewRange', () => {
           dateFromKey('2026-07-10', TOKYO),
           TOKYO,
         ),
-      ).toThrow(/発生/);
+      ).toThrow(/オカレンス/);
     });
   });
 
@@ -604,7 +610,7 @@ describe('dayDragPreviewRange', () => {
       expect(range.end).toEqual(dateFromKey('2026-07-02', TOKYO));
     });
 
-    it('時間指定の複数日イベントは終了の壁時計時刻を維持したまま日数が変わる', () => {
+    it('時間指定の複数日イベントは終了の現地時刻を維持したまま日数が変わる', () => {
       const timed = makeOccurrence({
         start: at('2026-07-01T10:00', TOKYO),
         end: at('2026-07-03T11:00', TOKYO),
@@ -627,7 +633,7 @@ describe('dayDragPreviewRange', () => {
           dateFromKey('2026-07-02', TOKYO),
           TOKYO,
         ),
-      ).toThrow(/発生/);
+      ).toThrow(/オカレンス/);
     });
   });
 

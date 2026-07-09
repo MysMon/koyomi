@@ -3,7 +3,7 @@
  * リストビュー（`ListView`）コンポーネント。
  *
  * 表示範囲内の予定を日付ごとの `section` にまとめて一覧表示する
- * ヘッドレスコンポーネント。DOM 構造・`data-koyomi-*` 属性の契約は
+ * ヘッドレスコンポーネント。DOM 構造・`data-koyomi-*` 属性の仕様は
  * `docs/internal/components-dom.md` の「リストビュー」セクションに従う。
  *
  * 月/週/日ビューと異なり、リストビューにドラッグ操作はない。
@@ -74,7 +74,7 @@ function formatTimedEventTimeLabel(occurrence: EventOccurrence, timeZone: TimeZo
  * 設定する（テーマ側は `var(--koyomi-event-color, 既定色)` で参照する）。
  * このカスタムプロパティは `CSSProperties` の型に存在しないため、変数名を
  * キーにしたオブジェクトを `CSSProperties` として扱うための `as` キャストが
- * 必要になる（DOM 契約で明示的に許可されている唯一の箇所）。
+ * 必要になる（DOM 仕様で明示的に許可されている唯一の箇所）。
  */
 function eventSwatchStyle(color: string | undefined): CSSProperties | undefined {
   if (color === undefined) {

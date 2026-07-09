@@ -2,7 +2,7 @@
  * @packageDocumentation
  * React 層の共有型定義。
  *
- * インタラクション（クリック・ドラッグ・キーボード）のコールバック契約を定義する。
+ * インタラクション（クリック・ドラッグ・キーボード）のコールバックの取り決めを定義する。
  * ライブラリはヘッドレスであり、ダイアログやポップアップなどの UI は提供しない。
  * 代わりにこれらのコールバックでアプリケーション側の UI に委譲する。
  */
@@ -46,7 +46,7 @@ export interface RangeSelection {
  * ドラッグ・リサイズによるイベント変更の内容。
  */
 export interface EventChange {
-  /** 変更対象の発生。 */
+  /** 変更対象のオカレンス。 */
   occurrence: EventOccurrence;
   /** 変更後の日時範囲。 */
   newRange: DateRange;
@@ -60,7 +60,7 @@ export interface EventChange {
  * キーボード操作（Delete/Backspace）によるイベント削除の内容。
  */
 export interface EventDelete {
-  /** 削除された発生。 */
+  /** 削除されたオカレンス。 */
   occurrence: EventOccurrence;
   /** 繰り返しイベントの場合に適用されたスコープ（単発は `null`）。 */
   scope: RecurringEditScope | null;
@@ -109,7 +109,7 @@ export interface CalendarInteractionCallbacks {
    * すべて）を決めるために呼ばれる。ダイアログを表示して選択させる用途。
    * `null` を返すと操作はキャンセルされる。
    *
-   * @param occurrence - 対象の発生
+   * @param occurrence - 対象のオカレンス
    * @param action - 操作の種類
    */
   resolveRecurringScope?: (
@@ -120,7 +120,7 @@ export interface CalendarInteractionCallbacks {
    * 月ビューの「+N 件」がクリックされたときに呼ばれる。
    *
    * @param day - 対象の日
-   * @param hiddenOccurrences - その日で「+N 件」に集約された非表示の発生一覧
+   * @param hiddenOccurrences - その日で「+N 件」に集約された非表示のオカレンス一覧
    *   （開始時刻順）。ポップオーバーで隠れた予定を一覧表示する用途に使える
    */
   onOverflowClick?: (day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => void;

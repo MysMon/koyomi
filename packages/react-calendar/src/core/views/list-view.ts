@@ -2,8 +2,8 @@
  * @packageDocumentation
  * リストビューのビューモデル構築。
  *
- * 表示範囲内の発生を日付ごとにグループ化する。Google カレンダーの
- * 「スケジュール」表示と同様、複数日にまたがる発生は重なる各日に出現する。
+ * 表示範囲内のオカレンスを日付ごとにグループ化する。Google カレンダーの
+ * 「スケジュール」表示と同様、複数日にまたがるオカレンスは重なる各日に出現する。
  */
 
 import { eachDayInRange, rangesOverlap } from '../date-utils';
@@ -14,11 +14,11 @@ import type { EventOccurrence, ListDay, ListViewModel, TimeZoneId } from '../typ
  * リストビューのビューモデルを構築する。
  *
  * - 表示範囲（基準日から `listDays` 日間）の各日について、その日と重なる
- *   発生を集める。発生が 1 件もない日は出力しない
+ *   オカレンスを集める。オカレンスが 1 件もない日は出力しない
  * - 範囲は表示タイムゾーンにおける基準日の 0:00 から始まり、日の重なり判定は
  *   `[その日の 0:00, 翌日の 0:00)` との交差（`end` 排他）で行う。
- *   したがって、ちょうど 0:00 に終わる発生はその日には出現しない
- * - `start === end`（長さ 0、リマインダー等）の発生は区間交差では常に
+ *   したがって、ちょうど 0:00 に終わるオカレンスはその日には出現しない
+ * - `start === end`（長さ 0、リマインダー等）のオカレンスは区間交差では常に
  *   「重なりなし」と判定されてしまうため特別扱いする。`start` が属する日
  *   （`[その日の 0:00, 翌日の 0:00)` に含まれる日）に 1 件として表示する
  * - 日内の並び順: 終日イベントが先、その後は開始時刻昇順（同時刻は長い方が先、
@@ -27,7 +27,7 @@ import type { EventOccurrence, ListDay, ListViewModel, TimeZoneId } from '../typ
  *
  * @param params.currentDate - 基準日
  * @param params.timeZone - 表示タイムゾーン
- * @param params.occurrences - 表示範囲で展開済みの発生一覧
+ * @param params.occurrences - 表示範囲で展開済みのオカレンス一覧
  * @param params.listDays - 表示日数
  * @param params.now - 現在時刻（`isToday` 判定に使用）
  * @returns 予定のある日だけを日付順に並べた {@link ListViewModel}。
@@ -42,7 +42,7 @@ export function buildListViewModel(params: {
 }): ListViewModel {
   const { currentDate, timeZone, occurrences, listDays, now } = params;
 
-  // 表示範囲: 基準日の 0:00 から listDays 日間（壁時計基準で加算）
+  // 表示範囲: 基準日の 0:00 から listDays 日間（現地時刻基準で加算）
   const rangeStart = startOfDayInZone(currentDate, timeZone);
   const rangeEnd = addDaysInZone(rangeStart, listDays, timeZone);
   const dayStarts = eachDayInRange({ start: rangeStart, end: rangeEnd }, timeZone);
@@ -51,15 +51,15 @@ export function buildListViewModel(params: {
   const days: ListDay[] = [];
 
   for (const dayStart of dayStarts) {
-    // addDaysInZone は加算前の壁時計時刻を維持するため、dayStart が深夜 0:00 の
-    // 存在しないゾーン（例: America/Havana）の切替日で前方解決された時刻
+    // addDaysInZone は加算前の現地時刻を維持するため、dayStart が深夜 0:00 の
+    // 存在しないゾーン（例: America/Havana）の切替日で繰り上げられた時刻
     // （例: 1:00）を持っていると、そのまま加算した dayEnd も同じ時刻になり
     // 翌日の本来の 0:00〜1:00 分だけ範囲が伸びてしまう。その結果、翌日の
-    // 0:00〜1:00 の発生が当日・翌日の両方に重複出現する。startOfDayInZone で
-    // dayEnd を日初へ再正規化して防ぐ（eachDayInRange と同じ理由）
+    // 0:00〜1:00 のオカレンスが当日・翌日の両方に重複出現する。startOfDayInZone で
+    // dayEnd を日の開始へ再正規化して防ぐ（eachDayInRange と同じ理由）
     const dayEnd = startOfDayInZone(addDaysInZone(dayStart, 1, timeZone), timeZone);
-    // [day, 翌日) と重なる発生を集める（end 排他の交差判定）。
-    // start === end（長さ 0）の発生は区間交差判定では決して重ならないため、
+    // [day, 翌日) と重なるオカレンスを集める（end 排他の交差判定）。
+    // start === end（長さ 0）のオカレンスは区間交差判定では決して重ならないため、
     // start がこの日に属するかどうかで直接判定する
     const dayOccurrences = occurrences.filter((occurrence) => {
       if (occurrence.start.getTime() === occurrence.end.getTime()) {
@@ -73,7 +73,7 @@ export function buildListViewModel(params: {
         { start: dayStart, end: dayEnd },
       );
     });
-    // 発生が 1 件もない日は出力しない
+    // オカレンスが 1 件もない日は出力しない
     if (dayOccurrences.length === 0) {
       continue;
     }
@@ -92,12 +92,12 @@ export function buildListViewModel(params: {
 }
 
 /**
- * リストビューの日内での発生の並び順を決める比較関数。
+ * リストビューの日内でのオカレンスの並び順を決める比較関数。
  *
  * 終日イベントが先 → 開始時刻昇順 → 長い方が先 → `eventId` の辞書順。
  *
- * @param a - 比較対象の発生
- * @param b - 比較対象の発生
+ * @param a - 比較対象のオカレンス
+ * @param b - 比較対象のオカレンス
  * @returns `a` を先に並べるなら負、`b` を先なら正、同順なら 0
  */
 function compareListOccurrences(a: EventOccurrence, b: EventOccurrence): number {

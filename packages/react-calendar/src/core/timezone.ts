@@ -5,8 +5,8 @@
  * タイムゾーン依存の日時計算はすべてこのモジュールを経由して行う。
  * 内部的には date-fns v4 と `@date-fns/tz` の {@link TZDate} を利用する。
  *
- * 「絶対時刻（インスタント）」= `Date` が指す UTC 時点。
- * 「壁時計（wall clock）」= あるタイムゾーンで時計が示す年月日・時分。
+ * 「絶対時刻（時点）」= `Date` が指す UTC 時点。
+ * 「現地時刻（wall clock）」= あるタイムゾーンで時計が示す年月日・時分。
  */
 
 import { TZDate } from '@date-fns/tz';
@@ -14,7 +14,7 @@ import { addDays } from 'date-fns';
 import type { TimeZoneId, Weekday } from './types';
 
 /**
- * 壁時計の成分表現。
+ * 現地時刻の成分表現。
  * `month` は 1〜12（`Date` の 0 起点とは異なる）ことに注意。
  */
 export interface WallClockParts {
@@ -41,7 +41,7 @@ const DATE_KEY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const OFFSET_ISO_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
-/** オフセットなし ISO 8601（壁時計として解釈する。秒・小数秒は省略可）。 */
+/** オフセットなし ISO 8601（現地時刻として解釈する。秒・小数秒は省略可）。 */
 const LOCAL_ISO_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(\.\d{1,9})?)?$/;
 
 /**
@@ -111,11 +111,11 @@ export function isValidTimeZone(timeZone: string): boolean {
 }
 
 /**
- * 絶対時刻を、指定タイムゾーンにおける壁時計の成分に分解する。
+ * 絶対時刻を、指定タイムゾーンにおける現地時刻の成分に分解する。
  *
  * @param date - 絶対時刻
  * @param timeZone - タイムゾーン
- * @returns 壁時計成分（`month` は 1〜12）
+ * @returns 現地時刻の成分（`month` は 1〜12）
  */
 export function getWallClock(date: Date, timeZone: TimeZoneId): Required<WallClockParts> {
   const zoned = new TZDate(date.getTime(), timeZone);
@@ -131,12 +131,12 @@ export function getWallClock(date: Date, timeZone: TimeZoneId): Required<WallClo
 }
 
 /**
- * 壁時計成分から絶対時刻を構築する。
+ * 現地時刻の成分から絶対時刻を構築する。
  *
- * DST の切り替えで存在しない時刻が指定された場合は前方（後の時刻）に解決し、
+ * DST の切り替えで存在しない時刻が指定された場合は直後の実在時刻に繰り上げて解決し、
  * 曖昧な時刻（2 回現れる時刻）は早い方のオフセットで解決する。
  *
- * @param parts - 壁時計成分
+ * @param parts - 現地時刻の成分
  * @param timeZone - タイムゾーン
  * @returns 対応する絶対時刻
  * @example
@@ -168,26 +168,26 @@ export function startOfDayInZone(date: Date, timeZone: TimeZoneId): Date {
 }
 
 /**
- * 指定タイムゾーンの壁時計基準で日数を加算する。
+ * 指定タイムゾーンの現地時刻基準で日数を加算する。
  *
- * DST を跨いでも壁時計時刻が維持される（例: 9:00 の予定は加算後も 9:00）。
+ * DST を跨いでも現地時刻が維持される（例: 9:00 の予定は加算後も 9:00）。
  *
  * @param date - 基準となる絶対時刻
  * @param amount - 加算する日数（負数で減算）
  * @param timeZone - タイムゾーン
  */
 export function addDaysInZone(date: Date, amount: number, timeZone: TimeZoneId): Date {
-  // TZDate に対する date-fns の addDays は指定 TZ の壁時計を維持して日を進める
+  // TZDate に対する date-fns の addDays は指定 TZ の現地時刻を維持して日を進める
   const zoned = addDays(new TZDate(date.getTime(), timeZone), amount);
   return new Date(zoned.getTime());
 }
 
 /**
- * 指定タイムゾーンの壁時計基準で分数を加算する。
+ * 指定タイムゾーンの現地時刻基準で分数を加算する。
  *
- * 単純な絶対時刻への加算ではなく壁時計に対する加算のため、
+ * 単純な絶対時刻への加算ではなく現地時刻に対する加算のため、
  * DST 跨ぎでは絶対時刻の差が指定分数と異なる場合がある。
- * 加算結果が存在しない時刻になる場合は前方に、曖昧な時刻になる場合は
+ * 加算結果が存在しない時刻になる場合は繰り上げて、曖昧な時刻になる場合は
  * 早い方のオフセットで解決される（{@link fromWallClock} と同じ規則）。
  *
  * @param date - 基準となる絶対時刻
@@ -196,7 +196,7 @@ export function addDaysInZone(date: Date, amount: number, timeZone: TimeZoneId):
  */
 export function addMinutesInZone(date: Date, amount: number, timeZone: TimeZoneId): Date {
   const wall = getWallClock(date, timeZone);
-  // 壁時計成分をオフセットのない UTC 上の日時として組み立ててから分を加算し、
+  // 現地時刻の成分をオフセットのない UTC 上の日時として組み立ててから分を加算し、
   // 日・月・年への繰り上がり/繰り下がりを Date の正規化に任せる
   // （ミリ秒も保持し、加算前後で恒等性が保たれるようにする）
   const shifted = new Date(0);
@@ -259,7 +259,7 @@ export function dateFromKey(key: string, timeZone: TimeZoneId): Date {
 }
 
 /**
- * 指定タイムゾーンにおける、その日の 0:00 からの経過分（壁時計）を返す。
+ * 指定タイムゾーンにおける、その日の 0:00 からの経過分（現地時刻基準）を返す。
  *
  * @param date - 絶対時刻
  * @param timeZone - タイムゾーン
@@ -271,7 +271,7 @@ export function minutesOfDayInZone(date: Date, timeZone: TimeZoneId): number {
 }
 
 /**
- * 2 つの絶対時刻が、指定タイムゾーンの壁時計基準で同じ日かどうかを判定する。
+ * 2 つの絶対時刻が、指定タイムゾーンの現地時刻基準で同じ日かどうかを判定する。
  */
 export function isSameDayInZone(a: Date, b: Date, timeZone: TimeZoneId): boolean {
   return dateKeyInZone(a, timeZone) === dateKeyInZone(b, timeZone);
@@ -308,7 +308,7 @@ export function weekdayInZone(date: Date, timeZone: TimeZoneId): Weekday {
  * - `'YYYY-MM-DD'` — `timeZone` におけるその日の 0:00
  * - オフセット付き ISO 8601（`Z` や `+09:00`）— 記載どおりの絶対時刻
  *   （`allDay` の場合はさらに 0:00 に切り捨てる）
- * - オフセットなし ISO 8601（例: `'2026-07-01T10:00'`）— `timeZone` の壁時計として解釈
+ * - オフセットなし ISO 8601（例: `'2026-07-01T10:00'`）— `timeZone` の現地時刻として解釈
  *
  * @param value - 日時の値
  * @param timeZone - 解釈に使うタイムゾーン（イベント TZ、なければ表示 TZ）
@@ -337,7 +337,7 @@ export function parseDateValue(value: Date | string, timeZone: TimeZoneId, allDa
     return allDay ? startOfDayInZone(parsed, timeZone) : parsed;
   }
 
-  // オフセットなし ISO 8601 — timeZone の壁時計として解釈
+  // オフセットなし ISO 8601 — timeZone の現地時刻として解釈
   const local = LOCAL_ISO_PATTERN.exec(value);
   if (local !== null) {
     const [, yearText, monthText, dayText, hoursText, minutesText, secondsText, fractionText] =

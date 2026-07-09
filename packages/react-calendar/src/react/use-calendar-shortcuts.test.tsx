@@ -191,7 +191,7 @@ describe('useCalendarShortcuts', () => {
     document.body.removeChild(editable);
   });
 
-  it('contenteditable="FALSE"（大文字小文字混在の "false"）の要素内ではショートカットが効く', () => {
+  it('contenteditable="FALSE"（大文字の "false"）の要素内ではショートカットが効く', () => {
     const calendar = makeCalendar();
     calendar.api.setView('day');
     renderHook(() => useCalendarShortcuts({ calendar }));

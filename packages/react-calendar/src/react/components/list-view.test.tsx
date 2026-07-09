@@ -165,7 +165,7 @@ describe('ListView', () => {
     expect(swatches[1]?.getAttribute('style') ?? '').not.toContain('--koyomi-event-color');
   });
 
-  it('クリックで onEventClick に発生を渡す', () => {
+  it('クリックで onEventClick にオカレンスを渡す', () => {
     const onEventClick = vi.fn();
     const events: CalendarEvent[] = [
       { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },

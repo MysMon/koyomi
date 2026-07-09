@@ -3,7 +3,7 @@
  *
  * テストプロセスは vitest.config.ts により TZ=Asia/Tokyo で実行される。
  * `useCalendar` / `CalendarProvider` を通した結合テストとして、
- * `container.querySelector('[data-koyomi="..."]')` で DOM 契約を検証する。
+ * `container.querySelector('[data-koyomi="..."]')` で DOM 仕様を検証する。
  */
 import { act, fireEvent, render } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
@@ -76,7 +76,7 @@ describe('MonthView - グリッド構造', () => {
     expect(container.querySelectorAll('[data-koyomi="month-week"]')).toHaveLength(5);
     expect(container.querySelectorAll('[data-koyomi="month-day"]')).toHaveLength(35);
 
-    // 前月の埋め草（6/28）は data-outside が立つ
+    // 前月の日付（6/28）は data-outside が立つ
     const outsideDay = container.querySelector('[data-koyomi-date="2026-06-28"]');
     expect(outsideDay).toHaveAttribute('data-outside', 'true');
 
@@ -270,7 +270,7 @@ describe('MonthView - クリック操作', () => {
     expect(apiRef.current?.getEvents()).toHaveLength(0);
   });
 
-  it('イベントクリックで callbacks.onEventClick が発生を受け取る', () => {
+  it('イベントクリックで callbacks.onEventClick がオカレンスを受け取る', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: '朝会', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
     ];
@@ -428,7 +428,7 @@ describe('MonthView - ARIA', () => {
     expect(otherCell).toHaveAttribute('aria-label', '2026年7月14日');
     expect(otherCell).not.toHaveAttribute('aria-current');
 
-    // 前月の埋め草の日も完全な日付として読み上げられる（特別扱い不要）
+    // 前月の日付も完全な日付として読み上げられる（特別扱い不要）
     const outsideCell = container.querySelector('[data-koyomi-date="2026-06-28"]');
     expect(outsideCell).toHaveAttribute('aria-label', '2026年6月28日');
   });

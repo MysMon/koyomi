@@ -40,11 +40,11 @@ export function startOfMonthInZone(date: Date, timeZone: TimeZoneId): Date {
 }
 
 /**
- * 指定タイムゾーンの壁時計基準で月数を加算する。
+ * 指定タイムゾーンの現地時刻基準で月数を加算する。
  * 加算後に存在しない日（例: 1/31 + 1 ヶ月）は月末にクランプされる。
  */
 export function addMonthsInZone(date: Date, amount: number, timeZone: TimeZoneId): Date {
-  // TZDate に対する date-fns の addMonths は指定 TZ の壁時計を維持し、月末にクランプする
+  // TZDate に対する date-fns の addMonths は指定 TZ の現地時刻を維持し、月末にクランプする
   const zoned = addMonths(new TZDate(date.getTime(), timeZone), amount);
   return new Date(zoned.getTime());
 }
@@ -66,12 +66,12 @@ export function monthGridRange(
 ): DateRange {
   const monthStart = startOfMonthInZone(anchor, timeZone);
   const start = startOfWeekInZone(monthStart, timeZone, weekStartsOn);
-  // 月末日 = 翌月 1 日の前日（0:00 同士なので壁時計基準で 1 日戻す）
+  // 月末日 = 翌月 1 日の前日（0:00 同士なので現地時刻基準で 1 日戻す）
   const nextMonthStart = addMonthsInZone(monthStart, 1, timeZone);
   const lastDay = addDaysInZone(nextMonthStart, -1, timeZone);
-  // addDaysInZone は加算前の壁時計時刻を維持するため、週開始日に深夜 0:00 が
+  // addDaysInZone は加算前の現地時刻を維持するため、週開始日に深夜 0:00 が
   // 存在しないゾーン（例: America/Santiago）を跨ぐと翌週開始日と時刻がずれる
-  // おそれがある。startOfDayInZone で日初へ正規化して防ぐ（eachDayInRange と同じ理由）
+  // おそれがある。startOfDayInZone で日の開始へ正規化して防ぐ（eachDayInRange と同じ理由）
   const end = startOfDayInZone(
     addDaysInZone(startOfWeekInZone(lastDay, timeZone, weekStartsOn), 7, timeZone),
     timeZone,
@@ -97,11 +97,11 @@ export function eachDayInRange(range: DateRange, timeZone: TimeZoneId): Date[] {
   let cursor = startOfDayInZone(range.start, timeZone);
   while (cursor.getTime() < range.end.getTime()) {
     days.push(cursor);
-    // addDaysInZone は加算前の壁時計時刻（時分秒）を維持したまま日を進める。
+    // addDaysInZone は加算前の現地時刻（時分秒）を維持したまま日を進める。
     // 深夜 0:00 に DST が切り替わるゾーン（例: America/Santiago）では、切替日の
-    // 0:00 が存在せず 1:00 に前方解決されるため、そのまま維持し続けると
+    // 0:00 が存在せず 1:00 に繰り上げられるため、そのまま維持し続けると
     // 以降の全日が誤って 1:00 を引きずってしまう。毎回 startOfDayInZone で
-    // 日初（0:00、存在しなければ前方解決した時刻）へ再正規化することで防ぐ
+    // 日の開始（0:00、存在しなければ 1:00 に繰り上げた時刻）へ再正規化することで防ぐ
     cursor = startOfDayInZone(addDaysInZone(cursor, 1, timeZone), timeZone);
   }
   return days;
@@ -127,7 +127,7 @@ export function rangesOverlap(a: DateRange, b: DateRange): boolean {
 /**
  * ビューごとの表示日時範囲を返す。
  *
- * - `month` — {@link monthGridRange}（前後月の埋め草を含む）
+ * - `month` — {@link monthGridRange}（前後月の日付を含む）
  * - `week` — 基準日を含む週（7 日間）
  * - `day` — 基準日の 1 日
  * - `list` — 基準日の 0:00 から `listDays` 日間
@@ -143,11 +143,11 @@ export function visibleRangeFor(
   timeZone: TimeZoneId,
   options: { weekStartsOn: Weekday; listDays: number },
 ): DateRange {
-  // addDaysInZone は加算前の壁時計時刻を維持するため、start が深夜 0:00 の
-  // 存在しないゾーン（例: America/Santiago）の切替日で前方解決された時刻
+  // addDaysInZone は加算前の現地時刻を維持するため、start が深夜 0:00 の
+  // 存在しないゾーン（例: America/Santiago）の切替日で繰り上げられた時刻
   // （例: 1:00）を持っていると、そのまま加算した end も同じ時刻になってしまい
-  // 隣接する範囲の start（日初に正規化されている）と 1 時間重複する。
-  // startOfDayInZone で end を日初へ再正規化して防ぐ
+  // 隣接する範囲の start（日の開始に正規化されている）と 1 時間重複する。
+  // startOfDayInZone で end を日の開始へ再正規化して防ぐ
   switch (view) {
     case 'month':
       return monthGridRange(currentDate, timeZone, options.weekStartsOn);

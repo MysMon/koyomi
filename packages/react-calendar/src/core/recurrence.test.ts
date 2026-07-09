@@ -110,10 +110,10 @@ describe('expandRecurrence', () => {
       }
     });
 
-    it('春の DST 切替で存在しない壁時計時刻が前方解決され同じ絶対時刻に重複しても、1 件に統合する', () => {
+    it('春の DST 切替で存在しない現地時刻が繰り上げられ同じ絶対時刻に重複しても、1 件に統合する', () => {
       // BYHOUR=2,3;BYMINUTE=30 は毎日 2:30 と 3:30 の 2 回発生するはずだが、
-      // 2026-03-08 は 2:00〜2:59 が存在しないため 2:30 が前方解決されて 3:30 EDT
-      // （07:30Z）に一致し、3:30 の発生と絶対時刻が重複する
+      // 2026-03-08 は 2:00〜2:59 が存在しないため 2:30 が 3:30 EDT に繰り上げられて
+      // （07:30Z）に一致し、3:30 のオカレンスと絶対時刻が重複する
       const dtstart = new Date('2026-03-01T07:30:00Z'); // NY 3/1 2:30 EST
       const result = expandRecurrence({
         rrule: 'FREQ=DAILY;BYHOUR=2,3;BYMINUTE=30',
@@ -135,7 +135,7 @@ describe('expandRecurrence', () => {
     });
   });
 
-  it('FREQ=WEEKLY;BYDAY=MO,WE は月曜・水曜の発生を返す', () => {
+  it('FREQ=WEEKLY;BYDAY=MO,WE は月曜・水曜のオカレンスを返す', () => {
     // 2026-07-06 は月曜日。dtstart = 東京 10:00 = 01:00Z
     const dtstart = new Date('2026-07-06T01:00:00Z');
     const result = expandRecurrence({
@@ -153,7 +153,7 @@ describe('expandRecurrence', () => {
     ]);
   });
 
-  it('FREQ=WEEKLY;INTERVAL=2 は隔週の発生を返す', () => {
+  it('FREQ=WEEKLY;INTERVAL=2 は隔週のオカレンスを返す', () => {
     const dtstart = new Date('2026-07-06T01:00:00Z'); // 東京 7/6（月）10:00
     const result = expandRecurrence({
       rrule: 'FREQ=WEEKLY;INTERVAL=2',
@@ -188,8 +188,8 @@ describe('expandRecurrence', () => {
     ]);
   });
 
-  it('UNTIL はイベント TZ の壁時計として解釈され、UNTIL ちょうどの発生は含まれる', () => {
-    // UNTIL=20260705T100000Z は fake-UTC 空間の値、つまり「東京の壁時計 2026-07-05 10:00 まで」
+  it('UNTIL はイベント TZ の現地時刻として解釈され、UNTIL ちょうどのオカレンスは含まれる', () => {
+    // UNTIL=20260705T100000Z は fake-UTC 空間の値、つまり「東京の現地時刻 2026-07-05 10:00 まで」
     const dtstart = new Date('2026-07-01T01:00:00Z'); // 東京 7/1 10:00
     const result = expandRecurrence({
       rrule: 'FREQ=DAILY;UNTIL=20260705T100000Z',
@@ -226,7 +226,7 @@ describe('expandRecurrence', () => {
     ]);
   });
 
-  it('dtstart 自身が最初の発生として含まれる（範囲 start ちょうども含む）', () => {
+  it('dtstart 自身が最初のオカレンスとして含まれる（範囲 start ちょうども含む）', () => {
     const dtstart = new Date('2026-07-01T00:00:00Z');
     const result = expandRecurrence({
       rrule: 'FREQ=DAILY',
@@ -237,13 +237,13 @@ describe('expandRecurrence', () => {
     expect(toISO(result)[0]).toBe('2026-07-01T00:00:00.000Z');
   });
 
-  it('範囲 end は排他であり、end ちょうどに開始する発生は含まれない', () => {
+  it('範囲 end は排他であり、end ちょうどに開始するオカレンスは含まれない', () => {
     const dtstart = new Date('2026-07-01T00:00:00Z');
     const result = expandRecurrence({
       rrule: 'FREQ=DAILY',
       dtstart,
       timeZone: TOKYO,
-      // end = 7/3 の発生の開始時刻ちょうど
+      // end = 7/3 のオカレンスの開始時刻ちょうど
       range: { start: dtstart, end: new Date('2026-07-03T00:00:00Z') },
     });
     expect(toISO(result)).toEqual(['2026-07-01T00:00:00.000Z', '2026-07-02T00:00:00.000Z']);
@@ -265,14 +265,14 @@ describe('expandRecurrence', () => {
   });
 
   describe('ミリ秒を持つ dtstart の扱い（fake-UTC 変換のミリ秒往復）', () => {
-    it('dtstart にミリ秒がある場合でも COUNT=3 は 3 件返り、最初の発生が dtstart とミリ秒まで一致する', () => {
+    it('dtstart にミリ秒がある場合でも COUNT=3 は 3 件返り、最初のオカレンスが dtstart とミリ秒まで一致する', () => {
       const dtstart = new Date('2026-07-01T00:00:00.500Z');
       const result = expandRecurrence({
         rrule: 'FREQ=DAILY;COUNT=3',
         dtstart,
         timeZone: TOKYO,
         // range.start を dtstart ちょうどにすることで、ミリ秒切り捨てによる
-        // 「最初の発生が range.start 未満になり消える」不具合を検出する
+        // 「最初のオカレンスが range.start 未満になり消える」不具合を検出する
         range: { start: dtstart, end: new Date('2026-08-01T00:00:00Z') },
       });
       expect(result).toHaveLength(3);
@@ -284,7 +284,7 @@ describe('expandRecurrence', () => {
       ]);
     });
 
-    it('dtstart にミリ秒がある場合、exdates もミリ秒まで一致する発生のみ正しく除外する', () => {
+    it('dtstart にミリ秒がある場合、exdates もミリ秒まで一致するオカレンスのみ正しく除外する', () => {
       const dtstart = new Date('2026-07-01T00:00:00.500Z');
       const result = expandRecurrence({
         rrule: 'FREQ=DAILY;COUNT=3',
@@ -298,7 +298,7 @@ describe('expandRecurrence', () => {
   });
 
   describe('exdates による除外', () => {
-    it('exdates とミリ秒単位で一致する発生は除外される', () => {
+    it('exdates とミリ秒単位で一致するオカレンスは除外される', () => {
       const dtstart = new Date('2026-07-01T00:00:00Z');
       const result = expandRecurrence({
         rrule: 'FREQ=DAILY',
@@ -310,7 +310,7 @@ describe('expandRecurrence', () => {
       expect(toISO(result)).toEqual(['2026-07-01T00:00:00.000Z', '2026-07-03T00:00:00.000Z']);
     });
 
-    it('1 ミリ秒でもずれた exdates は発生を除外しない', () => {
+    it('1 ミリ秒でもずれた exdates はオカレンスを除外しない', () => {
       const dtstart = new Date('2026-07-01T00:00:00Z');
       const result = expandRecurrence({
         rrule: 'FREQ=DAILY',
@@ -326,7 +326,7 @@ describe('expandRecurrence', () => {
       ]);
     });
 
-    it('すべての発生が exdates で除外されると空配列を返す', () => {
+    it('すべてのオカレンスが exdates で除外されると空配列を返す', () => {
       const dtstart = new Date('2026-07-01T00:00:00Z');
       const result = expandRecurrence({
         rrule: 'FREQ=DAILY;COUNT=2',
@@ -350,7 +350,7 @@ describe('expandRecurrence', () => {
       expect(result).toEqual([]);
     });
 
-    it('範囲が COUNT による最後の発生より後にある場合は空配列を返す', () => {
+    it('範囲が COUNT による最後のオカレンスより後にある場合は空配列を返す', () => {
       const result = expandRecurrence({
         rrule: 'FREQ=DAILY;COUNT=3',
         dtstart: new Date('2026-07-01T00:00:00Z'),
@@ -372,7 +372,7 @@ describe('expandRecurrence', () => {
     });
   });
 
-  it('発生は昇順で返される', () => {
+  it('オカレンスは昇順で返される', () => {
     const dtstart = new Date('2026-07-01T00:00:00Z');
     const result = expandRecurrence({
       rrule: 'FREQ=DAILY;COUNT=10',
@@ -400,17 +400,17 @@ describe('expandRecurrence', () => {
 describe('previousOccurrenceStart', () => {
   const dtstart = new Date('2026-07-01T00:00:00Z'); // 東京 7/1 9:00
 
-  it('before が発生の開始ちょうどの場合、その発生は含まず 1 つ前を返す（排他）', () => {
+  it('before がオカレンスの開始ちょうどの場合、そのオカレンスは含まず 1 つ前を返す（排他）', () => {
     const result = previousOccurrenceStart({
       rrule: 'FREQ=DAILY',
       dtstart,
       timeZone: TOKYO,
-      before: new Date('2026-07-04T00:00:00Z'), // 7/4 9:00 JST の発生ちょうど
+      before: new Date('2026-07-04T00:00:00Z'), // 7/4 9:00 JST のオカレンスちょうど
     });
     expect(result?.toISOString()).toBe('2026-07-03T00:00:00.000Z');
   });
 
-  it('before が発生の間にある場合、直前の発生を返す', () => {
+  it('before がオカレンスの間にある場合、直前のオカレンスを返す', () => {
     const result = previousOccurrenceStart({
       rrule: 'FREQ=DAILY',
       dtstart,
@@ -440,7 +440,7 @@ describe('previousOccurrenceStart', () => {
     expect(result).toBeNull();
   });
 
-  it('COUNT で打ち切られたルールでは最後の発生を返す', () => {
+  it('COUNT で打ち切られたルールでは最後のオカレンスを返す', () => {
     const result = previousOccurrenceStart({
       rrule: 'FREQ=DAILY;COUNT=3',
       dtstart,
@@ -450,12 +450,12 @@ describe('previousOccurrenceStart', () => {
     expect(result?.toISOString()).toBe('2026-07-03T00:00:00.000Z');
   });
 
-  it('DST 切替を跨いでも正しい直前の発生（現地 9:00）を返す', () => {
+  it('DST 切替を跨いでも正しい直前のオカレンス（現地 9:00）を返す', () => {
     const result = previousOccurrenceStart({
       rrule: 'FREQ=DAILY',
       dtstart: new Date('2026-03-06T14:00:00Z'), // NY 3/6 9:00 EST
       timeZone: NY,
-      before: new Date('2026-03-09T13:00:00Z'), // NY 3/9 9:00 EDT の発生ちょうど
+      before: new Date('2026-03-09T13:00:00Z'), // NY 3/9 9:00 EDT のオカレンスちょうど
     });
     expect(result?.toISOString()).toBe('2026-03-08T13:00:00.000Z'); // 3/8 9:00 EDT
   });
@@ -475,17 +475,17 @@ describe('previousOccurrenceStart', () => {
 describe('countOccurrencesBefore', () => {
   const dtstart = new Date('2026-07-01T00:00:00Z'); // 東京 7/1 9:00
 
-  it('before ちょうどに開始する発生は数えない（排他）', () => {
+  it('before ちょうどに開始するオカレンスは数えない（排他）', () => {
     const count = countOccurrencesBefore({
       rrule: 'FREQ=DAILY',
       dtstart,
       timeZone: TOKYO,
-      before: new Date('2026-07-04T00:00:00Z'), // 7/4 9:00 JST の発生ちょうど
+      before: new Date('2026-07-04T00:00:00Z'), // 7/4 9:00 JST のオカレンスちょうど
     });
     expect(count).toBe(3); // 7/1, 7/2, 7/3
   });
 
-  it('before が発生の間にある場合、その直前までの発生を数える', () => {
+  it('before がオカレンスの間にある場合、その直前までのオカレンスを数える', () => {
     const count = countOccurrencesBefore({
       rrule: 'FREQ=DAILY',
       dtstart,
@@ -519,7 +519,7 @@ describe('countOccurrencesBefore', () => {
     expect(count).toBe(3);
   });
 
-  it('DST 切替を跨いだ発生も正しく数える', () => {
+  it('DST 切替を跨いだオカレンスも正しく数える', () => {
     const count = countOccurrencesBefore({
       rrule: 'FREQ=DAILY',
       dtstart: new Date('2026-03-06T14:00:00Z'), // NY 3/6 9:00 EST
@@ -544,16 +544,16 @@ describe('countOccurrencesBefore', () => {
 describe('truncateRRule', () => {
   const dtstart = new Date('2026-07-01T00:00:00Z'); // 東京 7/1 9:00
 
-  it('COUNT を削除して UNTIL（until 直前の発生の fake-UTC 時刻）に置き換える', () => {
+  it('COUNT を削除して UNTIL（until 直前のオカレンスの fake-UTC 時刻）に置き換える', () => {
     const result = truncateRRule({
       rrule: 'FREQ=DAILY;COUNT=10',
       dtstart,
       timeZone: TOKYO,
-      // 5 回目の発生（東京 7/5 9:00）で打ち切る
+      // 5 回目のオカレンス（東京 7/5 9:00）で打ち切る
       until: new Date('2026-07-05T00:00:00Z'),
     });
     expect(result).not.toContain('COUNT');
-    // until 直前の発生は 4 回目（東京 7/4 9:00）。その fake-UTC 時刻を UNTIL にする
+    // until 直前のオカレンスは 4 回目（東京 7/4 9:00）。その fake-UTC 時刻を UNTIL にする
     expect(result).toBe('FREQ=DAILY;UNTIL=20260704T090000Z');
   });
 
@@ -562,7 +562,7 @@ describe('truncateRRule', () => {
       rrule: 'FREQ=DAILY;COUNT=10',
       dtstart,
       timeZone: TOKYO,
-      until: new Date('2026-07-05T00:00:00Z'), // 5 回目の発生の開始
+      until: new Date('2026-07-05T00:00:00Z'), // 5 回目のオカレンスの開始
     });
     const result = expandRecurrence({
       rrule: truncated,
@@ -588,8 +588,8 @@ describe('truncateRRule', () => {
     expect(result).toBe('FREQ=DAILY;UNTIL=20260704T090000Z');
   });
 
-  it('until 以降（含む）の発生を含まず、直前の発生は含む', () => {
-    // until を発生と発生の間（東京 7/5 12:00）に置くと、7/5 9:00 の発生は残る
+  it('until 以降（含む）のオカレンスを含まず、直前のオカレンスは含む', () => {
+    // until をオカレンスとオカレンスの間（東京 7/5 12:00）に置くと、7/5 9:00 のオカレンスは残る
     const truncated = truncateRRule({
       rrule: 'FREQ=DAILY',
       dtstart,
@@ -608,8 +608,8 @@ describe('truncateRRule', () => {
     }
   });
 
-  it('DST 切替を跨ぐ打ち切りでも壁時計基準で正しく打ち切られる', () => {
-    // NY の毎日 9:00 を、切替後最初の発生（3/8 9:00 EDT = 13:00Z）で打ち切る
+  it('DST 切替を跨ぐ打ち切りでも現地時刻基準で正しく打ち切られる', () => {
+    // NY の毎日 9:00 を、切替後最初のオカレンス（3/8 9:00 EDT = 13:00Z）で打ち切る
     const nyDtstart = new Date('2026-03-06T14:00:00Z');
     const truncated = truncateRRule({
       rrule: 'FREQ=DAILY',
@@ -617,7 +617,7 @@ describe('truncateRRule', () => {
       timeZone: NY,
       until: new Date('2026-03-08T13:00:00Z'),
     });
-    // until 直前の発生は 3/7 9:00 EST。その fake-UTC 時刻を UNTIL にする
+    // until 直前のオカレンスは 3/7 9:00 EST。その fake-UTC 時刻を UNTIL にする
     expect(truncated).toBe('FREQ=DAILY;UNTIL=20260307T090000Z');
     const result = expandRecurrence({
       rrule: truncated,
@@ -629,10 +629,10 @@ describe('truncateRRule', () => {
   });
 
   describe('until の境界が壊れるケース（ミリ秒・DST 曖昧時刻）', () => {
-    it('until にミリ秒がある場合でも、直前の発生（ミリ秒付き）が消えずに残る', () => {
-      // dtstart は毎日 9:00（東京）でミリ秒 .499 を持つ。5 回目の発生は
+    it('until にミリ秒がある場合でも、直前のオカレンス（ミリ秒付き）が消えずに残る', () => {
+      // dtstart は毎日 9:00（東京）でミリ秒 .499 を持つ。5 回目のオカレンスは
       // 2026-07-05T00:00:00.499Z。until はその 1ms 後（.500Z）なので
-      // 5 回目の発生は「until より前」として残るべき
+      // 5 回目のオカレンスは「until より前」として残るべき
       const msDtstart = new Date('2026-07-01T00:00:00.499Z');
       const truncated = truncateRRule({
         rrule: 'FREQ=DAILY',
@@ -655,7 +655,7 @@ describe('truncateRRule', () => {
       ]);
     });
 
-    it('DST 秋切替の曖昧時間帯を跨ぐ打ち切りでも、絶対時刻順序で正しく直前の発生を残す', () => {
+    it('DST 秋切替の曖昧時間帯を跨ぐ打ち切りでも、絶対時刻順序で正しく直前のオカレンスを残す', () => {
       // NY の毎日 1:30。2026-11-01 は DST 終了（EDT→EST）で 1:00〜1:59 が
       // 2 回現れる曖昧時間帯。この日の 1:30 は早い方のオフセット（EDT）で
       // 解決され、絶対時刻は 05:30Z になる
@@ -664,7 +664,7 @@ describe('truncateRRule', () => {
         rrule: 'FREQ=DAILY',
         dtstart: nyDtstart,
         timeZone: NY,
-        // 11/1 の発生（05:30Z）と 11/2 の発生（06:30Z）の間の絶対時刻
+        // 11/1 のオカレンス（05:30Z）と 11/2 のオカレンス（06:30Z）の間の絶対時刻
         until: new Date('2026-11-01T06:00:00Z'),
       });
       const result = expandRecurrence({
@@ -673,7 +673,7 @@ describe('truncateRRule', () => {
         timeZone: NY,
         range: { start: new Date('2026-10-01T00:00:00Z'), end: new Date('2026-12-01T00:00:00Z') },
       });
-      // 11/1 の発生（05:30Z）は残り、11/2 以降は含まれない
+      // 11/1 のオカレンス（05:30Z）は残り、11/2 以降は含まれない
       expect(toISO(result).at(-1)).toBe('2026-11-01T05:30:00.000Z');
       for (const occurrence of result) {
         expect(occurrence.getTime()).toBeLessThan(new Date('2026-11-01T06:00:00Z').getTime());

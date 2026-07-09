@@ -2,7 +2,7 @@
  * @packageDocumentation
  * 月ビューのビューモデル構築。
  *
- * 月グリッド（4〜6 週 × 7 日）の各週に対して、発生を帯セグメントとして
+ * 月グリッド（4〜6 週 × 7 日）の各週に対して、オカレンスを帯セグメントとして
  * 配置する。Google カレンダーの月表示と同様、時間指定の 1 日イベントも
  * 帯（span 1 のセグメント）として扱い、見た目の描き分けはコンポーネント側で行う。
  */
@@ -22,11 +22,11 @@ import type {
 } from '../types';
 
 /**
- * 発生の「日付スパン」。表示タイムゾーンにおける開始日・終了日の
+ * オカレンスの「日付スパン」。表示タイムゾーンにおける開始日・終了日の
  * `'YYYY-MM-DD'` キーで表す（両端とも含む）。
  */
 interface OccurrenceDaySpan {
-  /** 対応する発生。 */
+  /** 対応するオカレンス。 */
   occurrence: EventOccurrence;
   /** 開始日のキー（表示タイムゾーン基準）。 */
   startKey: string;
@@ -35,11 +35,11 @@ interface OccurrenceDaySpan {
 }
 
 /**
- * 発生の日付スパンを計算する。
+ * オカレンスの日付スパンを計算する。
  *
  * `end` は排他的なので、終了日は「`end` の 1 ミリ秒前」が属する日とする
  * （22:00〜24:00 の予定が翌日に漏れないため）。長さ 0（`start === end`）の
- * 発生は開始日のみのスパンとして扱う。
+ * オカレンスは開始日のみのスパンとして扱う。
  */
 function daySpanOf(occurrence: EventOccurrence, timeZone: TimeZoneId): OccurrenceDaySpan {
   const startKey = dateKeyInZone(occurrence.start, timeZone);
@@ -57,15 +57,15 @@ function daySpanOf(occurrence: EventOccurrence, timeZone: TimeZoneId): Occurrenc
  *
  * 処理内容:
  * - {@link monthGridRange} で表示範囲（週の並び）を決め、週ごとに日を並べる
- * - 各発生を、表示タイムゾーンにおける日付スパンで週ごとのセグメントに分割する
- *   （週をまたぐ発生は週ごとに分かれ、`continuesBefore` / `continuesAfter` が立つ）
+ * - 各オカレンスを、表示タイムゾーンにおける日付スパンで週ごとのセグメントに分割する
+ *   （週をまたぐオカレンスは週ごとに分かれ、`continuesBefore` / `continuesAfter` が立つ）
  * - 週ごとに帯レイアウト（{@link layoutBandItems}）でレーンを割り当て、
  *   `dayMaxEvents` を超えた分は `hidden` にして各日の `overflowCount` に集計する
  * - `hiddenWeekdays` が指定された場合、該当曜日の列をグリッドから除外する。
  *   セグメントの `startCol` / `span` は除外後の「可視列」基準で計算し直され、
  *   非表示曜日を跨ぐ複数日イベントは可視列上で連続した 1 本のセグメントになる
  *   （例: 金・月のイベントで土日を非表示にすると、金・月の 2 列分 `span: 2` になる）。
- *   発生が非表示曜日のみに存在する場合はセグメントを生成せず、`overflowCount` にも数えない
+ *   オカレンスが非表示曜日のみに存在する場合はセグメントを生成せず、`overflowCount` にも数えない
  *
  * @remarks
  * レーン割当は週ごとに独立して行う（Google カレンダーと同じ）。複数週にまたがる
@@ -78,7 +78,7 @@ function daySpanOf(occurrence: EventOccurrence, timeZone: TimeZoneId): Occurrenc
  *
  * @param params.currentDate - 表示対象月に含まれる基準日
  * @param params.timeZone - 表示タイムゾーン
- * @param params.occurrences - 月グリッド範囲で展開済みの発生一覧
+ * @param params.occurrences - 月グリッド範囲で展開済みのオカレンス一覧
  * @param params.weekStartsOn - 週の開始曜日
  * @param params.dayMaxEvents - 1 日に表示する最大イベント数
  * @param params.now - 現在時刻（`isToday` 判定に使用）
@@ -135,8 +135,8 @@ export function buildMonthViewModel(params: {
   );
   const visibleColCount = visibleCols.length;
 
-  // 各発生の日付スパンをグリッド内インデックス範囲（両端含む）に解決する。
-  // グリッドと重ならない発生はここで除外する。
+  // 各オカレンスの日付スパンをグリッド内インデックス範囲（両端含む）に解決する。
+  // グリッドと重ならないオカレンスはここで除外する。
   // グリッド外にはみ出す側は端の日にクランプするが、continuesBefore/After の
   // 判定に使うため、クランプ前の実際のスパンをキーで保持しておく
   const spans: {
@@ -167,7 +167,7 @@ export function buildMonthViewModel(params: {
     const weekFirstKey = gridKeys[weekStartIndex] ?? '';
     const weekLastKey = gridKeys[weekEndIndex] ?? '';
 
-    // この週と重なる発生を帯レイアウトの入力に変換する
+    // この週と重なるオカレンスを帯レイアウトの入力に変換する
     const items: BandItemInput[] = [];
     const itemMeta: {
       occurrence: EventOccurrence;
@@ -193,7 +193,7 @@ export function buildMonthViewModel(params: {
         visibleEndCol = visibleIndex;
       }
       if (visibleStartCol === undefined || visibleEndCol === undefined) {
-        // この週では非表示曜日にしか存在しない発生なのでセグメントを生成しない
+        // この週では非表示曜日にしか存在しないオカレンスなのでセグメントを生成しない
         continue;
       }
       items.push({

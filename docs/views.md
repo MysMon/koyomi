@@ -1,6 +1,6 @@
 # ビュー（月・週・日・リスト）
 
-Koyomi は月・週・日・リスト（スケジュール）の 4 つのビューを切り替えて表示できます。本ページでは各ビューの画面構成、切り替え方法、ナビゲーション、そしてビューモデルを直接使った上級的な使い方を説明します。
+Koyomi は月・週・日・リスト（スケジュール）の 4 つのビューを切り替えて表示できます。本ページでは各ビューの画面構成、切り替え方法、ナビゲーション、そしてビューモデルを直接使った上級者向けの使い方を説明します。
 
 ## 4 つのビュー
 
@@ -205,12 +205,12 @@ calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
 
 ## ビューコンポーネントのカスタマイズ props
 
-各ビューには、UI 文字列の差し替えや日単位のコンテンツ注入のための props があります（すべて省略可能）。`CalendarView` 経由で使う場合はビュー名を接頭辞にした名前で転送されます（括弧内）。
+各ビューには、UI 文字列の差し替えや日単位のコンテンツの差し込みのための props があります（すべて省略可能）。`CalendarView` 経由で使う場合はビュー名を接頭辞にした名前で転送されます（括弧内）。
 
 | コンポーネント | prop | 用途 |
 | --- | --- | --- |
 | `MonthView` | `renderEvent`（`renderMonthEvent`） | セグメントの表示内容 |
-| `MonthView` | `renderDayCell`（`renderMonthDayCell`） | 日セルに祝日ラベルやバッジ等を注入（第 2 引数で既定内容を受け取る） |
+| `MonthView` | `renderDayCell`（`renderMonthDayCell`） | 日セルに祝日ラベルやバッジ等を差し込み（第 2 引数で既定内容を受け取る） |
 | `MonthView` | `overflowLabel`（`monthOverflowLabel`） | 「+N 件」の文言（`(count) => ReactNode`） |
 | `TimeGridView` | `renderEvent`（`renderTimeGridEvent`） | イベントブロックの表示内容 |
 | `TimeGridView` | `renderDayHeader`（`renderTimeGridDayHeader`） | 日ヘッダーの内容 |

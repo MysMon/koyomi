@@ -7,7 +7,7 @@
 
 `CalendarEvent` は利用者がカレンダーに与える予定の定義（ソースデータ）です。
 繰り返し予定の場合、1 件の `CalendarEvent` が表示範囲に応じて複数の
-[`EventOccurrence`（発生）](#発生eventoccurrenceとは)に展開されます。
+[`EventOccurrence`（オカレンス）](#オカレンスeventoccurrenceとは)に展開されます。
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
@@ -16,12 +16,12 @@
 | `start` | `Date \| string` | 開始日時。終日イベントの場合は日付（`'YYYY-MM-DD'` も可）。 |
 | `end` | `Date \| string`（省略可） | 終了日時（**排他的**）。終日イベントの場合は日付（排他的）。省略時は、時間指定イベントは開始から `defaultEventMinutes` 分、終日イベントは 1 日とみなします。 |
 | `allDay` | `boolean`（省略可） | 終日イベントかどうか。既定は `false`。 |
-| `timeZone` | `string`（省略可） | このイベントのタイムゾーン（IANA ID）。繰り返しの展開（壁時計維持、DST 跨ぎ）に使用します。省略時はカレンダーの表示タイムゾーン。 |
+| `timeZone` | `string`（省略可） | このイベントのタイムゾーン（IANA ID）。繰り返しの展開（現地時刻の維持、DST 跨ぎ）に使用します。省略時はカレンダーの表示タイムゾーン。 |
 | `rrule` | `string`（省略可） | RFC 5545 の繰り返しルール。詳細は [繰り返し予定](./recurrence.md) を参照。 |
-| `exdates` | `readonly (Date \| string)[]`（省略可） | 繰り返しから除外する発生の開始日時（EXDATE 相当）。 |
-| `rdates` | `readonly (Date \| string)[]`（省略可） | 繰り返しに追加する発生の開始日時（RDATE 相当）。`rrule` と併用可。 |
+| `exdates` | `readonly (Date \| string)[]`（省略可） | 繰り返しから除外するオカレンスの開始日時（EXDATE 相当）。 |
+| `rdates` | `readonly (Date \| string)[]`（省略可） | 繰り返しに追加するオカレンスの開始日時（RDATE 相当）。`rrule` と併用可。 |
 | `recurringEventId` | `string`（省略可） | 繰り返し例外イベントの場合、元となる繰り返しイベントの ID。 |
-| `originalStart` | `Date \| string`（省略可） | 繰り返し例外イベントの場合、置き換え対象となる発生の本来の開始日時。 |
+| `originalStart` | `Date \| string`（省略可） | 繰り返し例外イベントの場合、置き換え対象となるオカレンスの本来の開始日時。 |
 | `color` | `string`（省略可） | 表示色。デフォルトテーマでは背景色として使用される（CSS の color 値）。 |
 | `location` | `string`（省略可） | 場所。 |
 | `description` | `string`（省略可） | 説明文。 |
@@ -63,7 +63,7 @@ function metaOf(event: CalendarEvent): MyEventMeta | undefined {
 - **`Date` オブジェクト** — そのまま絶対時刻として扱う（終日イベントの場合はタイムゾーンにおけるその日の 0:00 に切り捨て）
 - **`'YYYY-MM-DD'`** — 指定タイムゾーンにおけるその日の 0:00
 - **オフセット付き ISO 8601**（例: `'2026-07-01T10:00:00Z'`、`'2026-07-01T10:00:00+09:00'`） — 記載どおりの絶対時刻
-- **オフセットなし ISO 8601**（例: `'2026-07-01T10:00:00'`） — `timeZone`（イベントに指定がなければカレンダーの表示タイムゾーン）の**壁時計時刻**として解釈
+- **オフセットなし ISO 8601**（例: `'2026-07-01T10:00:00'`） — `timeZone`（イベントに指定がなければカレンダーの表示タイムゾーン）の**現地時刻**として解釈
 
 ```ts
 import { createCalendar } from '@koyomi-cal/react';
@@ -74,14 +74,14 @@ const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 calendar.createEvent({ id: 'a', title: 'A', start: new Date('2026-07-01T01:00:00Z') });
 // 2. オフセット付き ISO 8601（記載どおりの絶対時刻）
 calendar.createEvent({ id: 'b', title: 'B', start: '2026-07-01T01:00:00Z' });
-// 3. オフセットなし ISO 8601（timeZone の壁時計として解釈: 東京 10:00 = UTC 01:00）
+// 3. オフセットなし ISO 8601（timeZone の現地時刻として解釈: 東京 10:00 = UTC 01:00）
 calendar.createEvent({ id: 'c', title: 'C', start: '2026-07-01T10:00:00' });
 
 const occurrences = calendar.getOccurrences({
   start: new Date('2026-06-30T00:00:00Z'),
   end: new Date('2026-07-02T00:00:00Z'),
 });
-// a・b・c はいずれも同じ絶対時刻 2026-07-01T01:00:00.000Z の発生になる
+// a・b・c はいずれも同じ絶対時刻 2026-07-01T01:00:00.000Z のオカレンスになる
 ```
 
 ### end の排他性
@@ -124,7 +124,7 @@ const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
 - `deleteEvent(id, target?)` — イベントを削除する
 
 繰り返しイベントに対する `updateEvent` / `deleteEvent` の第 3 引数
-`target`（対象発生と適用範囲）については [繰り返し予定](./recurrence.md) を
+`target`（対象オカレンスと適用範囲）については [繰り返し予定](./recurrence.md) を
 参照してください。単発イベントでは省略します。
 
 ```ts
@@ -230,20 +230,20 @@ function useCalendarSyncedWithServer(initialEvents: CalendarEvent[], saveToServe
 }
 ```
 
-## 発生（EventOccurrence）とは
+## オカレンス（EventOccurrence）とは
 
 `CalendarEvent` はあくまでソースデータであり、そのままでは「特定の日に
 表示される 1 回分の予定」を表しません。カレンダーは表示範囲に対して
-イベントを**展開**し、`EventOccurrence`（発生）の一覧を生成します。
+イベントを**展開**し、`EventOccurrence`（オカレンス）の一覧を生成します。
 
-- 単発イベントは 1 件の発生になります
-- 繰り返しイベント（`rrule` あり）は、範囲内に開始する回数分の発生になります
-- 各発生は `key`（形式: `` `${eventId}@${startのISO文字列}` ``、React の `key`
+- 単発イベントは 1 件のオカレンスになります
+- 繰り返しイベント（`rrule` あり）は、範囲内に開始する回数分のオカレンスになります
+- 各オカレンスは `key`（形式: `` `${eventId}@${startのISO文字列}` ``、React の `key`
   などに使える一意な文字列）、元イベント参照 `event`、絶対時刻の `start` /
   `end`、`isRecurring`、そして「この予定のみ変更/削除」の照合キーとなる
   `originalStart` を持ちます
 
-`getOccurrences(range)` で任意の範囲の発生一覧を取得できます（開始時刻順）。
+`getOccurrences(range)` で任意の範囲のオカレンス一覧を取得できます（開始時刻順）。
 
 ```ts
 import { createCalendar, occurrenceKey } from '@koyomi-cal/react';

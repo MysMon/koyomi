@@ -139,7 +139,7 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 | 属性 | 意味 | 付与される要素 |
 | --- | --- | --- |
 | `data-today` | 今日である | `month-day` / `timegrid-day-header` / `timegrid-day` / `list-day` |
-| `data-outside` | 表示中の月に属さない日（前後月の埋め草） | `month-day` |
+| `data-outside` | 表示中の月に属さない日（前後月の日付） | `month-day` |
 | `data-koyomi-dragging` | ドラッグ移動・リサイズ中のイベント | `month-event` / `allday-event` / `timegrid-event` |
 | `data-continues-before` | イベントの実際の開始がこの週・この日より前にある（「←続く」） | `month-event` / `allday-event` / `timegrid-event` |
 | `data-continues-after` | イベントの実際の終了がこの週・この日より後にある（「続く→」） | `month-event` / `allday-event` / `timegrid-event` |
@@ -199,7 +199,7 @@ console.log(eventEl?.style.getPropertyValue('--koyomi-event-color')); // => '#e6
 - `TimeGridView`: `renderEvent?: (item: PositionedOccurrence) => ReactNode`（終日行のイベント内容はカスタマイズ対象外）
 - `ListView`: `renderEvent?: (occurrence: EventOccurrence) => ReactNode`
 
-イベント以外にも、日セルへのコンテンツ注入（`renderDayCell`）、日ヘッダー・日付見出し（`renderDayHeader`）、「+N 件」等の UI 文字列（`overflowLabel` / `allDayLabel` / `emptyLabel` / `Toolbar` の `labels`）を差し替えられます。一覧は [ビュー: ビューコンポーネントのカスタマイズ props](./views.md#ビューコンポーネントのカスタマイズ-props) を参照してください。
+イベント以外にも、日セルへのコンテンツの差し込み（`renderDayCell`）、日ヘッダー・日付見出し（`renderDayHeader`）、「+N 件」等の UI 文字列（`overflowLabel` / `allDayLabel` / `emptyLabel` / `Toolbar` の `labels`）を差し替えられます。一覧は [ビュー: ビューコンポーネントのカスタマイズ props](./views.md#ビューコンポーネントのカスタマイズ-props) を参照してください。
 
 `CalendarView` を使う場合は、`renderMonthEvent` / `renderTimeGridEvent` / `renderListEvent` prop がそれぞれのビューへ転送されます。
 
