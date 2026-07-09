@@ -13,8 +13,9 @@
  * - `week` — 週表示（時間グリッド、7日）
  * - `day` — 日表示（時間グリッド、1日）
  * - `list` — リスト表示（予定を日付ごとに列挙）
+ * - `year` — 年表示（12 ヶ月分のミニ月グリッド）
  */
-export type CalendarViewType = 'month' | 'week' | 'day' | 'list';
+export type CalendarViewType = 'month' | 'week' | 'day' | 'list' | 'year';
 
 /**
  * IANA タイムゾーン ID。
@@ -331,8 +332,47 @@ export interface ListViewModel {
   isEmpty: boolean;
 }
 
+/** 年ビューのミニ月グリッドの 1 日分。 */
+export interface YearDay {
+  /** その日の開始時刻（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
+  date: Date;
+  /** 表示タイムゾーンにおける `'YYYY-MM-DD'` 形式のキー。 */
+  key: string;
+  /** 表示中の月に属する日かどうか（前後月の日付は `false`）。 */
+  inCurrentMonth: boolean;
+  /** 今日かどうか（表示タイムゾーン基準）。 */
+  isToday: boolean;
+  /**
+   * その日に発生する予定の件数。
+   * 複数日にまたがるオカレンスは覆う各日にカウントされる。
+   * 前後月の日付（`inCurrentMonth: false`）は常に `0`。
+   */
+  eventCount: number;
+}
+
+/** 年ビューの 1 ヶ月分（ミニ月グリッド）。 */
+export interface YearMonth {
+  /** 月初の絶対時刻（表示タイムゾーンベース）。 */
+  anchor: Date;
+  /** `'YYYY-MM'` 形式のキー。 */
+  key: string;
+  /** 週の配列（4〜6 週、各週は 7 日）。 */
+  weeks: readonly (readonly YearDay[])[];
+}
+
+/** 年ビューのビューモデル。 */
+export interface YearViewModel {
+  type: 'year';
+  /** 表示対象年の 1 月 1 日（表示タイムゾーンベース）。 */
+  anchor: Date;
+  /** 12 ヶ月分（1 月〜12 月）。 */
+  months: readonly YearMonth[];
+  /** 曜日ヘッダー（週開始曜日の設定順）。全ミニ月グリッド共通。 */
+  weekdays: readonly Weekday[];
+}
+
 /** 現在のビューに対応するビューモデル。 */
-export type CalendarViewModel = MonthViewModel | TimeGridViewModel | ListViewModel;
+export type CalendarViewModel = MonthViewModel | TimeGridViewModel | ListViewModel | YearViewModel;
 
 // ---------------------------------------------------------------------------
 // カレンダーの状態とオプション

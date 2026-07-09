@@ -116,6 +116,24 @@ export function formatMonthTitle(date: Date, timeZone: TimeZoneId, locale: strin
 }
 
 /**
+ * 年ビューのタイトル（年のみ）を整形する。
+ *
+ * @param date - 表示対象年に含まれる絶対時刻
+ * @param timeZone - 表示に使うタイムゾーン
+ * @param locale - ロケール
+ * @returns 例: `'2026年'`（`ja`）
+ * @example
+ * ```ts
+ * formatYearTitle(new Date('2026-07-15T01:00:00Z'), 'Asia/Tokyo', 'ja'); // => '2026年'
+ * ```
+ */
+export function formatYearTitle(date: Date, timeZone: TimeZoneId, locale: string): string {
+  return getCachedDateTimeFormat(locale, timeZone, 'year-title', {
+    year: 'numeric',
+  }).format(date);
+}
+
+/**
  * 日ビューのタイトル（年月日+曜日）を整形する。
  *
  * @param date - 表示対象日に含まれる絶対時刻

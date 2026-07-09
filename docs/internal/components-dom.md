@@ -19,7 +19,7 @@
 ## ルート / ツールバー
 
 ```
-div[data-koyomi="root"][data-koyomi-view="month|week|day|list"]
+div[data-koyomi="root"][data-koyomi-view="month|week|day|list|year"]
 ```
 
 Toolbar（`CalendarProvider` 配下で使用）:
@@ -36,10 +36,13 @@ div[data-koyomi="toolbar"]
     button[data-koyomi="button"][data-koyomi-action="view-week"][aria-pressed]
     button[data-koyomi="button"][data-koyomi-action="view-day"][aria-pressed]
     button[data-koyomi="button"][data-koyomi-action="view-list"][aria-pressed]
+    button[data-koyomi="button"][data-koyomi-action="view-year"][aria-pressed]?  … ToolbarProps.views に 'year' を含めた場合のみ
 ```
 
 タイトルの書式は `Intl.DateTimeFormat(locale, { timeZone, ... })`:
-月 = 年+月、週 = 開始日〜終了日、日 = 年月日（曜日付き）、リスト = 開始日〜終了日。
+月 = 年+月、週 = 開始日〜終了日、日 = 年月日（曜日付き）、リスト = 開始日〜終了日、年 = 年のみ。
+
+`toolbar-views` 配下のボタンは既定で月/週/日/リストの 4 つ（`ToolbarProps.views` 省略時）。並び順・表示対象はすべて `views` に従い、新ビュー（`view-year` 等）は明示的に含めない限り現れない（opt-in。既存利用者の既定の見た目は不変）。
 
 ## 月ビュー（MonthView）
 
@@ -151,17 +154,55 @@ div[data-koyomi="list"][data-koyomi-virtualized="true"][role="list"][tabindex="0
 - 日セクションの `aria-label` は「7月16日(木) 予定3件」形式で件数を伝える。
 - 仮想化のプリミティブは `useVirtualizer`（ビュー非依存）。`VirtualListView` はその薄いラッパ。
 
+## 年ビュー（YearView）
+
+予定の帯・タイトルは表示せず、ドラッグ操作もない（日付ナビゲーションと予定密度の俯瞰が目的）。
+`hiddenWeekdays` は無視する（ミニ月グリッドは常に 7 列。日ビューと同じ扱い）。
+
+```
+div[data-koyomi="year"]
+  section[data-koyomi="year-month"][data-koyomi-month="YYYY-MM"] × 12   … 1 月〜12 月
+    div[data-koyomi="year-month-title"]                      … 月見出し（例:「7月」。renderMonthHeader で差し替え可。
+                                                                 既定内容ごと置換される）
+    div[data-koyomi="year-month-grid"] (role="grid")
+      div[data-koyomi="year-weekdays"] (role="row")
+        div[data-koyomi="year-weekday"] (role="columnheader") × 7
+                                                        … 曜日ラベル（Intl、週開始順。全ミニ月グリッド共通）
+      div[data-koyomi="year-weeks"] (role="rowgroup")
+        div[data-koyomi="year-week"] (role="row") × 4..6
+          div[data-koyomi="year-day-cell"] (role="gridcell")   … グリッドの1マス。フォーカス対象ではない
+            button[data-koyomi="year-day"][data-koyomi-date="YYYY-MM-DD"]
+               (aria-label=完全な日付+予定件数, aria-current="date"?)
+               [data-today?][data-outside?][data-has-events?]
+               … 実際の操作・フォーカス対象。クリックで goTo(date) + setView('day')。
+                 内容は renderDayCell で差し替え可能（既定は以下）
+              … 既定内容: 日番号のテキスト
+              span[data-koyomi="year-day-count"][aria-hidden="true"]?
+                                                        … eventCount > 0 かつ inCurrentMonth のときのみ
+                                                          （既定テーマはドットマーカー、件数の数値は表示しない）
+```
+
+- `data-has-events` は `eventCount > 0` のときのみ付与する。前後月の日付（`data-outside`）は
+  `eventCount` が常に `0` のため付与されない
+- 日セルの `aria-label` は「7月10日 予定3件」形式（`eventCount === 0` のときは件数部分を省略）
+- `role="gridcell"` は `year-day-cell`（div）に付き、実際にフォーカス・操作可能なのはその内側の
+  `button[data-koyomi="year-day"]`（月ビューの複合ウィジェットパターンと同様、role を持つ要素と
+  フォーカス対象を分離している）
+- ミニ月単位で WAI-ARIA grid ロール（`role="grid"` / `row` / `columnheader` / `gridcell`）を持つ、
+  月ビューと同じパターン
+
 ## CalendarView
 
-`state.view` に応じて `MonthView` / `TimeGridView` / `ListView` を出し分けるだけのスイッチ。
-props はビュー名を接頭辞にした名前で各ビューへ転送する（`renderMonthEvent` /
+`state.view` に応じて `MonthView` / `TimeGridView` / `ListView` / `YearView` を出し分けるだけの
+スイッチ。props はビュー名を接頭辞にした名前で各ビューへ転送する（`renderMonthEvent` /
 `renderMonthDayCell` / `monthOverflowLabel` / `renderTimeGridEvent` /
 `renderTimeGridDayHeader` / `renderListEvent` / `listAllDayLabel` / `listEmptyLabel` /
-`renderListDayHeader`）。`virtualizeList` を渡すと list ビューは `ListView` の代わりに
-`VirtualListView` で描画され、`listEstimateDayHeight` / `listOverscan` がそちらへ転送される。
+`renderListDayHeader` / `renderYearMonthHeader` / `renderYearDayCell`）。`virtualizeList` を
+渡すと list ビューは `ListView` の代わりに `VirtualListView` で描画され、
+`listEstimateDayHeight` / `listOverscan` がそちらへ転送される。
 
 ## Toolbar の文言
 
-`ToolbarProps.labels`（`ToolbarLabels`）で「今日 / ‹ / › / 月 / 週 / 日 / リスト」の
+`ToolbarProps.labels`（`ToolbarLabels`）で「今日 / ‹ / › / 月 / 週 / 日 / リスト / 年」の
 全文言を差し替えられる。prev/next の表示アイコン（‹/›）は固定で、`labels` の値が
 文字列の場合のみ aria-label に反映する。

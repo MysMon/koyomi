@@ -11,12 +11,15 @@ import type {
   MonthDay,
   PositionedOccurrence,
   TimeGridDay,
+  YearDay,
+  YearMonth,
 } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { ListView } from './list-view';
 import { MonthView } from './month-view';
 import { TimeGridView } from './time-grid-view';
 import { VirtualListView } from './virtual-list-view';
+import { YearView } from './year-view';
 
 /**
  * `CalendarView` の props。各ビューのカスタム描画関数・ラベル props を転送する。
@@ -66,6 +69,10 @@ export interface CalendarViewProps {
   monthOverflowLabel?: (count: number) => ReactNode;
   /** 週/日ビューの日ヘッダーのカスタム描画。`TimeGridView` の `renderDayHeader` に転送する。 */
   renderTimeGridDayHeader?: (day: TimeGridDay, defaultContent: ReactNode) => ReactNode;
+  /** 年ビューの月見出しのカスタム描画。`YearView` の `renderMonthHeader` に転送する。 */
+  renderYearMonthHeader?: (month: YearMonth, defaultContent: ReactNode) => ReactNode;
+  /** 年ビューの日セルのカスタム描画。`YearView` の `renderDayCell` に転送する。 */
+  renderYearDayCell?: (day: YearDay, defaultContent: ReactNode) => ReactNode;
 }
 
 /**
@@ -132,6 +139,15 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
         }
         return <ListView {...listProps} />;
       }
+      case 'year':
+        return (
+          <YearView
+            {...(props.renderYearMonthHeader
+              ? { renderMonthHeader: props.renderYearMonthHeader }
+              : {})}
+            {...(props.renderYearDayCell ? { renderDayCell: props.renderYearDayCell } : {})}
+          />
+        );
     }
   }
 

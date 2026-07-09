@@ -50,6 +50,17 @@ export function addMonthsInZone(date: Date, amount: number, timeZone: TimeZoneId
 }
 
 /**
+ * 指定タイムゾーンにおける「その年の 1 月 1 日 0:00」の絶対時刻を返す。
+ *
+ * 1 月 1 日の深夜 0:00 が存在しないゾーンに備えて
+ * `startOfDayInZone` で日の開始へ再正規化する。
+ */
+export function startOfYearInZone(date: Date, timeZone: TimeZoneId): Date {
+  const wall = getWallClock(date, timeZone);
+  return startOfDayInZone(fromWallClock({ year: wall.year, month: 1, day: 1 }, timeZone), timeZone);
+}
+
+/**
  * 月ビューのグリッド範囲を返す。
  *
  * 「月初を含む週の開始日 0:00」から「月末を含む週の翌週開始日 0:00（排他）」まで。
@@ -131,6 +142,8 @@ export function rangesOverlap(a: DateRange, b: DateRange): boolean {
  * - `week` — 基準日を含む週（7 日間）
  * - `day` — 基準日の 1 日
  * - `list` — 基準日の 0:00 から `listDays` 日間
+ * - `year` — 基準日を含む年（年初 0:00 から翌年初 0:00 まで。
+ *   ミニ月グリッドの前後月の日付は含まない）
  *
  * @param view - ビュー種別
  * @param currentDate - 基準日
@@ -166,6 +179,12 @@ export function visibleRangeFor(
       const end = startOfDayInZone(addDaysInZone(start, options.listDays, timeZone), timeZone);
       return { start, end };
     }
+    case 'year': {
+      const start = startOfYearInZone(currentDate, timeZone);
+      // 年初 0:00 の 12 ヶ月後 = 翌年初。念のため日の開始へ再正規化する
+      const end = startOfDayInZone(addMonthsInZone(start, 12, timeZone), timeZone);
+      return { start, end };
+    }
   }
 }
 
@@ -176,6 +195,7 @@ export function visibleRangeFor(
  * - `week` — ±7 日
  * - `day` — ±1 日
  * - `list` — ±`listDays` 日
+ * - `year` — ±1 年（日は年初に正規化）
  *
  * @param view - ビュー種別
  * @param currentDate - 現在の基準日
@@ -199,5 +219,10 @@ export function navigateDate(
       return addDaysInZone(currentDate, direction, timeZone);
     case 'list':
       return addDaysInZone(currentDate, options.listDays * direction, timeZone);
+    case 'year':
+      return startOfYearInZone(
+        addMonthsInZone(startOfYearInZone(currentDate, timeZone), 12 * direction, timeZone),
+        timeZone,
+      );
   }
 }

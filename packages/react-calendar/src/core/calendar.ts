@@ -35,6 +35,7 @@ import type {
 import { buildListViewModel } from './views/list-view';
 import { buildMonthViewModel } from './views/month-view';
 import { buildTimeGridViewModel } from './views/time-grid-view';
+import { buildYearViewModel } from './views/year-view';
 
 /** 解決済みオプションの既定値。 */
 const DEFAULT_OPTIONS: Omit<ResolvedCalendarOptions, 'now'> = {
@@ -279,6 +280,14 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           timeZone,
           occurrences,
           listDays: resolvedOptions.listDays,
+          now,
+        });
+      case 'year':
+        return buildYearViewModel({
+          currentDate,
+          timeZone,
+          occurrences,
+          weekStartsOn: resolvedOptions.weekStartsOn,
           now,
         });
     }
