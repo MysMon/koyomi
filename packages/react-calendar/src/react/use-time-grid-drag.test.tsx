@@ -36,7 +36,7 @@ if (typeof document.elementFromPoint !== 'function') {
 const TOKYO = 'Asia/Tokyo';
 const NOW = new Date('2026-07-15T01:00:00Z');
 
-/** 東京タイムゾーンの壁時計 `'YYYY-MM-DDTHH:mm'` から絶対時刻を作るテストヘルパ。 */
+/** 東京タイムゾーンの現地時刻 `'YYYY-MM-DDTHH:mm'` から絶対時刻を作るテストヘルパ。 */
 function at(isoLocal: string): Date {
   return parseDateValue(isoLocal, TOKYO, false);
 }
@@ -573,7 +573,7 @@ describe('useTimeGridDrag', () => {
     expect(events[0]).toMatchObject({ start: `${SAT}T10:00`, end: `${SAT}T11:00` });
   });
 
-  it('previewFor が対象日の分区間を返し、他の日は null になる', () => {
+  it('previewFor が対象日のその日に該当する区間を返し、他の日は null になる', () => {
     const { sink } = renderHarness();
     const dayEl = screen.getByTestId(`day-${MON}`);
     const x = columnCenterX(MON);

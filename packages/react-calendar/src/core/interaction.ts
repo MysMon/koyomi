@@ -59,13 +59,13 @@ export function snapToInterval(minutes: number, snap: number): number {
  * 時間グリッドの列内の縦位置（0〜1）から、その列の日における日時を計算する。
  *
  * 縦位置は列の高さ全体を 0:00〜24:00 に対応づけ、`snap` 間隔に
- * スナップした壁時計時刻を返す。結果は `interval`（正規化後の `snap`）の
+ * スナップした現地時刻を返す。結果は `interval`（正規化後の `snap`）の
  * 倍数のうち 1440 分（24:00）未満で最大のものを上限に、0 を下限にクランプ
  * される。`interval` が 1440 以上の場合は上限も 0 になり、常に日の 0:00 を返す。
  *
- * 壁時計への分加算（{@link addMinutesInZone}）で日時化するため、
- * DST の切り替え日でも縦位置と壁時計時刻の対応が保たれる
- * （存在しない時刻は前方に解決される）。
+ * 現地時刻への分加算（{@link addMinutesInZone}）で日時化するため、
+ * DST の切り替え日でも縦位置と現地時刻の対応が保たれる
+ * （存在しない時刻は直後の実在時刻に繰り上げて解決される）。
  *
  * @param params.day - 対象列の日の 0:00（絶対時刻）
  * @param params.fractionY - 列内の縦位置（0 = 0:00、1 = 24:00）
@@ -105,7 +105,7 @@ export type TimeGridDragMode = 'create' | 'move' | 'resize' | 'resize-start';
 export interface TimeGridDragState {
   /** 操作の種類。 */
   mode: TimeGridDragMode;
-  /** 対象の発生（`create` では `null`）。 */
+  /** 対象のオカレンス（`create` では `null`）。 */
   occurrence: EventOccurrence | null;
   /** ドラッグ開始時のポインタ位置に対応する日時（スナップ済み）。 */
   anchor: Date;
@@ -117,11 +117,11 @@ export interface TimeGridDragState {
  * 計算ルール:
  * - `create` — `anchor` とポインタの早い方を開始、遅い方を終了とする。
  *   同時刻（クリック相当）の場合は `snap` 分（正規化後）の長さにする
- * - `move` — 発生の開始を「`anchor` からポインタまでの移動量」だけずらす。
+ * - `move` — オカレンスの開始を「`anchor` からポインタまでの移動量」だけずらす。
  *   長さ（ミリ秒）は維持される
- * - `resize` — 発生の開始は固定し、終了をポインタ位置（スナップ済み）にする。
+ * - `resize` — オカレンスの開始は固定し、終了をポインタ位置（スナップ済み）にする。
  *   最小でも `開始 + snap 分`（正規化後）の長さを保つ
- * - `resize-start` — 発生の終了は固定し、開始をポインタ位置（スナップ済み）にする。
+ * - `resize-start` — オカレンスの終了は固定し、開始をポインタ位置（スナップ済み）にする。
  *   最小でも `終了 - snap 分`（正規化後）の長さを保つ
  *
  * `context.snap` が 1 未満（0・負数・小数）の場合は 1 として扱う
@@ -160,7 +160,7 @@ export function dragPreviewRange(
     }
     case 'move': {
       if (state.occurrence === null) {
-        throw new Error('move 操作には対象の発生（occurrence）が必要です');
+        throw new Error('move 操作には対象のオカレンス（occurrence）が必要です');
       }
       // 移動量・長さとも絶対時刻（ミリ秒）で計算する
       const deltaMs = pointer.getTime() - state.anchor.getTime();
@@ -170,7 +170,7 @@ export function dragPreviewRange(
     }
     case 'resize': {
       if (state.occurrence === null) {
-        throw new Error('resize 操作には対象の発生（occurrence）が必要です');
+        throw new Error('resize 操作には対象のオカレンス（occurrence）が必要です');
       }
       const start = new Date(state.occurrence.start.getTime());
       // 最小でも snap（正規化後）分の長さを保つ
@@ -180,7 +180,7 @@ export function dragPreviewRange(
     }
     case 'resize-start': {
       if (state.occurrence === null) {
-        throw new Error('resize-start 操作には対象の発生（occurrence）が必要です');
+        throw new Error('resize-start 操作には対象のオカレンス（occurrence）が必要です');
       }
       const end = new Date(state.occurrence.end.getTime());
       // 最小でも snap（正規化後）分の長さを保つ（開始は end - snap 分が上限）
@@ -205,13 +205,13 @@ export type DayDragMode = 'create' | 'move' | 'resize-start' | 'resize-end';
  * 日単位ドラッグ（月ビュー・終日行）のプレビュー範囲を計算する。
  *
  * - `create` — アンカー日とポインタ日の早い方から遅い方まで（end は翌日 0:00 で排他）
- * - `move` — 発生の開始日を「アンカー日からポインタ日までの日数差」だけずらす。
- *   日数（期間）は維持される。時間指定イベントの場合は壁時計時刻も維持される
- * - `resize-start` — 発生の開始日を日数差だけずらす（終了は固定）。
+ * - `move` — オカレンスの開始日を「アンカー日からポインタ日までの日数差」だけずらす。
+ *   日数（期間）は維持される。時間指定イベントの場合は現地時刻も維持される
+ * - `resize-start` — オカレンスの開始日を日数差だけずらす（終了は固定）。
  *   最低でも 1 日分（`start < end`）の長さを保つ
- * - `resize-end` — 発生の終了日を日数差だけずらす（開始は固定）。
+ * - `resize-end` — オカレンスの終了日を日数差だけずらす（開始は固定）。
  *   最低でも 1 日分（`end > start`）の長さを保つ。
- *   時間指定イベントの場合は壁時計時刻を維持したまま日数だけが変わる
+ *   時間指定イベントの場合は現地時刻を維持したまま日数だけが変わる
  *
  * 日数差は日付キーを UTC に載せた差分で求めるため、DST 切り替えで
  * 1 日が 23/25 時間になっても暦上の日数として正しく計算される。
@@ -245,7 +245,7 @@ export function dayDragPreviewRange(
     }
     case 'move': {
       if (state.occurrence === null) {
-        throw new Error('move 操作には対象の発生（occurrence）が必要です');
+        throw new Error('move 操作には対象のオカレンス（occurrence）が必要です');
       }
       return {
         start: addDaysInZone(state.occurrence.start, dayDiff, timeZone),
@@ -254,7 +254,7 @@ export function dayDragPreviewRange(
     }
     case 'resize-start': {
       if (state.occurrence === null) {
-        throw new Error('resize-start 操作には対象の発生（occurrence）が必要です');
+        throw new Error('resize-start 操作には対象のオカレンス（occurrence）が必要です');
       }
       const end = new Date(state.occurrence.end.getTime());
       let start = addDaysInZone(state.occurrence.start, dayDiff, timeZone);
@@ -266,7 +266,7 @@ export function dayDragPreviewRange(
     }
     case 'resize-end': {
       if (state.occurrence === null) {
-        throw new Error('resize-end 操作には対象の発生（occurrence）が必要です');
+        throw new Error('resize-end 操作には対象のオカレンス（occurrence）が必要です');
       }
       const start = new Date(state.occurrence.start.getTime());
       let end = addDaysInZone(state.occurrence.end, dayDiff, timeZone);

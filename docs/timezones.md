@@ -43,8 +43,8 @@ try {
 
 `start` / `end` に文字列を渡す場合、ISO 8601 のオフセット有無で解釈が変わります。
 
-- **オフセット付き**（`'2026-07-01T00:00:00Z'` や `'+09:00'` 終わり）— 記載どおりの絶対時刻
-- **オフセットなし**（例: `'2026-07-01T10:00'`）— `timeZone`（イベントの `timeZone`、なければ表示 TZ）における**壁時計時刻**として解釈される
+- **オフセット付き**（`'2026-07-01T00:00:00Z'` や `'+09:00'` で終わるもの）— 記載どおりの絶対時刻
+- **オフセットなし**（例: `'2026-07-01T10:00'`）— `timeZone`（イベントの `timeZone`、なければ表示 TZ）における**現地時刻**として解釈される
 - **`'YYYY-MM-DD'`** — 同じく `timeZone` におけるその日の 0:00
 
 次の例では、同じ `'2026-07-01T10:00'` という文字列でも、イベントの `timeZone` によって異なる絶対時刻に解決されます。
@@ -55,9 +55,9 @@ import { createCalendar } from '@koyomi-cal/react';
 const calendar = createCalendar({
   timeZone: 'Asia/Tokyo',
   events: [
-    // timeZone を指定しない場合は表示 TZ（Asia/Tokyo）の壁時計として解釈される
+    // timeZone を指定しない場合は表示 TZ（Asia/Tokyo）の現地時刻として解釈される
     { id: 'jst', title: '東京オフィス定例', start: '2026-07-01T10:00' },
-    // イベント個別に timeZone を指定すると、そちらの壁時計として解釈される
+    // イベント個別に timeZone を指定すると、そちらの現地時刻として解釈される
     {
       id: 'ny',
       title: 'NY 支社との電話会議',
@@ -77,9 +77,9 @@ console.log(tokyoOcc?.start.toISOString()); // => '2026-07-01T01:00:00.000Z'（�
 console.log(nyOcc?.start.toISOString()); // => '2026-07-01T14:00:00.000Z'（NY 10:00 = UTC 14:00, EDT）
 ```
 
-### 繰り返し予定と DST（壁時計の維持）
+### 繰り返し予定と DST（現地時刻の維持）
 
-繰り返し予定（`rrule`）は、イベントのタイムゾーンにおける**壁時計時刻を維持して展開**されます。夏時間（DST）の切り替えを跨いでも、現地時刻としては同じ時刻に発生し続けます（絶対時刻としての UTC オフセットは変わります）。
+繰り返し予定（`rrule`）は、イベントのタイムゾーンにおける**現地時刻を維持して展開**されます。夏時間（DST）の切り替えを跨いでも、現地時刻としては同じ時刻に発生し続けます（絶対時刻としての UTC オフセットは変わります）。
 
 ```tsx
 import { createCalendar } from '@koyomi-cal/react';
@@ -114,7 +114,7 @@ console.log(occurrences.map((o) => o.start.toISOString()));
 
 `allDay: true` のイベントは「カレンダー上の日付」に紐づき、タイムゾーンに依存しません（Google カレンダーと同じ挙動です）。`start` / `end` は日付として解釈され、`end` は排他的です（例: 7/10〜7/11 の 2 日間なら `start: '2026-07-10'`, `end: '2026-07-12'`）。
 
-表示タイムゾーンを変更しても、終日イベントが属する「日付」自体は変わりません（内部的には、その日付における表示 TZ の 0:00 が発生の絶対時刻になるため、絶対時刻の値は変わりますが、日付キーは変わりません）。
+表示タイムゾーンを変更しても、終日イベントが属する「日付」自体は変わりません（内部的には、その日付における表示 TZ の 0:00 がオカレンスの絶対時刻になるため、絶対時刻の値は変わりますが、日付キーは変わりません）。
 
 ```tsx
 import { createCalendar, dateKeyInZone } from '@koyomi-cal/react';
@@ -174,21 +174,21 @@ if (vm.type === 'month') {
 
 ## タイムゾーンユーティリティ
 
-日時のタイムゾーン変換を自前のコード（カスタム `renderEvent` や外部同期処理など）で行いたい場合のために、Koyomi が内部で使っているタイムゾーンユーティリティも公開されています。「絶対時刻（インスタント、`Date`）」と「壁時計（あるタイムゾーンで時計が示す年月日・時分）」を相互変換するための関数群です。
+日時のタイムゾーン変換を自前のコード（カスタム `renderEvent` や外部同期処理など）で行いたい場合のために、Koyomi が内部で使っているタイムゾーンユーティリティも公開されています。「絶対時刻（時点、`Date`）」と「現地時刻（あるタイムゾーンで時計が示す年月日・時分）」を相互変換するための関数群です。
 
 | 関数 | 概要 |
 | --- | --- |
 | `getLocalTimeZone()` | 実行環境のローカルタイムゾーン ID を返す |
 | `isValidTimeZone(timeZone)` | 文字列が有効な IANA タイムゾーン ID かどうかを判定する |
-| `fromWallClock(parts, timeZone)` | 壁時計成分（`WallClockParts`）から絶対時刻を構築する |
-| `getWallClock(date, timeZone)` | 絶対時刻を指定タイムゾーンの壁時計成分に分解する |
+| `fromWallClock(parts, timeZone)` | 現地時刻の成分（`WallClockParts`）から絶対時刻を構築する |
+| `getWallClock(date, timeZone)` | 絶対時刻を指定タイムゾーンの現地時刻の成分に分解する |
 | `dateKeyInZone(date, timeZone)` | 絶対時刻を `'YYYY-MM-DD'` の日付キーに変換する |
 | `dateFromKey(key, timeZone)` | `'YYYY-MM-DD'` の日付キーから、その日の 0:00 の絶対時刻を返す |
 | `startOfDayInZone(date, timeZone)` | 指定タイムゾーンにおける、その日の 0:00 の絶対時刻を返す |
-| `addDaysInZone(date, amount, timeZone)` | 壁時計基準で日数を加算する（DST を跨いでも壁時計時刻を維持） |
-| `addMinutesInZone(date, amount, timeZone)` | 壁時計基準で分数を加算する |
+| `addDaysInZone(date, amount, timeZone)` | 現地時刻基準で日数を加算する（DST を跨いでも現地時刻を維持） |
+| `addMinutesInZone(date, amount, timeZone)` | 現地時刻基準で分数を加算する |
 | `minutesOfDayInZone(date, timeZone)` | その日の 0:00 からの経過分（0〜1439）を返す |
-| `isSameDayInZone(a, b, timeZone)` | 2 つの絶対時刻が指定タイムゾーンの壁時計基準で同じ日か判定する |
+| `isSameDayInZone(a, b, timeZone)` | 2 つの絶対時刻が指定タイムゾーンの現地時刻基準で同じ日か判定する |
 | `weekdayInZone(date, timeZone)` | 指定タイムゾーンにおける曜日（0=日曜日〜6=土曜日）を返す |
 | `formatSlotLabel(minutes)` | その日の 0:00 からの分数を `'HH:mm'` 形式のラベルにする |
 | `parseDateValue(value, timeZone, allDay)` | `CalendarEvent.start` / `end` と同じ解釈規則で日時の値を絶対時刻に変換する |
@@ -208,7 +208,7 @@ import {
   weekdayInZone,
 } from '@koyomi-cal/react';
 
-// 壁時計成分 ⇔ 絶対時刻
+// 現地時刻の成分 ⇔ 絶対時刻
 const instant = fromWallClock({ year: 2026, month: 7, day: 1, hours: 10 }, 'Asia/Tokyo');
 console.log(instant.toISOString()); // => '2026-07-01T01:00:00.000Z'
 console.log(getWallClock(instant, 'Asia/Tokyo')); // => { year: 2026, month: 7, day: 1, hours: 10, minutes: 0, ... }
@@ -218,7 +218,7 @@ const key = dateKeyInZone(new Date('2026-06-30T20:00:00Z'), 'Asia/Tokyo');
 console.log(key); // => '2026-07-01'（UTC 20:00 は東京では翌日の 5:00）
 console.log(dateFromKey(key, 'Asia/Tokyo').toISOString()); // => '2026-06-30T15:00:00.000Z'
 
-// DST を跨ぐ日加算でも現地時刻（壁時計）は維持される
+// DST を跨ぐ日加算でも現地時刻は維持される
 const beforeDst = fromWallClock({ year: 2026, month: 3, day: 7, hours: 9 }, 'America/New_York');
 const nextDay = addDaysInZone(beforeDst, 1, 'America/New_York');
 console.log(getWallClock(nextDay, 'America/New_York').hours); // => 9（DST で絶対時刻としては 23 時間後）
@@ -232,7 +232,7 @@ console.log(isSameDayInZone(instant, new Date('2026-07-01T10:00:00Z'), 'Asia/Tok
 
 // CalendarEvent.start/end と同じ規則で汎用的に日時を解釈する
 console.log(parseDateValue('2026-07-01T10:00', 'Asia/Tokyo', false).toISOString());
-// => '2026-07-01T01:00:00.000Z'（オフセットなし ISO は壁時計として解釈）
+// => '2026-07-01T01:00:00.000Z'（オフセットなし ISO は現地時刻として解釈）
 ```
 
 ## 関連ページ

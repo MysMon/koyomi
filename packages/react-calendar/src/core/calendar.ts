@@ -6,8 +6,8 @@
  * 保持し、購読モデルで変更を通知する。React からは `useCalendar` フックが
  * `useSyncExternalStore` でこのエンジンを購読する。
  *
- * 状態の変更操作は {@link ../mutations} の純粋関数に委譲し、
- * ビューモデルの構築は {@link ../views} の各ビルダーに委譲する。
+ * 状態の変更操作は {@link ./mutations} の純粋関数に委譲し、
+ * ビューモデルの構築は {@link ./views} の各ビルダーに委譲する。
  */
 
 import { navigateDate, visibleRangeFor } from './date-utils';
@@ -378,7 +378,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       if (next === events) {
         return;
       }
-      // 外部同期の入口なので onEventsChange は呼ばない（エコーループ防止）
+      // 外部同期の入口なので onEventsChange は呼ばない（呼び出しの循環防止）
       events = next;
       commit(true);
     },

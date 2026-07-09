@@ -10,7 +10,7 @@
  * - 2026-08-01 は土曜、2026-08-31 は月曜（週開始=日曜だと 6 週）
  * - America/New_York の DST は 2026-03-08 に開始、2026-11-01 に終了
  * - America/Santiago の DST は 2026-09-06 の現地 0:00 に開始する（0:00〜0:59 が
- *   存在せず 1:00 に前方解決される。他の多くのゾーンと異なり深夜に切り替わる）。
+ *   存在せず 1:00 に繰り上げられる。他の多くのゾーンと異なり深夜に切り替わる）。
  *   2026-09-06 は日曜日
  */
 import { describe, expect, it } from 'vitest';
@@ -90,12 +90,12 @@ describe('addMonthsInZone', () => {
     expect(addMonthsInZone(date, -1, TOKYO).toISOString()).toBe('2026-02-28T01:00:00.000Z');
   });
 
-  it('通常の加算は同じ日・同じ壁時計時刻を維持する', () => {
+  it('通常の加算は同じ日・同じ現地時刻を維持する', () => {
     const date = new Date('2026-07-15T01:00:00Z'); // 7/15 10:00 JST
     expect(addMonthsInZone(date, 1, TOKYO).toISOString()).toBe('2026-08-15T01:00:00.000Z');
   });
 
-  it('DST を跨いでも壁時計時刻が維持される', () => {
+  it('DST を跨いでも現地時刻が維持される', () => {
     const date = new Date('2026-02-15T14:00:00Z'); // 2/15 9:00 EST
     // 3/15 9:00 EDT（UTC-4）
     expect(addMonthsInZone(date, 1, NY).toISOString()).toBe('2026-03-15T13:00:00.000Z');
@@ -156,11 +156,11 @@ describe('monthGridRange', () => {
     expect(eachDayInRange(range, NY)).toHaveLength(35);
   });
 
-  it('深夜 0:00 に DST が切り替わるゾーン（America/Santiago）を含む月でも、グリッド内の各日が正しい壁時計 0:00 になる（回帰）', () => {
+  it('深夜 0:00 に DST が切り替わるゾーン（America/Santiago）を含む月でも、グリッド内の各日が正しい現地時刻 0:00 になる（回帰）', () => {
     const anchor = new Date('2026-09-15T12:00:00Z');
     const range = monthGridRange(anchor, SANTIAGO, 0);
     const days = eachDayInRange(range, SANTIAGO);
-    // 切替日（9/6）だけ 1:00 に前方解決され、それ以外はすべて 0:00
+    // 切替日（9/6）だけ 1:00 に繰り上げられ、それ以外はすべて 0:00
     for (const day of days) {
       const minutes = minutesOfDayInZone(day, SANTIAGO);
       if (day.toISOString() === '2026-09-06T04:00:00.000Z') {
@@ -216,7 +216,7 @@ describe('eachDayInRange', () => {
       '2026-03-09',
       '2026-03-10',
     ]);
-    // 各要素はその日の 0:00（壁時計）
+    // 各要素はその日の現地時刻 0:00
     for (const day of days) {
       expect(minutesOfDayInZone(day, NY)).toBe(0);
     }
@@ -243,7 +243,7 @@ describe('eachDayInRange', () => {
   });
 
   it('深夜 0:00 に DST が切り替わるゾーン（America/Santiago）を跨いでも 1 時間を引きずらない（回帰）', () => {
-    // 2026-09-06 の America/Santiago は 0:00〜0:59 が存在せず 1:00 に前方解決される。
+    // 2026-09-06 の America/Santiago は 0:00〜0:59 が存在せず 1:00 に繰り上げられる。
     // 単純にカーソルへ 1 日ずつ加算するだけだと、切替日で得た 1:00 という時刻が
     // 以降の全日に引き継がれてしまう（本来は切替翌日以降 0:00 に戻るべき）。
     const range: DateRange = {
@@ -254,12 +254,12 @@ describe('eachDayInRange', () => {
     expect(days.map((d) => d.toISOString())).toEqual([
       '2026-09-04T04:00:00.000Z', // 9/4 0:00 -04:00
       '2026-09-05T04:00:00.000Z', // 9/5 0:00 -04:00
-      '2026-09-06T04:00:00.000Z', // 9/6 1:00 -03:00（0:00 が存在しないため前方解決）
+      '2026-09-06T04:00:00.000Z', // 9/6 1:00 -03:00（0:00 が存在しないため繰り上げ）
       '2026-09-07T03:00:00.000Z', // 9/7 0:00 -03:00（切替翌日は 0:00 に戻る）
       '2026-09-08T03:00:00.000Z', // 9/8 0:00 -03:00
       '2026-09-09T03:00:00.000Z', // 9/9 0:00 -03:00
     ]);
-    // 切替翌日以降はすべて現地 0:00（壁時計）であること
+    // 切替翌日以降はすべて現地時刻 0:00 であること
     for (const day of days.slice(3)) {
       expect(minutesOfDayInZone(day, SANTIAGO)).toBe(0);
     }
@@ -376,8 +376,8 @@ describe('visibleRangeFor', () => {
   });
 
   it('week: 週開始日に 0:00 が存在しない場合でも隣接週が 1 時間重複しない（America/Santiago 回帰）', () => {
-    // 2026-09-06（日）は週開始日だが現地 0:00 が存在せず 1:00 に前方解決される。
-    // end を日初へ正規化しないと、翌週の start と 1 時間重複してしまう。
+    // 2026-09-06（日）は週開始日だが現地 0:00 が存在せず 1:00 に繰り上げられる。
+    // end を日の開始へ正規化しないと、翌週の start と 1 時間重複してしまう。
     const week1Anchor = new Date('2026-09-08T12:00:00Z'); // 切替週の火曜（現地時間）
     const week2Anchor = new Date('2026-09-15T12:00:00Z'); // 翌週の火曜
     const week1 = visibleRangeFor('week', week1Anchor, SANTIAGO, {
@@ -388,7 +388,7 @@ describe('visibleRangeFor', () => {
       weekStartsOn: 0,
       listDays: 30,
     });
-    expect(week1.start.toISOString()).toBe('2026-09-06T04:00:00.000Z'); // 9/6 1:00（前方解決）
+    expect(week1.start.toISOString()).toBe('2026-09-06T04:00:00.000Z'); // 9/6 1:00（繰り上げ）
     expect(week1.end.getTime()).toBe(week2.start.getTime());
     expect(week1.end.toISOString()).toBe('2026-09-13T03:00:00.000Z'); // 9/13 0:00
   });
@@ -401,11 +401,11 @@ describe('visibleRangeFor', () => {
     expect(dayBefore.end.getTime()).toBe(dayOf.start.getTime());
   });
 
-  it('list: 週開始日に 0:00 が存在しない場合でも end が正しく日初へ正規化される（回帰）', () => {
-    // start がちょうど切替日（9/6, 1:00 に前方解決）になるよう anchor を選ぶ
+  it('list: 週開始日に 0:00 が存在しない場合でも end が正しく日の開始へ正規化される（回帰）', () => {
+    // start がちょうど切替日（9/6, 1:00 に繰り上げ）になるよう anchor を選ぶ
     const anchor = new Date('2026-09-06T12:00:00Z');
     const range = visibleRangeFor('list', anchor, SANTIAGO, { weekStartsOn: 0, listDays: 7 });
-    expect(range.start.toISOString()).toBe('2026-09-06T04:00:00.000Z'); // 9/6 1:00（前方解決）
+    expect(range.start.toISOString()).toBe('2026-09-06T04:00:00.000Z'); // 9/6 1:00（繰り上げ）
     expect(range.end.toISOString()).toBe('2026-09-13T03:00:00.000Z'); // 9/13 0:00
     expect(minutesOfDayInZone(range.end, SANTIAGO)).toBe(0);
   });
@@ -434,7 +434,7 @@ describe('navigateDate', () => {
     );
   });
 
-  it('week: ±7 日移動し、壁時計時刻を維持する', () => {
+  it('week: ±7 日移動し、現地時刻を維持する', () => {
     expect(navigateDate('week', current, 1, TOKYO, options).toISOString()).toBe(
       '2026-07-22T01:00:00.000Z',
     );
@@ -443,7 +443,7 @@ describe('navigateDate', () => {
     );
   });
 
-  it('week: DST 開始を跨いでも壁時計時刻を維持する（America/New_York）', () => {
+  it('week: DST 開始を跨いでも現地時刻を維持する（America/New_York）', () => {
     const beforeDst = new Date('2026-03-04T14:00:00Z'); // 3/4(水) 9:00 EST
     expect(navigateDate('week', beforeDst, 1, NY, options).toISOString()).toBe(
       '2026-03-11T13:00:00.000Z', // 3/11(水) 9:00 EDT
@@ -459,7 +459,7 @@ describe('navigateDate', () => {
     );
   });
 
-  it('day: DST 開始日を跨ぐ移動でも壁時計時刻を維持する', () => {
+  it('day: DST 開始日を跨ぐ移動でも現地時刻を維持する', () => {
     const beforeDst = new Date('2026-03-07T14:00:00Z'); // 3/7 9:00 EST
     expect(navigateDate('day', beforeDst, 1, NY, options).toISOString()).toBe(
       '2026-03-08T13:00:00.000Z', // 3/8 9:00 EDT

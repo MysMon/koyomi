@@ -14,7 +14,8 @@
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "demo": "pnpm --filter @koyomi-cal/demo dev",
-    "check": "pnpm lint && pnpm typecheck && pnpm test"
+    "terms": "node scripts/check-terms.mjs",
+    "check": "pnpm terms && pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.0",

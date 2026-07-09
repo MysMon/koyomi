@@ -3,8 +3,9 @@
  * `App` — Koyomi デモアプリのルートコンポーネント。
  *
  * ヘッダーで表示タイムゾーン・週開始曜日・ダークモードを切り替えられる。
- * カレンダー本体上の操作（範囲選択・予定クリック・ドラッグ移動/リサイズ・
- * 繰り返し予定の編集スコープ選択）はすべて `EventDialog` / `ScopeDialog` に委譲する。
+ * カレンダー本体上の操作のうち、範囲選択・予定クリックは `EventDialog` に、
+ * 繰り返し予定の編集スコープ選択は `ScopeDialog` に委譲する。ドラッグ移動/リサイズ
+ * による変更は `handleEventChange` が直接適用し、変更ログへ記録する。
  */
 
 import type {
@@ -124,7 +125,7 @@ export function App(): ReactElement {
     resolve?.(scope);
   }
 
-  /** ドラッグ移動・リサイズによる変更をログに追記する（最新 {@link MAX_LOG_ENTRIES} 件）。 */
+  /** ドラッグ移動・リサイズおよびキーボード操作（矢印キー）による変更をログに追記する（最新 {@link MAX_LOG_ENTRIES} 件）。 */
   const handleEventChange = useCallback(
     (change: EventChange) => {
       const formatter = new Intl.DateTimeFormat('ja', {

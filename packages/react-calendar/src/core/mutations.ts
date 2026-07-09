@@ -9,14 +9,14 @@
  *
  * ## 繰り返し編集のセマンティクス（Google カレンダー準拠）
  *
- * - **この予定のみ（`this`）** — 対象発生をオーバーライドイベント
+ * - **この予定のみ（`this`）** — 対象オカレンスをオーバーライドイベント
  *   （`recurringEventId` + `originalStart` を持つ単発イベント）に切り出して変更する。
- *   既にオーバーライド済みの発生への再変更は、そのオーバーライドに直接適用する。
- * - **これ以降（`thisAndFollowing`）** — 元の繰り返しを対象発生の直前で打ち切り
- *   （UNTIL 設定）、対象発生以降を新しい繰り返しイベントとして分割する。
- *   `COUNT` は消化済み回数を差し引いて引き継ぐ。対象発生以降の
+ *   既にオーバーライド済みのオカレンスへの再変更は、そのオーバーライドに直接適用する。
+ * - **これ以降（`thisAndFollowing`）** — 元の繰り返しを対象オカレンスの直前で打ち切り
+ *   （UNTIL 設定）、対象オカレンス以降を新しい繰り返しイベントとして分割する。
+ *   `COUNT` は消化済み回数を差し引いて引き継ぐ。対象オカレンス以降の
  *   オーバーライド・EXDATE は新イベントに付け替える。
- *   対象が最初の発生の場合は「すべての予定」と同じ扱いになる。
+ *   対象が最初のオカレンスの場合は「すべての予定」と同じ扱いになる。
  * - **すべて（`all`）** — 元イベント自体を変更する。既存のオーバーライドは維持される。
  *
  * ## パッチ適用規則
@@ -41,7 +41,7 @@ import type {
  * 変更操作の共通コンテキスト。
  */
 export interface MutationContext {
-  /** 表示タイムゾーン（日時文字列の解釈と発生時刻の計算に使用）。 */
+  /** 表示タイムゾーン（日時文字列の解釈とオカレンスの時刻の計算に使用）。 */
   displayTimeZone: TimeZoneId;
   /** `end` 省略時の既定の長さ（分）。 */
   defaultEventMinutes: number;
@@ -56,7 +56,7 @@ export interface MutationContext {
  * 繰り返しイベントの操作対象を指定する。
  */
 export interface RecurringTarget {
-  /** 対象発生の開始時刻（オーバーライド済みの場合は現在の開始時刻）。 */
+  /** 対象オカレンスの開始時刻（オーバーライド済みの場合は現在の開始時刻）。 */
   occurrenceStart: Date;
   /** 適用範囲。 */
   scope: RecurringEditScope;
@@ -144,7 +144,7 @@ function findEventOrThrow(events: readonly CalendarEvent[], id: EventId): Calend
  * expansion.ts の展開時と同じ「イベント TZ → マスター TZ → 表示 TZ」の順で
  * フォールバックする。オーバーライドイベントが `timeZone` を持たない場合
  * （外部データ同期で timeZone フィールドを省略したケース）でも、マスターと
- * 同じ壁時計解釈になることを保証する。
+ * 同じ現地時刻解釈になることを保証する。
  *
  * @param master - オーバーライドの親（マスター）イベント。分かる場合のみ渡す
  */
@@ -185,7 +185,7 @@ function parseOriginalStart(
 }
 
 /**
- * オーバーライドが対象とする発生の開始時刻を返す。
+ * オーバーライドが対象とするオカレンスの開始時刻を返す。
  * 通常は `originalStart`、欠落している場合は現在の開始で代用する。
  *
  * @param master - オーバーライドの親イベント。日時文字列の解釈をマスター TZ に
@@ -200,7 +200,7 @@ function overrideAnchor(
 }
 
 /**
- * 発生 1 回分の長さ（ミリ秒）を返す。
+ * オカレンス 1 回分の長さ（ミリ秒）を返す。
  *
  * `end` があれば `start` との差分。なければ終日イベントは 1 日、
  * 時間指定イベントは `defaultEventMinutes` 分とみなす。
@@ -232,7 +232,7 @@ function withRdates(event: CalendarEvent, rdates: readonly (Date | string)[]): C
   return rdates.length === 0 ? rest : { ...rest, rdates };
 }
 
-/** 対象発生の開始を EXDATE の末尾に追加した複製を返す。 */
+/** 対象オカレンスの開始を EXDATE の末尾に追加した複製を返す。 */
 function appendExdate(event: CalendarEvent, occurrenceStart: Date): CalendarEvent {
   return {
     ...event,
@@ -241,7 +241,7 @@ function appendExdate(event: CalendarEvent, occurrenceStart: Date): CalendarEven
 }
 
 /**
- * 指定発生に対応する既存のオーバーライドを探す。
+ * 指定オカレンスに対応する既存のオーバーライドを探す。
  * `originalStart`（本来の開始）と現在の開始のどちらの一致でも対応付ける。
  */
 function findOverrideFor(
@@ -275,7 +275,7 @@ function mapPatch(
 /**
  * 分割後の新シリーズが引き継ぐ RRULE を作る。
  *
- * `COUNT` があれば消化済み回数（分割点より前の発生数）を差し引いた値に置き換え、
+ * `COUNT` があれば消化済み回数（分割点より前のオカレンス数）を差し引いた値に置き換え、
  * それ以外（`UNTIL` など）は元の文字列をそのまま返す。
  */
 function remainingRRule(
@@ -297,8 +297,8 @@ function remainingRRule(
 /**
  * マスターの表示系フィールドを継承したオーバーライドイベントを構築する。
  *
- * `rrule` / `exdates` は継承しない。`start` は `patch.start`（なければ発生の開始）、
- * `end` は `patch.end`（なければ発生の開始＋マスターの発生 1 回分の長さ）になる。
+ * `rrule` / `exdates` は継承しない。`start` は `patch.start`（なければオカレンスの開始）、
+ * `end` は `patch.end`（なければオカレンスの開始＋マスターのオカレンス 1 回分の長さ）になる。
  */
 function buildOverride(
   master: CalendarEvent,
@@ -342,7 +342,7 @@ function buildOverride(
 /**
  * `scope: 'this'` の更新。既存のオーバーライドがあればそれに直接適用し、
  * なければ新しいオーバーライドを作成して末尾に追加する。マスターは変更しない
- * （展開時に `originalStart` の一致で発生が置き換えられる）。
+ * （展開時に `originalStart` の一致でオカレンスが置き換えられる）。
  */
 function updateThisOccurrence(
   events: readonly CalendarEvent[],
@@ -361,7 +361,7 @@ function updateThisOccurrence(
 /**
  * `scope: 'thisAndFollowing'` の更新（シリーズ分割）。
  *
- * - 分割点が最初の発生（dtstart と一致）なら `'all'` と同じ扱い
+ * - 分割点が最初のオカレンス（dtstart と一致）なら `'all'` と同じ扱い
  * - 旧シリーズは分割点の直前で UNTIL 打ち切り（patch は適用しない）
  * - 新シリーズは分割点から始まり、`COUNT` は残数を引き継ぎ、patch を適用する
  * - 分割点以降（`>=`）の EXDATE・RDATE とオーバーライドは新シリーズに付け替える
@@ -448,7 +448,7 @@ function splitSeries(
 /**
  * `scope: 'thisAndFollowing'` の削除（シリーズ打ち切り）。
  *
- * - 分割点が最初の発生なら繰り返し全体（＋オーバーライド）を削除する
+ * - 分割点が最初のオカレンスなら繰り返し全体（＋オーバーライド）を削除する
  * - それ以外は分割点の直前で UNTIL 打ち切りし、分割点以降（`>=`）の
  *   EXDATE・RDATE とオーバーライドを取り除く
  */
@@ -534,7 +534,7 @@ export function createEventIn(
  *   `'thisAndFollowing'` / `'all'` は親シリーズに対して適用される。
  *   `'thisAndFollowing'` の分割点はオーバーライドの `originalStart` になる）
  * @param patch - 変更内容
- * @param target - 繰り返しの対象発生とスコープ（単発イベントでは省略）
+ * @param target - 繰り返しの対象オカレンスとスコープ（単発イベントでは省略）
  * @param context - 変更コンテキスト
  * @returns 更新後のイベント一覧
  */
@@ -581,20 +581,20 @@ export function updateEventIn(
  * - 単発イベント、または `target` 省略時 — イベントを取り除く
  *   （繰り返しイベントで `target` 省略時は繰り返し全体と、
  *   それを参照するオーバーライドをすべて取り除く）
- * - `scope: 'this'` — 対象発生を EXDATE に追加する。対象がオーバーライド
- *   済みの発生の場合はオーバーライドを取り除き、元発生の EXDATE に追加する
- * - `scope: 'thisAndFollowing'` — 対象発生の直前で繰り返しを打ち切り、
- *   対象発生以降のオーバーライド・EXDATE を取り除く。
- *   対象が最初の発生なら繰り返し全体を削除する
+ * - `scope: 'this'` — 対象オカレンスを EXDATE に追加する。対象がオーバーライド
+ *   済みのオカレンスの場合はオーバーライドを取り除き、元のオカレンスの EXDATE に追加する
+ * - `scope: 'thisAndFollowing'` — 対象オカレンスの直前で繰り返しを打ち切り、
+ *   対象オカレンス以降のオーバーライド・EXDATE を取り除く。
+ *   対象が最初のオカレンスなら繰り返し全体を削除する
  * - `scope: 'all'` — 繰り返し全体と、それを参照するオーバーライドを取り除く
  *
  * `id` にオーバーライドの ID が渡された場合、`scope: 'this'`（または `target`
- * 省略）はオーバーライドを取り除き元発生（`originalStart`）を親の EXDATE に
+ * 省略）はオーバーライドを取り除き元のオカレンス（`originalStart`）を親の EXDATE に
  * 追加する。`'thisAndFollowing'` / `'all'` は親シリーズに対して適用される。
  *
  * @param events - 現在のイベント一覧
  * @param id - 対象イベントの ID（オーバーライドの ID でもよい）
- * @param target - 繰り返しの対象発生とスコープ（単発イベントでは省略）
+ * @param target - 繰り返しの対象オカレンスとスコープ（単発イベントでは省略）
  * @param context - 変更コンテキスト
  * @returns 削除後のイベント一覧
  */
@@ -617,7 +617,7 @@ export function deleteEventIn(
         // 親が見つからない場合はオーバーライドの除去のみ行う
         return remaining;
       }
-      // オーバーライドを除去し、元発生（originalStart）を親の EXDATE に追加する
+      // オーバーライドを除去し、元のオカレンス（originalStart）を親の EXDATE に追加する
       const original = overrideAnchor(event, context, parentEvent);
       return remaining.map((other) =>
         other.id === parentId ? appendExdate(other, original) : other,
@@ -643,7 +643,7 @@ export function deleteEventIn(
   if (target.scope === 'this') {
     const override = findOverrideFor(events, event, target.occurrenceStart, context);
     if (override !== undefined) {
-      // オーバーライド済みの発生: オーバーライドを除去し、元発生を EXDATE に追加する
+      // オーバーライド済みのオカレンス: オーバーライドを除去し、元のオカレンスを EXDATE に追加する
       const original = overrideAnchor(override, context, event);
       return events
         .filter((other) => other.id !== override.id)
@@ -658,10 +658,10 @@ export function deleteEventIn(
 }
 
 /**
- * 発生の移動（ドラッグ＆ドロップ）を適用する。
+ * オカレンスの移動（ドラッグ＆ドロップ）を適用する。
  *
- * `updateEventIn` の便利ラッパ。発生の新しい開始時刻から `start` / `end` の
- * パッチを構築して適用する。長さは元の発生の長さを維持する。
+ * `updateEventIn` の便利ラッパ。オカレンスの新しい開始時刻から `start` / `end` の
+ * パッチを構築して適用する。長さは元のオカレンスの長さを維持する。
  * 繰り返しイベントの場合はスコープに従う。
  *
  * - `newEnd` 指定時はリサイズとして `end` に `newEnd` を使う
@@ -670,7 +670,7 @@ export function deleteEventIn(
  *
  * @param events - 現在のイベント一覧
  * @param id - 対象イベントの ID
- * @param params.occurrenceStart - 対象発生の現在の開始時刻
+ * @param params.occurrenceStart - 対象オカレンスの現在の開始時刻
  * @param params.newStart - 移動先の開始時刻
  * @param params.newEnd - 移動先の終了時刻（リサイズ時に指定。省略時は長さ維持）
  * @param params.allDay - 移動先が終日枠かどうか（時間⇔終日の変換に使用。省略時は変更しない）
@@ -695,7 +695,7 @@ export function moveOccurrenceIn(
   if (isRecurring && params.scope === undefined) {
     throw new Error(`繰り返しイベントの移動には scope の指定が必要です: '${id}'`);
   }
-  // マスターの ID + 現在の開始時刻で「オーバーライド済みの発生」を移動する場合は、
+  // マスターの ID + 現在の開始時刻で「オーバーライド済みのオカレンス」を移動する場合は、
   // マスターの既定の長さではなく、そのオーバーライド固有の長さを維持する
   const override =
     event.rrule !== undefined

@@ -6,7 +6,7 @@
  *
  * 基本フィクスチャ（東京）:
  * - master-1: 毎朝 9:00〜10:00 JST（= 00:00〜01:00Z）、FREQ=DAILY;COUNT=10、7/1 起点。
- *   発生は 7/1〜7/10 の各日 00:00Z。
+ *   オカレンスは 7/1〜7/10 の各日 00:00Z。
  *
  * America/New_York の 2026 年の DST:
  * - 開始: 2026-03-08 02:00（EST(UTC-5) → EDT(UTC-4)、9:00 は 14:00Z → 13:00Z になる）
@@ -85,7 +85,7 @@ function makeMaster(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
   };
 }
 
-/** master-1 の 7/3 の発生を 11:00〜12:00 JST に移動済みのオーバーライド。 */
+/** master-1 の 7/3 のオカレンスを 11:00〜12:00 JST に移動済みのオーバーライド。 */
 function makeOverride(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
   return {
     id: 'ov-3',
@@ -283,7 +283,7 @@ describe('updateEventIn: 単発イベント', () => {
 });
 
 describe("updateEventIn: scope 'this'（オーバーライド作成）", () => {
-  const occurrenceStart = new Date('2026-07-03T00:00:00Z'); // 3 回目の発生（東京 7/3 9:00）
+  const occurrenceStart = new Date('2026-07-03T00:00:00Z'); // 3 回目のオカレンス（東京 7/3 9:00）
 
   it('マスターの表示系フィールドを継承したオーバーライドを作成する', () => {
     const result = updateEventIn(
@@ -330,8 +330,8 @@ describe("updateEventIn: scope 'this'（オーバーライド作成）", () => {
     expect(override.originalStart).toEqual(occurrenceStart);
   });
 
-  it('patch.start のみ指定時、end は発生の開始＋マスターの長さに固定される', () => {
-    // 仕様: end = patch.end ?? 発生の開始＋マスターの長さ（patch.start には追従しない）
+  it('patch.start のみ指定時、end はオカレンスの開始＋マスターの長さに固定される', () => {
+    // 仕様: end = patch.end ?? オカレンスの開始＋マスターの長さ（patch.start には追従しない）
     const result = updateEventIn(
       [makeMaster()],
       'master-1',
@@ -341,7 +341,7 @@ describe("updateEventIn: scope 'this'（オーバーライド作成）", () => {
     );
     const override = findById(result, 'gen-1');
     expect(override.start).toEqual(new Date('2026-07-03T00:30:00Z'));
-    expect(override.end).toEqual(new Date('2026-07-03T01:00:00Z')); // 発生の開始 + 1 時間
+    expect(override.end).toEqual(new Date('2026-07-03T01:00:00Z')); // オカレンスの開始 + 1 時間
   });
 
   it('end 省略マスターの長さは defaultEventMinutes で計算する', () => {
@@ -373,7 +373,7 @@ describe("updateEventIn: scope 'this'（オーバーライド作成）", () => {
       timeZone: TOKYO,
       rrule: 'FREQ=WEEKLY;COUNT=4',
     };
-    // 2 回目の発生（東京 7/8 0:00）
+    // 2 回目のオカレンス（東京 7/8 0:00）
     const result = updateEventIn(
       [master],
       'master-allday',
@@ -387,7 +387,7 @@ describe("updateEventIn: scope 'this'（オーバーライド作成）", () => {
     expect(override.end).toEqual(new Date('2026-07-08T15:00:00Z')); // 1 日分
   });
 
-  it('既にオーバーライドされた発生（originalStart 一致）への再編集はオーバーライドに直接適用する', () => {
+  it('既にオーバーライドされたオカレンス（originalStart 一致）への再編集はオーバーライドに直接適用する', () => {
     const events = [makeMaster(), makeOverride()];
     const result = updateEventIn(
       events,
@@ -442,7 +442,7 @@ describe("updateEventIn: scope 'this'（オーバーライド作成）", () => {
     expect(events).toHaveLength(2);
     expect(findById(events, 'gen-1').title).toBe('臨時MTG');
 
-    // 3. 'this' 削除でオーバーライドが除去され、元発生が exdates に追加される
+    // 3. 'this' 削除でオーバーライドが除去され、元のオカレンスが exdates に追加される
     events = deleteEventIn(
       events,
       'gen-1',
@@ -484,7 +484,7 @@ describe("updateEventIn: scope 'thisAndFollowing'（シリーズ分割）", () =
     );
   });
 
-  it('分割後の発生集合は旧 3 回・新 7 回で、元の発生日時を保つ', () => {
+  it('分割後のオカレンス集合は旧 3 回・新 7 回で、元のオカレンスの日時を保つ', () => {
     const result = updateEventIn(
       [makeMaster()],
       'master-1',
@@ -609,7 +609,7 @@ describe("updateEventIn: scope 'thisAndFollowing'（シリーズ分割）", () =
     expect(findById(result, 'gen-1').rrule).toBe('FREQ=DAILY');
   });
 
-  it("最初の発生（dtstart と一致）での分割は 'all' と同じ扱いになる", () => {
+  it("最初のオカレンス（dtstart と一致）での分割は 'all' と同じ扱いになる", () => {
     const result = updateEventIn(
       [makeMaster()],
       'master-1',
@@ -621,7 +621,7 @@ describe("updateEventIn: scope 'thisAndFollowing'（シリーズ分割）", () =
     expect(findById(result, 'master-1')).toEqual(makeMaster({ title: '全変更' }));
   });
 
-  it('DST 跨ぎの分割でも壁時計時刻（NY 9:00）が保たれる', () => {
+  it('DST 跨ぎの分割でも現地時刻（NY 9:00）が保たれる', () => {
     const nyMaster: CalendarEvent = {
       id: 'ny-master',
       title: 'NY 朝会',
@@ -630,7 +630,7 @@ describe("updateEventIn: scope 'thisAndFollowing'（シリーズ分割）", () =
       timeZone: NY,
       rrule: 'FREQ=DAILY;COUNT=6',
     };
-    // 3 回目の発生 = DST 切替日 3/8 の 9:00 EDT = 13:00Z で分割
+    // 3 回目のオカレンス = DST 切替日 3/8 の 9:00 EDT = 13:00Z で分割
     const result = updateEventIn(
       [nyMaster],
       'ny-master',
@@ -717,7 +717,7 @@ describe('updateEventIn: オーバーライドの ID で親シリーズに適用
   });
 
   it("scope 'thisAndFollowing' はオーバーライドの originalStart を分割点として親を分割する", () => {
-    // ov-3 の originalStart は 7/3 9:00（3 回目の発生）。現在の開始 11:00 ではなく本来の 9:00 で分割される
+    // ov-3 の originalStart は 7/3 9:00（3 回目のオカレンス）。現在の開始 11:00 ではなく本来の 9:00 で分割される
     const result = updateEventIn(
       [makeMaster(), makeOverride()],
       'ov-3',
@@ -738,11 +738,11 @@ describe('updateEventIn: オーバーライドの ID で親シリーズに適用
   });
 });
 
-describe('deleteEventIn: 孤児オーバーライド（親マスター不在）', () => {
+describe('deleteEventIn: 参照先のないオーバーライド（親マスター不在）', () => {
   it("親が存在しないオーバーライドの 'this' 削除はオーバーライドの除去のみ行う", () => {
     const orphan: CalendarEvent = {
       id: 'orphan-1',
-      title: '孤児オーバーライド',
+      title: '参照先のないオーバーライド',
       start: new Date('2026-07-03T02:00:00Z'),
       end: new Date('2026-07-03T03:00:00Z'),
       recurringEventId: 'missing-master',
@@ -756,7 +756,7 @@ describe('deleteEventIn: 孤児オーバーライド（親マスター不在）'
 
     const result = deleteEventIn([orphan, other], 'orphan-1', undefined, makeContext());
 
-    // 孤児は取り除かれ、他イベントは EXDATE 追加などの影響を受けない
+    // 参照先のないオーバーライドは取り除かれ、他イベントは EXDATE 追加などの影響を受けない
     expect(result).toEqual([other]);
   });
 });
@@ -781,7 +781,7 @@ describe('オーバーライドの日時解釈: マスターの timeZone にフ�
     };
   }
 
-  /** 7/3 の発生を 12:00 に移動したオーバーライド（timeZone フィールドなし）。 */
+  /** 7/3 のオカレンスを 12:00 に移動したオーバーライド（timeZone フィールドなし）。 */
   function makeNyOverride(): CalendarEvent {
     return {
       id: 'ny-ov',
@@ -891,7 +891,7 @@ describe('deleteEventIn: 繰り返しイベント', () => {
     expect(result).toEqual([]);
   });
 
-  it("scope 'this'（未オーバーライドの発生）は対象発生を EXDATE に追加する", () => {
+  it("scope 'this'（未オーバーライドのオカレンス）は対象オカレンスを EXDATE に追加する", () => {
     const occ = new Date('2026-07-05T00:00:00Z');
     const result = deleteEventIn(
       [makeMaster()],
@@ -916,7 +916,7 @@ describe('deleteEventIn: 繰り返しイベント', () => {
     ]);
   });
 
-  it("オーバーライドの ID + scope 'this' はオーバーライドを除去し、元発生（originalStart）を EXDATE に追加する", () => {
+  it("オーバーライドの ID + scope 'this' はオーバーライドを除去し、元のオカレンス（originalStart）を EXDATE に追加する", () => {
     const result = deleteEventIn(
       [makeMaster(), makeOverride()],
       'ov-3',
@@ -931,8 +931,8 @@ describe('deleteEventIn: 繰り返しイベント', () => {
     expect(result).toEqual([makeMaster({ exdates: [new Date('2026-07-03T00:00:00Z')] })]);
   });
 
-  it("マスターの ID + 現在の開始時刻でもオーバーライド済みの発生を 'this' 削除できる", () => {
-    // ov-3 は 7/3 9:00 の発生を 11:00 に移動済み。現在の開始時刻（11:00 = 02:00Z）で指定する
+  it("マスターの ID + 現在の開始時刻でもオーバーライド済みのオカレンスを 'this' 削除できる", () => {
+    // ov-3 は 7/3 9:00 のオカレンスを 11:00 に移動済み。現在の開始時刻（11:00 = 02:00Z）で指定する
     const result = deleteEventIn(
       [makeMaster(), makeOverride()],
       'master-1',
@@ -985,7 +985,7 @@ describe('deleteEventIn: 繰り返しイベント', () => {
     expect(updated.rdates).toEqual([new Date('2026-07-03T05:00:00Z')]);
   });
 
-  it("scope 'thisAndFollowing' の打ち切り後は分割点より前の発生だけが残る", () => {
+  it("scope 'thisAndFollowing' の打ち切り後は分割点より前のオカレンスだけが残る", () => {
     const result = deleteEventIn(
       [makeMaster()],
       'master-1',
@@ -1009,7 +1009,7 @@ describe('deleteEventIn: 繰り返しイベント', () => {
     ]);
   });
 
-  it("最初の発生での 'thisAndFollowing' 削除は繰り返し全体を削除する", () => {
+  it("最初のオカレンスでの 'thisAndFollowing' 削除は繰り返し全体を削除する", () => {
     const result = deleteEventIn(
       [makeMaster(), makeOverride()],
       'master-1',
@@ -1021,14 +1021,14 @@ describe('deleteEventIn: 繰り返しイベント', () => {
 });
 
 describe('moveOccurrenceIn', () => {
-  it('オーバーライド済みの発生をマスター ID + 現在の開始時刻で移動すると、オーバーライド固有の長さが維持される', () => {
-    // 7/3 の発生は 11:00〜12:30 JST（90 分）に変更済み（マスターの既定は 60 分）
+  it('オーバーライド済みのオカレンスをマスター ID + 現在の開始時刻で移動すると、オーバーライド固有の長さが維持される', () => {
+    // 7/3 のオカレンスは 11:00〜12:30 JST（90 分）に変更済み（マスターの既定は 60 分）
     const override = makeOverride({ end: new Date('2026-07-03T03:30:00Z') });
     const result = moveOccurrenceIn(
       [makeMaster(), override],
       'master-1',
       {
-        // 「対象発生の現在の開始時刻」= オーバーライド後の 11:00 JST
+        // 「対象オカレンスの現在の開始時刻」= オーバーライド後の 11:00 JST
         occurrenceStart: new Date('2026-07-03T02:00:00Z'),
         newStart: new Date('2026-07-03T05:00:00Z'), // 14:00 JST へ移動
         scope: 'this',
@@ -1045,7 +1045,7 @@ describe('moveOccurrenceIn', () => {
     const single: CalendarEvent = {
       id: 'single-1',
       title: '打ち合わせ',
-      start: '2026-07-01T10:00', // 東京の壁時計 → 01:00Z
+      start: '2026-07-01T10:00', // 東京の現地時刻 → 01:00Z
       end: '2026-07-01T11:30', // 02:30Z（90 分）
     };
     const result = moveOccurrenceIn(
@@ -1190,7 +1190,7 @@ describe('moveOccurrenceIn', () => {
     expect(created.rrule).toBe('FREQ=DAILY;COUNT=7');
   });
 
-  it("scope 'all' で最初の発生を移動するとマスターの start / end が変わる", () => {
+  it("scope 'all' で最初のオカレンスを移動するとマスターの start / end が変わる", () => {
     const result = moveOccurrenceIn(
       [makeMaster()],
       'master-1',

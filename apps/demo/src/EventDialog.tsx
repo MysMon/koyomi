@@ -3,7 +3,7 @@
  * `EventDialog` — 予定の作成・編集ダイアログ。
  *
  * `<dialog>` 要素をネイティブモーダルとして使用する。新規作成（範囲選択から）と
- * 編集（発生クリックから）の両方をこのコンポーネントで扱う。繰り返し予定の
+ * 編集（オカレンスクリックから）の両方をこのコンポーネントで扱う。繰り返し予定の
  * 変更・削除は、保存・削除の直前に `resolveRecurringScope` で適用範囲を確認する。
  */
 
@@ -31,7 +31,7 @@ import type { ScopeAction } from './ScopeDialog';
 
 /**
  * ダイアログの表示モード。
- * `create` は範囲選択からの新規作成、`edit` は発生クリックからの編集。
+ * `create` は範囲選択からの新規作成、`edit` はオカレンスクリックからの編集。
  */
 export type EventDialogMode =
   | { type: 'create'; selection: RangeSelection }
@@ -41,7 +41,7 @@ export type EventDialogMode =
 export interface EventDialogProps {
   /** 表示するモード。`null` なら非表示（内容は描画しないが `<dialog>` 自体は常にマウントする）。 */
   mode: EventDialogMode | null;
-  /** 現在の表示タイムゾーン。フォームの日時入力はこのタイムゾーンの壁時計として解釈・表示する。 */
+  /** 現在の表示タイムゾーン。フォームの日時入力はこのタイムゾーンの現地時刻として解釈・表示する。 */
   timeZone: TimeZoneId;
   /** カレンダーエンジンの API。保存・削除の実行に使う。 */
   api: CalendarApi;
@@ -111,7 +111,7 @@ function pad2(value: number): string {
 }
 
 /**
- * `datetime-local` input の value 用に、指定タイムゾーンの壁時計を
+ * `datetime-local` input の value 用に、指定タイムゾーンの現地時刻を
  * `'YYYY-MM-DDTHH:mm'` 形式にする。
  */
 function formatDateTimeLocalValue(date: Date, timeZone: TimeZoneId): string {
@@ -243,7 +243,7 @@ function withRRule(patch: CalendarEventPatch, rrule: string | undefined): Calend
  *
  * - 新規作成: 保存で `api.createEvent`
  * - 単発予定の編集: 保存で `api.updateEvent` / 削除で `api.deleteEvent`
- * - 繰り返し発生の編集: 保存・削除の前に `resolveRecurringScope` で適用範囲を
+ * - 繰り返しオカレンスの編集: 保存・削除の前に `resolveRecurringScope` で適用範囲を
  *   確認する。キャンセル（`null`）の場合は何もせずダイアログを開いたままにする。
  *   繰り返しルール自体の変更は `scope: 'all'` のときのみ反映する
  * - `editable: false` の予定は読み取り専用として表示する

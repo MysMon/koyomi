@@ -124,7 +124,7 @@ function App() {
 
 ## 予定クリックで詳細を出す
 
-予定（イベント）がクリックされたときは `onEventClick` が呼ばれます。クリックされた発生（`EventOccurrence`）と元の `MouseEvent` を受け取れるので、詳細パネルや編集ダイアログを開く起点として使えます。
+予定（イベント）がクリックされたときは `onEventClick` が呼ばれます。クリックされた予定のオカレンス（`EventOccurrence`）と元の `MouseEvent` を受け取れるので、詳細パネルや編集ダイアログを開く起点として使えます。
 
 ```tsx
 import { useState } from 'react';

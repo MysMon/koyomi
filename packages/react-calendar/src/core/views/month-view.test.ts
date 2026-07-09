@@ -14,8 +14,8 @@ const TOKYO: TimeZoneId = 'Asia/Tokyo';
 const NEW_YORK: TimeZoneId = 'America/New_York';
 
 /**
- * 指定タイムゾーンの壁時計から絶対時刻を作るヘルパ。
- * テストの日時をすべて壁時計で明示し、実行環境の TZ に依存させない。
+ * 指定タイムゾーンの現地時刻から絶対時刻を作るヘルパ。
+ * テストの日時をすべて現地時刻で明示し、実行環境の TZ に依存させない。
  */
 function at(
   timeZone: TimeZoneId,
@@ -29,7 +29,7 @@ function at(
 }
 
 /**
- * テスト用の発生（EventOccurrence）を構築するヘルパ。
+ * テスト用のオカレンス（EventOccurrence）を構築するヘルパ。
  * `key` は `'<eventId>@<startISO>'` 形式にする。
  */
 function makeOccurrence(id: string, start: Date, end: Date, allDay = false): EventOccurrence {
@@ -59,7 +59,7 @@ function build(overrides: Partial<Parameters<typeof buildMonthViewModel>[0]> = {
   });
 }
 
-/** 全週を走査して、指定発生キーのセグメントを（週番号つきで）収集するヘルパ。 */
+/** 全週を走査して、指定オカレンスキーのセグメントを（週番号つきで）収集するヘルパ。 */
 function segmentsOf(
   viewModel: MonthViewModel,
   occurrenceKey: string,
@@ -105,14 +105,14 @@ describe('buildMonthViewModel', () => {
       expect(firstDay?.date.getTime()).toBe(at(TOKYO, 2026, 6, 28).getTime());
     });
 
-    it('inCurrentMonth は 7 月の日のみ true になる（前後月の埋め草は false）', () => {
+    it('inCurrentMonth は 7 月の日のみ true になる（前後月の日付は false）', () => {
       const vm = build();
       const days = vm.weeks.flatMap((week) => [...week.days]);
       for (const day of days) {
         const expected = day.key.startsWith('2026-07-');
         expect(day.inCurrentMonth, `key=${day.key}`).toBe(expected);
       }
-      // 6/28〜6/30 と 8/1 の計 4 日が埋め草
+      // 6/28〜6/30 と 8/1 の計 4 日が前後月の日付
       expect(days.filter((day) => !day.inCurrentMonth)).toHaveLength(4);
     });
 
@@ -308,7 +308,7 @@ describe('buildMonthViewModel', () => {
       });
     });
 
-    it('長さ 0 の発生は開始日のみに span 1 で現れる', () => {
+    it('長さ 0 のオカレンスは開始日のみに span 1 で現れる', () => {
       const instant = at(TOKYO, 2026, 7, 7, 10);
       const occ = makeOccurrence('zero', instant, instant);
       const vm = build({ occurrences: [occ] });
@@ -371,7 +371,7 @@ describe('buildMonthViewModel', () => {
       expect(vm.anchor.getTime()).toBe(at(NEW_YORK, 2026, 7, 1).getTime());
     });
 
-    it('DST 開始日を跨ぐイベントも壁時計の日付どおりに配置される（2026-03 NY）', () => {
+    it('DST 開始日を跨ぐイベントも現地時刻の日付どおりに配置される（2026-03 NY）', () => {
       // NY の DST は 2026-03-08 2:00 に開始。3/7(土) 20:00 〜 3/9(月) 10:00 のイベント
       const occ = makeOccurrence('dst', at(NEW_YORK, 2026, 3, 7, 20), at(NEW_YORK, 2026, 3, 9, 10));
       const vm = build({
@@ -398,7 +398,7 @@ describe('buildMonthViewModel', () => {
   });
 
   describe('空入力', () => {
-    it('発生が空でも週と日は生成され、segments は空・overflowCount は 0 になる', () => {
+    it('オカレンスが空でも週と日は生成され、segments は空・overflowCount は 0 になる', () => {
       const vm = build({ occurrences: [] });
       expect(vm.weeks).toHaveLength(5);
       for (const week of vm.weeks) {
@@ -471,7 +471,7 @@ describe('buildMonthViewModel', () => {
       });
     });
 
-    it('非表示曜日のみに存在する発生はセグメントを生成せず overflowCount にも数えない', () => {
+    it('非表示曜日のみに存在するオカレンスはセグメントを生成せず overflowCount にも数えない', () => {
       // 土曜（6）のみの 2 件の予定。週末を非表示にし dayMaxEvents=1 にしても
       // どちらもセグメント化されず、あふれとしても計上されない
       const a = makeOccurrence('sat-a', at(TOKYO, 2026, 7, 11, 9), at(TOKYO, 2026, 7, 11, 10));

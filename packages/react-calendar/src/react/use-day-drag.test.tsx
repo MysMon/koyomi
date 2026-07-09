@@ -444,7 +444,7 @@ describe('useDayDrag - セグメントのドラッグによる移動', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resultRef: { current: DayDragHandlers | null } = { current: null };
@@ -486,7 +486,7 @@ describe('useDayDrag - セグメントのドラッグによる移動', () => {
     expect(end.getTime()).toBe(dateFromKey('2026-07-12', TOKYO).getTime());
   });
 
-  it('時間指定イベント（span 1 セグメント）の日移動では壁時計時刻が維持される', () => {
+  it('時間指定イベント（span 1 セグメント）の日移動では現地時刻が維持される', () => {
     const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
     const created = api.createEvent({
       title: 'MTG',
@@ -495,7 +495,7 @@ describe('useDayDrag - セグメントのドラッグによる移動', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resultRef: { current: DayDragHandlers | null } = { current: null };
@@ -532,7 +532,7 @@ describe('useDayDrag - セグメントのドラッグによる移動', () => {
     if (!(start instanceof Date) || !(end instanceof Date)) {
       throw new Error('更新後の start/end が Date ではありません');
     }
-    // 壁時計時刻（09:00 / 10:30）を維持したまま日付だけ 7/10 にずれる
+    // 現地時刻（09:00 / 10:30）を維持したまま日付だけ 7/10 にずれる
     expect(start.getTime()).toBe(
       new Date(occurrence.start.getTime() + 2 * 24 * 60 * 60 * 1000).getTime(),
     );
@@ -554,7 +554,7 @@ describe('useDayDrag - セグメントのドラッグによる移動', () => {
         (occ) => occ.eventId === created.id && occ.originalStart.getTime() === occ.start.getTime(),
       );
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
     expect(occurrence.isRecurring).toBe(true);
 
@@ -616,7 +616,7 @@ describe('useDayDrag - セグメントのドラッグによる移動', () => {
         (occ) => occ.eventId === created.id && occ.originalStart.getTime() === occ.start.getTime(),
       );
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resolveRecurringScope = vi.fn().mockResolvedValue(null);
@@ -673,7 +673,7 @@ describe('useDayDrag - ドラッグプレビューの allDay フラグ', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
     // 前提: 時間指定イベントなので occurrence.allDay は false
     expect(occurrence.allDay).toBe(false);
@@ -722,7 +722,7 @@ describe('useDayDrag - セグメントのクリックと onEventClick', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const onEventClick = vi.fn();
@@ -773,7 +773,7 @@ describe('useDayDrag - セグメントのクリックと onEventClick', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const onEventClick = vi.fn();
@@ -833,7 +833,7 @@ describe('useDayDrag - セグメントのクリックと onEventClick', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const onEventClick = vi.fn();
@@ -896,7 +896,7 @@ describe('useDayDrag - editable: false / Escape / previewRange / アンマウン
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const onEventChange = vi.fn();
@@ -1139,7 +1139,7 @@ describe('useDayDrag - pointercancel によるキャンセル', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const onEventChange = vi.fn();
@@ -1203,7 +1203,7 @@ describe('useDayDrag - Escape キャンセル直後の click 抑制', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const onEventClick = vi.fn();
@@ -1255,7 +1255,7 @@ describe('useDayDrag - Escape キャンセル直後の click 抑制', () => {
 });
 
 describe('useDayDrag - 非同期コミットのエラー処理', () => {
-  it('繰り返し発生の移動確定で resolveRecurringScope が失敗した場合、onError に委譲される', async () => {
+  it('繰り返しオカレンスの移動確定で resolveRecurringScope が失敗した場合、onError に委譲される', async () => {
     const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
     const created = api.createEvent({
       title: '朝会',
@@ -1268,7 +1268,7 @@ describe('useDayDrag - 非同期コミットのエラー処理', () => {
         (occ) => occ.eventId === created.id && occ.originalStart.getTime() === occ.start.getTime(),
       );
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const boom = new Error('scope resolution failed');
@@ -1328,7 +1328,7 @@ describe('useDayDrag - 非同期コミットのエラー処理', () => {
         (occ) => occ.eventId === created.id && occ.originalStart.getTime() === occ.start.getTime(),
       );
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const boom = new Error('scope resolution failed');
@@ -1383,7 +1383,7 @@ describe('useDayDrag - onEventDelete 通知', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const onEventDelete = vi.fn();
@@ -1412,7 +1412,7 @@ describe('useDayDrag - onEventDelete 通知', () => {
     expect(onEventDelete.mock.calls[0]?.[0]).toEqual({ occurrence, scope: null });
   });
 
-  it('繰り返し発生の削除確定後、解決したスコープで onEventDelete が呼ばれる', async () => {
+  it('繰り返しオカレンスの削除確定後、解決したスコープで onEventDelete が呼ばれる', async () => {
     const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
     const created = api.createEvent({
       title: '朝会',
@@ -1425,7 +1425,7 @@ describe('useDayDrag - onEventDelete 通知', () => {
         (occ) => occ.eventId === created.id && occ.originalStart.getTime() === occ.start.getTime(),
       );
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resolveRecurringScope = vi.fn().mockResolvedValue('all');
@@ -1467,7 +1467,7 @@ describe('useDayDrag - onEventDelete 通知', () => {
         (occ) => occ.eventId === created.id && occ.originalStart.getTime() === occ.start.getTime(),
       );
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resolveRecurringScope = vi.fn().mockResolvedValue(null);
@@ -1507,7 +1507,7 @@ describe('useDayDrag - 帯セグメントの左右端リサイズ', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resultRef: { current: DayDragHandlers | null } = { current: null };
@@ -1562,7 +1562,7 @@ describe('useDayDrag - 帯セグメントの左右端リサイズ', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resultRef: { current: DayDragHandlers | null } = { current: null };
@@ -1613,7 +1613,7 @@ describe('useDayDrag - 帯セグメントの左右端リサイズ', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resultRef: { current: DayDragHandlers | null } = { current: null };
@@ -1665,7 +1665,7 @@ describe('useDayDrag - 帯セグメントの左右端リサイズ', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const onEventChange = vi.fn();
@@ -1712,7 +1712,7 @@ describe('useDayDrag - 帯セグメントの左右端リサイズ', () => {
 });
 
 describe('useDayDrag - セグメントのキーボード操作（移動・リサイズ）', () => {
-  it('ArrowRight で発生が 1 日後ろに移動する', () => {
+  it('ArrowRight でオカレンスが 1 日後ろに移動する', () => {
     const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
     const created = api.createEvent({
       title: '出張',
@@ -1722,7 +1722,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const onEventChange = vi.fn();
@@ -1751,7 +1751,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
     expect(onEventChange).toHaveBeenCalledTimes(1);
   });
 
-  it('ArrowLeft で発生が 1 日前に移動する', () => {
+  it('ArrowLeft でオカレンスが 1 日前に移動する', () => {
     const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
     const created = api.createEvent({
       title: '出張',
@@ -1761,7 +1761,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resultRef: { current: DayDragHandlers | null } = { current: null };
@@ -1783,7 +1783,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
     expectDateKey(updated?.end, '2026-07-09');
   });
 
-  it('ArrowDown で発生が 7 日後ろに移動する（月グリッドの下移動に対応）', () => {
+  it('ArrowDown でオカレンスが 7 日後ろに移動する（月グリッドの下移動に対応）', () => {
     const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
     const created = api.createEvent({
       title: '出張',
@@ -1793,7 +1793,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resultRef: { current: DayDragHandlers | null } = { current: null };
@@ -1815,7 +1815,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
     expectDateKey(updated?.end, '2026-07-17');
   });
 
-  it('ArrowUp で発生が 7 日前に移動する（月グリッドの上移動に対応）', () => {
+  it('ArrowUp でオカレンスが 7 日前に移動する（月グリッドの上移動に対応）', () => {
     const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
     const created = api.createEvent({
       title: '出張',
@@ -1825,7 +1825,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resultRef: { current: DayDragHandlers | null } = { current: null };
@@ -1857,7 +1857,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resultRef: { current: DayDragHandlers | null } = { current: null };
@@ -1891,7 +1891,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resultRef: { current: DayDragHandlers | null } = { current: null };
@@ -1925,7 +1925,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const onEventChange = vi.fn();
@@ -1956,7 +1956,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
     expect(onEventChange).not.toHaveBeenCalled();
   });
 
-  it('editable: false の発生は矢印キー操作を無視する', () => {
+  it('editable: false のオカレンスは矢印キー操作を無視する', () => {
     const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
     const created = api.createEvent({
       title: '固定予定',
@@ -1967,7 +1967,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const onEventChange = vi.fn();
@@ -2001,7 +2001,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
     expect(onEventChange).not.toHaveBeenCalled();
   });
 
-  it('繰り返し発生の ArrowRight 移動は resolveRecurringScope に action: "move" で問い合わせる', async () => {
+  it('繰り返しオカレンスの ArrowRight 移動は resolveRecurringScope に action: "move" で問い合わせる', async () => {
     const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
     const created = api.createEvent({
       title: '朝会',
@@ -2014,7 +2014,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
         (occ) => occ.eventId === created.id && occ.originalStart.getTime() === occ.start.getTime(),
       );
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resolveRecurringScope = vi.fn().mockResolvedValue('this');
@@ -2043,7 +2043,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
     expect(onEventChange).toHaveBeenCalledTimes(1);
   });
 
-  it('繰り返し発生の Shift+ArrowRight リサイズは resolveRecurringScope に action: "resize" で問い合わせる', async () => {
+  it('繰り返しオカレンスの Shift+ArrowRight リサイズは resolveRecurringScope に action: "resize" で問い合わせる', async () => {
     const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
     const created = api.createEvent({
       title: '朝会',
@@ -2056,7 +2056,7 @@ describe('useDayDrag - セグメントのキーボード操作（移動・リサ
         (occ) => occ.eventId === created.id && occ.originalStart.getTime() === occ.start.getTime(),
       );
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resolveRecurringScope = vi.fn().mockResolvedValue('this');
@@ -2178,7 +2178,7 @@ describe('useDayDrag - 時間グリッドへの変換ドラッグ', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const onEventChange = vi.fn();
@@ -2246,7 +2246,7 @@ describe('useDayDrag - 時間グリッドへの変換ドラッグ', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resultRef: { current: DayDragHandlers | null } = { current: null };
@@ -2295,7 +2295,7 @@ describe('useDayDrag - 時間グリッドへの変換ドラッグ', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const onEventChange = vi.fn();
@@ -2343,7 +2343,7 @@ describe('useDayDrag - 時間グリッドへの変換ドラッグ', () => {
     );
   });
 
-  it('繰り返し発生の時間グリッド変換では resolveRecurringScope が呼ばれ、解決したスコープで適用される', async () => {
+  it('繰り返しオカレンスの時間グリッド変換では resolveRecurringScope が呼ばれ、解決したスコープで適用される', async () => {
     const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
     const created = api.createEvent({
       title: '休暇',
@@ -2357,7 +2357,7 @@ describe('useDayDrag - 時間グリッドへの変換ドラッグ', () => {
         (occ) => occ.eventId === created.id && occ.originalStart.getTime() === occ.start.getTime(),
       );
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const resolveRecurringScope = vi.fn().mockResolvedValue('this');
@@ -2409,7 +2409,7 @@ describe('useDayDrag - 時間グリッドへの変換ドラッグ', () => {
     expect(change?.scope).toBe('this');
   });
 
-  it('editable: false の終日発生は時間グリッド上でもドラッグが開始されない（変換も起きない）', () => {
+  it('editable: false の終日オカレンスは時間グリッド上でもドラッグが開始されない（変換も起きない）', () => {
     const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
     const created = api.createEvent({
       title: '固定予定',
@@ -2420,7 +2420,7 @@ describe('useDayDrag - 時間グリッドへの変換ドラッグ', () => {
     });
     const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
     if (occurrence === undefined) {
-      throw new Error('発生が見つかりません');
+      throw new Error('オカレンスが見つかりません');
     }
 
     const onEventChange = vi.fn();

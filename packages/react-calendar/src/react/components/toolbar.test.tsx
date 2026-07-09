@@ -2,7 +2,7 @@
  * @packageDocumentation
  * `Toolbar` コンポーネントのテスト。
  *
- * `docs/internal/components-dom.md` の「ルート / ツールバー」契約
+ * `docs/internal/components-dom.md` の「ルート / ツールバー」仕様
  * （DOM 構造・data 属性・aria 属性）を検証する。
  */
 
@@ -49,11 +49,11 @@ function renderToolbar(initialView?: CalendarViewType, labels?: ToolbarProps['la
   return { ...view, capture };
 }
 
-/** ビュー切替ボタンの `data-koyomi-action` 一覧（DOM 契約順）。 */
+/** ビュー切替ボタンの `data-koyomi-action` 一覧（DOM 仕様順）。 */
 const VIEW_ACTIONS = ['view-month', 'view-week', 'view-day', 'view-list'] as const;
 
 describe('Toolbar', () => {
-  it('DOM 契約どおりの構造（toolbar > toolbar-nav / title / toolbar-views）を持つ', () => {
+  it('DOM 仕様どおりの構造（toolbar > toolbar-nav / title / toolbar-views）を持つ', () => {
     const { container } = renderToolbar('month');
 
     const toolbar = container.querySelector('[data-koyomi="toolbar"]');

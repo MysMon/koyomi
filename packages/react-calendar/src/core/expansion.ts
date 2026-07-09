@@ -2,17 +2,17 @@
  * @packageDocumentation
  * イベントの展開（{@link CalendarEvent} → {@link EventOccurrence}）。
  *
- * ソースイベントの集合を表示範囲に対して展開し、発生（オカレンス）の
+ * ソースイベントの集合を表示範囲に対して展開し、オカレンスの
  * 一覧を生成する。繰り返しの展開、EXDATE による除外、RDATE による追加、
- * オーバーライド（「この予定のみ変更」）による置換をここで解決する。
+ * オーバーライド（「この予定のみ変更」）による置換をここで算出する。
  *
  * ## 終日イベントとタイムゾーン
  *
  * 終日イベントは「カレンダー上の日付」に紐づき、タイムゾーンに依存しない
  * （Google カレンダーと同じ挙動）。日付の解釈は `event.timeZone ??
  * displayTimeZone` で行い、`'YYYY-MM-DD'` の日付キーに正規化したうえで、
- * 展開時には表示タイムゾーンにおけるその日付の 0:00 を発生の開始絶対時刻
- * とする。表示タイムゾーンを変えても発生は常に同じ「日付」に現れる。
+ * 展開時には表示タイムゾーンにおけるその日付の 0:00 をオカレンスの開始絶対時刻
+ * とする。表示タイムゾーンを変えてもオカレンスは常に同じ「日付」に現れる。
  */
 
 import { rangesOverlap } from './date-utils';
@@ -34,17 +34,17 @@ const DAY_MS = 24 * 60 * MINUTE_MS;
  */
 const DATE_KEY_ZONE: TimeZoneId = 'UTC';
 
-/** 置換済み発生が 1 つもないことを表す空集合（時間指定マスター用）。 */
+/** 置換済みオカレンスが 1 つもないことを表す空集合（時間指定マスター用）。 */
 const NO_OVERRIDDEN_TIMES: ReadonlySet<number> = new Set();
 
-/** 置換済み発生が 1 つもないことを表す空集合（終日マスター用）。 */
+/** 置換済みオカレンスが 1 つもないことを表す空集合（終日マスター用）。 */
 const NO_OVERRIDDEN_KEYS: ReadonlySet<string> = new Set();
 
 /**
- * 発生の一意キーを構築する。
+ * オカレンスの一意キーを構築する。
  *
  * @param eventId - イベント ID
- * @param start - 発生の開始（絶対時刻）
+ * @param start - オカレンスの開始（絶対時刻）
  * @returns `` `${eventId}@${startのISO文字列}` `` 形式のキー
  * @example
  * ```ts
@@ -55,17 +55,17 @@ export function occurrenceKey(eventId: EventId, start: Date): string {
   return `${eventId}@${start.toISOString()}`;
 }
 
-/** 時間指定イベントの `[start, end)` を絶対時刻で解決した結果。 */
+/** 時間指定イベントの `[start, end)` を絶対時刻に変換した結果。 */
 interface TimedSpan {
   /** 開始（絶対時刻）。 */
   start: Date;
   /** 終了（絶対時刻、排他）。 */
   end: Date;
-  /** `end - start` のミリ秒差。繰り返しの各発生でこの長さが維持される。 */
+  /** `end - start` のミリ秒差。繰り返しの各オカレンスでこの長さが維持される。 */
   durationMs: number;
 }
 
-/** 終日イベントを日付キー空間で解決した結果。 */
+/** 終日イベントを日付キー空間に変換した結果。 */
 interface AllDaySpan {
   /** 開始日の日付キー（`'YYYY-MM-DD'`）。 */
   startKey: string;
@@ -74,7 +74,7 @@ interface AllDaySpan {
 }
 
 /**
- * 時間指定イベントの `start` / `end` を絶対時刻に解決する。
+ * 時間指定イベントの `start` / `end` を絶対時刻に変換する。
  * `end` 省略時は開始から `defaultEventMinutes` 分とみなす。
  */
 function resolveTimedSpan(
@@ -91,7 +91,7 @@ function resolveTimedSpan(
 }
 
 /**
- * 終日イベントの `start` / `end` を日付キーと日数に解決する。
+ * 終日イベントの `start` / `end` を日付キーと日数に変換する。
  * `end` 省略時は 1 日、`end` が `start` 以前の不正値でも防御的に 1 日とみなす。
  */
 function resolveAllDaySpan(event: CalendarEvent, interpretTimeZone: TimeZoneId): AllDaySpan {
@@ -118,7 +118,7 @@ function addDaysToKey(key: string, amount: number): string {
   );
 }
 
-/** 日付キー起点の終日スパンを、表示タイムゾーンの絶対時刻範囲に射影する。 */
+/** 日付キー起点の終日スパンを、表示タイムゾーンの絶対時刻範囲に変換する。 */
 function projectAllDaySpan(
   startKey: string,
   dayCount: number,
@@ -153,7 +153,7 @@ function buildOccurrence(params: {
 }
 
 /**
- * exdates を終日イベント用の「除外日付キー」集合に解決する。
+ * exdates を終日イベント用の「除外日付キー」集合に変換する。
  * `'YYYY-MM-DD'` でも、その日のどこかを指す `Date` でも同じキーになる。
  */
 function resolveExcludedKeys(event: CalendarEvent, interpretTimeZone: TimeZoneId): Set<string> {
@@ -164,13 +164,13 @@ function resolveExcludedKeys(event: CalendarEvent, interpretTimeZone: TimeZoneId
   return keys;
 }
 
-/** exdates を時間指定イベント用の絶対時刻に解決する。 */
+/** exdates を時間指定イベント用の絶対時刻に変換する。 */
 function resolveExcludedInstants(event: CalendarEvent, interpretTimeZone: TimeZoneId): Date[] {
   return (event.exdates ?? []).map((exdate) => parseDateValue(exdate, interpretTimeZone, false));
 }
 
 /**
- * rdates を終日イベント用の「追加日付キー」配列に解決する。
+ * rdates を終日イベント用の「追加日付キー」配列に変換する。
  * 形式は {@link resolveExcludedKeys} と同じ（`'YYYY-MM-DD'` でも、その日の
  * どこかを指す `Date` でも同じキーになる）。
  */
@@ -180,14 +180,14 @@ function resolveRdateKeys(event: CalendarEvent, interpretTimeZone: TimeZoneId): 
   );
 }
 
-/** rdates を時間指定イベント用の絶対時刻に解決する。 */
+/** rdates を時間指定イベント用の絶対時刻に変換する。 */
 function resolveRdateInstants(event: CalendarEvent, interpretTimeZone: TimeZoneId): Date[] {
   return (event.rdates ?? []).map((rdate) => parseDateValue(rdate, interpretTimeZone, false));
 }
 
 /**
- * オーバーライドイベント自身を発生として展開する（範囲に重なる場合のみ）。
- * `originalStart` には置換した元発生の開始時刻（解決済み）を渡す。
+ * オーバーライドイベント自身をオカレンスとして展開する（範囲に重なる場合のみ）。
+ * `originalStart` には置換した元オカレンスの開始時刻（変換済み）を渡す。
  */
 function expandOverrideEvent(params: {
   event: CalendarEvent;
@@ -237,7 +237,7 @@ function expandOverrideEvent(params: {
  * 表示範囲を日付キーに変換して問い合わせ範囲とし、複数日スパンが範囲に
  * 食い込む分だけ手前に広げる。rdates 由来のキーを合成したうえで、
  * exdates・オーバーライド済みは日付キー一致で除外し、最終的に表示
- * タイムゾーンへ射影してから範囲との重なりで確定する。
+ * タイムゾーンへ変換してから範囲との重なりで確定する。
  */
 function expandAllDayRecurrence(params: {
   event: CalendarEvent;
@@ -273,7 +273,7 @@ function expandAllDayRecurrence(params: {
     timeZone: DATE_KEY_ZONE,
     range: { start: queryStart, end: queryEnd },
   });
-  // rrule 由来の発生キーに rdates 由来のキーを合成する（同一日付は Set が自然に重複排除する）
+  // rrule 由来のオカレンスキーに rdates 由来のキーを合成する（同一日付は Set が自然に重複排除する）
   const keys = new Set(starts.map((startUtc) => dateKeyInZone(startUtc, DATE_KEY_ZONE)));
   for (const rdateKey of rdateKeys) {
     keys.add(rdateKey);
@@ -302,9 +302,9 @@ function expandAllDayRecurrence(params: {
 }
 
 /**
- * 通常イベント（オーバーライドでないもの。孤児オーバーライドを含む）を展開する。
+ * 通常イベント（オーバーライドでないもの。参照先のないオーバーライドを含む）を展開する。
  * `overriddenTimes` / `overriddenKeys` は、このイベントをマスターとする
- * オーバーライドによって置換済みの元発生の集合。
+ * オーバーライドによって置換済みの元オカレンスの集合。
  */
 function expandRegularEvent(params: {
   event: CalendarEvent;
@@ -341,7 +341,7 @@ function expandRegularEvent(params: {
           }),
         ];
       }
-      // rrule なし・rdates ありの終日イベント: start の発生 + 各 rdate の発生に
+      // rrule なし・rdates ありの終日イベント: start のオカレンス + 各 rdate のオカレンスに
       // 展開する（Google カレンダー同様、rdates を持つ時点で編集スコープの
       // 対象になる繰り返し扱いとし isRecurring: true にする）
       const excludedKeys = resolveExcludedKeys(event, timeZone);
@@ -401,7 +401,7 @@ function expandRegularEvent(params: {
         }),
       ];
     }
-    // rrule なし・rdates ありの時間指定イベント: start の発生 + 各 rdate の発生に展開する
+    // rrule なし・rdates ありの時間指定イベント: start のオカレンス + 各 rdate のオカレンスに展開する
     const excludedTimes = new Set(
       resolveExcludedInstants(event, timeZone).map((instant) => instant.getTime()),
     );
@@ -433,7 +433,7 @@ function expandRegularEvent(params: {
     return occurrences;
   }
 
-  // 範囲開始前に始まり範囲に食い込む発生を取りこぼさないよう、
+  // 範囲開始前に始まり範囲に食い込むオカレンスを取りこぼさないよう、
   // 問い合わせ範囲をイベントの長さ分だけ手前に広げる
   const startMargin = Math.max(0, span.durationMs);
   const excludedInstants = resolveExcludedInstants(event, timeZone);
@@ -445,7 +445,7 @@ function expandRegularEvent(params: {
     exdates: excludedInstants,
     range: { start: new Date(range.start.getTime() - startMargin), end: range.end },
   });
-  // rrule 由来の発生時刻に rdates 由来の時刻を合成する（同一ミリ秒は Set が自然に
+  // rrule 由来のオカレンスの時刻に rdates 由来の時刻を合成する（同一ミリ秒は Set が自然に
   // 重複排除する。rdates も exdates による除外を受ける）
   const times = new Set(starts.map((occStart) => occStart.getTime()));
   for (const rdateInstant of rdateInstants) {
@@ -479,7 +479,7 @@ function expandRegularEvent(params: {
 }
 
 /**
- * 発生の表示順比較関数。
+ * オカレンスの表示順比較関数。
  * start 昇順 → 同時刻なら長い方が先 → 同長なら `eventId` の辞書順。
  */
 function compareOccurrences(a: EventOccurrence, b: EventOccurrence): number {
@@ -501,30 +501,30 @@ function compareOccurrences(a: EventOccurrence, b: EventOccurrence): number {
 }
 
 /**
- * イベント集合を指定範囲に展開し、発生一覧を返す。
+ * イベント集合を指定範囲に展開し、オカレンス一覧を返す。
  *
  * 処理内容:
- * - **単発イベント** — `[start, end)` が範囲と重なれば 1 件の発生になる
- * - **繰り返しイベント**（`rrule` あり）— 範囲と重なる発生に展開する
- *   （範囲開始前に始まり範囲に食い込む発生を含む）。各発生の長さは
+ * - **単発イベント** — `[start, end)` が範囲と重なれば 1 件のオカレンスになる
+ * - **繰り返しイベント**（`rrule` あり）— 範囲と重なるオカレンスに展開する
+ *   （範囲開始前に始まり範囲に食い込むオカレンスを含む）。各オカレンスの長さは
  *   マスターの `start` / `end` のミリ秒差を維持し、終日の繰り返しは
- *   日数を維持する。`UNTIL` はイベント TZ の壁時計として解釈される
- * - **EXDATE**（`exdates`）— 該当する発生を除外する。時間指定イベントは
- *   発生開始のミリ秒一致、終日イベントは日付キー一致で判定する
- * - **RDATE**（`rdates`）— `rrule` の発生に追加の発生を合成する。`rrule` と
- *   同一時刻の `rdate` は重複させない。`exdates` は `rdate` 由来の発生にも
+ *   日数を維持する。`UNTIL` はイベント TZ の現地時刻として解釈される
+ * - **EXDATE**（`exdates`）— 該当するオカレンスを除外する。時間指定イベントは
+ *   オカレンスの開始のミリ秒一致、終日イベントは日付キー一致で判定する
+ * - **RDATE**（`rdates`）— `rrule` のオカレンスに追加のオカレンスを合成する。`rrule` と
+ *   同一時刻の `rdate` は重複させない。`exdates` は `rdate` 由来のオカレンスにも
  *   適用される（除外が優先）。`rrule` なしで `rdates` のみを持つイベントは
- *   `start` の発生と各 `rdate` の発生に展開され、`isRecurring: true` になる
+ *   `start` のオカレンスと各 `rdate` のオカレンスに展開され、`isRecurring: true` になる
  *   （繰り返し扱いとして編集スコープの対象になる）
  * - **オーバーライド**（`recurringEventId` + `originalStart` あり）—
- *   参照先イベントの `originalStart` の発生を置き換える。オーバーライド
- *   自身の `[start, end)` が範囲と重なれば発生として出力される
- *   （元の発生時刻が範囲外でも、移動先が範囲内なら表示される。逆に
- *   範囲内から範囲外へ移動した発生は表示されない）。参照先マスターが
+ *   参照先イベントの `originalStart` のオカレンスを置き換える。オーバーライド
+ *   自身の `[start, end)` が範囲と重なればオカレンスとして出力される
+ *   （元のオカレンスの時刻が範囲外でも、移動先が範囲内なら表示される。逆に
+ *   範囲内から範囲外へ移動したオカレンスは表示されない）。参照先マスターが
  *   存在しない場合は防御的に単発イベントとして扱う
  * - **終日イベント** — 日付ベースで解釈し（`event.timeZone ??
  *   displayTimeZone` で日付キーに正規化）、表示タイムゾーンの 0:00 を
- *   発生の開始とする。複数日は `end` 排他で日数を維持する
+ *   オカレンスの開始とする。複数日は `end` 排他で日数を維持する
  *
  * 戻り値は開始時刻の昇順（同時刻なら長い方が先、さらに同じなら
  * `eventId` の辞書順）でソートされる。
@@ -533,7 +533,7 @@ function compareOccurrences(a: EventOccurrence, b: EventOccurrence): number {
  * @param params.range - 展開範囲（`end` 排他）
  * @param params.displayTimeZone - 表示タイムゾーン
  * @param params.defaultEventMinutes - `end` 省略時の既定の長さ（分）
- * @returns 発生の一覧（ソート済み）
+ * @returns オカレンスの一覧（ソート済み）
  */
 export function expandEvents(params: {
   events: readonly CalendarEvent[];
@@ -548,10 +548,10 @@ export function expandEvents(params: {
 
   const eventsById = new Map<EventId, CalendarEvent>(events.map((event) => [event.id, event]));
 
-  // マスター ID → オーバーライドで置換済みの元発生（時間指定はミリ秒、終日は日付キー）
+  // マスター ID → オーバーライドで置換済みの元オカレンス（時間指定はミリ秒、終日は日付キー）
   const overriddenTimesByMaster = new Map<EventId, Set<number>>();
   const overriddenKeysByMaster = new Map<EventId, Set<string>>();
-  // オーバーライドイベント ID → 解決済みの元発生開始時刻（発生の originalStart になる値）
+  // オーバーライドイベント ID → 変換済みの元オカレンスの開始時刻（オカレンスの originalStart になる値）
   const resolvedOriginalStarts = new Map<EventId, Date>();
 
   for (const event of events) {
@@ -562,11 +562,11 @@ export function expandEvents(params: {
     }
     const master = eventsById.get(masterId);
     if (master === undefined) {
-      // 孤児オーバーライド: 防御的に単発イベントとして扱う（通常ルートで処理）
+      // 参照先のないオーバーライド: 防御的に単発イベントとして扱う（通常ルートで処理）
       continue;
     }
-    // originalStart はマスターの発生を指すため、オーバーライド TZ →
-    // マスター TZ → 表示 TZ の順でフォールバックして壁時計を解釈する
+    // originalStart はマスターのオカレンスを指すため、オーバーライド TZ →
+    // マスター TZ → 表示 TZ の順でフォールバックして現地時刻を解釈する
     const interpretTimeZone = event.timeZone ?? master.timeZone ?? displayTimeZone;
     if (master.allDay === true) {
       const key = dateKeyInZone(
@@ -579,7 +579,7 @@ export function expandEvents(params: {
         overriddenKeysByMaster.set(masterId, keys);
       }
       keys.add(key);
-      // 終日の元発生は表示 TZ におけるその日付の 0:00
+      // 終日の元オカレンスは表示 TZ におけるその日付の 0:00
       resolvedOriginalStarts.set(event.id, dateFromKey(key, displayTimeZone));
     } else {
       const instant = parseDateValue(original, interpretTimeZone, false);
@@ -625,26 +625,26 @@ export function expandEvents(params: {
 }
 
 /**
- * 単一イベントの、指定した発生開始時刻における発生を解決する。
+ * 単一イベントの、指定したオカレンスの開始時刻におけるオカレンスを算出する。
  *
- * ドラッグ操作やクリック時に、対象の発生の正確な `[start, end)` を
+ * ドラッグ操作やクリック時に、対象のオカレンスの正確な `[start, end)` を
  * 再計算するために使用する。
  *
- * 解決ルール:
+ * 算出ルール:
  * - **単発イベント** — 解釈済みの `start`（終日は表示 TZ の 0:00）が
- *   `occurrenceStart` とミリ秒単位で一致すれば発生を返す
- * - **繰り返しイベント** — `occurrenceStart` が繰り返しの有効な発生か検証する
- *   （`exdates` で除外済みの発生は `null`）。終日の繰り返しは表示 TZ の
- *   0:00 ちょうど、かつ有効な発生日の場合のみ一致する
- * - **オーバーライドイベント** — 現在の `start` に一致した場合のみ発生を返し、
- *   `originalStart` には元発生の開始時刻を設定する。オーバーライドされた
- *   元発生の時刻（移動済みで存在しない発生）には `null` を返す
+ *   `occurrenceStart` とミリ秒単位で一致すればオカレンスを返す
+ * - **繰り返しイベント** — `occurrenceStart` が繰り返しの有効なオカレンスか検証する
+ *   （`exdates` で除外済みのオカレンスは `null`）。終日の繰り返しは表示 TZ の
+ *   0:00 ちょうど、かつ有効なオカレンスの日の場合のみ一致する
+ * - **オーバーライドイベント** — 現在の `start` に一致した場合のみオカレンスを返し、
+ *   `originalStart` には元オカレンスの開始時刻を設定する。オーバーライドされた
+ *   元オカレンスの時刻（移動済みで存在しないオカレンス）には `null` を返す
  *
  * @param params.event - 対象イベント
- * @param params.occurrenceStart - 発生の開始時刻
+ * @param params.occurrenceStart - オカレンスの開始時刻
  * @param params.displayTimeZone - 表示タイムゾーン
  * @param params.defaultEventMinutes - `end` 省略時の既定の長さ（分）
- * @returns 発生。該当する発生が存在しない場合は `null`
+ * @returns オカレンス。該当するオカレンスが存在しない場合は `null`
  */
 export function resolveOccurrence(params: {
   event: CalendarEvent;
@@ -656,7 +656,7 @@ export function resolveOccurrence(params: {
   const timeZone = event.timeZone ?? displayTimeZone;
   const targetTime = occurrenceStart.getTime();
 
-  // オーバーライドイベント: 現在の start に一致した場合のみ発生
+  // オーバーライドイベント: 現在の start に一致した場合のみオカレンスとする
   const original = event.originalStart;
   if (event.recurringEventId !== undefined && original !== undefined) {
     if (event.allDay === true) {
@@ -705,7 +705,7 @@ export function resolveOccurrence(params: {
         originalStart: projected.start,
       });
     }
-    // 終日の繰り返し: 表示 TZ の 0:00 ちょうど、かつ有効な発生日のみ一致
+    // 終日の繰り返し: 表示 TZ の 0:00 ちょうど、かつ有効なオカレンスの日のみ一致
     const key = dateKeyInZone(occurrenceStart, displayTimeZone);
     if (dateFromKey(key, displayTimeZone).getTime() !== targetTime) {
       return null;
@@ -749,7 +749,7 @@ export function resolveOccurrence(params: {
     });
   }
 
-  // 時間指定の繰り返し: occurrenceStart ちょうどに始まる有効な発生があるか検証
+  // 時間指定の繰り返し: occurrenceStart ちょうどに始まる有効なオカレンスがあるか検証
   const hits = expandRecurrence({
     rrule: event.rrule,
     dtstart: span.start,

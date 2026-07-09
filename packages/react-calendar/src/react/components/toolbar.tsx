@@ -4,7 +4,7 @@
  *
  * 「今日」「前へ」「次へ」のナビゲーション、期間タイトル、
  * ビュー切替（月・週・日・リスト）を提供するヘッドレスコンポーネント。
- * DOM 構造と data 属性は `docs/internal/components-dom.md` の契約に従う。
+ * DOM 構造と data 属性は `docs/internal/components-dom.md` の仕様に従う。
  */
 
 import type { ReactElement, ReactNode } from 'react';
@@ -12,7 +12,7 @@ import type { CalendarViewType } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { formatDayTitle, formatMonthTitle, formatRangeTitle } from './format';
 
-/** ビュー切替ボタンの定義（表示順は DOM 契約どおり）。既定文字列は `labels` で差し替えられる。 */
+/** ビュー切替ボタンの定義（表示順は DOM 仕様どおり）。既定文字列は `labels` で差し替えられる。 */
 const VIEW_BUTTONS: readonly { view: CalendarViewType; action: string; defaultLabel: string }[] = [
   { view: 'month', action: 'view-month', defaultLabel: '月' },
   { view: 'week', action: 'view-week', defaultLabel: '週' },
@@ -139,7 +139,7 @@ export function Toolbar(props: ToolbarProps): ReactElement {
         </button>
       </div>
       <h2 data-koyomi="title">{title()}</h2>
-      {/* biome-ignore lint/a11y/useSemanticElements: DOM 契約（components-dom.md）で
+      {/* biome-ignore lint/a11y/useSemanticElements: DOM 仕様（components-dom.md）で
           toolbar-views は div[role="group"] と定めている。fieldset はテーマなしでの
           既定描画（枠線・余白）が大きく変わるためヘッドレス用途に不向き */}
       <div data-koyomi="toolbar-views" role="group" aria-label="表示切替">

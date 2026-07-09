@@ -258,9 +258,9 @@ describe('createCalendar', () => {
       expect(onEventsChange).not.toHaveBeenCalled();
     });
 
-    it('繰り返しの「この予定のみ」更新でオーバーライドが発生に反映される', () => {
+    it('繰り返しの「この予定のみ」更新でオーバーライドがオカレンスに反映される', () => {
       const calendar = makeCalendar({ events: [DAILY] });
-      // 7/15 9:00 JST の発生を 14:00 に移動
+      // 7/15 9:00 JST のオカレンスを 14:00 に移動
       const occurrenceStart = new Date('2026-07-15T00:00:00Z');
       calendar.updateEvent(
         'daily',
@@ -278,7 +278,7 @@ describe('createCalendar', () => {
       expect(calendar.getEvents()).toHaveLength(2);
     });
 
-    it('繰り返しの「これ以降」削除で以降の発生が消える', () => {
+    it('繰り返しの「これ以降」削除で以降のオカレンスが消える', () => {
       const calendar = makeCalendar({ events: [DAILY] });
       calendar.deleteEvent('daily', {
         occurrenceStart: new Date('2026-07-15T00:00:00Z'),
@@ -353,7 +353,7 @@ describe('createCalendar', () => {
       expect(range.end.toISOString()).toBe('2026-07-15T15:00:00.000Z');
     });
 
-    it('getOccurrences が範囲内の発生を返す', () => {
+    it('getOccurrences が範囲内のオカレンスを返す', () => {
       const calendar = makeCalendar({ events: [DAILY] });
       const occurrences = calendar.getOccurrences({
         start: new Date('2026-07-14T15:00:00Z'),

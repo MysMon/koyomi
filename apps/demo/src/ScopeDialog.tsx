@@ -15,7 +15,7 @@ export type ScopeAction = 'move' | 'resize' | 'delete' | 'update';
 
 /** `ScopeDialog` が表示すべき要求内容。 */
 export interface ScopeRequest {
-  /** 対象の発生。 */
+  /** 対象のオカレンス。 */
   occurrence: EventOccurrence;
   /** 操作の種類。 */
   action: ScopeAction;

@@ -38,7 +38,7 @@ function expand(
   });
 }
 
-/** ISO 文字列の発生開始指定で resolveOccurrence を呼ぶテスト用ヘルパー。 */
+/** ISO 文字列のオカレンスの開始指定で resolveOccurrence を呼ぶテスト用ヘルパー。 */
 function resolve(
   event: CalendarEvent,
   occurrenceStart: string,
@@ -69,7 +69,7 @@ describe('occurrenceKey', () => {
 
 describe('expandEvents', () => {
   describe('単発イベント', () => {
-    it('範囲内の単発イベントを 1 件の発生に展開し、全フィールドを設定する', () => {
+    it('範囲内の単発イベントを 1 件のオカレンスに展開し、全フィールドを設定する', () => {
       const source = makeEvent({
         id: 'e1',
         start: '2026-07-01T10:00:00',
@@ -150,7 +150,7 @@ describe('expandEvents', () => {
       expect(result[0]!.end).toEqual(new Date('2026-07-01T00:45:00Z'));
     });
 
-    it('オフセットなしの日時文字列は event.timeZone の壁時計として解釈される', () => {
+    it('オフセットなしの日時文字列は event.timeZone の現地時刻として解釈される', () => {
       const source = makeEvent({
         id: 'ny',
         start: '2026-07-01T10:00:00',
@@ -194,8 +194,8 @@ describe('expandEvents', () => {
       }
     });
 
-    it('各発生の長さはマスターの start/end のミリ秒差を維持する（DST 跨ぎ）', () => {
-      // NY の 1:30〜3:30（2 時間）。3/8 の発生は DST 開始（2:00→3:00）を跨ぐ
+    it('各オカレンスの長さはマスターの start/end のミリ秒差を維持する（DST 跨ぎ）', () => {
+      // NY の 1:30〜3:30（2 時間）。3/8 のオカレンスは DST 開始（2:00→3:00）を跨ぐ
       const source = makeEvent({
         id: 'span',
         start: '2026-03-07T01:30:00',
@@ -212,14 +212,14 @@ describe('expandEvents', () => {
         '2026-03-07T06:30:00.000Z',
         '2026-03-08T06:30:00.000Z',
       ]);
-      // 2 回目も開始からちょうど 2 時間（壁時計では 4:30 終了になる）
+      // 2 回目も開始からちょうど 2 時間（現地時刻では 4:30 終了になる）
       expect(result.map((o) => o.end.toISOString())).toEqual([
         '2026-03-07T08:30:00.000Z',
         '2026-03-08T08:30:00.000Z',
       ]);
     });
 
-    it('発生の開始はイベント TZ の壁時計時刻を DST を跨いで維持する（NY 毎日 9:00）', () => {
+    it('オカレンスの開始はイベント TZ の現地時刻を DST を跨いで維持する（NY 毎日 9:00）', () => {
       const source = makeEvent({
         id: 'daily9',
         start: '2026-03-07T09:00:00',
@@ -239,7 +239,7 @@ describe('expandEvents', () => {
       ]);
     });
 
-    it('範囲開始前に始まり範囲に食い込む発生も含まれる', () => {
+    it('範囲開始前に始まり範囲に食い込むオカレンスも含まれる', () => {
       // 東京の毎日 23:00〜翌 1:00
       const source = makeEvent({
         id: 'late',
@@ -258,14 +258,14 @@ describe('expandEvents', () => {
       ]);
     });
 
-    it('範囲 start ちょうどに終わる発生は含まれない（発生 end 排他）', () => {
+    it('範囲 start ちょうどに終わるオカレンスは含まれない（オカレンス end 排他）', () => {
       const source = makeEvent({
         id: 'late',
         start: '2026-07-01T23:00:00',
         end: '2026-07-02T01:00:00',
         rrule: 'FREQ=DAILY;COUNT=5',
       });
-      // 範囲 start = 東京 7/3 1:00（7/2 の発生の終了ちょうど）
+      // 範囲 start = 東京 7/3 1:00（7/2 のオカレンスの終了ちょうど）
       const result = expand([source], {
         start: '2026-07-02T16:00:00Z',
         end: '2026-07-03T15:00:00Z',
@@ -273,7 +273,7 @@ describe('expandEvents', () => {
       expect(result.map((o) => o.start.toISOString())).toEqual(['2026-07-03T14:00:00.000Z']);
     });
 
-    it('exdates の発生が開始時刻のミリ秒一致で除外される', () => {
+    it('exdates のオカレンスが開始時刻のミリ秒一致で除外される', () => {
       const base = {
         id: 'ex',
         start: '2026-07-01T10:00:00',
@@ -281,7 +281,7 @@ describe('expandEvents', () => {
         rrule: 'FREQ=DAILY;COUNT=3',
       };
       const range = { start: '2026-06-30T15:00:00Z', end: '2026-07-04T15:00:00Z' };
-      // 文字列（イベント TZ の壁時計）でも Date（絶対時刻）でも除外できる
+      // 文字列（イベント TZ の現地時刻）でも Date（絶対時刻）でも除外できる
       const byString = expand([makeEvent({ ...base, exdates: ['2026-07-02T10:00:00'] })], range);
       const byDate = expand(
         [makeEvent({ ...base, exdates: [new Date('2026-07-02T01:00:00Z')] })],
@@ -299,10 +299,10 @@ describe('expandEvents', () => {
       ).toThrow('不正な RRULE');
     });
 
-    it('UNTIL はイベント TZ の壁時計として解釈される（truncateRRule と整合する意図的仕様）', () => {
-      // 東京の毎日 10:00。UNTIL=20260702T090000Z を「東京の壁時計 7/2 9:00」と
-      // 解釈するため 7/2 10:00 の発生は含まれない（RFC 5545 の UTC 解釈なら
-      // 7/2 18:00 東京となり 7/2 の発生が含まれてしまう）
+    it('UNTIL はイベント TZ の現地時刻として解釈される（truncateRRule と整合する意図的仕様）', () => {
+      // 東京の毎日 10:00。UNTIL=20260702T090000Z を「東京の現地時刻 7/2 9:00」と
+      // 解釈するため 7/2 10:00 のオカレンスは含まれない（RFC 5545 の UTC 解釈なら
+      // 7/2 18:00 東京となり 7/2 のオカレンスが含まれてしまう）
       const source = makeEvent({
         id: 'until',
         start: '2026-07-01T10:00:00',
@@ -317,7 +317,7 @@ describe('expandEvents', () => {
     });
   });
 
-  describe('RDATE（rrule のパターン外の発生追加）', () => {
+  describe('RDATE（rrule のパターン外のオカレンス追加）', () => {
     it('rrule と rdates を合成し、rrule と重複する時刻は 1 件にまとめる', () => {
       const source = makeEvent({
         id: 'e1',
@@ -334,7 +334,7 @@ describe('expandEvents', () => {
         '2026-07-01T01:00:00.000Z',
         '2026-07-02T01:00:00.000Z', // rrule と rdate が重複しても 1 件のみ
         '2026-07-03T01:00:00.000Z',
-        '2026-07-05T01:00:00.000Z', // rdate による追加発生
+        '2026-07-05T01:00:00.000Z', // rdate による追加オカレンス
       ]);
       for (const occ of result) {
         expect(occ.isRecurring).toBe(true);
@@ -342,7 +342,7 @@ describe('expandEvents', () => {
       }
     });
 
-    it('rrule なしで rdates のみの場合、start の発生と各 rdate の発生に展開される（isRecurring: true）', () => {
+    it('rrule なしで rdates のみの場合、start のオカレンスと各 rdate のオカレンスに展開される（isRecurring: true）', () => {
       const source = makeEvent({
         id: 'e2',
         start: '2026-07-01T10:00:00',
@@ -364,7 +364,7 @@ describe('expandEvents', () => {
       }
     });
 
-    it('rdate 由来の発生も exdates で除外される（除外が優先）', () => {
+    it('rdate 由来のオカレンスも exdates で除外される（除外が優先）', () => {
       const source = makeEvent({
         id: 'e3',
         start: '2026-07-01T10:00:00',
@@ -382,7 +382,7 @@ describe('expandEvents', () => {
       ]);
     });
 
-    it('rdate 由来の発生にもオーバーライドが適用される', () => {
+    it('rdate 由来のオカレンスにもオーバーライドが適用される', () => {
       const master = makeEvent({
         id: 'm1',
         start: '2026-07-01T10:00:00',
@@ -446,7 +446,7 @@ describe('expandEvents', () => {
       }
     });
 
-    it('rrule なし・終日で rdates のみの場合も start と各 rdate の発生に展開される', () => {
+    it('rrule なし・終日で rdates のみの場合も start と各 rdate のオカレンスに展開される', () => {
       const source = makeEvent({
         id: 'ad-only',
         start: '2026-07-01',
@@ -484,7 +484,7 @@ describe('expandEvents', () => {
         start: '2026-07-03T15:00:00',
         end: '2026-07-03T16:00:00',
       });
-      // 元発生 7/5 10:00 は範囲外 → 7/3 20:00（範囲内）へ移動 → 表示される
+      // 元のオカレンス 7/5 10:00 は範囲外 → 7/3 20:00（範囲内）へ移動 → 表示される
       const movedIn = makeEvent({
         id: 'o-in',
         recurringEventId: 'm1',
@@ -492,7 +492,7 @@ describe('expandEvents', () => {
         start: '2026-07-03T20:00:00',
         end: '2026-07-03T21:00:00',
       });
-      // 元発生 7/4 10:00 は範囲内 → 7/10（範囲外）へ移動 → 表示されない
+      // 元のオカレンス 7/4 10:00 は範囲内 → 7/10（範囲外）へ移動 → 表示されない
       const movedOut = makeEvent({
         id: 'o-out',
         recurringEventId: 'm1',
@@ -511,7 +511,7 @@ describe('expandEvents', () => {
         ['o-in', '2026-07-03T11:00:00.000Z'],
       ]);
       const byId = new Map(result.map((o) => [o.eventId, o]));
-      // オーバーライドの originalStart は置換した元発生の開始時刻
+      // オーバーライドの originalStart は置換した元のオカレンスの開始時刻
       expect(byId.get('o-move')?.originalStart).toEqual(new Date('2026-07-03T01:00:00Z'));
       expect(byId.get('o-in')?.originalStart).toEqual(new Date('2026-07-05T01:00:00Z'));
       expect(byId.get('o-move')?.isRecurring).toBe(true);
@@ -600,7 +600,7 @@ describe('expandEvents', () => {
       expect(dateKeyInZone(inNy[0]!.start, NY)).toBe('2026-07-01');
     });
 
-    it('日付の解釈は event.timeZone で行い、日付キーに正規化してから表示 TZ に射影する', () => {
+    it('日付の解釈は event.timeZone で行い、日付キーに正規化してから表示 TZ に変換する', () => {
       // 2026-07-02T03:00Z は NY では 7/1 23:00 → 日付キーは '2026-07-01'
       const source = makeEvent({
         id: 'adny',
@@ -645,7 +645,7 @@ describe('expandEvents', () => {
       const expectedKeys = ['2026-07-01', '2026-07-08', '2026-07-15'];
       expect(inTokyo.map((o) => dateKeyInZone(o.start, TOKYO))).toEqual(expectedKeys);
       expect(inNy.map((o) => dateKeyInZone(o.start, NY))).toEqual(expectedKeys);
-      // 発生の開始はそれぞれの表示 TZ における 0:00
+      // オカレンスの開始はそれぞれの表示 TZ における 0:00
       expect(inTokyo.map((o) => o.start.toISOString())).toEqual([
         '2026-06-30T15:00:00.000Z',
         '2026-07-07T15:00:00.000Z',
@@ -713,7 +713,7 @@ describe('expandEvents', () => {
         allDay: true,
         rrule: 'FREQ=WEEKLY;COUNT=3',
       });
-      // 7/8 の発生を 7/9 へ移動
+      // 7/8 のオカレンスを 7/9 へ移動
       const override = makeEvent({
         id: 'ado',
         recurringEventId: 'wk',
@@ -768,7 +768,7 @@ describe('expandEvents', () => {
       ).toEqual([]);
     });
 
-    it('範囲内に発生がなければ空配列を返す', () => {
+    it('範囲内にオカレンスがなければ空配列を返す', () => {
       const source = makeEvent({
         id: 'e1',
         start: '2026-07-01T10:00:00Z',
@@ -796,7 +796,7 @@ describe('resolveOccurrence', () => {
       end: '2026-07-01T11:00:00',
     });
 
-    it('開始時刻がミリ秒単位で一致すれば発生を返す', () => {
+    it('開始時刻がミリ秒単位で一致すればオカレンスを返す', () => {
       const occ = resolve(single, '2026-07-01T01:00:00Z');
       expect(occ).not.toBeNull();
       expect(occ?.key).toBe('s1@2026-07-01T01:00:00.000Z');
@@ -828,7 +828,7 @@ describe('resolveOccurrence', () => {
       exdates: ['2026-07-03T10:00:00'],
     });
 
-    it('有効な発生の時刻なら発生を返す', () => {
+    it('有効なオカレンスの時刻ならオカレンスを返す', () => {
       const occ = resolve(master, '2026-07-02T01:00:00Z');
       expect(occ).not.toBeNull();
       expect(occ?.key).toBe('m1@2026-07-02T01:00:00.000Z');
@@ -837,11 +837,11 @@ describe('resolveOccurrence', () => {
       expect(occ?.originalStart).toEqual(new Date('2026-07-02T01:00:00Z'));
     });
 
-    it('発生ではない時刻には null を返す', () => {
+    it('オカレンスではない時刻には null を返す', () => {
       expect(resolve(master, '2026-07-02T01:30:00Z')).toBeNull();
     });
 
-    it('exdates で除外された発生には null を返す', () => {
+    it('exdates で除外されたオカレンスには null を返す', () => {
       expect(resolve(master, '2026-07-03T01:00:00Z')).toBeNull();
     });
 
@@ -860,7 +860,7 @@ describe('resolveOccurrence', () => {
       end: '2026-07-03T16:00:00',
     });
 
-    it('現在の開始時刻に一致すれば発生を返し、originalStart は元発生の時刻になる', () => {
+    it('現在の開始時刻に一致すればオカレンスを返し、originalStart は元のオカレンスの時刻になる', () => {
       const occ = resolve(override, '2026-07-03T06:00:00Z');
       expect(occ).not.toBeNull();
       expect(occ?.start).toEqual(new Date('2026-07-03T06:00:00Z'));
@@ -869,7 +869,7 @@ describe('resolveOccurrence', () => {
       expect(occ?.originalStart).toEqual(new Date('2026-07-03T01:00:00Z'));
     });
 
-    it('オーバーライドされた元発生の時刻には null を返す（移動済みで存在しない）', () => {
+    it('オーバーライドされた元のオカレンスの時刻には null を返す（移動済みで存在しない）', () => {
       expect(resolve(override, '2026-07-03T01:00:00Z')).toBeNull();
     });
 
@@ -910,7 +910,7 @@ describe('resolveOccurrence', () => {
       expect(occ?.end).toEqual(new Date('2026-07-02T04:00:00Z'));
     });
 
-    it('終日の繰り返しは有効な日付の 0:00 のみ発生として解決する', () => {
+    it('終日の繰り返しは有効な日付の 0:00 のみオカレンスとして解決する', () => {
       const weekly = makeEvent({
         id: 'wk',
         start: '2026-07-01',
@@ -923,11 +923,11 @@ describe('resolveOccurrence', () => {
       expect(occ).not.toBeNull();
       expect(occ?.end).toEqual(new Date('2026-07-08T15:00:00Z'));
       expect(occ?.isRecurring).toBe(true);
-      // 7/9 は発生日ではない
+      // 7/9 はオカレンスの日ではない
       expect(resolve(weekly, '2026-07-08T15:00:00Z')).toBeNull();
       // 7/15 は exdate（日付キー一致）で除外済み
       expect(resolve(weekly, '2026-07-14T15:00:00Z')).toBeNull();
-      // 発生日でも 0:00 ちょうどでなければ無効
+      // オカレンスの日でも 0:00 ちょうどでなければ無効
       expect(resolve(weekly, '2026-07-07T16:00:00Z')).toBeNull();
       // NY 表示なら NY の 0:00 で一致する
       const inNy = resolve(weekly, '2026-07-08T04:00:00Z', NY);

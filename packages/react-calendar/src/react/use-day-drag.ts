@@ -3,7 +3,7 @@
  * 日単位のドラッグインタラクション（月ビューのセル・終日行）。
  *
  * - セルのクリック / ドラッグ / キーボード（Enter・Space） → 日範囲の選択（終日イベントの新規作成）
- * - 帯セグメントのドラッグ → 日単位の移動（期間・壁時計時刻は維持）
+ * - 帯セグメントのドラッグ → 日単位の移動（期間・現地時刻は維持）
  * - 帯セグメントの左右端ハンドルのドラッグ → 日単位のリサイズ（開始日・終了日の変更）
  * - 帯セグメントのキーボード操作（矢印キー） → 日単位の移動・リサイズ
  * - ドラッグ中は Escape または pointercancel でキャンセル
@@ -67,7 +67,7 @@ export interface SegmentProps {
   onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
   /** フォーカス可能にする。 */
   tabIndex: number;
-  /** 発生キー。 */
+  /** オカレンスキー。 */
   'data-koyomi-occurrence': string;
   /** ドラッグ中の対象なら `'true'`。 */
   'data-koyomi-dragging'?: 'true';
@@ -122,7 +122,7 @@ interface RegisteredDayCell {
 interface DragSession {
   /** 作成・移動・リサイズ（左右端）のいずれか。 */
   kind: DayDragMode;
-  /** 移動ドラッグの対象発生（作成ドラッグでは `null`）。 */
+  /** 移動ドラッグの対象オカレンス（作成ドラッグでは `null`）。 */
   occurrence: EventOccurrence | null;
   /** ドラッグ開始時に確定した基準日（その日の 0:00）。 */
   anchorDay: Date;
@@ -182,7 +182,7 @@ function fractionYFromClientY(rect: DOMRect, clientY: number): number {
  * 日単位ドラッグのインタラクションを提供するフック。
  *
  * 月ビューでは時間指定イベントの帯（span 1）も日単位で移動できる
- * （Google カレンダーの月ビューと同じ。壁時計時刻は維持される）。
+ * （Google カレンダーの月ビューと同じ。現地時刻は維持される）。
  *
  * @param params.calendar - `useCalendar` の戻り値
  * @param params.callbacks - インタラクションコールバック
@@ -282,7 +282,7 @@ export function useDayDrag(params: {
     return 'resize';
   }
 
-  /** 発生を指定日数だけずらした範囲を返す（時間指定なら壁時計時刻を維持）。 */
+  /** オカレンスを指定日数だけずらした範囲を返す（時間指定なら現地時刻を維持）。 */
   function shiftedRange(occurrence: EventOccurrence, days: number): DateRange {
     const timeZone = timeZoneRef.current;
     return {
@@ -307,7 +307,7 @@ export function useDayDrag(params: {
   }
 
   /**
-   * 発生の範囲変更（移動・リサイズ）を確定する（繰り返しならスコープを解決してから適用する）。
+   * オカレンスの範囲変更（移動・リサイズ）を確定する（繰り返しならスコープを解決してから適用する）。
    * `action` は `resolveRecurringScope` に渡す操作種別（既定は `'move'`）。
    * 失敗時にドラッグプレビューが残らないよう、`finally` で確実に解除する
    * （ドラッグ確定経路では呼び出し前に同期的にも解除しているため二重になるが、
@@ -349,7 +349,7 @@ export function useDayDrag(params: {
   }
 
   /**
-   * 発生を時間指定イベントに変換して適用する（繰り返しならスコープを解決してから適用する）。
+   * オカレンスを時間指定イベントに変換して適用する（繰り返しならスコープを解決してから適用する）。
    * `commitMove` と異なり、変更後は常に `allDay: false` にする（`occurrence.allDay` が
    * `true`（変換元）であっても上書きする）。失敗時にドラッグプレビューが残らないよう
    * `finally` で確実に解除する（`commitMove` と同じ理由）。
@@ -393,7 +393,7 @@ export function useDayDrag(params: {
   }
 
   /**
-   * 発生の削除を確定する（繰り返しならスコープを解決してから適用する）。
+   * オカレンスの削除を確定する（繰り返しならスコープを解決してから適用する）。
    * 削除が適用された場合のみ `callbacks.onEventDelete` を呼ぶ
    * （スコープ解決が `null` でキャンセルされた場合は呼ばない）。
    */

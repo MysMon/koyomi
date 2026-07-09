@@ -59,7 +59,7 @@ describe('isValidTimeZone', () => {
 });
 
 describe('getWallClock', () => {
-  it('同一の絶対時刻をタイムゾーンごとの壁時計成分に分解する', () => {
+  it('同一の絶対時刻をタイムゾーンごとの現地時刻の成分に分解する', () => {
     const date = new Date('2026-06-30T20:00:00Z');
     expect(getWallClock(date, TOKYO)).toEqual({
       year: 2026,
@@ -90,7 +90,7 @@ describe('getWallClock', () => {
     });
   });
 
-  it('分・秒も壁時計として返す', () => {
+  it('分・秒も現地時刻として返す', () => {
     const date = new Date('2026-07-01T01:23:45Z');
     expect(getWallClock(date, TOKYO)).toEqual({
       year: 2026,
@@ -103,7 +103,7 @@ describe('getWallClock', () => {
     });
   });
 
-  it('ミリ秒も壁時計成分として返す', () => {
+  it('ミリ秒も現地時刻の成分として返す', () => {
     const date = new Date('2026-07-01T01:23:45.678Z');
     expect(getWallClock(date, TOKYO)).toEqual({
       year: 2026,
@@ -138,10 +138,10 @@ describe('fromWallClock', () => {
     expect(result.toISOString()).toBe('2026-03-08T07:00:00.000Z');
   });
 
-  it('存在しない時刻（2026-03-08 02:30 America/New_York）は前方（03:30 EDT）に解決する', () => {
+  it('存在しない時刻（2026-03-08 02:30 America/New_York）は 03:30 EDT に繰り上げて解決する', () => {
     const gap = fromWallClock({ year: 2026, month: 3, day: 8, hours: 2, minutes: 30 }, NY);
     expect(gap.toISOString()).toBe('2026-03-08T07:30:00.000Z');
-    // 前方解決の一貫性: 02:30 と 03:30 は同じ絶対時刻に解決される
+    // 繰り上げ解決の一貫性: 02:30 と 03:30 は同じ絶対時刻に解決される
     const after = fromWallClock({ year: 2026, month: 3, day: 8, hours: 3, minutes: 30 }, NY);
     expect(gap.getTime()).toBe(after.getTime());
   });
@@ -245,7 +245,7 @@ describe('addDaysInZone', () => {
     expect(addDaysInZone(date, 1, TOKYO).toISOString()).toBe('2026-07-02T01:00:00.000Z');
   });
 
-  it('DST 開始を跨いでも壁時計時刻が維持される（絶対差は 23 時間）', () => {
+  it('DST 開始を跨いでも現地時刻が維持される（絶対差は 23 時間）', () => {
     const date = new Date('2026-03-07T14:00:00Z'); // 3/7 9:00 EST
     const next = addDaysInZone(date, 1, NY);
     expect(next.toISOString()).toBe('2026-03-08T13:00:00.000Z'); // 3/8 9:00 EDT
@@ -253,7 +253,7 @@ describe('addDaysInZone', () => {
     expect(next.getTime() - date.getTime()).toBe(23 * 60 * 60 * 1000);
   });
 
-  it('DST 終了を跨いでも壁時計時刻が維持される（絶対差は 25 時間）', () => {
+  it('DST 終了を跨いでも現地時刻が維持される（絶対差は 25 時間）', () => {
     const date = new Date('2026-10-31T13:00:00Z'); // 10/31 9:00 EDT
     const next = addDaysInZone(date, 1, NY);
     expect(next.toISOString()).toBe('2026-11-01T14:00:00.000Z'); // 11/1 9:00 EST
@@ -308,16 +308,16 @@ describe('addMinutesInZone', () => {
     expect(result.toISOString()).toBe('2026-07-01T01:30:00.123Z');
   });
 
-  it('壁時計基準の加算のため、DST 開始跨ぎでは絶対時刻の差が指定分数と異なる', () => {
+  it('現地時刻基準の加算のため、DST 開始跨ぎでは絶対時刻の差が指定分数と異なる', () => {
     const date = new Date('2026-03-08T05:00:00Z'); // 3/8 0:00 EST
     const result = addMinutesInZone(date, 180, NY);
-    // 壁時計は 0:00 + 180 分 = 3:00（EDT）。絶対差は 120 分になる
+    // 現地時刻は 0:00 + 180 分 = 3:00（EDT）。絶対差は 120 分になる
     expect(result.toISOString()).toBe('2026-03-08T07:00:00.000Z');
     expect(minutesOfDayInZone(result, NY)).toBe(180);
     expect(result.getTime() - date.getTime()).toBe(120 * 60 * 1000);
   });
 
-  it('加算結果が存在しない時刻になる場合は前方に解決される', () => {
+  it('加算結果が存在しない時刻になる場合は繰り上げて解決される', () => {
     const date = new Date('2026-03-08T06:30:00Z'); // 3/8 1:30 EST
     // 1:30 + 60 分 = 2:30（存在しない）→ 3:30 EDT
     expect(addMinutesInZone(date, 60, NY).toISOString()).toBe('2026-03-08T07:30:00.000Z');
@@ -404,7 +404,7 @@ describe('minutesOfDayInZone', () => {
     expect(minutesOfDayInZone(new Date('2026-07-01T14:59:00Z'), TOKYO)).toBe(1439);
   });
 
-  it('DST 開始日はスキップされた壁時計時刻を反映する', () => {
+  it('DST 開始日はスキップされた現地時刻を反映する', () => {
     // 2026-03-08T07:00Z = 3:00 EDT（2:00〜2:59 は存在しない）
     expect(minutesOfDayInZone(new Date('2026-03-08T07:00:00Z'), NY)).toBe(180);
   });
@@ -523,7 +523,7 @@ describe('parseDateValue', () => {
   });
 
   describe('オフセットなし ISO 8601', () => {
-    it('タイムゾーンの壁時計として解釈される', () => {
+    it('タイムゾーンの現地時刻として解釈される', () => {
       expect(parseDateValue('2026-07-01T10:00', TOKYO, false).toISOString()).toBe(
         '2026-07-01T01:00:00.000Z',
       );
@@ -538,7 +538,7 @@ describe('parseDateValue', () => {
       );
     });
 
-    it('存在しない時刻（DST の谷間）は前方に解決される', () => {
+    it('存在しない時刻（DST の谷間）は繰り上げて解決される', () => {
       expect(parseDateValue('2026-03-08T02:30', NY, false).toISOString()).toBe(
         '2026-03-08T07:30:00.000Z',
       );

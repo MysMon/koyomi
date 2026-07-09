@@ -1,6 +1,6 @@
 # API リファレンス
 
-`@koyomi-cal/react` が公開する API の全件リファレンスです。カレンダーエンジン・React フック・コンポーネント・型・低レベルユーティリティをカテゴリ別に一覧します。各機能の詳しい使い方や設計意図は、末尾の関連ページを参照してください。
+`@koyomi-cal/react` が公開する API の全体リファレンスです。カレンダーエンジン・React フック・コンポーネント・型・低レベルユーティリティをカテゴリ別に一覧します。各機能の詳しい使い方や設計意図は、末尾の関連ページを参照してください。
 
 ## カレンダーエンジン
 
@@ -62,7 +62,7 @@ unsubscribe();
 | `deleteEvent` | `(id: EventId, target?: { occurrenceStart: Date; scope: RecurringEditScope }): void` | イベントを削除する |
 | `getViewModel` | `(): CalendarViewModel` | 現在のビューに対応するビューモデルを構築して返す |
 | `getVisibleRange` | `(): DateRange` | 現在のビューが表示している日時範囲を返す |
-| `getOccurrences` | `(range: DateRange): readonly EventOccurrence[]` | 指定範囲の発生一覧を開始時刻順で返す |
+| `getOccurrences` | `(range: DateRange): readonly EventOccurrence[]` | 指定範囲のオカレンス一覧を開始時刻順で返す |
 | `setDragPreview` | `(preview: DragPreview | null): void` | ドラッグ操作のプレビューを設定する（`null` で解除） |
 
 ```ts
@@ -275,7 +275,7 @@ console.log(dayProps['data-koyomi-date']); // => '2026-07-01'
 
 ## コンポーネント
 
-すべてヘッドレス（スタイルなし）で、DOM 構造・`data-koyomi-*` 属性は固定の契約に従います。詳細なスタイリングは [テーマとスタイリング](./theming.md) を参照してください。
+すべてヘッドレス（スタイルなし）で、DOM 構造・`data-koyomi-*` 属性は固定の仕様に従います。詳細なスタイリングは [テーマとスタイリング](./theming.md) を参照してください。
 
 ### `CalendarProvider`
 
@@ -412,7 +412,7 @@ interface ToolbarLabels {
 | `CalendarEvent` | カレンダーイベント（ソースデータ）。下表参照 |
 | `CalendarEventInput` | `Omit<CalendarEvent, 'id'> & { id?: EventId }`。`createEvent` の入力 |
 | `CalendarEventPatch` | `Omit<CalendarEvent, 'id'>` の各フィールドが省略可能かつ明示的に `\| undefined` を許容する部分更新型（`exactOptionalPropertyTypes: true` でも `{ rrule: undefined }` のようなリテラルをそのまま書ける）。キーが存在し値が `undefined` の場合はそのフィールドを削除するが、必須フィールドだった `title` / `start` は削除されず元の値を維持する |
-| `EventOccurrence` | イベントの発生（オカレンス）。下表参照 |
+| `EventOccurrence` | イベントのオカレンス。下表参照 |
 | `RecurringEditScope` | `'this' | 'thisAndFollowing' | 'all'`。繰り返しの編集・削除の適用範囲 |
 | `DragPreview` | `{ kind: 'create' | 'move' | 'resize'; occurrenceKey: string | null; range: DateRange; allDay: boolean }` |
 
@@ -427,10 +427,10 @@ interface ToolbarLabels {
 | `allDay?` | `boolean` | 終日イベントかどうか（既定 `false`） |
 | `timeZone?` | `TimeZoneId` | このイベントのタイムゾーン（省略時は表示タイムゾーン） |
 | `rrule?` | `string` | RFC 5545 の繰り返しルール |
-| `exdates?` | `readonly (Date | string)[]` | 繰り返しから除外する発生の開始日時 |
-| `rdates?` | `readonly (Date | string)[]` | 繰り返しに追加する発生の開始日時（RDATE 相当） |
+| `exdates?` | `readonly (Date | string)[]` | 繰り返しから除外するオカレンスの開始日時 |
+| `rdates?` | `readonly (Date | string)[]` | 繰り返しに追加するオカレンスの開始日時（RDATE 相当） |
 | `recurringEventId?` | `EventId` | 繰り返し例外イベントの場合、元イベントの ID |
-| `originalStart?` | `Date | string` | 繰り返し例外イベントの場合、置き換え対象の発生の本来の開始日時 |
+| `originalStart?` | `Date | string` | 繰り返し例外イベントの場合、置き換え対象のオカレンスの本来の開始日時 |
 | `color?` | `string` | 表示色（CSS の color 値） |
 | `location?` | `string` | 場所 |
 | `description?` | `string` | 説明文 |
@@ -441,14 +441,14 @@ interface ToolbarLabels {
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
-| `key` | `string` | 発生を一意に識別するキー（`` `${eventId}@${startのISO文字列}` ``） |
+| `key` | `string` | オカレンスを一意に識別するキー（`` `${eventId}@${startのISO文字列}` ``） |
 | `eventId` | `EventId` | 元イベントの ID |
 | `event` | `CalendarEvent` | 元の `CalendarEvent`（オーバーライドの場合はオーバーライドイベント） |
-| `start` | `Date` | この発生の開始（絶対時刻） |
-| `end` | `Date` | この発生の終了（絶対時刻、排他的） |
+| `start` | `Date` | このオカレンスの開始（絶対時刻） |
+| `end` | `Date` | このオカレンスの終了（絶対時刻、排他的） |
 | `allDay` | `boolean` | 終日イベントかどうか |
-| `isRecurring` | `boolean` | 繰り返しイベント由来の発生かどうか |
-| `originalStart` | `Date` | 繰り返し由来の場合、この発生の本来の開始日時 |
+| `isRecurring` | `boolean` | 繰り返しイベント由来のオカレンスかどうか |
+| `originalStart` | `Date` | 繰り返し由来の場合、このオカレンスの本来の開始日時 |
 
 イベントの CRUD・パッチ規則・繰り返しの詳細は [予定の管理](./events.md) と [繰り返し予定](./recurrence.md) を参照してください。
 
@@ -491,7 +491,7 @@ interface ToolbarLabels {
 | `TimeGridViewModel` | `{ type: 'timeGrid'; viewType: 'week' | 'day'; days; allDaySegments; allDayLaneCount; slots; nowIndicator }` |
 | `TimeGridDay` | `{ date; key; isToday; weekday; items: readonly PositionedOccurrence[] }` |
 | `TimeSlot` | `{ minutes: number; label: string }` |
-| `PositionedOccurrence` | `{ occurrence; startMinutes; endMinutes; left; width; continuesBefore; continuesAfter }`。時間グリッドに配置された発生（割合・分単位） |
+| `PositionedOccurrence` | `{ occurrence; startMinutes; endMinutes; left; width; continuesBefore; continuesAfter }`。時間グリッドに配置されたオカレンス（割合・分単位） |
 | `ListViewModel` | `{ type: 'list'; days: readonly ListDay[]; isEmpty: boolean }` |
 | `ListDay` | `{ date; key; isToday; occurrences: readonly EventOccurrence[] }` |
 
@@ -530,15 +530,15 @@ interface ToolbarLabels {
 | --- | --- |
 | `getLocalTimeZone(): TimeZoneId` | 実行環境のローカルタイムゾーン ID を返す |
 | `isValidTimeZone(timeZone: string): boolean` | 有効な IANA タイムゾーン ID かどうかを判定する |
-| `getWallClock(date, timeZone): Required<WallClockParts>` | 絶対時刻を指定タイムゾーンの壁時計成分に分解する |
-| `fromWallClock(parts, timeZone): Date` | 壁時計成分から絶対時刻を構築する（存在しない時刻は前方解決） |
+| `getWallClock(date, timeZone): Required<WallClockParts>` | 絶対時刻を指定タイムゾーンの現地時刻の成分に分解する |
+| `fromWallClock(parts, timeZone): Date` | 現地時刻の成分から絶対時刻を構築する（存在しない時刻は直後の実在時刻に繰り上げ） |
 | `startOfDayInZone(date, timeZone): Date` | 指定タイムゾーンにおけるその日の 0:00 の絶対時刻を返す |
-| `addDaysInZone(date, amount, timeZone): Date` | 壁時計基準で日数を加算する（DST を跨いでも時刻を維持） |
-| `addMinutesInZone(date, amount, timeZone): Date` | 壁時計基準で分数を加算する |
+| `addDaysInZone(date, amount, timeZone): Date` | 現地時刻基準で日数を加算する（DST を跨いでも時刻を維持） |
+| `addMinutesInZone(date, amount, timeZone): Date` | 現地時刻基準で分数を加算する |
 | `dateKeyInZone(date, timeZone): string` | 指定タイムゾーンにおける `'YYYY-MM-DD'` の日付キーを返す |
 | `dateFromKey(key, timeZone): Date` | 日付キーからその日の 0:00 の絶対時刻を返す |
 | `minutesOfDayInZone(date, timeZone): number` | その日の 0:00 からの経過分（0〜1439）を返す |
-| `isSameDayInZone(a, b, timeZone): boolean` | 壁時計基準で同じ日かどうかを判定する |
+| `isSameDayInZone(a, b, timeZone): boolean` | 現地時刻基準で同じ日かどうかを判定する |
 | `weekdayInZone(date, timeZone): Weekday` | 指定タイムゾーンにおける曜日を返す |
 | `parseDateValue(value, timeZone, allDay): Date` | `CalendarEvent` の `start`/`end` 値を絶対時刻に解釈する |
 | `formatSlotLabel(minutes: number): string` | 分数を `'HH:mm'` 形式のラベルにする |
@@ -562,7 +562,7 @@ console.log(dateKeyInZone(next, 'Asia/Tokyo')); // => '2026-07-03'
 | 関数 | 説明 |
 | --- | --- |
 | `startOfWeekInZone(date, timeZone, weekStartsOn): Date` | その週の開始日 0:00 の絶対時刻を返す |
-| `monthGridRange(anchor, timeZone, weekStartsOn): DateRange` | 月ビューのグリッド範囲（前後月の埋め草を含む、4〜6 週）を返す |
+| `monthGridRange(anchor, timeZone, weekStartsOn): DateRange` | 月ビューのグリッド範囲（前後月の日付を含む、4〜6 週）を返す |
 | `eachDayInRange(range, timeZone): Date[]` | 範囲内の各日の開始時刻（0:00）を列挙する |
 | `rangesOverlap(a, b): boolean` | 2 つの範囲が重なるかどうかを判定する（`end` は排他） |
 | `visibleRangeFor(view, currentDate, timeZone, options): DateRange` | ビューごとの表示日時範囲を返す |
@@ -584,15 +584,15 @@ console.log(days.length % 7); // => 0（月ビューのグリッドは常に 7 �
 
 ### 繰り返し（`core/recurrence`）
 
-RFC 5545 の RRULE（`rrule` パッケージ）をラップし、タイムゾーンの壁時計を維持して展開します。
+RFC 5545 の RRULE（`rrule` パッケージ）をラップし、タイムゾーンの現地時刻を維持して展開します。
 
 | 関数 | 説明 |
 | --- | --- |
 | `normalizeRRuleString(rrule: string): string` | RRULE 文字列を検証し、正規化された本体を返す |
-| `expandRecurrence(params): Date[]` | 繰り返しを展開し、範囲内に開始する発生の開始時刻を昇順で返す |
-| `previousOccurrenceStart(params): Date | null` | 指定時刻より前の最後の発生の開始時刻を返す |
+| `expandRecurrence(params): Date[]` | 繰り返しを展開し、範囲内に開始するオカレンスの開始時刻を昇順で返す |
+| `previousOccurrenceStart(params): Date | null` | 指定時刻より前の最後のオカレンスの開始時刻を返す |
 | `truncateRRule(params): string` | 繰り返しを `until` より前で終了するよう打ち切った RRULE 文字列を返す |
-| `countOccurrencesBefore(params): number` | `dtstart` から `before`（排他）までの発生回数を数える |
+| `countOccurrencesBefore(params): number` | `dtstart` から `before`（排他）までのオカレンスの数を数える |
 
 ```ts
 import { expandRecurrence, normalizeRRuleString } from '@koyomi-cal/react';
@@ -618,7 +618,7 @@ Google カレンダーの編集・削除操作（繰り返しの「この予定�
 | `createEventIn(events, input, context): CreateEventResult` | イベントを追加する。`id` 省略時は `context.generateId()` で採番する |
 | `updateEventIn(events, id, patch, target, context): CalendarEvent[]` | イベントを更新する（繰り返しはスコープに従う） |
 | `deleteEventIn(events, id, target, context): CalendarEvent[]` | イベントを削除する（繰り返しはスコープに従う） |
-| `moveOccurrenceIn(events, id, params, context): CalendarEvent[]` | 発生の移動（ドラッグ＆ドロップ）を `updateEventIn` 経由で適用する便利関数 |
+| `moveOccurrenceIn(events, id, params, context): CalendarEvent[]` | オカレンスの移動（ドラッグ＆ドロップ）を `updateEventIn` 経由で適用する便利関数 |
 | `MutationContext`（型） | `{ displayTimeZone: TimeZoneId; defaultEventMinutes: number; generateId: () => EventId }` |
 | `RecurringTarget`（型） | `{ occurrenceStart: Date; scope: RecurringEditScope }` |
 | `CreateEventResult`（型） | `{ events: CalendarEvent[]; created: CalendarEvent }` |
@@ -650,9 +650,9 @@ console.log(result.events.length); // => 1
 
 | 関数 | 説明 |
 | --- | --- |
-| `expandEvents(params): EventOccurrence[]` | イベント集合を指定範囲に展開し、発生一覧を開始時刻順で返す |
-| `occurrenceKey(eventId, start): string` | 発生の一意キー（`` `${eventId}@${startのISO文字列}` ``）を組み立てる |
-| `resolveOccurrence(params): EventOccurrence | null` | 単一イベントの、指定した発生開始時刻における発生を解決する |
+| `expandEvents(params): EventOccurrence[]` | イベント集合を指定範囲に展開し、オカレンス一覧を開始時刻順で返す |
+| `occurrenceKey(eventId, start): string` | オカレンスの一意キー（`` `${eventId}@${startのISO文字列}` ``）を組み立てる |
+| `resolveOccurrence(params): EventOccurrence | null` | 単一イベントの、指定したオカレンスの開始時刻におけるオカレンスを解決する |
 
 ```ts
 import { expandEvents, occurrenceKey, resolveOccurrence } from '@koyomi-cal/react';
@@ -717,7 +717,7 @@ console.log(shortcutForKey('s')); // => null（該当なし）
 | --- | --- |
 | `buildMonthViewModel(params): MonthViewModel` | 月ビューのビューモデル（週・日・帯セグメント）を構築する。`hiddenWeekdays` で列を除外できる |
 | `buildTimeGridViewModel(params): TimeGridViewModel` | 週/日ビューのビューモデル（終日行・時間グリッド配置）を構築する。`hiddenWeekdays` 対応 |
-| `buildListViewModel(params): ListViewModel` | リストビューのビューモデル（日付ごとの発生一覧）を構築する |
+| `buildListViewModel(params): ListViewModel` | リストビューのビューモデル（日付ごとのオカレンス一覧）を構築する |
 
 ```ts
 import { buildMonthViewModel } from '@koyomi-cal/react';

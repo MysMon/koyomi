@@ -5,7 +5,7 @@
  * - 空き領域のクリック / ドラッグ → 範囲選択（新規作成）
  * - イベント本体のドラッグ → 移動（列をまたぐ移動・スナップ対応）
  * - 下端・上端ハンドルのドラッグ → リサイズ（終了・開始時刻の変更）
- * - 矢印キーによる移動・リサイズ（フォーカス中の発生に対して）
+ * - 矢印キーによる移動・リサイズ（フォーカス中のオカレンスに対して）
  * - ドラッグ中は Escape / pointercancel でキャンセルし、画面端に近づくと自動スクロールする
  * - イベント本体の移動ドラッグ中にポインタが終日行（`use-day-drag.ts` が担当する領域）に
  *   乗ると、終日イベントへの変換プレビューに切り替わる（Google カレンダー相当の
@@ -65,7 +65,7 @@ export interface TimeGridEventProps {
   onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
   /** フォーカス可能にする。 */
   tabIndex: number;
-  /** 発生キー。 */
+  /** オカレンスキー。 */
   'data-koyomi-occurrence': string;
   /** ドラッグ中の対象なら `'true'`（薄く表示するなどのスタイルフック）。 */
   'data-koyomi-dragging'?: 'true';
@@ -133,14 +133,14 @@ interface ColumnEntry {
 interface DragSession {
   /** 操作の種類。`resize-start` は上端ハンドルによる開始時刻の変更。 */
   mode: 'create' | 'move' | 'resize' | 'resize-start';
-  /** 対象の発生（`create` では `null`）。 */
+  /** 対象のオカレンス（`create` では `null`）。 */
   occurrence: EventOccurrence | null;
   /** ドラッグ開始時のポインタ位置に対応する日時（スナップ済み）。 */
   anchor: Date;
   /**
    * セッション開始時点（ポインタが実質的に未移動の状態）を基準とするプレビュー範囲。
    * `create` ではクリック相当のプレビュー長（`anchor` から snap 分）、
-   * `move` / `resize` / `resize-start` では対象発生の現在の範囲
+   * `move` / `resize` / `resize-start` では対象オカレンスの現在の範囲
    * （`occurrence.start`〜`occurrence.end`）。
    * {@link DragSession.hasMoved} の判定基準として使う。
    */
@@ -174,7 +174,7 @@ interface DragSession {
  *
  * - `create`（`occurrence === null`）— ポインタが `anchor` から動いていない場合に
  *   {@link dragPreviewRange} が返す範囲（クリック相当の snap 分の長さ）と同じ式で計算する
- * - `move` / `resize` / `resize-start`（`occurrence !== null`）— 対象発生の現在の範囲そのもの。
+ * - `move` / `resize` / `resize-start`（`occurrence !== null`）— 対象オカレンスの現在の範囲そのもの。
  *   `anchor` からの移動量が 0 のときの {@link dragPreviewRange} の計算結果と一致する
  */
 function baselineRangeForSession(
@@ -233,7 +233,7 @@ function isOverAlldayRegion(clientX: number, clientY: number): boolean {
  * 日時範囲が表示タイムゾーンで何暦日にまたがるかを求める（最低でも 1）。
  *
  * `end` は排他的なので、`end` の 1 ミリ秒前が属する日を最終日とする
- * （終日変換時、時間指定発生の複数日にまたがる長さを終日の日数に換算するために使う）。
+ * （終日変換時、時間指定オカレンスの複数日にまたがる長さを終日の日数に換算するために使う）。
  * 日数差は日付キーを UTC 0:00 に載せて求めるため、DST 切り替えの影響を受けない。
  */
 function calendarDaySpan(range: DateRange, timeZone: TimeZoneId): number {
@@ -295,10 +295,10 @@ export function autoScrollVelocity(params: {
  * 矢印キー操作に対応する「操作種別・変更後の日時範囲」を計算する。
  * 対象外のキーなら `null` を返す。
  *
- * - `ArrowUp` / `ArrowDown` — 発生を ∓/± `snap` 分移動する（開始・終了とも壁時計移動）
+ * - `ArrowUp` / `ArrowDown` — オカレンスを ∓/± `snap` 分移動する（開始・終了とも現地時刻での移動）
  * - `Shift+ArrowUp` / `Shift+ArrowDown` — 終了時刻を ∓/± `snap` 分リサイズする。
  *   最小長 `snap` 分を下回る場合は変更しない（`range` は現状の範囲のまま返す）
- * - `ArrowLeft` / `ArrowRight` — 発生を ∓/± 1 日移動する
+ * - `ArrowLeft` / `ArrowRight` — オカレンスを ∓/± 1 日移動する
  */
 function arrowKeyChange(
   occurrence: EventOccurrence,
@@ -497,10 +497,10 @@ export function useTimeGridDrag(params: {
   }
 
   /**
-   * 発生の日時範囲変更を実際に適用し、`onEventChange` を通知する（スコープ解決済みの前提）。
+   * オカレンスの日時範囲変更を実際に適用し、`onEventChange` を通知する（スコープ解決済みの前提）。
    *
    * 常に同期的に完結させる（`async` にしない）。`resolveRecurringScope` の解決を
-   * ここに含めて `await` してしまうと、繰り返しでない発生に対しても呼び出し元
+   * ここに含めて `await` してしまうと、繰り返しでないオカレンスに対しても呼び出し元
    * （{@link commitMoveOrResize}）の完了が 1 マイクロタスク遅れてしまい、
    * ドラッグ確定直後にブラウザが発火するネイティブ `click` に対する
    * `suppressNextClickRef` の設定が間に合わなくなる。
@@ -527,7 +527,7 @@ export function useTimeGridDrag(params: {
   }
 
   /**
-   * 時間指定の発生を終日イベントに変換して適用し、`onEventChange`（`allDay: true`）を
+   * 時間指定のオカレンスを終日イベントに変換して適用し、`onEventChange`（`allDay: true`）を
    * 通知する（スコープ解決済みの前提）。{@link applyOccurrenceRange} と同様、常に
    * 同期的に完結させる（理由も同じ）。
    */
@@ -552,8 +552,8 @@ export function useTimeGridDrag(params: {
   }
 
   /**
-   * 繰り返し発生のスコープを解決する。呼び出し元は `occurrence.isRecurring` が
-   * `true` の場合にのみ呼ぶこと（単発発生は呼び出し元で `null` 固定とし、
+   * 繰り返しオカレンスのスコープを解決する。呼び出し元は `occurrence.isRecurring` が
+   * `true` の場合にのみ呼ぶこと（単発オカレンスは呼び出し元で `null` 固定とし、
    * この関数を経由しない＝ `await` を発生させない）。
    *
    * @returns 解決されたスコープ。キャンセルされた場合は `null`
@@ -574,10 +574,10 @@ export function useTimeGridDrag(params: {
    * 確定する（{@link applyAllDayConversion}）。それ以外は通常どおり時間指定のまま
    * 移動・リサイズを確定する。
    *
-   * 単発発生（繰り返しでない）の場合は `await` が一度も発生せず同期的に完結する
+   * 単発オカレンス（繰り返しでない）の場合は `await` が一度も発生せず同期的に完結する
    * （{@link applyOccurrenceRange} 参照）。これは、ドラッグ確定直後にブラウザが
    * 発火するネイティブ `click` に対して `suppressNextClickRef` の設定を間に合わせるために
-   * 必要（繰り返し発生の場合のみ `resolveRecurringScope` の解決を待つ）。
+   * 必要（繰り返しオカレンスの場合のみ `resolveRecurringScope` の解決を待つ）。
    *
    * `finally` で必ず `setDragPreview(null)` を呼ぶ。`resolveRecurringScope` が
    * 例外を投げた場合や途中で早期リターンした場合でもプレビューが残留しないようにするため。
@@ -894,8 +894,8 @@ export function useTimeGridDrag(params: {
   }
 
   /**
-   * 繰り返し発生の削除。スコープ解決が必要な場合は解決してから削除する。
-   * `editable: false` のイベントは削除しない（ドラッグ移動・リサイズと同じ契約）。
+   * 繰り返しオカレンスの削除。スコープ解決が必要な場合は解決してから削除する。
+   * `editable: false` のイベントは削除しない（ドラッグ移動・リサイズと同じ扱い）。
    * 削除が実際に適用された後（スコープ解決がキャンセルでなかった場合）に
    * `callbacks.onEventDelete` を通知する。
    */
@@ -920,7 +920,7 @@ export function useTimeGridDrag(params: {
   }
 
   /**
-   * 矢印キー操作による変更を確定する。単発発生の場合は `await` を発生させず
+   * 矢印キー操作による変更を確定する。単発オカレンスの場合は `await` を発生させず
    * 同期的に完結する（{@link commitMoveOrResize} と同じ理由）。
    */
   async function commitArrowKeyChange(
@@ -948,7 +948,7 @@ export function useTimeGridDrag(params: {
    * - `ArrowLeft` / `ArrowRight` — ∓/± 1 日移動
    *
    * 矢印キーの操作は認識した時点で `preventDefault` を呼ぶ。`editable: false` の
-   * 発生には適用しない。繰り返し発生は `resolveRecurringScope` で解決し、
+   * オカレンスには適用しない。繰り返しオカレンスは `resolveRecurringScope` で解決し、
    * `null` ならキャンセルする。
    */
   function handleEventKeyDown(

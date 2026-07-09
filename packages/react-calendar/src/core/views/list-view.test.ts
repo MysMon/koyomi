@@ -9,7 +9,7 @@
  * - 2026-07-01 は水曜
  * - America/New_York の DST は 2026-03-08 に開始（EST -05:00 → EDT -04:00、切替は 2:00）
  * - America/Havana の DST は 2026-03-08 に開始するが、切替が深夜 0:00 に起きる
- *   （0:00 が存在せず 1:00 に前方解決される。EST -05:00 → EDT -04:00）
+ *   （0:00 が存在せず 1:00 に繰り上げられる。EST -05:00 → EDT -04:00）
  */
 import { describe, expect, it } from 'vitest';
 import type { EventOccurrence, ListViewModel, TimeZoneId } from '../types';
@@ -20,7 +20,7 @@ const NY = 'America/New_York';
 const HAVANA = 'America/Havana';
 
 /**
- * テスト用の発生（EventOccurrence）を組み立てるヘルパ。
+ * テスト用のオカレンス（EventOccurrence）を組み立てるヘルパ。
  * `key` は `'<eventId>@<startISO>'` 形式にする。
  */
 function makeOccurrence(params: {
@@ -119,14 +119,14 @@ describe('buildListViewModel', () => {
       expect(model.days[0]?.key).toBe('2026-07-01');
     });
 
-    it('発生が 1 件もない場合は days が空で isEmpty が true になる', () => {
+    it('オカレンスが 1 件もない場合は days が空で isEmpty が true になる', () => {
       const model = build({ currentDate: '2026-07-01T00:00:00+09:00', occurrences: [] });
       expect(model.type).toBe('list');
       expect(model.days).toEqual([]);
       expect(model.isEmpty).toBe(true);
     });
 
-    it('範囲内に発生が 1 件もない（すべて範囲外）場合も isEmpty が true になる', () => {
+    it('範囲内にオカレンスが 1 件もない（すべて範囲外）場合も isEmpty が true になる', () => {
       const model = build({
         currentDate: '2026-07-01T00:00:00+09:00',
         listDays: 7,
@@ -160,7 +160,7 @@ describe('buildListViewModel', () => {
   });
 
   describe('複数日イベント', () => {
-    it('複数日にまたがる時間指定の発生は重なる各日に出現する', () => {
+    it('複数日にまたがる時間指定のオカレンスは重なる各日に出現する', () => {
       const occurrence = makeOccurrence({
         id: 'span',
         start: '2026-07-01T22:00:00+09:00',
@@ -176,7 +176,7 @@ describe('buildListViewModel', () => {
       }
     });
 
-    it('終了が 0:00 ちょうどの発生は終了日には出現しない（end 排他）', () => {
+    it('終了が 0:00 ちょうどのオカレンスは終了日には出現しない（end 排他）', () => {
       const model = build({
         currentDate: '2026-07-01T00:00:00+09:00',
         occurrences: [
@@ -207,7 +207,7 @@ describe('buildListViewModel', () => {
       expect(dayKeys(model)).toEqual(['2026-07-05', '2026-07-06']);
     });
 
-    it('0:00 ちょうどに始まる発生はその日に出現する', () => {
+    it('0:00 ちょうどに始まるオカレンスはその日に出現する', () => {
       const model = build({
         currentDate: '2026-07-01T00:00:00+09:00',
         occurrences: [
@@ -222,8 +222,8 @@ describe('buildListViewModel', () => {
     });
   });
 
-  describe('長さ 0 の発生（リマインダー等）', () => {
-    it('長さ 0 の発生は start が属する日に表示される', () => {
+  describe('長さ 0 のオカレンス（リマインダー等）', () => {
+    it('長さ 0 のオカレンスは start が属する日に表示される', () => {
       const model = build({
         currentDate: '2026-07-01T00:00:00+09:00',
         occurrences: [
@@ -238,7 +238,7 @@ describe('buildListViewModel', () => {
       expect(model.days[0]?.occurrences.map((o) => o.eventId)).toEqual(['reminder']);
     });
 
-    it('長さ 0 の発生がちょうど日の 0:00 の場合はその日に表示され、前日には出現しない', () => {
+    it('長さ 0 のオカレンスがちょうど日の 0:00 の場合はその日に表示され、前日には出現しない', () => {
       const model = build({
         currentDate: '2026-07-01T00:00:00+09:00',
         occurrences: [
@@ -333,7 +333,7 @@ describe('buildListViewModel', () => {
       expect(model.days[0]?.occurrences.map((o) => o.eventId)).toEqual(['a-event', 'b-event']);
     });
 
-    it('終日どうしは開始昇順 → 長い方が先で並ぶ', () => {
+    it('終日どうしは開始昇順 → 長い方が先に並ぶ', () => {
       const model = build({
         currentDate: '2026-07-01T00:00:00+09:00',
         occurrences: [
@@ -466,8 +466,8 @@ describe('buildListViewModel', () => {
   });
 
   describe('タイムゾーン', () => {
-    it('同じ発生でも表示 TZ によって属する日付が変わる（America/New_York）', () => {
-      // NY の 7/1 23:00（= 東京の 7/2 12:00）の発生
+    it('同じオカレンスでも表示 TZ によって属する日付が変わる（America/New_York）', () => {
+      // NY の 7/1 23:00（= 東京の 7/2 12:00）のオカレンス
       const occurrence = makeOccurrence({
         id: 'ny-evening',
         start: '2026-07-01T23:00:00-04:00',
@@ -531,10 +531,10 @@ describe('buildListViewModel', () => {
       expect(dayKeys(model)).toEqual(['2026-03-07', '2026-03-08', '2026-03-09']);
     });
 
-    it('深夜 0:00 に DST が切り替わるゾーン（America/Havana）では切替翌日の 0:00〜1:00 の発生が翌日にのみ出現する', () => {
-      // Havana は 2026-03-08 の 0:00 が存在せず 1:00 に前方解決される。
-      // dayEnd の計算が壁時計維持のままだと 3/8 の終端が本来より 1 時間
-      // 後ろにずれ、3/9 0:00〜1:00 の発生が 3/8 にも重複出現してしまう
+    it('深夜 0:00 に DST が切り替わるゾーン（America/Havana）では切替翌日の 0:00〜1:00 のオカレンスが翌日にのみ出現する', () => {
+      // Havana は 2026-03-08 の 0:00 が存在せず 1:00 に繰り上げられる。
+      // dayEnd の計算が現地時刻の維持のままだと 3/8 の終端が本来より 1 時間
+      // 後ろにずれ、3/9 0:00〜1:00 のオカレンスが 3/8 にも重複出現してしまう
       const model = build({
         currentDate: '2026-03-07T12:00:00-05:00',
         timeZone: HAVANA,

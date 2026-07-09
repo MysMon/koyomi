@@ -2,7 +2,7 @@
  * @packageDocumentation
  * `TimeGridView` — 週/日ビュー（時間グリッド）を描画するヘッドレスコンポーネント。
  *
- * DOM 構造・`data-koyomi-*` 属性の契約は `docs/internal/components-dom.md` の
+ * DOM 構造・`data-koyomi-*` 属性の仕様は `docs/internal/components-dom.md` の
  * 「週/日ビュー（TimeGridView）」節を参照。スタイルは属性フックのみで当て、
  * 位置決めに必須の数値（%・calc）だけを inline style として出力する。
  */
@@ -26,7 +26,7 @@ import type { TimeGridDragHandlers, TimeGridPreviewSegment } from '../use-time-g
 import { useTimeGridDrag } from '../use-time-grid-drag';
 import { formatWeekday } from './format';
 
-/** 1 日の名目分数（24:00）。 */
+/** 1 日の分（24:00）。 */
 const MINUTES_PER_DAY = 1440;
 
 /** `TimeGridView` の props。 */

@@ -2,7 +2,7 @@
  * @packageDocumentation
  * `MonthView` — 月ビュー（グリッド表示）を描画するヘッドレスコンポーネント。
  *
- * DOM 構造・`data-koyomi-*` 属性の契約は `docs/internal/components-dom.md` の
+ * DOM 構造・`data-koyomi-*` 属性の仕様は `docs/internal/components-dom.md` の
  * 「月ビュー（MonthView）」節を参照。スタイルは属性フックのみで当て、
  * 位置決めに必須の数値（%・calc）だけを inline style として出力する。
  * 日セル・帯セグメントのドラッグ操作は {@link useDayDrag} に委譲する。
@@ -129,7 +129,7 @@ function defaultOverflowLabel(count: number): ReactNode {
 }
 
 /**
- * 発生の表示上の最終日に含まれる瞬間を返す。
+ * オカレンスの表示上の最終日に含まれる瞬間を返す。
  * `end` は排他的なので、`end` の 1 ミリ秒前が属する日を終了日とする。
  */
 function inclusiveEndInstant(occurrence: EventOccurrence): Date {
@@ -338,7 +338,7 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
   }));
 
   return (
-    // biome-ignore lint/a11y/useSemanticElements: DOM 契約（components-dom.md）が定める div ベースの ARIA grid（<table> はテーマ CSS と噛み合わないため不採用）
+    // biome-ignore lint/a11y/useSemanticElements: DOM 仕様（components-dom.md）が定める div ベースの ARIA grid（<table> はテーマ CSS と噛み合わないため不採用）
     <div data-koyomi="month" role="grid">
       {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA row */}
       {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない（フォーカスは各 gridcell が担う） */}
@@ -404,7 +404,7 @@ const MonthWeekRow = memo(function MonthWeekRow(props: {
   const columnCount = week.days.length;
   const visibleSegments = week.segments.filter((segment) => !segment.hidden);
 
-  /** 指定列（可視列インデックス）を覆う非表示セグメントの発生一覧を開始時刻順で返す。 */
+  /** 指定列（可視列インデックス）を覆う非表示セグメントのオカレンス一覧を開始時刻順で返す。 */
   function hiddenOccurrencesAt(col: number): readonly EventOccurrence[] {
     return week.segments
       .filter(
@@ -417,7 +417,7 @@ const MonthWeekRow = memo(function MonthWeekRow(props: {
 
   return (
     <div data-koyomi="month-week">
-      {/* biome-ignore lint/a11y/useSemanticElements: 月ビューの DOM 契約が定める div ベースの ARIA row（<table> は不採用、MonthView 側の理由と同じ） */}
+      {/* biome-ignore lint/a11y/useSemanticElements: 月ビューの DOM 仕様が定める div ベースの ARIA row（<table> は不採用、MonthView 側の理由と同じ） */}
       {/* biome-ignore lint/a11y/useFocusableInteractive: row 自体はフォーカス対象にしない（フォーカスは各 gridcell が担う） */}
       <div data-koyomi="month-days" role="row">
         {week.days.map((day, dayCol) => {
@@ -445,7 +445,7 @@ const MonthWeekRow = memo(function MonthWeekRow(props: {
             </>
           );
           return (
-            // biome-ignore lint/a11y/useSemanticElements: 月ビューの DOM 契約が定める div ベースの ARIA gridcell（<table> は不採用、MonthView 側の理由と同じ）
+            // biome-ignore lint/a11y/useSemanticElements: 月ビューの DOM 仕様が定める div ベースの ARIA gridcell（<table> は不採用、MonthView 側の理由と同じ）
             // biome-ignore lint/a11y/useFocusableInteractive: tabIndex は cellProps（useDayDrag.getDayCellProps）のスプレッド経由で付与済み。静的解析ではスプレッド元を検出できないための誤検知
             <div
               key={day.key}

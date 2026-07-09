@@ -202,7 +202,7 @@ describe('TimeGridView', () => {
     expect(lockedEvent?.querySelector('[data-koyomi="timegrid-resize"]')).toBeNull();
   });
 
-  it('イベントをクリックすると onEventClick が対象の発生とともに呼ばれる', () => {
+  it('イベントをクリックすると onEventClick が対象のオカレンスとともに呼ばれる', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
     ];

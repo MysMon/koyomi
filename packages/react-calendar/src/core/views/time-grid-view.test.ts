@@ -14,7 +14,7 @@ const NEW_YORK: TimeZoneId = 'America/New_York';
 const UTC: TimeZoneId = 'UTC';
 
 /**
- * オフセットなし ISO 文字列を、指定タイムゾーンの壁時計として絶対時刻にする。
+ * オフセットなし ISO 文字列を、指定タイムゾーンの現地時刻として絶対時刻にする。
  * テストの日時指定を TZ 明示で行うためのヘルパー。
  */
 function at(isoLocal: string, timeZone: TimeZoneId): Date {
@@ -22,7 +22,7 @@ function at(isoLocal: string, timeZone: TimeZoneId): Date {
 }
 
 /**
- * テスト用の発生（EventOccurrence）を構築する。
+ * テスト用のオカレンス（EventOccurrence）を構築する。
  * `key` は `<eventId>@<startISO>` 形式にする。
  */
 function occurrence(params: {
@@ -250,7 +250,7 @@ describe('buildTimeGridViewModel', () => {
         continuesAfter: false,
       });
 
-      // 両日とも同じ発生を参照し、終日行には入らない
+      // 両日とも同じオカレンスを参照し、終日行には入らない
       expect(firstDay.items[0]?.occurrence.key).toBe(occ.key);
       expect(secondDay.items[0]?.occurrence.key).toBe(occ.key);
       expect(model.allDaySegments).toHaveLength(0);
@@ -537,9 +537,9 @@ describe('buildTimeGridViewModel', () => {
   });
 
   describe('DST（America/New_York 2026-03-08）', () => {
-    it('DST 開始日の予定の分計算が壁時計基準で正しい', () => {
+    it('DST 開始日の予定の分計算が現地時刻基準で正しい', () => {
       // 2026-03-08 は 2:00 → 3:00 に進む日。1:00〜5:00 は絶対時間では 3 時間だが
-      // 壁時計では 60 分〜300 分に配置される
+      // 現地時刻では 60 分〜300 分に配置される
       const start = at('2026-03-08T01:00', NEW_YORK);
       const end = at('2026-03-08T05:00', NEW_YORK);
       expect(end.getTime() - start.getTime()).toBe(3 * 60 * 60 * 1000);
@@ -559,11 +559,11 @@ describe('buildTimeGridViewModel', () => {
         continuesBefore: false,
         continuesAfter: false,
       });
-      // nowIndicator も壁時計基準（12:00 → 720 分）
+      // nowIndicator も現地時刻基準（12:00 → 720 分）
       expect(model.nowIndicator).toEqual({ dayKey: '2026-03-08', minutes: 720 });
     });
 
-    it('DST 開始日をまたぐ深夜帯の予定も壁時計基準で分割される', () => {
+    it('DST 開始日をまたぐ深夜帯の予定も現地時刻基準で分割される', () => {
       // 3/7 23:00 〜 3/8 1:00。週は 3/8（日曜）開始なので 3/7 分は表示されない
       const occ = occurrence({
         id: 'dst-overnight',
@@ -610,7 +610,7 @@ describe('buildTimeGridViewModel', () => {
   });
 
   describe('空イベント', () => {
-    it('発生が空でも days・slots は生成され、items と終日行は空になる', () => {
+    it('オカレンスが空でも days・slots は生成され、items と終日行は空になる', () => {
       const model = build({ occurrences: [] });
       expect(model.days).toHaveLength(7);
       expect(model.days.every((d) => d.items.length === 0)).toBe(true);
@@ -696,7 +696,7 @@ describe('buildTimeGridViewModel', () => {
       expect(model.days.every((d) => !d.isToday)).toBe(true);
     });
 
-    it('時間指定イベントで非表示曜日の日に属する発生は days に現れない', () => {
+    it('時間指定イベントで非表示曜日の日に属するオカレンスは days に現れない', () => {
       const occ = occurrence({
         id: 'saturday-meeting',
         start: at('2026-07-04T10:00', TOKYO),
