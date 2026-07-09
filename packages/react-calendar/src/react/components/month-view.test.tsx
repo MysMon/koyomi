@@ -101,6 +101,44 @@ describe('MonthView - グリッド構造', () => {
     const { container } = render(<Harness initialView="week" />);
     expect(container.querySelector('[data-koyomi="month"]')).toBeNull();
   });
+
+  it('前後月セル（data-outside）は当月セルと同様にインタラクティブである（tabIndex・data-koyomi-date を持つ）', () => {
+    // 単体 MonthView は月ビューパーツ抽出後も interactiveOutsideDays=true 固定であり、
+    // 前後月セルの getDayCellProps 呼び出し（tabIndex・data-koyomi-date の付与）は
+    // 抽出前と完全に同一でなければならない
+    const { container } = render(<Harness />);
+
+    const outsideDay = container.querySelector('[data-koyomi-date="2026-06-28"]');
+    expect(outsideDay).toHaveAttribute('data-outside', 'true');
+    expect(outsideDay).toHaveAttribute('tabIndex', '0');
+
+    const inMonthDay = container.querySelector('[data-koyomi-date="2026-07-01"]');
+    expect(inMonthDay).not.toHaveAttribute('data-outside');
+    expect(inMonthDay).toHaveAttribute('tabIndex', '0');
+  });
+
+  it('前後月セルの日番号クリックでも day ビューへ切り替わる（getDayCellProps 経由の登録に加え、日番号ボタン自体も従来どおり機能する）', () => {
+    const apiRef: { current: CalendarApi | null } = { current: null };
+    const { container } = render(<Harness apiRef={apiRef} />);
+
+    const outsideDay = container.querySelector('[data-koyomi-date="2026-06-28"]');
+    expect(outsideDay).toBeInstanceOf(HTMLElement);
+    if (!(outsideDay instanceof HTMLElement)) {
+      throw new Error('前月セルが見つかりません');
+    }
+    const dayNumberButton = outsideDay.querySelector('[data-koyomi="month-day-number"]');
+    expect(dayNumberButton).toBeInstanceOf(HTMLElement);
+    if (!(dayNumberButton instanceof HTMLElement)) {
+      throw new Error('日番号ボタンが見つかりません');
+    }
+
+    fireEvent.click(dayNumberButton);
+
+    expect(apiRef.current?.getState().view).toBe('day');
+    expect(apiRef.current?.getState().currentDate.getTime()).toBe(
+      new Date('2026-06-27T15:00:00Z').getTime(), // 2026-06-28 0:00 JST
+    );
+  });
 });
 
 describe('MonthView - イベントセグメント', () => {
