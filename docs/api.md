@@ -159,6 +159,7 @@ Google カレンダー準拠のキーボードショートカットを有効に�
 | --- | --- |
 | `M` / `W` / `D` / `A` | 月 / 週 / 日 / リスト表示に切り替え |
 | `Y` | 年表示に切り替え（`views` に `'year'` を含む場合のみ。既定では無効） |
+| `Q` | 複数月表示に切り替え（`views` に `'multiMonth'` を含む場合のみ。既定では無効） |
 | `T` | 今日へ移動 |
 | `J`, `N` | 次の期間へ |
 | `K`, `P` | 前の期間へ |
@@ -356,7 +357,7 @@ function App() {
 function CalendarView(props: CalendarViewProps): ReactElement
 ```
 
-現在のビュー（`state.view`）に応じて `MonthView` / `TimeGridView` / `ListView` / `YearView` を出し分けるスイッチコンポーネントです。ルート要素に `data-koyomi="root"` と `data-koyomi-view` が付きます。
+現在のビュー（`state.view`）に応じて `MonthView` / `TimeGridView` / `ListView` / `YearView` / `MultiMonthView` を出し分けるスイッチコンポーネントです。ルート要素に `data-koyomi="root"` と `data-koyomi-view` が付きます。
 
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
@@ -374,6 +375,9 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `listOverscan` | `number` | 仮想化時の前後 overscan 日数（`VirtualListView.overscan` へ転送） |
 | `renderYearMonthHeader` | `(month: YearMonth, defaultContent: ReactNode) => ReactNode` | 年ビューのミニ月グリッドの見出しのカスタム描画（`YearView.renderMonthHeader` へ転送） |
 | `renderYearDayCell` | `(day: YearDay, defaultContent: ReactNode) => ReactNode` | 年ビューの日セルのカスタム描画（`YearView.renderDayCell` へ転送） |
+| `renderMultiMonthEvent` | `(segment: EventSegment) => ReactNode` | 複数月ビューのセグメントのカスタム描画（`MultiMonthView.renderEvent` へ転送） |
+| `renderMultiMonthDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 複数月ビューの日セルのカスタム描画（`MultiMonthView.renderDayCell` へ転送） |
+| `multiMonthOverflowLabel` | `(count: number) => ReactNode` | 複数月ビューの「+N 件」の文言（`MultiMonthView.overflowLabel` へ転送） |
 
 ### `MonthView`
 
@@ -453,6 +457,22 @@ function YearView(props: YearViewProps): ReactElement | null
 
 ルート要素には月ビューと同じ WAI-ARIA grid ロール（ミニ月単位で `grid` / `row` / `columnheader` / `gridcell`）と、各日セルへの完全な日付＋件数の `aria-label`（例:「7月10日 予定3件」）・今日への `aria-current="date"` が付与されます。`hiddenWeekdays` は無視されます（常に 7 列。日ビューと同じ扱い）。
 
+### `MultiMonthView`
+
+```ts
+function MultiMonthView(props: MultiMonthViewProps): ReactElement | null
+```
+
+複数月ビュー（`multiMonthCount` ヶ月分の月グリッドを縦に並べたもの）を描画します。`viewModel.type !== 'multiMonth'` の場合は `null` を返します。各月グリッドの内部構造・帯（セグメント）表示・「+N 件」あふれ・ドラッグ操作（作成・移動・リサイズ）は `MonthView` と共有のレンダラを使っており完全に同等です（`useDayDrag` は `MultiMonthView` 全体で単一インスタンス。月境界をまたぐ移動・リサイズも扱えます）。
+
+| プロパティ | シグネチャ | 説明 |
+| --- | --- | --- |
+| `renderEvent` | `(segment: EventSegment) => ReactNode` | セグメントの表示内容。既定内容は `MonthView` と同じ |
+| `renderDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 日セルの内容をラップ・置換する。前後月の日付セル（`data-outside`）はインタラクティブでないため適用されない |
+| `overflowLabel` | `(count: number) => ReactNode` | 「+N 件」ボタンの文言（既定 `+N 件`） |
+
+`MonthView` との違いは、前後月の日付セルに予定を表示しない点だけです。月境界をまたぐ帯は月ごとにクランプされ、`continuesBefore` / `continuesAfter` で「←続く／続く→」を示します（月ビューの複数週セグメントと同じセマンティクス）。前後月の日付セルはクリック・キーボード操作の対象になりません（`tabIndex` なし）。
+
 ### `Toolbar`
 
 ```ts
@@ -474,13 +494,14 @@ interface ToolbarLabels {
   day?: ReactNode;
   list?: ReactNode;
   year?: ReactNode;
+  multiMonth?: ReactNode;
   today?: ReactNode;
   prev?: ReactNode;
   next?: ReactNode;
 }
 ```
 
-「今日」「前へ」「次へ」のナビゲーション、期間タイトル、ビュー切替（既定は月・週・日・リスト。`views` prop で年ビュー等を追加できる opt-in）を提供します。タイトルは現在のビューに応じて `formatMonthTitle` / `formatDayTitle` / `formatRangeTitle` / `formatYearTitle` のいずれかで整形されます。`labels` で全ボタン文言を差し替えられます（i18n 対応）。
+「今日」「前へ」「次へ」のナビゲーション、期間タイトル、ビュー切替（既定は月・週・日・リスト。`views` prop で年ビュー・複数月ビュー等を追加できる opt-in）を提供します。タイトルは現在のビューに応じて `formatMonthTitle` / `formatDayTitle` / `formatRangeTitle` / `formatYearTitle` のいずれかで整形されます（複数月ビューは表示範囲の開始月・終了月をそれぞれ `formatMonthTitle` で整形し、「2026年7月〜2026年9月」のように連結します。同一月なら単一表記）。`labels` で全ボタン文言を差し替えられます（i18n 対応）。
 
 ## 型
 
@@ -552,6 +573,7 @@ interface ToolbarLabels {
 | `defaultEventMinutes?` | `number` | `60` |
 | `defaultEventTitle?` | `string` | `'(タイトルなし)'`（既定作成時のタイトル） |
 | `listDays?` | `number` | `30` |
+| `multiMonthCount?` | `number` | `3` |
 | `locale?` | `string` | `'ja'` |
 | `hiddenWeekdays?` | `readonly Weekday[]` | `[]`（非表示にする曜日。7 曜日全指定は無効） |
 | `now?` | `() => Date` | `() => new Date()` |
@@ -559,18 +581,18 @@ interface ToolbarLabels {
 
 `initialDate` / `initialView` は**作成時専用**です（`updateOptions` は型レベルで受け付けません。変更には `goTo` / `setView` を使います）。
 
-`ResolvedCalendarOptions` は既定値適用後の型で、`onEventsChange` を除くすべてのフィールドが必須になったものです（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `locale` / `hiddenWeekdays` / `now`）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year'` です。
+`ResolvedCalendarOptions` は既定値適用後の型で、`onEventsChange` を除くすべてのフィールドが必須になったものです（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `multiMonthCount` / `locale` / `hiddenWeekdays` / `now`）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth'` です。
 
 ### 状態とビューモデル
 
 | 型 | 説明 |
 | --- | --- |
 | `CalendarState` | `{ view; currentDate; timeZone; events; dragPreview; options: ResolvedCalendarOptions }`。`getState()` の戻り値 |
-| `CalendarViewModel` | `MonthViewModel | TimeGridViewModel | ListViewModel | YearViewModel`。`getViewModel()` の戻り値 |
+| `CalendarViewModel` | `MonthViewModel | TimeGridViewModel | ListViewModel | YearViewModel | MultiMonthViewModel`。`getViewModel()` の戻り値 |
 | `MonthViewModel` | `{ type: 'month'; anchor: Date; weeks: readonly MonthWeek[]; weekdays: readonly Weekday[] }` |
 | `MonthWeek` | `{ days: readonly MonthDay[]; segments: readonly EventSegment[]; laneCount: number }` |
 | `MonthDay` | `{ date; key; inCurrentMonth; isToday; overflowCount }` |
-| `EventSegment` | `{ occurrence; startCol; span; lane; continuesBefore; continuesAfter; hidden }`。月ビュー・終日行の帯セグメント |
+| `EventSegment` | `{ occurrence; startCol; span; lane; continuesBefore; continuesAfter; hidden }`。月ビュー・終日行・複数月ビューの帯セグメント |
 | `TimeGridViewModel` | `{ type: 'timeGrid'; viewType: 'week' | 'day'; days; allDaySegments; allDayLaneCount; slots; nowIndicator }` |
 | `TimeGridDay` | `{ date; key; isToday; weekday; items: readonly PositionedOccurrence[] }` |
 | `TimeSlot` | `{ minutes: number; label: string }` |
@@ -580,6 +602,8 @@ interface ToolbarLabels {
 | `YearViewModel` | `{ type: 'year'; anchor: Date; months: readonly YearMonth[]; weekdays: readonly Weekday[] }` |
 | `YearMonth` | `{ anchor: Date; key: string; weeks: readonly (readonly YearDay[])[] }`。週数は 4〜6 |
 | `YearDay` | `{ date; key; inCurrentMonth; isToday; eventCount }`。前後月の日付（`inCurrentMonth: false`）は常に `eventCount: 0` |
+| `MultiMonthViewModel` | `{ type: 'multiMonth'; anchor: Date; months: readonly MultiMonthMonth[]; weekdays: readonly Weekday[] }` |
+| `MultiMonthMonth` | `{ anchor: Date; key: string; weeks: readonly MonthWeek[] }`。`weeks` は月ビューと同じ `MonthWeek` だが、前後月の日付セルにはセグメントを配置しない |
 
 `nowIndicator` は `{ dayKey: string; minutes: number } | null`（表示範囲内に「今日」がない場合は `null`）です。ビューごとの表示仕様は [ビュー](./views.md) を参照してください。
 
@@ -794,6 +818,7 @@ import { shortcutForKey, snapToInterval } from '@koyomi-cal/react';
 console.log(snapToInterval(37, 15)); // => 30
 console.log(shortcutForKey('w')); // => { type: 'view', view: 'week' }
 console.log(shortcutForKey('y')); // => { type: 'view', view: 'year' }
+console.log(shortcutForKey('q')); // => { type: 'view', view: 'multiMonth' }
 console.log(shortcutForKey('s')); // => null（該当なし）
 ```
 
@@ -803,10 +828,11 @@ console.log(shortcutForKey('s')); // => null（該当なし）
 
 | 関数 | 説明 |
 | --- | --- |
-| `buildMonthViewModel(params): MonthViewModel` | 月ビューのビューモデル（週・日・帯セグメント）を構築する。`hiddenWeekdays` で列を除外できる |
+| `buildMonthViewModel(params): MonthViewModel` | 月ビューのビューモデル（週・日・帯セグメント）を構築する。`hiddenWeekdays` で列を除外できる。`params.segmentRange`（省略可）でセグメント生成と「+N 件」の計上を指定範囲の日に限定できる（複数月ビューが月ごとにクランプするための引数。省略時は従来どおりグリッド全域が対象で、単体の月ビューの挙動は不変） |
 | `buildTimeGridViewModel(params): TimeGridViewModel` | 週/日ビューのビューモデル（終日行・時間グリッド配置）を構築する。`hiddenWeekdays` 対応 |
 | `buildListViewModel(params): ListViewModel` | リストビューのビューモデル（日付ごとのオカレンス一覧）を構築する |
 | `buildYearViewModel(params): YearViewModel` | 年ビューのビューモデル（12 ヶ月分のミニ月グリッド・日ごとの予定件数）を構築する。`hiddenWeekdays` は無視する |
+| `buildMultiMonthViewModel(params): MultiMonthViewModel` | 複数月ビューのビューモデル（`multiMonthCount` ヶ月分の月グリッド）を構築する。内部で月ごとに `buildMonthViewModel` を呼び、`segmentRange` を各月本体にクランプすることで前後月の日付セルに予定を出さない |
 
 ```ts
 import { buildMonthViewModel } from '@koyomi-cal/react';
@@ -837,6 +863,23 @@ console.log(yearModel.type); // => 'year'
 console.log(yearModel.months.length); // => 12
 ```
 
+```ts
+import { buildMultiMonthViewModel } from '@koyomi-cal/react';
+
+const multiMonthModel = buildMultiMonthViewModel({
+  currentDate: new Date('2026-07-15T00:00:00+09:00'),
+  timeZone: 'Asia/Tokyo',
+  occurrences: [],
+  weekStartsOn: 0,
+  dayMaxEvents: 4,
+  multiMonthCount: 3,
+  now: new Date('2026-07-15T00:00:00+09:00'),
+});
+console.log(multiMonthModel.type); // => 'multiMonth'
+console.log(multiMonthModel.months.length); // => 3（7月・8月・9月）
+console.log(multiMonthModel.months[0]?.key); // => '2026-07'
+```
+
 ### 日時ラベル整形（`react/components/format`）
 
 ビルトインコンポーネントが使う `Intl.DateTimeFormat` ベースの整形ヘルパです。`timeZone` / `locale` を必須引数として受け取り、暗黙のローカルタイムゾーンには依存しません。`ja` ロケール以外は `Intl` の既定の書式に委ねます。
@@ -863,7 +906,7 @@ console.log(formatWeekday(3, 'ja')); // => '水'
 ## 関連ページ
 
 - [はじめに](./getting-started.md)
-- [ビュー（月・週・日・リスト・年）](./views.md)
+- [ビュー（月・週・日・リスト・年・複数月）](./views.md)
 - [予定の管理](./events.md)
 - [インタラクション（作成・移動・リサイズ）](./interactions.md)
 - [繰り返し予定](./recurrence.md)

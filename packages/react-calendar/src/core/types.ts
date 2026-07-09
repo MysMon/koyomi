@@ -14,8 +14,9 @@
  * - `day` — 日表示（時間グリッド、1日）
  * - `list` — リスト表示（予定を日付ごとに列挙）
  * - `year` — 年表示（12 ヶ月分のミニ月グリッド）
+ * - `multiMonth` — 複数月表示（連続する N ヶ月の月グリッドを縦に並べる）
  */
-export type CalendarViewType = 'month' | 'week' | 'day' | 'list' | 'year';
+export type CalendarViewType = 'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth';
 
 /**
  * IANA タイムゾーン ID。
@@ -371,8 +372,38 @@ export interface YearViewModel {
   weekdays: readonly Weekday[];
 }
 
+/** 複数月ビューの 1 ヶ月分。 */
+export interface MultiMonthMonth {
+  /** 月初の絶対時刻（表示タイムゾーンベース）。 */
+  anchor: Date;
+  /** `'YYYY-MM'` 形式のキー。 */
+  key: string;
+  /**
+   * 週の配列（4〜6 週）。月ビューの {@link MonthWeek} と同じ構造だが、
+   * 前後月の日付セルにはセグメントを配置しない（帯は月本体にクランプされ、
+   * 月境界をまたぐ予定は `continuesBefore` / `continuesAfter` で示される）。
+   */
+  weeks: readonly MonthWeek[];
+}
+
+/** 複数月ビューのビューモデル。 */
+export interface MultiMonthViewModel {
+  type: 'multiMonth';
+  /** 先頭月の 1 日（表示タイムゾーンベース）。 */
+  anchor: Date;
+  /** {@link CalendarOptions.multiMonthCount} ヶ月分（表示順）。 */
+  months: readonly MultiMonthMonth[];
+  /** 曜日ヘッダー（週開始曜日の設定順）。全月共通。 */
+  weekdays: readonly Weekday[];
+}
+
 /** 現在のビューに対応するビューモデル。 */
-export type CalendarViewModel = MonthViewModel | TimeGridViewModel | ListViewModel | YearViewModel;
+export type CalendarViewModel =
+  | MonthViewModel
+  | TimeGridViewModel
+  | ListViewModel
+  | YearViewModel
+  | MultiMonthViewModel;
 
 // ---------------------------------------------------------------------------
 // カレンダーの状態とオプション
@@ -451,6 +482,13 @@ export interface CalendarOptions {
   defaultEventTitle?: string;
   /** リストビューが表示する日数。既定は `30`。 */
   listDays?: number;
+  /**
+   * 複数月ビューが表示する月数。既定は `3`（四半期）。
+   * `next()` / `prev()` の移動単位にもなる。
+   * `1` も指定できるが、前後月の日付セルに予定を表示しない点で
+   * 月ビューの代替にはならない（月ビューは前後月の日付にも帯を描く）。
+   */
+  multiMonthCount?: number;
   /** 曜日・時刻ラベルのロケール。既定は `'ja'`。 */
   locale?: string;
   /**
@@ -487,6 +525,8 @@ export interface ResolvedCalendarOptions {
   defaultEventTitle: string;
   /** リストビューが表示する日数。 */
   listDays: number;
+  /** 複数月ビューが表示する月数。 */
+  multiMonthCount: number;
   /** ロケール。 */
   locale: string;
   /** 非表示にする曜日。 */

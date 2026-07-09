@@ -499,4 +499,89 @@ describe('buildMonthViewModel', () => {
       expect(week?.laneCount).toBe(2);
     });
   });
+
+  describe('segmentRange（複数月ビュー向けの範囲限定・省略時は挙動不変）', () => {
+    // 既定パラメータのグリッドは 2026-06-28〜2026-08-01（35 日）。
+    // segmentRange = [2026-07-01, 2026-08-01) を「7 月本体」として使う
+    const julySegmentRange = { start: at(TOKYO, 2026, 7, 1), end: at(TOKYO, 2026, 8, 1) };
+
+    it('月初より前から続く帯は月初にクランプされ continuesBefore が立つ', () => {
+      // 6/29(月) 9:00 〜 7/3(金) 10:00（グリッド内・segmentRange 開始より前から開始）
+      const occ = makeOccurrence(
+        'before-month',
+        at(TOKYO, 2026, 6, 29, 9),
+        at(TOKYO, 2026, 7, 3, 10),
+      );
+      const vm = build({ occurrences: [occ], segmentRange: julySegmentRange });
+      const placed = segmentsOf(vm, occ.key);
+      expect(placed).toHaveLength(1);
+      expect(placed[0]?.week).toBe(0);
+      expect(placed[0]?.segment).toMatchObject({
+        startCol: 3, // 7/1（水）にクランプ
+        span: 3, // 7/1, 7/2, 7/3
+        continuesBefore: true,
+        continuesAfter: false,
+      });
+    });
+
+    it('月末より後まで続く帯は月末にクランプされ continuesAfter が立つ（グリッド境界より厳しく打ち切る）', () => {
+      // 7/29(水) 9:00 〜 8/3(月) 10:00（グリッドは 8/1 まで、segmentRange は 7/31 まで）
+      const occ = makeOccurrence(
+        'after-month',
+        at(TOKYO, 2026, 7, 29, 9),
+        at(TOKYO, 2026, 8, 3, 10),
+      );
+      const vm = build({ occurrences: [occ], segmentRange: julySegmentRange });
+      const placed = segmentsOf(vm, occ.key);
+      expect(placed).toHaveLength(1);
+      expect(placed[0]?.week).toBe(4);
+      expect(placed[0]?.segment).toMatchObject({
+        startCol: 3, // 7/29（水）
+        // グリッド境界だけなら 8/1 までの span:4 になるが、segmentRange（7/31 まで）が
+        // より厳しく打ち切るため span:3 になる
+        span: 3, // 7/29, 7/30, 7/31
+        continuesBefore: false,
+        continuesAfter: true,
+      });
+    });
+
+    it('segmentRange と重ならないオカレンスはセグメントを生成せず、あふれにも数えない', () => {
+      // 6/28（グリッド先頭日、segmentRange より前）に 2 件重ねる
+      const a = makeOccurrence('a', at(TOKYO, 2026, 6, 28, 9), at(TOKYO, 2026, 6, 28, 10));
+      const b = makeOccurrence('b', at(TOKYO, 2026, 6, 28, 10), at(TOKYO, 2026, 6, 28, 11));
+      const vm = build({
+        occurrences: [a, b],
+        segmentRange: julySegmentRange,
+        dayMaxEvents: 1,
+      });
+      expect(segmentsOf(vm, a.key)).toHaveLength(0);
+      expect(segmentsOf(vm, b.key)).toHaveLength(0);
+      expect(vm.weeks[0]?.days[0]?.key).toBe('2026-06-28');
+      expect(vm.weeks[0]?.days[0]?.overflowCount).toBe(0);
+    });
+
+    it('segmentRange がグリッド全域を覆う場合は省略時と全く同じ結果になる（リグレッションガード）', () => {
+      // 週跨ぎ・レーン再配置・あふれを含む既存テストと同じ組み合わせを使い、
+      // segmentRange の有無で結果が変わらないことを確認する
+      const early = makeOccurrence('early', at(TOKYO, 2026, 7, 5, 8), at(TOKYO, 2026, 7, 7, 9));
+      const spanning = makeOccurrence(
+        'spanning',
+        at(TOKYO, 2026, 7, 6, 10),
+        at(TOKYO, 2026, 7, 13, 10),
+      );
+      const overflowA = makeOccurrence('ofa', at(TOKYO, 2026, 7, 7, 9), at(TOKYO, 2026, 7, 7, 10));
+      const overflowB = makeOccurrence('ofb', at(TOKYO, 2026, 7, 7, 10), at(TOKYO, 2026, 7, 7, 11));
+      const occurrences = [early, spanning, overflowA, overflowB];
+
+      const vmDefault = build({ occurrences, dayMaxEvents: 2 });
+      const vmFullRange = build({
+        occurrences,
+        dayMaxEvents: 2,
+        // グリッド全域（6/28〜8/1 の翌日 8/2 排他）を覆う segmentRange は
+        // 実質的に無制限であり、省略時と同一の結果になるはずである
+        segmentRange: { start: at(TOKYO, 2026, 6, 28), end: at(TOKYO, 2026, 8, 2) },
+      });
+      expect(vmFullRange).toEqual(vmDefault);
+    });
+  });
 });

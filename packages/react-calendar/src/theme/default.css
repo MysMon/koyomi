@@ -5,7 +5,7 @@
  *   import '@koyomi-cal/react/theme.css';
  *
  * ビルトインコンポーネント（Toolbar / CalendarView / MonthView / TimeGridView /
- * ListView / YearView）はスタイルを一切持たないヘッドレスなコンポーネントで、DOM 上の
+ * ListView / YearView / MultiMonthView）はスタイルを一切持たないヘッドレスなコンポーネントで、DOM 上の
  * `data-koyomi="<部位名>"` 属性だけを目印にしている（クラス名は生成しない）。
  * このファイルはその属性だけをセレクタにして見た目を組み立てる。
  * 利用側が独自テーマを当てたい場合も同じ属性をフックにすればよい。
@@ -779,6 +779,38 @@
 
 [data-koyomi="year-day"][data-today] [data-koyomi="year-day-count"] {
   background-color: var(--koyomi-event-fg);
+}
+
+/* ---------------------------------------------------------------------------
+ * 複数月ビュー
+ *
+ * 月グリッド本体（[data-koyomi="month"] 以下）は月ビューと共有のレンダラを使うため、
+ * 上記「月ビュー」節のスタイルがそのまま効く。ここで当てるのは複数月ビュー固有の
+ * 外枠（縦並びのコンテナ・月ごとの見出し）のみ。
+ * ------------------------------------------------------------------------ */
+
+[data-koyomi="multimonth"] {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 12px;
+}
+
+[data-koyomi="multimonth-month"] {
+  padding-top: 16px;
+  border-top: 1px solid var(--koyomi-border);
+}
+
+/* 先頭月には区切り線を出さない（コンテナの gap だけで間隔をとる） */
+[data-koyomi="multimonth-month"]:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+[data-koyomi="multimonth-title"] {
+  margin-bottom: 8px;
+  font-size: 1.1em;
+  font-weight: 600;
 }
 
 /* ---------------------------------------------------------------------------

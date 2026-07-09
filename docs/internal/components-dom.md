@@ -19,7 +19,7 @@
 ## ルート / ツールバー
 
 ```
-div[data-koyomi="root"][data-koyomi-view="month|week|day|list|year"]
+div[data-koyomi="root"][data-koyomi-view="month|week|day|list|year|multiMonth"]
 ```
 
 Toolbar（`CalendarProvider` 配下で使用）:
@@ -37,12 +37,14 @@ div[data-koyomi="toolbar"]
     button[data-koyomi="button"][data-koyomi-action="view-day"][aria-pressed]
     button[data-koyomi="button"][data-koyomi-action="view-list"][aria-pressed]
     button[data-koyomi="button"][data-koyomi-action="view-year"][aria-pressed]?  … ToolbarProps.views に 'year' を含めた場合のみ
+    button[data-koyomi="button"][data-koyomi-action="view-multimonth"][aria-pressed]?  … ToolbarProps.views に 'multiMonth' を含めた場合のみ
 ```
 
 タイトルの書式は `Intl.DateTimeFormat(locale, { timeZone, ... })`:
-月 = 年+月、週 = 開始日〜終了日、日 = 年月日（曜日付き）、リスト = 開始日〜終了日、年 = 年のみ。
+月 = 年+月、週 = 開始日〜終了日、日 = 年月日（曜日付き）、リスト = 開始日〜終了日、年 = 年のみ、
+複数月 = 表示範囲の開始月・終了月をそれぞれ月の書式で整形して連結（例:「2026年7月〜2026年9月」。同一月なら単一表記）。
 
-`toolbar-views` 配下のボタンは既定で月/週/日/リストの 4 つ（`ToolbarProps.views` 省略時）。並び順・表示対象はすべて `views` に従い、新ビュー（`view-year` 等）は明示的に含めない限り現れない（opt-in。既存利用者の既定の見た目は不変）。
+`toolbar-views` 配下のボタンは既定で月/週/日/リストの 4 つ（`ToolbarProps.views` 省略時）。並び順・表示対象はすべて `views` に従い、新ビュー（`view-year` / `view-multimonth` 等）は明示的に含めない限り現れない（opt-in。既存利用者の既定の見た目は不変）。
 
 ## 月ビュー（MonthView）
 
@@ -191,18 +193,43 @@ div[data-koyomi="year"]
 - ミニ月単位で WAI-ARIA grid ロール（`role="grid"` / `row` / `columnheader` / `gridcell`）を持つ、
   月ビューと同じパターン
 
+## 複数月ビュー（MultiMonthView）
+
+月ビューの `multiMonthCount` ヶ月連結。月グリッド部分（`data-koyomi="month"` 以下）は月ビューと
+同じ共有レンダラ（`month-view-parts.tsx`）を使うため、「月ビュー（MonthView）」節の DOM 構造と
+完全に一致する（週行・日セル・帯セグメント・ARIA grid ロールもすべて同一）。
+
+```
+div[data-koyomi="multimonth"]
+  div[data-koyomi="multimonth-month"] × multiMonthCount
+    h3[data-koyomi="multimonth-title"]     … 月見出し（例:「2026年7月」）
+    ( … 月グリッド。中身は「月ビュー（MonthView）」節と同一 … )
+```
+
+- 前後月の日付セルは `interactiveOutsideDays: false` で共有 parts に渡されるため、単体の
+  `MonthView`（`interactiveOutsideDays: true`）と異なり**非インタラクティブ**になる
+  （`tabIndex` なし・`data-koyomi-date` なし・ポインタ/キーボードハンドラなし。日番号のみ表示）
+- 予定の帯（`month-event`）は自分の月グリッドにのみ描画される（`buildMonthViewModel` の
+  `segmentRange` で月本体にクランプするため）。月境界をまたぐ帯は隣接する 2 つの月グリッドの
+  それぞれにセグメントとして現れ、`continuesBefore` / `continuesAfter` で「←続く／続く→」を示す
+- 週行・セグメントの React key は月キー（`MultiMonthMonth.key`）で修飾して全月横断で一意にする
+  （DOM 上の `data-koyomi-*` 属性自体は月ビューと同一）
+- D&D（`useDayDrag`）は `MultiMonthView` 全体で単一インスタンス。前後月セルを登録しないため、
+  日付キーは全月共通で一意になり、月境界をまたぐドラッグ（例: 7/31 → 8/2）も解決できる
+
 ## CalendarView
 
-`state.view` に応じて `MonthView` / `TimeGridView` / `ListView` / `YearView` を出し分けるだけの
-スイッチ。props はビュー名を接頭辞にした名前で各ビューへ転送する（`renderMonthEvent` /
-`renderMonthDayCell` / `monthOverflowLabel` / `renderTimeGridEvent` /
+`state.view` に応じて `MonthView` / `TimeGridView` / `ListView` / `YearView` / `MultiMonthView` を
+出し分けるだけのスイッチ。props はビュー名を接頭辞にした名前で各ビューへ転送する
+（`renderMonthEvent` / `renderMonthDayCell` / `monthOverflowLabel` / `renderTimeGridEvent` /
 `renderTimeGridDayHeader` / `renderListEvent` / `listAllDayLabel` / `listEmptyLabel` /
-`renderListDayHeader` / `renderYearMonthHeader` / `renderYearDayCell`）。`virtualizeList` を
-渡すと list ビューは `ListView` の代わりに `VirtualListView` で描画され、
-`listEstimateDayHeight` / `listOverscan` がそちらへ転送される。
+`renderListDayHeader` / `renderYearMonthHeader` / `renderYearDayCell` / `renderMultiMonthEvent` /
+`renderMultiMonthDayCell` / `multiMonthOverflowLabel`）。`virtualizeList` を渡すと list ビューは
+`ListView` の代わりに `VirtualListView` で描画され、`listEstimateDayHeight` / `listOverscan` が
+そちらへ転送される。
 
 ## Toolbar の文言
 
-`ToolbarProps.labels`（`ToolbarLabels`）で「今日 / ‹ / › / 月 / 週 / 日 / リスト / 年」の
+`ToolbarProps.labels`（`ToolbarLabels`）で「今日 / ‹ / › / 月 / 週 / 日 / リスト / 年 / 複数月」の
 全文言を差し替えられる。prev/next の表示アイコン（‹/›）は固定で、`labels` の値が
 文字列の場合のみ aria-label に反映する。

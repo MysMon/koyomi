@@ -283,7 +283,7 @@ export function dayDragPreviewRange(
  * キーボードショートカットの操作種別。Google カレンダーのショートカットに準拠する。
  */
 export type CalendarShortcut =
-  | { type: 'view'; view: 'month' | 'week' | 'day' | 'list' | 'year' }
+  | { type: 'view'; view: 'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' }
   | { type: 'today' }
   | { type: 'next' }
   | { type: 'prev' }
@@ -293,6 +293,7 @@ export type CalendarShortcut =
  * キー入力を Google カレンダー準拠のショートカットに解釈する。
  *
  * - `M` → 月、`W` → 週、`D` → 日、`A` → リスト（スケジュール）、`Y` → 年
+ * - `Q` → 複数月（既定 3 ヶ月 = 四半期（quarter）の連想）
  * - `T` → 今日
  * - `J` / `N` → 次の期間、`K` / `P` → 前の期間
  * - `C` → 予定作成
@@ -324,6 +325,8 @@ export function shortcutForKey(
       return { type: 'view', view: 'list' };
     case 'y':
       return { type: 'view', view: 'year' };
+    case 'q':
+      return { type: 'view', view: 'multiMonth' };
     case 't':
       return { type: 'today' };
     case 'j':

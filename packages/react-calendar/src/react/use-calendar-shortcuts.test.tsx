@@ -130,6 +130,33 @@ describe('useCalendarShortcuts', () => {
     expect(calendar.api.getState().view).toBe('year');
   });
 
+  it('既定では q キーは無効（ビューが変わらず、preventDefault もされない）', () => {
+    const calendar = makeCalendar();
+    renderHook(() => useCalendarShortcuts({ calendar }));
+
+    let defaultPrevented: boolean | null = null;
+    function captureListener(event: KeyboardEvent): void {
+      defaultPrevented = event.defaultPrevented;
+    }
+    document.addEventListener('keydown', captureListener);
+    pressKey('q');
+    document.removeEventListener('keydown', captureListener);
+
+    expect(calendar.api.getState().view).toBe('month');
+    expect(defaultPrevented).toBe(false);
+  });
+
+  it("views に 'multiMonth' を含めると q キーで複数月ビューへ切り替わる", () => {
+    const calendar = makeCalendar();
+    renderHook(() =>
+      useCalendarShortcuts({ calendar, views: ['month', 'week', 'day', 'list', 'multiMonth'] }),
+    );
+
+    pressKey('q');
+
+    expect(calendar.api.getState().view).toBe('multiMonth');
+  });
+
   it('views に year を追加しても既存の M/W/D/A/T の挙動は変わらない（回帰ガード）', () => {
     const calendar = makeCalendar();
     calendar.api.goTo(new Date('2026-01-01T00:00:00Z'));

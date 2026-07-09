@@ -12,6 +12,7 @@ import type { BandItemInput } from '../layout/band-layout';
 import { layoutBandItems } from '../layout/band-layout';
 import { dateKeyInZone, getWallClock, isSameDayInZone, weekdayInZone } from '../timezone';
 import type {
+  DateRange,
   EventOccurrence,
   EventSegment,
   MonthDay,
@@ -83,6 +84,12 @@ function daySpanOf(occurrence: EventOccurrence, timeZone: TimeZoneId): Occurrenc
  * @param params.dayMaxEvents - 1 日に表示する最大イベント数
  * @param params.now - 現在時刻（`isToday` 判定に使用）
  * @param params.hiddenWeekdays - 非表示にする曜日。省略時は `[]`（すべて表示）
+ * @param params.segmentRange - セグメント生成・あふれ計上を限定する日時範囲（`end` 排他）。
+ *   複数月ビューが「予定は自分の月のグリッドにのみ描画する」規則を実現するために
+ *   `[月初, 翌月初)` を渡す。範囲外へはみ出す帯はこの範囲の日にクランプされ、
+ *   実際のスパンが範囲外へ続く場合は `continuesBefore` / `continuesAfter` が立つ。
+ *   範囲と重ならないオカレンスはセグメントを生成せず、あふれにも数えない。
+ *   **省略時は従来どおりグリッド全域**（単体の月ビューの挙動は不変）
  */
 export function buildMonthViewModel(params: {
   currentDate: Date;
@@ -92,6 +99,7 @@ export function buildMonthViewModel(params: {
   dayMaxEvents: number;
   now: Date;
   hiddenWeekdays?: readonly Weekday[];
+  segmentRange?: DateRange;
 }): MonthViewModel {
   const {
     currentDate,
@@ -101,6 +109,7 @@ export function buildMonthViewModel(params: {
     dayMaxEvents,
     now,
     hiddenWeekdays = [],
+    segmentRange,
   } = params;
 
   const anchor = startOfMonthInZone(currentDate, timeZone);
@@ -135,9 +144,19 @@ export function buildMonthViewModel(params: {
   );
   const visibleColCount = visibleCols.length;
 
+  // segmentRange 指定時のセグメント配置範囲（日付キー、両端含む）。
+  // グリッド境界（第 1）・週境界（第 2）に続く第 3 の境界としてスパン生成段に組み込む。
+  // end は排他なので、最終日は「end の 1 ミリ秒前」が属する日とする
+  const segmentFirstKey =
+    segmentRange === undefined ? undefined : dateKeyInZone(segmentRange.start, timeZone);
+  const segmentLastKey =
+    segmentRange === undefined
+      ? undefined
+      : dateKeyInZone(new Date(segmentRange.end.getTime() - 1), timeZone);
+
   // 各オカレンスの日付スパンをグリッド内インデックス範囲（両端含む）に解決する。
-  // グリッドと重ならないオカレンスはここで除外する。
-  // グリッド外にはみ出す側は端の日にクランプするが、continuesBefore/After の
+  // グリッド（および segmentRange）と重ならないオカレンスはここで除外する。
+  // 範囲外にはみ出す側は端の日にクランプするが、continuesBefore/After の
   // 判定に使うため、クランプ前の実際のスパンをキーで保持しておく
   const spans: {
     occurrence: EventOccurrence;
@@ -151,12 +170,31 @@ export function buildMonthViewModel(params: {
     if (span.endKey < firstGridKey || span.startKey > lastGridKey) {
       continue;
     }
-    // グリッドは連続した日付なので、範囲内のキーは必ず indexByKey に存在する（?? は型上の防御）
-    const startIndex = span.startKey < firstGridKey ? 0 : (indexByKey.get(span.startKey) ?? 0);
-    const endIndex =
-      span.endKey > lastGridKey
-        ? gridDays.length - 1
-        : (indexByKey.get(span.endKey) ?? gridDays.length - 1);
+    if (
+      (segmentFirstKey !== undefined && span.endKey < segmentFirstKey) ||
+      (segmentLastKey !== undefined && span.startKey > segmentLastKey)
+    ) {
+      // segmentRange と重ならないオカレンスはセグメントを生成しない（あふれにも数えない）
+      continue;
+    }
+    // グリッド境界と segmentRange 境界の両方でクランプした日付キーを求める
+    // （'YYYY-MM-DD' はゼロ埋めのため辞書順比較が時系列比較と一致する）
+    let clampedStartKey = span.startKey < firstGridKey ? firstGridKey : span.startKey;
+    if (segmentFirstKey !== undefined && clampedStartKey < segmentFirstKey) {
+      clampedStartKey = segmentFirstKey;
+    }
+    let clampedEndKey = span.endKey > lastGridKey ? lastGridKey : span.endKey;
+    if (segmentLastKey !== undefined && clampedEndKey > segmentLastKey) {
+      clampedEndKey = segmentLastKey;
+    }
+    if (clampedStartKey > clampedEndKey) {
+      // segmentRange がグリッドの端と交差しない場合などの防御（通常の複数月ビューでは
+      // segmentRange は常にグリッド内に収まるため到達しない）
+      continue;
+    }
+    // グリッドは連続した日付なので、クランプ後のキーは必ず indexByKey に存在する（?? は型上の防御）
+    const startIndex = indexByKey.get(clampedStartKey) ?? 0;
+    const endIndex = indexByKey.get(clampedEndKey) ?? gridDays.length - 1;
     spans.push({ occurrence, startIndex, endIndex, startKey: span.startKey, endKey: span.endKey });
   }
 
@@ -206,9 +244,14 @@ export function buildMonthViewModel(params: {
       itemMeta.push({
         occurrence,
         // クランプ後のインデックスではなく実際の日付キーで比較することで、
-        // グリッド外へはみ出しているケース（1 週目より前・最終週より後）も拾う
-        continuesBefore: startKey < weekFirstKey,
-        continuesAfter: endKey > weekLastKey,
+        // グリッド外へはみ出しているケース（1 週目より前・最終週より後）も拾う。
+        // segmentRange 指定時は「範囲外へ続く」（月境界をまたぐ帯が月本体で
+        // 打ち切られている）ケースも OR 条件で拾う（週の途中に月境界がある場合、
+        // 週境界の比較だけでは検出できない）
+        continuesBefore:
+          startKey < weekFirstKey || (segmentFirstKey !== undefined && startKey < segmentFirstKey),
+        continuesAfter:
+          endKey > weekLastKey || (segmentLastKey !== undefined && endKey > segmentLastKey),
       });
     }
 

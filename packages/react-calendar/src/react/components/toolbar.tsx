@@ -19,6 +19,7 @@ const VIEW_BUTTON_DEFS: Record<CalendarViewType, { action: string; defaultLabel:
   day: { action: 'view-day', defaultLabel: '日' },
   list: { action: 'view-list', defaultLabel: 'リスト' },
   year: { action: 'view-year', defaultLabel: '年' },
+  multiMonth: { action: 'view-multimonth', defaultLabel: '複数月' },
 };
 
 /**
@@ -47,6 +48,8 @@ export interface ToolbarLabels {
   list?: ReactNode;
   /** 年ビュー切替ボタンの表示文字列。省略時は「年」。 */
   year?: ReactNode;
+  /** 複数月ビュー切替ボタンの表示文字列。省略時は「複数月」。 */
+  multiMonth?: ReactNode;
   /** 「今日」ボタンの表示文字列（aria-label にも使う）。省略時は「今日」。 */
   today?: ReactNode;
   /**
@@ -121,6 +124,15 @@ export function Toolbar(props: ToolbarProps): ReactElement {
         return formatRangeTitle(api.getVisibleRange(), timeZone, locale);
       case 'year':
         return formatYearTitle(currentDate, timeZone, locale);
+      case 'multiMonth': {
+        // 「2026年7月〜2026年9月」形式。表示範囲の end は排他（最終月の翌月初）なので
+        // 1 ミリ秒前で最終月に含まれる時点を得る
+        const range = api.getVisibleRange();
+        const lastMonthInstant = new Date(range.end.getTime() - 1);
+        const startTitle = formatMonthTitle(range.start, timeZone, locale);
+        const endTitle = formatMonthTitle(lastMonthInstant, timeZone, locale);
+        return startTitle === endTitle ? startTitle : `${startTitle}〜${endTitle}`;
+      }
     }
   }
 

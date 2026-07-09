@@ -34,6 +34,7 @@ import type {
 } from './types';
 import { buildListViewModel } from './views/list-view';
 import { buildMonthViewModel } from './views/month-view';
+import { buildMultiMonthViewModel } from './views/multi-month-view';
 import { buildTimeGridViewModel } from './views/time-grid-view';
 import { buildYearViewModel } from './views/year-view';
 
@@ -46,6 +47,7 @@ const DEFAULT_OPTIONS: Omit<ResolvedCalendarOptions, 'now'> = {
   defaultEventMinutes: 60,
   defaultEventTitle: '(タイトルなし)',
   listDays: 30,
+  multiMonthCount: 3,
   locale: 'ja',
   hiddenWeekdays: [],
 };
@@ -95,6 +97,7 @@ function resolveOptions(
     ),
     defaultEventTitle: options?.defaultEventTitle ?? current.defaultEventTitle,
     listDays: normalizePositiveInt(options?.listDays ?? current.listDays, 1),
+    multiMonthCount: normalizePositiveInt(options?.multiMonthCount ?? current.multiMonthCount, 1),
     locale: options?.locale ?? current.locale,
     hiddenWeekdays:
       options?.hiddenWeekdays !== undefined
@@ -117,6 +120,7 @@ function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOpt
     a.defaultEventMinutes === b.defaultEventMinutes &&
     a.defaultEventTitle === b.defaultEventTitle &&
     a.listDays === b.listDays &&
+    a.multiMonthCount === b.multiMonthCount &&
     a.locale === b.locale &&
     a.now === b.now &&
     a.hiddenWeekdays.length === b.hiddenWeekdays.length &&
@@ -236,6 +240,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
     return visibleRangeFor(view, currentDate, timeZone, {
       weekStartsOn: resolvedOptions.weekStartsOn,
       listDays: resolvedOptions.listDays,
+      multiMonthCount: resolvedOptions.multiMonthCount,
     });
   }
 
@@ -290,6 +295,17 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           weekStartsOn: resolvedOptions.weekStartsOn,
           now,
         });
+      case 'multiMonth':
+        return buildMultiMonthViewModel({
+          currentDate,
+          timeZone,
+          occurrences,
+          weekStartsOn: resolvedOptions.weekStartsOn,
+          dayMaxEvents: resolvedOptions.dayMaxEvents,
+          hiddenWeekdays: resolvedOptions.hiddenWeekdays,
+          multiMonthCount: resolvedOptions.multiMonthCount,
+          now,
+        });
     }
   }
 
@@ -328,6 +344,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
     next(): void {
       currentDate = navigateDate(view, currentDate, 1, timeZone, {
         listDays: resolvedOptions.listDays,
+        multiMonthCount: resolvedOptions.multiMonthCount,
       });
       commit(true);
     },
@@ -335,6 +352,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
     prev(): void {
       currentDate = navigateDate(view, currentDate, -1, timeZone, {
         listDays: resolvedOptions.listDays,
+        multiMonthCount: resolvedOptions.multiMonthCount,
       });
       commit(true);
     },
