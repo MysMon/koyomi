@@ -5,28 +5,26 @@
  * 表示範囲内の予定を日付ごとの `section` にまとめて一覧表示する
  * ヘッドレスコンポーネント。DOM 構造・`data-koyomi-*` 属性の仕様は
  * `docs/internal/components-dom.md` の「リストビュー」セクションに従う。
+ * 日セクションの描画は共有レンダラ {@link ListDaySection} に委譲する
+ * （`VirtualListView` と DOM 仕様を共有するため）。
  *
  * 月/週/日ビューと異なり、リストビューにドラッグ操作はない。
  * イベント行はクリック・Enter・Space で {@link CalendarInteractionCallbacks.onEventClick}
  * を呼び出すのみ。
+ *
+ * 大量の予定・長期間を扱い性能が問題になる場合は、仮想化する
+ * {@link VirtualListView}（または {@link useVirtualizer}）を検討する。
  */
 
 import type {
-  CSSProperties,
   ReactElement,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   ReactNode,
 } from 'react';
-import { formatSlotLabel, minutesOfDayInZone } from '../../core/timezone';
-import type { EventOccurrence, ListDay, TimeZoneId } from '../../core/types';
+import type { EventOccurrence, ListDay } from '../../core/types';
 import { useCalendarContext } from '../context';
-
-/** `allDayLabel` 省略時の既定表示（終日イベントの時刻ラベル）。 */
-const DEFAULT_ALL_DAY_LABEL = '終日';
-
-/** `emptyLabel` 省略時の既定表示（予定が 1 件もない場合のメッセージ）。 */
-const DEFAULT_EMPTY_LABEL = '予定はありません';
+import { DEFAULT_ALL_DAY_LABEL, DEFAULT_EMPTY_LABEL, ListDaySection } from './list-view-parts';
 
 /**
  * {@link ListView} の props。
@@ -55,32 +53,6 @@ export interface ListViewProps {
    * それをラップして返すこともできる。省略時は既定の内容をそのまま表示する。
    */
   renderDayHeader?: (day: ListDay, defaultContent: ReactNode) => ReactNode;
-}
-
-/**
- * 時間指定イベントの時刻ラベルを作る（表示タイムゾーンにおける `'HH:mm〜HH:mm'`）。
- * 終日イベントのラベルは呼び出し側で `allDayLabel` を直接使うため、ここでは扱わない。
- */
-function formatTimedEventTimeLabel(occurrence: EventOccurrence, timeZone: TimeZoneId): string {
-  const startLabel = formatSlotLabel(minutesOfDayInZone(occurrence.start, timeZone));
-  const endLabel = formatSlotLabel(minutesOfDayInZone(occurrence.end, timeZone));
-  return `${startLabel}〜${endLabel}`;
-}
-
-/**
- * 色見本（`list-event-swatch`）に設定する inline style を作る。
- *
- * `event.color` が指定されている場合のみ CSS 変数 `--koyomi-event-color` を
- * 設定する（テーマ側は `var(--koyomi-event-color, 既定色)` で参照する）。
- * このカスタムプロパティは `CSSProperties` の型に存在しないため、変数名を
- * キーにしたオブジェクトを `CSSProperties` として扱うための `as` キャストが
- * 必要になる（DOM 仕様で明示的に許可されている唯一の箇所）。
- */
-function eventSwatchStyle(color: string | undefined): CSSProperties | undefined {
-  if (color === undefined) {
-    return undefined;
-  }
-  return { '--koyomi-event-color': color } as CSSProperties;
 }
 
 /**
@@ -152,49 +124,19 @@ export function ListView(props: ListViewProps): ReactElement | null {
 
   return (
     <div data-koyomi="list">
-      {viewModel.days.map((day) => {
-        const defaultDayHeader = dayHeaderFormatter.format(day.date);
-        return (
-          <section
-            key={day.key}
-            data-koyomi="list-day"
-            data-koyomi-date={day.key}
-            data-today={day.isToday ? 'true' : undefined}
-          >
-            <h3 data-koyomi="list-day-header">
-              {renderDayHeader !== undefined
-                ? renderDayHeader(day, defaultDayHeader)
-                : defaultDayHeader}
-            </h3>
-            {day.occurrences.map((occurrence) => (
-              <button
-                key={occurrence.key}
-                type="button"
-                data-koyomi="list-event"
-                onClick={(event) => handleEventClick(occurrence, event)}
-                onKeyDown={handleEventKeyDown}
-              >
-                {renderEvent !== undefined ? (
-                  renderEvent(occurrence)
-                ) : (
-                  <>
-                    <span data-koyomi="list-event-time">
-                      {occurrence.allDay
-                        ? allDayLabel
-                        : formatTimedEventTimeLabel(occurrence, timeZone)}
-                    </span>
-                    <span
-                      data-koyomi="list-event-swatch"
-                      style={eventSwatchStyle(occurrence.event.color)}
-                    />
-                    <span data-koyomi="list-event-title">{occurrence.event.title}</span>
-                  </>
-                )}
-              </button>
-            ))}
-          </section>
-        );
-      })}
+      {viewModel.days.map((day) => (
+        <ListDaySection
+          key={day.key}
+          day={day}
+          timeZone={timeZone}
+          defaultDayHeader={dayHeaderFormatter.format(day.date)}
+          allDayLabel={allDayLabel}
+          onEventClick={handleEventClick}
+          onEventKeyDown={handleEventKeyDown}
+          {...(renderEvent !== undefined ? { renderEvent } : {})}
+          {...(renderDayHeader !== undefined ? { renderDayHeader } : {})}
+        />
+      ))}
     </div>
   );
 }

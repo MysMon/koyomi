@@ -690,3 +690,30 @@
   font-size: 0.9em;
   text-align: center;
 }
+
+/* ---------------------------------------------------------------------------
+ * リストビューの仮想化（VirtualListView）
+ *
+ * 仮想化に機能上必要な構造 CSS（スクロール・配置文脈）をここで属性フックに当てる。
+ * 高さはライブラリが所有しない: 既定は無指定（none）で、利用者が height / max-height を
+ * 与える。便宜のため CSS 変数 --koyomi-virtual-list-max-height を参照するが、既定値は
+ * 持たない（利用者が値を決めなければ仮想化は無害に無効化される）。
+ * ------------------------------------------------------------------------ */
+
+[data-koyomi="list"][data-koyomi-virtualized] {
+  position: relative; /* pinned アイテムの絶対配置の基準 */
+  overflow-y: auto;
+  max-height: var(--koyomi-virtual-list-max-height, none);
+}
+
+[data-koyomi="list-spacer"] {
+  flex: none;
+  pointer-events: none;
+}
+
+/* 窓外でフォーカス保持中の日セクション（通常フローに干渉させない）。 */
+[data-koyomi="list-day"][data-koyomi-pinned] {
+  position: absolute;
+  inset-inline-start: 0;
+  width: 100%;
+}
