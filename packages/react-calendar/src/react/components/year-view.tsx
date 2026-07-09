@@ -4,8 +4,8 @@
  *
  * 予定の帯・タイトルは表示せず、D&D もない。日セルのクリックで該当日の
  * day ビューへ移動する（月ビューの日番号ボタンと同じ `goTo` + `setView('day')`）。
- * DOM 構造・`data-koyomi-*` 属性の仕様は `docs/internal/views-expansion-design.md`
- * の「年ビュー」節を参照。
+ * DOM 構造・`data-koyomi-*` 属性の仕様は `docs/internal/components-dom.md` の
+ * 「年ビュー（YearView）」節を参照。
  */
 
 import type { ReactElement, ReactNode } from 'react';
