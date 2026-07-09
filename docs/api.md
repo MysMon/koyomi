@@ -273,6 +273,40 @@ console.log(dayProps['data-koyomi-date']); // => '2026-07-01'
 
 インタラクションのコールバック（`onEventClick` / `onSelectRange` / `onEventChange` / `onEventDelete` / `onError` / `resolveRecurringScope` / `onOverflowClick`）の詳細は [インタラクション](./interactions.md) を参照してください。
 
+### `useVirtualizer`
+
+```ts
+function useVirtualizer(options: UseVirtualizerOptions): Virtualizer
+```
+
+縦方向のリストを仮想化する、ビュー非依存のヘッドレスなプリミティブです。`VirtualListView` が内部で使用します。DOM・スタイルは持たず、コア（`computeWindow` / `startForKey`）の純粋計算に、スクロール位置の購読・高さの実測（`ResizeObserver`）・スクロールアンカリングを結び付けて「描画すべきアイテムと寸法」だけを返します。独自 UI で仮想化したいときに使います。
+
+**オプション `UseVirtualizerOptions`**
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `count` | `number` | アイテム総数 |
+| `getItemKey` | `(index: number) => string` | インデックス → 安定キー（測定キャッシュ・フォーカス保持の基準） |
+| `estimateSize` | `(index: number) => number` | インデックス → 推定高（px）。実測が入るまでの暫定値 |
+| `getScrollElement` | `() => HTMLElement \| null` | スクロールコンテナを返す。戻り値は変わってよい（差し替えに追従） |
+| `overscan?` | `number` | 前後の追加描画数（既定 3） |
+| `pinnedKeys?` | `ReadonlySet<string>` | 窓外でも保持するキー（フォーカス中アイテム等） |
+| `measure?` | `boolean` | `ResizeObserver` で実測するか。`false` で推定固定（既定 `true`） |
+| `enabled` | `boolean` | 仮想化の有効化。SSR・初回は `false`、マウント後 `true`（hydration 不一致回避） |
+
+**戻り値 `Virtualizer`**
+
+| メンバー | 型 | 説明 |
+| --- | --- | --- |
+| `virtualItems` | `readonly VirtualItem[]` | 通常フローに並べる可視窓（overscan 込み） |
+| `pinnedItems` | `readonly VirtualItem[]` | 窓外で保持する pinned（絶対配置。通常 0〜1 件） |
+| `beforeSize` / `afterSize` | `number` | 上下スペーサの高さ（px） |
+| `totalSize` | `number` | 全アイテムの合計高（px） |
+| `measureElement` | `(key: string) => (el: HTMLElement \| null) => void` | アイテム DOM の実測登録 ref コールバック |
+| `scrollToIndex` | `(index, opts?) => void` | 指定インデックスを可視域へスクロール |
+
+`VirtualItem` は `{ index, key, start, size, measured }`。高さはライブラリが所有せず、スクロールコンテナの高さは利用者 CSS が決めます（本フックは実測するだけ）。
+
 ## コンポーネント
 
 すべてヘッドレス（スタイルなし）で、DOM 構造・`data-koyomi-*` 属性は固定の仕様に従います。詳細なスタイリングは [テーマとスタイリング](./theming.md) を参照してください。
@@ -331,6 +365,9 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `listAllDayLabel` | `ReactNode` | リストビューの終日ラベル（既定「終日」） |
 | `listEmptyLabel` | `ReactNode` | リストビューの空状態メッセージ（既定「予定はありません」） |
 | `renderListDayHeader` | `(day: ListDay, defaultContent: ReactNode) => ReactNode` | リストビューの日付見出しのカスタム描画 |
+| `virtualizeList` | `boolean` | リストビューを仮想化する（`ListView` の代わりに `VirtualListView`）。既定 `false` |
+| `listEstimateDayHeight` | `number \| ((day: ListDay, index: number) => number)` | 仮想化時の日セクション推定高（`VirtualListView.estimateDayHeight` へ転送） |
+| `listOverscan` | `number` | 仮想化時の前後 overscan 日数（`VirtualListView.overscan` へ転送） |
 
 ### `MonthView`
 
@@ -375,6 +412,25 @@ function ListView(props: ListViewProps): ReactElement | null
 | `allDayLabel` | `ReactNode` | 終日予定の時刻ラベル（既定「終日」） |
 | `emptyLabel` | `ReactNode` | 空状態のメッセージ（既定「予定はありません」） |
 | `renderDayHeader` | `(day: ListDay, defaultContent: ReactNode) => ReactNode` | 日付見出しの内容 |
+
+### `VirtualListView`
+
+```ts
+function VirtualListView(props: VirtualListViewProps): ReactElement | null
+```
+
+`ListView` を縦方向に仮想化した opt-in コンポーネントです。可視範囲の日セクションだけを描画し、大量の予定・長期間表示での DOM 肥大を抑えます。日セクションの内容（`data-koyomi-*` 構造）は共有レンダラを通じて `ListView` と完全に一致します。内部で `useVirtualizer` を使用します。
+
+`ListView` の props（`renderEvent` / `allDayLabel` / `emptyLabel` / `renderDayHeader`）に加えて次を受け付けます。
+
+| プロパティ | シグネチャ | 説明 |
+| --- | --- | --- |
+| `estimateDayHeight` | `number \| ((day: ListDay, index: number) => number)` | 日セクションの推定高（既定 64）。実測が入るまでの暫定値 |
+| `overscan` | `number` | 前後の追加描画日数（既定 3） |
+
+**高さは CSS で指定（必須）**。ヘッドレスの原則によりコンポーネントは寸法を持ちません。スクロールコンテナ（`[data-koyomi="list"][data-koyomi-virtualized]`）に `height` / `max-height` を CSS で与えてください。境界高が無いと仮想化は無害に無効化されます（開発ビルドで一度警告）。`overflow`/`position` などの構造 CSS はデフォルトテーマが `data-koyomi-virtualized` 属性に付与します。使い方・注意点（ページ内検索・1 日大量予定）の詳細は [ビュー: リストの仮想化](./views.md#リストの仮想化大量の予定長期間) を参照してください。
+
+`CalendarView` からは `virtualizeList` / `listEstimateDayHeight` / `listOverscan` プロップで opt-in できます（下記 `CalendarView` を参照）。
 
 ### `Toolbar`
 

@@ -27,9 +27,10 @@ beforeAll(() => {
 afterAll(() => {
   globalThis.ResizeObserver = originalResizeObserver;
 });
+let warnSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
-  // 境界高未設定時の開発警告（stderr）を抑える。警告経路自体は正常動作。
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  // 開発警告を捕捉しつつ stderr への出力は抑える。
+  warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -213,6 +214,45 @@ describe('VirtualListView', () => {
       fireEvent.blur(pinnedButton, { relatedTarget: document.body });
     });
     expect(container.querySelector('[data-koyomi-pinned="true"]')).toBeNull();
+  });
+
+  it('pinned セクションのイベント行はタブ順から外れる（tabindex=-1）', async () => {
+    const { container } = render(
+      <TestVirtualList events={makeDailyEvents(40)} listDays={60} estimateDayHeight={50} />,
+    );
+    await setViewport(container, 100, 0);
+    const firstButton = container.querySelector('[data-koyomi="list-event"]');
+    if (firstButton === null) {
+      throw new Error('list-event が見つかりません');
+    }
+    // 窓内のイベント行は tabindex を持たない（通常のタブ順）
+    expect(firstButton.hasAttribute('tabindex')).toBe(false);
+
+    await act(async () => {
+      fireEvent.focus(firstButton);
+    });
+    await setViewport(container, 100, 1500);
+
+    const pinned = container.querySelector('[data-koyomi-pinned="true"]');
+    const pinnedButton = pinned?.querySelector('[data-koyomi="list-event"]');
+    expect(pinnedButton?.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('境界高が無く全件描画になる規模では開発警告を出す', async () => {
+    const { container } = render(
+      <TestVirtualList events={makeDailyEvents(50)} listDays={60} estimateDayHeight={50} />,
+    );
+    // 全件が可視になる大きな clientHeight（境界高なしで内容全高に伸びた状態を模擬）
+    await setViewport(container, 50 * 60);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('仮想化の効果が出ていません'));
+  });
+
+  it('境界高を与えて窓が絞られる場合は警告しない', async () => {
+    const { container } = render(
+      <TestVirtualList events={makeDailyEvents(50)} listDays={60} estimateDayHeight={50} />,
+    );
+    await setViewport(container, 100);
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('仮想化の効果が出ていません'));
   });
 
   it('SSR（renderToString）で例外にならず全件を描画する', () => {

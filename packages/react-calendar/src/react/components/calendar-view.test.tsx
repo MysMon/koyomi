@@ -139,6 +139,22 @@ describe('CalendarView', () => {
       );
     });
 
+    it('既定では list は ListView（非仮想化）で描画される', () => {
+      const { container } = renderView('list');
+      expect(container.querySelector('[data-koyomi="list"]')).not.toBeNull();
+      expect(container.querySelector('[data-koyomi-virtualized]')).toBeNull();
+    });
+
+    it('virtualizeList=true で VirtualListView（仮想化）に切り替わりリスト props も転送される', () => {
+      const { container } = renderView('list', {
+        virtualizeList: true,
+        renderListEvent: (occurrence) => <span data-testid="v">{occurrence.event.title}</span>,
+      });
+      expect(container.querySelector('[data-koyomi-virtualized="true"]')).not.toBeNull();
+      // list 系 props（renderListEvent）が VirtualListView へ転送される
+      expect(container.querySelector('[data-testid="v"]')?.textContent).toBe('会議');
+    });
+
     it('renderMonthDayCell が MonthView の renderDayCell へ転送される', () => {
       const { container } = renderView('month', {
         renderMonthDayCell: (day, defaultContent) => (

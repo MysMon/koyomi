@@ -255,6 +255,7 @@ function Agenda() {
   ```
 
 - `estimateDayHeight`（数値または `(day, index) => number`）は実測が入るまでの推定高です。実際の高さは ResizeObserver で自動測定・補正されます。`overscan`（既定 3）で前後の追加描画日数を調整できます。
+- `CalendarView` を使っている場合は、`<CalendarView virtualizeList />`（必要に応じて `listEstimateDayHeight` / `listOverscan`）で list ビューだけを仮想化に切り替えられます。`renderListEvent` などのリスト系 props はそのまま転送されます。
 - `data-koyomi-virtualized="true"` が付き、`role="list"` / 日セクションの `role="listitem"` と件数入りの `aria-label` が付与されます。日セクションの内容（`data-koyomi-*` 構造）は `ListView` と完全に一致します。
 - **注意**: 仮想化中はブラウザのページ内検索（Ctrl+F）が窓の外の予定に届きません。また「1 日あたり数百件」のような 1 セクション内の大量予定は仮想化の対象外です。
 

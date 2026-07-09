@@ -88,6 +88,13 @@ export interface ListDaySectionProps {
   pinned?: boolean;
   /** 仮想化: 絶対配置の `top` など、位置決めの数値のみを持つ inline style。 */
   style?: CSSProperties;
+  /**
+   * イベント行をタブ順に含めるか。既定 `true`。
+   * `false` のとき各 `button` に `tabIndex=-1` を付け、タブ移動の対象から外す
+   * （窓外に保持された pinned セクションの不可視フォーカスを防ぐため。フォーカス中の
+   * 要素は `tabIndex=-1` でもフォーカスを保持する）。
+   */
+  eventTabbable?: boolean;
 }
 
 /**
@@ -111,6 +118,7 @@ export function ListDaySection(props: ListDaySectionProps): ReactElement {
     ariaLabel,
     pinned,
     style,
+    eventTabbable,
   } = props;
 
   return (
@@ -134,6 +142,7 @@ export function ListDaySection(props: ListDaySectionProps): ReactElement {
           data-koyomi="list-event"
           onClick={(event) => onEventClick(occurrence, event)}
           onKeyDown={onEventKeyDown}
+          {...(eventTabbable === false ? { tabIndex: -1 } : {})}
         >
           {renderEvent !== undefined ? (
             renderEvent(occurrence)
