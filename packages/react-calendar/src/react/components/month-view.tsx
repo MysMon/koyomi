@@ -16,7 +16,7 @@ import type {
   Ref,
 } from 'react';
 import { memo, useCallback } from 'react';
-import { addDaysInZone } from '../../core/timezone';
+import { addDaysInZone, startOfDayInZone } from '../../core/timezone';
 import type {
   DateRange,
   EventOccurrence,
@@ -257,8 +257,10 @@ function computeWeekSelectionSpan(
       continue;
     }
     const dayStart = day.date;
-    const nextDay = days[index + 1];
-    const dayEnd = nextDay !== undefined ? nextDay.date : addDaysInZone(dayStart, 1, timeZone);
+    // 各セルは「その日 1 日」だけを表す。hiddenWeekdays で非表示日が挟まっても、
+    // 隣の表示日までの区間として扱わない（そうすると非表示日の選択が隣接表示日へ
+    // 誤ってはみ出す）。翌日の 0:00 を正規化して用いる（存在しない 0:00 のゾーン対策）。
+    const dayEnd = startOfDayInZone(addDaysInZone(dayStart, 1, timeZone), timeZone);
     if (range.end.getTime() <= dayStart.getTime() || range.start.getTime() >= dayEnd.getTime()) {
       continue;
     }

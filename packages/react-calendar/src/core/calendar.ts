@@ -62,8 +62,21 @@ function normalizeHiddenWeekdays(hiddenWeekdays: readonly Weekday[]): readonly W
 const ID_PREFIX = 'koyomi-';
 
 /**
+ * 正の整数オプションを正規化する。
+ * 非有限値・下限未満（0 や負値を含む）は下限へクランプし、小数は切り捨てる。
+ * `slotMinutes` / `snapMinutes` が 0 だとゼロ除算やスロット消失を招くため、
+ * 壊れた表示を作らないよう最低値を保証する。
+ */
+function normalizePositiveInt(value: number, min: number): number {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.max(min, Math.floor(value));
+}
+
+/**
  * `CalendarOptions` から解決済みオプションを構築する。
- * 未指定のフィールドには既定値を適用する。
+ * 未指定のフィールドには既定値を適用し、数値オプションは正の整数へ正規化する。
  */
 function resolveOptions(
   options: CalendarOptions | undefined,
@@ -72,12 +85,15 @@ function resolveOptions(
   const current = base ?? { ...DEFAULT_OPTIONS, now: () => new Date() };
   return {
     weekStartsOn: options?.weekStartsOn ?? current.weekStartsOn,
-    dayMaxEvents: options?.dayMaxEvents ?? current.dayMaxEvents,
-    snapMinutes: options?.snapMinutes ?? current.snapMinutes,
-    slotMinutes: options?.slotMinutes ?? current.slotMinutes,
-    defaultEventMinutes: options?.defaultEventMinutes ?? current.defaultEventMinutes,
+    dayMaxEvents: normalizePositiveInt(options?.dayMaxEvents ?? current.dayMaxEvents, 1),
+    snapMinutes: normalizePositiveInt(options?.snapMinutes ?? current.snapMinutes, 1),
+    slotMinutes: normalizePositiveInt(options?.slotMinutes ?? current.slotMinutes, 1),
+    defaultEventMinutes: normalizePositiveInt(
+      options?.defaultEventMinutes ?? current.defaultEventMinutes,
+      1,
+    ),
     defaultEventTitle: options?.defaultEventTitle ?? current.defaultEventTitle,
-    listDays: options?.listDays ?? current.listDays,
+    listDays: normalizePositiveInt(options?.listDays ?? current.listDays, 1),
     locale: options?.locale ?? current.locale,
     hiddenWeekdays:
       options?.hiddenWeekdays !== undefined

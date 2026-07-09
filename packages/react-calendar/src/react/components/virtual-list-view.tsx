@@ -16,6 +16,7 @@ import type { CSSProperties, ReactElement, FocusEvent as ReactFocusEvent, ReactN
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EventOccurrence, ListDay } from '../../core/types';
 import { useCalendarContext } from '../context';
+import { isDevBuild } from '../is-dev-build';
 import { useIsomorphicLayoutEffect } from '../use-isomorphic-layout-effect';
 import { useVirtualizer } from '../use-virtualizer';
 import { DEFAULT_ALL_DAY_LABEL, DEFAULT_EMPTY_LABEL, ListDaySection } from './list-view-parts';
@@ -28,22 +29,6 @@ const DEFAULT_ESTIMATE_DAY_HEIGHT = 64;
  * 全件描画でも問題にならないため警告しない（誤検知を避ける）。
  */
 const VIRTUALIZE_WARN_THRESHOLD = 40;
-
-/** 開発ビルドかどうか（`use-calendar` と同じ判定）。 */
-interface ProcessLike {
-  env?: { NODE_ENV?: string };
-}
-/** `globalThis` が `process` を持つか（`as` を使わない型ガード）。 */
-function hasProcess(value: object): value is { process: ProcessLike } {
-  return 'process' in value;
-}
-function isDevBuild(): boolean {
-  const globalObject: object = globalThis;
-  if (hasProcess(globalObject)) {
-    return globalObject.process.env?.NODE_ENV !== 'production';
-  }
-  return true;
-}
 
 /**
  * {@link VirtualListView} の props。`ListView` のカスタマイズ props に仮想化固有の設定を加える。

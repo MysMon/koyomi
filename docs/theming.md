@@ -4,7 +4,7 @@ Koyomi のビルトインコンポーネントはヘッドレスです。ロジ�
 
 ## ヘッドレスの考え方
 
-ビルトインコンポーネント（`Toolbar` / `CalendarView` / `MonthView` / `TimeGridView` / `ListView`）はクラス名を一切生成しません。すべての要素は `data-koyomi="<部位名>"` という属性を持ち、状態は追加の data 属性（`data-today` / `data-outside` / `data-koyomi-dragging` など）で表されます。CSS はこの属性だけをセレクタにして書きます。
+ビルトインコンポーネント（`Toolbar` / `CalendarView` / `MonthView` / `TimeGridView` / `ListView` / `VirtualListView`）はクラス名を一切生成しません。すべての要素は `data-koyomi="<部位名>"` という属性を持ち、状態は追加の data 属性（`data-today` / `data-outside` / `data-koyomi-dragging` など）で表されます。CSS はこの属性だけをセレクタにして書きます。
 
 インラインの `style` は、位置決めに必須の数値（%・`calc()`）だけに限定されています。色・境界線・余白などの見た目は inline style に出力されません。唯一の例外は `event.color` を指定したイベント要素で、この場合のみ CSS 変数 `--koyomi-event-color` が inline で設定されます（テーマ側は `var(--koyomi-event-color, 既定色)` で参照します）。
 
@@ -40,8 +40,11 @@ import '@koyomi-cal/react/theme.css';
 | `--koyomi-lane-height` | 帯セグメント 1 レーンの高さ | `24px` |
 | `--koyomi-hour-height` | 時間グリッド 1 時間分の高さ | `48px` |
 | `--koyomi-time-axis-width` | 時間グリッドの時刻軸幅（ヘッダー・終日行・本体で揃えるための内部変数） | `56px` |
+| `--koyomi-virtual-list-max-height` | `VirtualListView`（仮想化リスト）のスクロールコンテナの `max-height`。既定は `none`（無制限）で、実際の境界高は利用者が指定する | `none` |
 
 `--koyomi-month-header-height` / `--koyomi-lane-height` / `--koyomi-hour-height` はコンポーネント側の inline style（`calc()`）からも参照されるため、単なる見た目の変数ではなく実際のレイアウト寸法を決めます。値を変える場合は、対応する CSS（`min-height` など）も一緒に見直すことをおすすめします。
+
+`VirtualListView` を使う場合は、`--koyomi-virtual-list-max-height` を設定するか `[data-koyomi="list"][data-koyomi-virtualized]` に直接 `height` / `max-height` を当てて、スクロールの境界高を必ず与えてください（境界高が無いと仮想化は無効化されます）。詳細は [ビュー: リストの仮想化](./views.md#リストの仮想化大量の予定長期間) を参照。
 
 カスタマイズの例（配色の変更）:
 

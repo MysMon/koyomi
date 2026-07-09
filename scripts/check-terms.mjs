@@ -13,10 +13,17 @@ import { join, relative } from 'node:path';
 
 const ROOT = process.cwd();
 const SCAN_DIRS = ['packages', 'apps', 'docs'];
+// ルート直下の追加対象ファイル（README・CHANGELOG も用語チェックの対象にする）。
+const SCAN_ROOT_FILES = ['README.md', 'CHANGELOG.md'];
 const EXTS = ['.ts', '.tsx', '.md'];
 const EXCLUDE_DIR_NAMES = new Set(['node_modules', 'dist']);
-// 用語一覧そのものを記載するファイルは対象外にする。
-const EXCLUDE_FILES = new Set(['scripts/check-terms.mjs', 'docs/internal/terminology.md']);
+// 用語一覧そのもの（禁止語を例示として含む）を記載するファイルは対象外にする。
+// CLAUDE.md も用語方針の説明で禁止語を列挙するため除外する。
+const EXCLUDE_FILES = new Set([
+  'scripts/check-terms.mjs',
+  'docs/internal/terminology.md',
+  'CLAUDE.md',
+]);
 
 /**
  * 禁止パターンと推奨語。
@@ -59,6 +66,7 @@ function walk(dir, out) {
 
 const files = [];
 for (const d of SCAN_DIRS) walk(join(ROOT, d), files);
+for (const f of SCAN_ROOT_FILES) files.push(join(ROOT, f));
 
 let violations = 0;
 for (const abs of files) {

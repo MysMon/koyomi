@@ -6,7 +6,7 @@
  * 「スケジュール」表示と同様、複数日にまたがるオカレンスは重なる各日に出現する。
  */
 
-import { eachDayInRange, rangesOverlap } from '../date-utils';
+import { eachDayInRange } from '../date-utils';
 import { addDaysInZone, dateKeyInZone, startOfDayInZone } from '../timezone';
 import type { EventOccurrence, ListDay, ListViewModel, TimeZoneId } from '../types';
 
@@ -48,37 +48,57 @@ export function buildListViewModel(params: {
   const dayStarts = eachDayInRange({ start: rangeStart, end: rangeEnd }, timeZone);
 
   const todayKey = dateKeyInZone(now, timeZone);
-  const days: ListDay[] = [];
 
-  for (const dayStart of dayStarts) {
-    // addDaysInZone は加算前の現地時刻を維持するため、dayStart が深夜 0:00 の
-    // 存在しないゾーン（例: America/Havana）の切替日で繰り上げられた時刻
-    // （例: 1:00）を持っていると、そのまま加算した dayEnd も同じ時刻になり
-    // 翌日の本来の 0:00〜1:00 分だけ範囲が伸びてしまう。その結果、翌日の
-    // 0:00〜1:00 のオカレンスが当日・翌日の両方に重複出現する。startOfDayInZone で
-    // dayEnd を日の開始へ再正規化して防ぐ（eachDayInRange と同じ理由）
-    const dayEnd = startOfDayInZone(addDaysInZone(dayStart, 1, timeZone), timeZone);
-    // [day, 翌日) と重なるオカレンスを集める（end 排他の交差判定）。
-    // start === end（長さ 0）のオカレンスは区間交差判定では決して重ならないため、
-    // start がこの日に属するかどうかで直接判定する
-    const dayOccurrences = occurrences.filter((occurrence) => {
-      if (occurrence.start.getTime() === occurrence.end.getTime()) {
-        return (
-          occurrence.start.getTime() >= dayStart.getTime() &&
-          occurrence.start.getTime() < dayEnd.getTime()
-        );
+  // 各日の [開始, 終了) 境界を事前計算する。
+  // addDaysInZone は加算前の現地時刻を維持するため、dayStart が深夜 0:00 の
+  // 存在しないゾーン（例: America/Havana）の切替日で繰り上げられた時刻（例: 1:00）を
+  // 持っていると、そのまま加算した dayEnd も同じ時刻になり翌日の本来の 0:00〜1:00 分だけ
+  // 範囲が伸びてしまう。startOfDayInZone で日の開始へ再正規化して防ぐ。
+  const dayEnds = dayStarts.map((dayStart) =>
+    startOfDayInZone(addDaysInZone(dayStart, 1, timeZone), timeZone),
+  );
+  const dayEndTimes = dayEnds.map((dayEnd) => dayEnd.getTime());
+  const dayStartTimes = dayStarts.map((dayStart) => dayStart.getTime());
+
+  // 各日のバケットへオカレンスを振り分ける。全日 × 全予定の総当たり（O(日数×予定数)）を避け、
+  // 二分探索で「その予定と重なり始める最初の日」を求めてから前方走査する。
+  const buckets: EventOccurrence[][] = dayStarts.map(() => []);
+  for (const occurrence of occurrences) {
+    const startTime = occurrence.start.getTime();
+    const endTime = occurrence.end.getTime();
+    // 「dayEnd > 予定開始」を満たす最初の日（それ以前の日は予定開始までに終わっている）。
+    const firstIndex = lowerBoundGreaterThan(dayEndTimes, startTime);
+    if (firstIndex >= dayStarts.length) {
+      continue;
+    }
+    // start === end（長さ 0、リマインダー等）は区間交差では常に「重なりなし」になるため、
+    // start が属する日 1 つにだけ割り当てる。
+    if (startTime === endTime) {
+      const dayStartTime = dayStartTimes[firstIndex];
+      if (dayStartTime !== undefined && startTime >= dayStartTime) {
+        buckets[firstIndex]?.push(occurrence);
       }
-      return rangesOverlap(
-        { start: occurrence.start, end: occurrence.end },
-        { start: dayStart, end: dayEnd },
-      );
-    });
+      continue;
+    }
+    // 通常の予定: dayStart < 予定終了 を満たす日へ順に割り当てる（end 排他の交差）。
+    for (let index = firstIndex; index < dayStarts.length; index += 1) {
+      const dayStartTime = dayStartTimes[index];
+      if (dayStartTime === undefined || dayStartTime >= endTime) {
+        break;
+      }
+      buckets[index]?.push(occurrence);
+    }
+  }
+
+  const days: ListDay[] = [];
+  for (let index = 0; index < dayStarts.length; index += 1) {
+    const dayOccurrences = buckets[index];
+    const dayStart = dayStarts[index];
     // オカレンスが 1 件もない日は出力しない
-    if (dayOccurrences.length === 0) {
+    if (dayOccurrences === undefined || dayOccurrences.length === 0 || dayStart === undefined) {
       continue;
     }
     dayOccurrences.sort(compareListOccurrences);
-
     const key = dateKeyInZone(dayStart, timeZone);
     days.push({
       date: dayStart,
@@ -89,6 +109,25 @@ export function buildListViewModel(params: {
   }
 
   return { type: 'list', days, isEmpty: days.length === 0 };
+}
+
+/**
+ * 昇順ソート済み配列 `sorted` に対し、`sorted[i] > value` を満たす最小の添字 `i` を返す。
+ * すべて `value` 以下なら配列長を返す（二分探索、O(log n)）。
+ */
+function lowerBoundGreaterThan(sorted: readonly number[], value: number): number {
+  let low = 0;
+  let high = sorted.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    const midValue = sorted[mid];
+    if (midValue !== undefined && midValue > value) {
+      high = mid;
+    } else {
+      low = mid + 1;
+    }
+  }
+  return low;
 }
 
 /**
