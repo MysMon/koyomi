@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { createCalendar } from '../core/calendar';
 import type { CalendarEvent, CalendarOptions } from '../core/types';
+import { isDevBuild } from './is-dev-build';
 import type { UseCalendarResult } from './types';
 
 /**
@@ -19,23 +20,6 @@ export interface UseCalendarOptions extends CalendarOptions {
    * 現在時刻線の分解能は分単位なので、通常は `60` で十分。
    */
   refreshSeconds?: number;
-}
-
-/**
- * 開発ビルドかどうか。バンドラなしのブラウザ実行（`process` 未定義）では
- * 安全側に倒して開発扱いにする（警告は本番最適化ビルドでのみ除去される）。
- */
-type GlobalWithProcess = typeof globalThis & {
-  process?: {
-    env?: {
-      NODE_ENV?: string;
-    };
-  };
-};
-
-function isDevBuild(): boolean {
-  const processLike = (globalThis as GlobalWithProcess).process;
-  return processLike?.env?.NODE_ENV !== 'production';
 }
 
 /**

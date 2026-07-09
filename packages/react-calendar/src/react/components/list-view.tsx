@@ -22,6 +22,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   ReactNode,
 } from 'react';
+import { useMemo } from 'react';
 import type { EventOccurrence, ListDay } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { DEFAULT_ALL_DAY_LABEL, DEFAULT_EMPTY_LABEL, ListDaySection } from './list-view-parts';
@@ -80,18 +81,24 @@ export function ListView(props: ListViewProps): ReactElement | null {
     emptyLabel = DEFAULT_EMPTY_LABEL,
   } = props;
   const { state, viewModel, callbacks } = useCalendarContext();
+  const timeZone = state.timeZone;
+  const locale = state.options.locale;
+  // 日付見出しの Intl.DateTimeFormat は生成コストがあるため memo 化する
+  // （VirtualListView と同様。ロケール・タイムゾーンが変わらない限り再生成しない）。
+  const dayHeaderFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        timeZone,
+        month: 'long',
+        day: 'numeric',
+        weekday: 'short',
+      }),
+    [locale, timeZone],
+  );
 
   if (viewModel.type !== 'list') {
     return null;
   }
-
-  const timeZone = state.timeZone;
-  const dayHeaderFormatter = new Intl.DateTimeFormat(state.options.locale, {
-    timeZone,
-    month: 'long',
-    day: 'numeric',
-    weekday: 'short',
-  });
 
   /** イベント行のクリックで `onEventClick` を呼ぶ。 */
   function handleEventClick(

@@ -691,36 +691,50 @@ export function resolveOccurrence(params: {
 
   if (event.allDay === true) {
     const span = resolveAllDaySpan(event, timeZone);
+    const rdateKeys = resolveRdateKeys(event, timeZone);
+    const excludedKeys = resolveExcludedKeys(event, timeZone);
     if (event.rrule === undefined) {
-      const projected = projectAllDaySpan(span.startKey, span.dayCount, displayTimeZone);
-      if (projected.start.getTime() !== targetTime) {
-        return null;
+      // rrule なし: マスターの開始日 + 各 rdate の日が有効なオカレンス。
+      // rdates を持つ場合は展開時と同じく isRecurring: true（編集スコープの対象）にする。
+      const isRecurring = rdateKeys.length > 0;
+      for (const key of new Set([span.startKey, ...rdateKeys])) {
+        if (excludedKeys.has(key)) {
+          continue;
+        }
+        const projected = projectAllDaySpan(key, span.dayCount, displayTimeZone);
+        if (projected.start.getTime() === targetTime) {
+          return buildOccurrence({
+            event,
+            start: projected.start,
+            end: projected.end,
+            allDay: true,
+            isRecurring,
+            originalStart: projected.start,
+          });
+        }
       }
-      return buildOccurrence({
-        event,
-        start: projected.start,
-        end: projected.end,
-        allDay: true,
-        isRecurring: false,
-        originalStart: projected.start,
-      });
+      return null;
     }
-    // 終日の繰り返し: 表示 TZ の 0:00 ちょうど、かつ有効なオカレンスの日のみ一致
+    // 終日の繰り返し: 表示 TZ の 0:00 ちょうど、かつ「rrule 由来 or rdate 由来」の有効な日のみ一致
     const key = dateKeyInZone(occurrenceStart, displayTimeZone);
     if (dateFromKey(key, displayTimeZone).getTime() !== targetTime) {
       return null;
     }
-    if (resolveExcludedKeys(event, timeZone).has(key)) {
+    if (excludedKeys.has(key)) {
       return null;
     }
-    const keyInstant = dateFromKey(key, DATE_KEY_ZONE);
-    const hits = expandRecurrence({
-      rrule: event.rrule,
-      dtstart: dateFromKey(span.startKey, DATE_KEY_ZONE),
-      timeZone: DATE_KEY_ZONE,
-      range: { start: keyInstant, end: new Date(keyInstant.getTime() + 1) },
-    });
-    if (hits.length === 0) {
+    let valid = rdateKeys.includes(key);
+    if (!valid) {
+      const keyInstant = dateFromKey(key, DATE_KEY_ZONE);
+      const hits = expandRecurrence({
+        rrule: event.rrule,
+        dtstart: dateFromKey(span.startKey, DATE_KEY_ZONE),
+        timeZone: DATE_KEY_ZONE,
+        range: { start: keyInstant, end: new Date(keyInstant.getTime() + 1) },
+      });
+      valid = hits.length > 0;
+    }
+    if (!valid) {
       return null;
     }
     const projected = projectAllDaySpan(key, span.dayCount, displayTimeZone);
@@ -735,21 +749,33 @@ export function resolveOccurrence(params: {
   }
 
   const span = resolveTimedSpan(event, timeZone, defaultEventMinutes);
+  const rdateInstants = resolveRdateInstants(event, timeZone);
+  const excludedTimes = new Set(
+    resolveExcludedInstants(event, timeZone).map((instant) => instant.getTime()),
+  );
   if (event.rrule === undefined) {
-    if (span.start.getTime() !== targetTime) {
+    // rrule なし: マスターの開始 + 各 rdate が有効なオカレンス（exdates で除外）。
+    const validTimes = new Set([
+      span.start.getTime(),
+      ...rdateInstants.map((instant) => instant.getTime()),
+    ]);
+    if (excludedTimes.has(targetTime) || !validTimes.has(targetTime)) {
       return null;
     }
+    const isRecurring = rdateInstants.length > 0;
+    const start = new Date(targetTime);
     return buildOccurrence({
       event,
-      start: span.start,
-      end: span.end,
+      start,
+      end: new Date(targetTime + span.durationMs),
       allDay: false,
-      isRecurring: false,
-      originalStart: span.start,
+      isRecurring,
+      originalStart: start,
     });
   }
 
-  // 時間指定の繰り返し: occurrenceStart ちょうどに始まる有効なオカレンスがあるか検証
+  // 時間指定の繰り返し: occurrenceStart ちょうどに始まる「rrule 由来 or rdate 由来」の
+  // 有効なオカレンスがあるか検証する（rdates も exdates による除外を受ける）
   const hits = expandRecurrence({
     rrule: event.rrule,
     dtstart: span.start,
@@ -757,7 +783,14 @@ export function resolveOccurrence(params: {
     exdates: resolveExcludedInstants(event, timeZone),
     range: { start: occurrenceStart, end: new Date(targetTime + 1) },
   });
-  if (!hits.some((hit) => hit.getTime() === targetTime)) {
+  const validTimes = new Set(hits.map((hit) => hit.getTime()));
+  for (const instant of rdateInstants) {
+    const time = instant.getTime();
+    if (!excludedTimes.has(time)) {
+      validTimes.add(time);
+    }
+  }
+  if (!validTimes.has(targetTime)) {
     return null;
   }
   const start = new Date(targetTime);

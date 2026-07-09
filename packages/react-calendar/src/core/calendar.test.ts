@@ -60,6 +60,34 @@ describe('createCalendar', () => {
       expect(calendar.getEvents()).toEqual([MEETING]);
     });
 
+    it('壊れた表示を作る数値オプション（0・負値・小数）は正の整数へ正規化される', () => {
+      const calendar = makeCalendar({
+        slotMinutes: 0,
+        snapMinutes: -5,
+        listDays: 0,
+        defaultEventMinutes: 0,
+        dayMaxEvents: 0,
+      });
+      const { options } = calendar.getState();
+      expect(options.slotMinutes).toBe(1);
+      expect(options.snapMinutes).toBe(1);
+      expect(options.listDays).toBe(1);
+      expect(options.defaultEventMinutes).toBe(1);
+      expect(options.dayMaxEvents).toBe(1);
+    });
+
+    it('数値オプションの小数は切り捨てられる', () => {
+      const calendar = makeCalendar({ slotMinutes: 30.9, listDays: 7.5 });
+      expect(calendar.getState().options.slotMinutes).toBe(30);
+      expect(calendar.getState().options.listDays).toBe(7);
+    });
+
+    it('updateOptions 経由でも数値オプションが正規化される', () => {
+      const calendar = makeCalendar();
+      calendar.updateOptions({ slotMinutes: 0 });
+      expect(calendar.getState().options.slotMinutes).toBe(1);
+    });
+
     it('timeZone 省略時はローカルタイムゾーンになる', () => {
       const calendar = createCalendar({ now: () => NOW });
       // テストは TZ=Asia/Tokyo で実行される（vitest.config.ts）

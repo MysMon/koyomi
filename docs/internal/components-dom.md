@@ -77,8 +77,10 @@ div[data-koyomi="month"] (role="grid")
 
 ## 週/日ビュー（TimeGridView）
 
+`data-koyomi-days` は表示中の**可視列数**（週=7・日=1 が基本だが、`hiddenWeekdays` で列を隠すと 5 など可変）。
+
 ```
-div[data-koyomi="timegrid"][data-koyomi-days="7|1"]
+div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"]
   div[data-koyomi="timegrid-header"]
     div[data-koyomi="timegrid-axis-gutter"]          … 左上の空き（時間軸幅の確保）
     div[data-koyomi="timegrid-day-header"][data-koyomi-date][data-today?][aria-current="date"?] × days
@@ -155,7 +157,8 @@ div[data-koyomi="list"][data-koyomi-virtualized="true"][role="list"][tabindex="0
 props はビュー名を接頭辞にした名前で各ビューへ転送する（`renderMonthEvent` /
 `renderMonthDayCell` / `monthOverflowLabel` / `renderTimeGridEvent` /
 `renderTimeGridDayHeader` / `renderListEvent` / `listAllDayLabel` / `listEmptyLabel` /
-`renderListDayHeader`）。
+`renderListDayHeader`）。`virtualizeList` を渡すと list ビューは `ListView` の代わりに
+`VirtualListView` で描画され、`listEstimateDayHeight` / `listOverscan` がそちらへ転送される。
 
 ## Toolbar の文言
 

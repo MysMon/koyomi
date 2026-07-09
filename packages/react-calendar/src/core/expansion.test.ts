@@ -851,6 +851,66 @@ describe('resolveOccurrence', () => {
     });
   });
 
+  describe('RDATE（パターン外オカレンスの解決）', () => {
+    it('rrule なし・時間指定で rdates のオカレンスを解決できる（isRecurring: true）', () => {
+      const event = makeEvent({
+        id: 'r1',
+        start: '2026-07-01T10:00:00',
+        end: '2026-07-01T11:00:00',
+        rdates: ['2026-07-03T10:00:00', '2026-07-05T10:00:00'],
+      });
+      // マスターの開始
+      expect(resolve(event, '2026-07-01T01:00:00Z')?.isRecurring).toBe(true);
+      // rdate 由来のオカレンス（従来は null になっていた）
+      const occ = resolve(event, '2026-07-03T01:00:00Z');
+      expect(occ).not.toBeNull();
+      expect(occ?.end).toEqual(new Date('2026-07-03T02:00:00Z'));
+      expect(occ?.isRecurring).toBe(true);
+      // rdate でない日は null
+      expect(resolve(event, '2026-07-04T01:00:00Z')).toBeNull();
+    });
+
+    it('rrule なし・時間指定で exdates が rdate より優先される', () => {
+      const event = makeEvent({
+        id: 'r2',
+        start: '2026-07-01T10:00:00',
+        end: '2026-07-01T11:00:00',
+        rdates: ['2026-07-03T10:00:00'],
+        exdates: ['2026-07-03T10:00:00'],
+      });
+      expect(resolve(event, '2026-07-03T01:00:00Z')).toBeNull();
+    });
+
+    it('rrule と rdates を併用したとき、rrule 由来・rdate 由来の両方を解決できる', () => {
+      const event = makeEvent({
+        id: 'r3',
+        start: '2026-07-01T10:00:00',
+        end: '2026-07-01T11:00:00',
+        rrule: 'FREQ=DAILY;COUNT=3', // 7/1, 7/2, 7/3
+        rdates: ['2026-07-10T10:00:00'], // パターン外
+      });
+      expect(resolve(event, '2026-07-02T01:00:00Z')).not.toBeNull(); // rrule 由来
+      expect(resolve(event, '2026-07-10T01:00:00Z')).not.toBeNull(); // rdate 由来
+      expect(resolve(event, '2026-07-04T01:00:00Z')).toBeNull(); // どちらでもない
+    });
+
+    it('rrule なし・終日で rdates のオカレンスを解決できる（isRecurring: true）', () => {
+      const event = makeEvent({
+        id: 'r4',
+        start: '2026-07-01',
+        end: '2026-07-02',
+        allDay: true,
+        rdates: ['2026-07-03'],
+      });
+      const master = resolve(event, '2026-06-30T15:00:00Z'); // 7/1 0:00 JST
+      expect(master?.isRecurring).toBe(true);
+      const occ = resolve(event, '2026-07-02T15:00:00Z'); // 7/3 0:00 JST
+      expect(occ).not.toBeNull();
+      expect(occ?.allDay).toBe(true);
+      expect(resolve(event, '2026-07-03T15:00:00Z')).toBeNull(); // 7/4（rdate でない）
+    });
+  });
+
   describe('オーバーライドイベント', () => {
     const override = makeEvent({
       id: 'o1',
