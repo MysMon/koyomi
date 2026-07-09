@@ -89,6 +89,8 @@ export type {
   MonthDay,
   MonthViewModel,
   MonthWeek,
+  MultiMonthMonth,
+  MultiMonthViewModel,
   PositionedOccurrence,
   RecurringEditScope,
   ResolvedCalendarOptions,
@@ -104,6 +106,7 @@ export type {
 // ビューモデルビルダー
 export { buildListViewModel } from './core/views/list-view';
 export { buildMonthViewModel } from './core/views/month-view';
+export { buildMultiMonthViewModel } from './core/views/multi-month-view';
 export { buildTimeGridViewModel } from './core/views/time-grid-view';
 export { buildYearViewModel } from './core/views/year-view';
 export type { VirtualItem } from './core/virtualization';
@@ -120,6 +123,10 @@ export {
 } from './react/components/format';
 export { ListView, type ListViewProps } from './react/components/list-view';
 export { MonthView, type MonthViewProps } from './react/components/month-view';
+export {
+  MultiMonthView,
+  type MultiMonthViewProps,
+} from './react/components/multi-month-view';
 export { TimeGridView, type TimeGridViewProps } from './react/components/time-grid-view';
 export { Toolbar, type ToolbarLabels, type ToolbarProps } from './react/components/toolbar';
 export {

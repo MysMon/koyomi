@@ -144,17 +144,19 @@ export function rangesOverlap(a: DateRange, b: DateRange): boolean {
  * - `list` — 基準日の 0:00 から `listDays` 日間
  * - `year` — 基準日を含む年（年初 0:00 から翌年初 0:00 まで。
  *   ミニ月グリッドの前後月の日付は含まない）
+ * - `multiMonth` — 基準日を含む月の月初 0:00 から `multiMonthCount` ヶ月後の
+ *   月初 0:00 まで（各月グリッドの前後月の日付は含まない）
  *
  * @param view - ビュー種別
  * @param currentDate - 基準日
  * @param timeZone - タイムゾーン
- * @param options - 週開始曜日とリスト日数
+ * @param options - 週開始曜日・リスト日数・複数月ビューの月数
  */
 export function visibleRangeFor(
   view: CalendarViewType,
   currentDate: Date,
   timeZone: TimeZoneId,
-  options: { weekStartsOn: Weekday; listDays: number },
+  options: { weekStartsOn: Weekday; listDays: number; multiMonthCount: number },
 ): DateRange {
   // addDaysInZone は加算前の現地時刻を維持するため、start が深夜 0:00 の
   // 存在しないゾーン（例: America/Santiago）の切替日で繰り上げられた時刻
@@ -185,6 +187,15 @@ export function visibleRangeFor(
       const end = startOfDayInZone(addMonthsInZone(start, 12, timeZone), timeZone);
       return { start, end };
     }
+    case 'multiMonth': {
+      const start = startOfMonthInZone(currentDate, timeZone);
+      // 月初 0:00 の N ヶ月後 = 最終月の翌月初。念のため日の開始へ再正規化する
+      const end = startOfDayInZone(
+        addMonthsInZone(start, options.multiMonthCount, timeZone),
+        timeZone,
+      );
+      return { start, end };
+    }
   }
 }
 
@@ -196,19 +207,20 @@ export function visibleRangeFor(
  * - `day` — ±1 日
  * - `list` — ±`listDays` 日
  * - `year` — ±1 年（日は年初に正規化）
+ * - `multiMonth` — ±`multiMonthCount` ヶ月（日は月初に正規化）
  *
  * @param view - ビュー種別
  * @param currentDate - 現在の基準日
  * @param direction - `1`（次へ）または `-1`（前へ）
  * @param timeZone - タイムゾーン
- * @param options - リスト日数
+ * @param options - リスト日数・複数月ビューの月数
  */
 export function navigateDate(
   view: CalendarViewType,
   currentDate: Date,
   direction: 1 | -1,
   timeZone: TimeZoneId,
-  options: { listDays: number },
+  options: { listDays: number; multiMonthCount: number },
 ): Date {
   switch (view) {
     case 'month':
@@ -222,6 +234,11 @@ export function navigateDate(
     case 'year':
       return startOfYearInZone(
         addMonthsInZone(startOfYearInZone(currentDate, timeZone), 12 * direction, timeZone),
+        timeZone,
+      );
+    case 'multiMonth':
+      return startOfMonthInZone(
+        addMonthsInZone(currentDate, options.multiMonthCount * direction, timeZone),
         timeZone,
       );
   }

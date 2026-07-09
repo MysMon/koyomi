@@ -357,6 +357,43 @@ describe('createCalendar', () => {
       expect(range.end.toISOString()).toBe('2026-12-31T15:00:00.000Z');
     });
 
+    it("setView('multiMonth') 後は複数月ビューのビューモデル（既定 multiMonthCount=3 ヶ月分）を返す", () => {
+      const calendar = makeCalendar();
+      calendar.setView('multiMonth');
+      const vm = calendar.getViewModel();
+      expect(vm.type).toBe('multiMonth');
+      if (vm.type !== 'multiMonth') throw new Error('unreachable');
+      expect(vm.months).toHaveLength(3);
+    });
+
+    it('multiMonthCount を updateOptions で変更すると複数月ビューの月数に反映される', () => {
+      const calendar = makeCalendar();
+      calendar.setView('multiMonth');
+      calendar.updateOptions({ multiMonthCount: 6 });
+      const vm = calendar.getViewModel();
+      expect(vm.type).toBe('multiMonth');
+      if (vm.type !== 'multiMonth') throw new Error('unreachable');
+      expect(vm.months).toHaveLength(6);
+      expect(calendar.getState().options.multiMonthCount).toBe(6);
+    });
+
+    it('multiMonthCount に 0 以下を渡すと 1 へ正規化される', () => {
+      const calendar = makeCalendar({ multiMonthCount: 0 });
+      expect(calendar.getState().options.multiMonthCount).toBe(1);
+
+      calendar.updateOptions({ multiMonthCount: -5 });
+      expect(calendar.getState().options.multiMonthCount).toBe(1);
+    });
+
+    it('複数月ビューの getVisibleRange は月初 0:00 〜 multiMonthCount ヶ月後の月初 0:00 の範囲になる', () => {
+      const calendar = makeCalendar();
+      calendar.setView('multiMonth');
+      const range = calendar.getVisibleRange();
+      // 東京の 2026-07-01 0:00 〜 2026-10-01 0:00（既定 multiMonthCount=3）
+      expect(range.start.toISOString()).toBe('2026-06-30T15:00:00.000Z');
+      expect(range.end.toISOString()).toBe('2026-09-30T15:00:00.000Z');
+    });
+
     it('状態が変わらない限りビューモデルはキャッシュされる（同一参照）', () => {
       const calendar = makeCalendar({ events: [MEETING] });
       const a = calendar.getViewModel();

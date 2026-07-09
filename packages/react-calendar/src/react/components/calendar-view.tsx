@@ -17,6 +17,7 @@ import type {
 import { useCalendarContext } from '../context';
 import { ListView } from './list-view';
 import { MonthView } from './month-view';
+import { MultiMonthView } from './multi-month-view';
 import { TimeGridView } from './time-grid-view';
 import { VirtualListView } from './virtual-list-view';
 import { YearView } from './year-view';
@@ -73,6 +74,15 @@ export interface CalendarViewProps {
   renderYearMonthHeader?: (month: YearMonth, defaultContent: ReactNode) => ReactNode;
   /** 年ビューの日セルのカスタム描画。`YearView` の `renderDayCell` に転送する。 */
   renderYearDayCell?: (day: YearDay, defaultContent: ReactNode) => ReactNode;
+  /** 複数月ビューのセグメントのカスタム描画。`MultiMonthView` の `renderEvent` に転送する。 */
+  renderMultiMonthEvent?: (segment: EventSegment) => ReactNode;
+  /** 複数月ビューの日セルのカスタム描画。`MultiMonthView` の `renderDayCell` に転送する。 */
+  renderMultiMonthDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
+  /**
+   * 複数月ビューの「+N 件」ラベル。`MultiMonthView` の `overflowLabel` に転送する。
+   * 省略時は `+N 件`。
+   */
+  multiMonthOverflowLabel?: (count: number) => ReactNode;
 }
 
 /**
@@ -146,6 +156,18 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
               ? { renderMonthHeader: props.renderYearMonthHeader }
               : {})}
             {...(props.renderYearDayCell ? { renderDayCell: props.renderYearDayCell } : {})}
+          />
+        );
+      case 'multiMonth':
+        return (
+          <MultiMonthView
+            {...(props.renderMultiMonthEvent ? { renderEvent: props.renderMultiMonthEvent } : {})}
+            {...(props.renderMultiMonthDayCell
+              ? { renderDayCell: props.renderMultiMonthDayCell }
+              : {})}
+            {...(props.multiMonthOverflowLabel
+              ? { overflowLabel: props.multiMonthOverflowLabel }
+              : {})}
           />
         );
     }

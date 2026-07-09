@@ -698,6 +698,10 @@ describe('shortcutForKey', () => {
     expect(shortcutForKey('y')).toEqual({ type: 'view', view: 'year' });
   });
 
+  it('q がビュー切替（複数月）に対応する', () => {
+    expect(shortcutForKey('q')).toEqual({ type: 'view', view: 'multiMonth' });
+  });
+
   it('t は年ビュー追加後も「今日へ移動」のままである（回帰ガード。T が today と衝突するため timeline は L を使う設計上の前提）', () => {
     expect(shortcutForKey('t')).toEqual({ type: 'today' });
   });
@@ -710,6 +714,10 @@ describe('shortcutForKey', () => {
     expect(shortcutForKey('Y')).toEqual({ type: 'view', view: 'year' });
   });
 
+  it('Q（大文字）でも複数月ビュー切替に対応する', () => {
+    expect(shortcutForKey('Q')).toEqual({ type: 'view', view: 'multiMonth' });
+  });
+
   it('修飾キー（ctrl / meta / alt）付きは null を返す', () => {
     expect(shortcutForKey('m', { ctrlKey: true })).toBeNull();
     expect(shortcutForKey('t', { metaKey: true })).toBeNull();
@@ -718,6 +726,12 @@ describe('shortcutForKey', () => {
     expect(shortcutForKey('y', { ctrlKey: true })).toBeNull();
     expect(shortcutForKey('y', { metaKey: true })).toBeNull();
     expect(shortcutForKey('y', { altKey: true })).toBeNull();
+  });
+
+  it('q も修飾キー（ctrl / meta / alt）付きは null を返す', () => {
+    expect(shortcutForKey('q', { ctrlKey: true })).toBeNull();
+    expect(shortcutForKey('q', { metaKey: true })).toBeNull();
+    expect(shortcutForKey('q', { altKey: true })).toBeNull();
   });
 
   it('修飾キーがすべて false なら通常どおり解釈される', () => {

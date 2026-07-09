@@ -1,8 +1,8 @@
-# ビュー（月・週・日・リスト・年）
+# ビュー（月・週・日・リスト・年・複数月）
 
-Koyomi は月・週・日・リスト（スケジュール）・年の 5 つのビューを切り替えて表示できます。本ページでは各ビューの画面構成、切り替え方法、ナビゲーション、そしてビューモデルを直接使った上級者向けの使い方を説明します。
+Koyomi は月・週・日・リスト（スケジュール）・年・複数月の 6 つのビューを切り替えて表示できます。本ページでは各ビューの画面構成、切り替え方法、ナビゲーション、そしてビューモデルを直接使った上級者向けの使い方を説明します。
 
-## 5 つのビュー
+## 6 つのビュー
 
 ### 月ビュー（month）
 
@@ -22,15 +22,23 @@ Koyomi は月・週・日・リスト（スケジュール）・年の 5 つの�
 
 年ビューは `Toolbar` のビュー切替ボタン・`useCalendarShortcuts` の `Y` キーとも既定では無効な opt-in のビューです（詳細は次節）。
 
+### 複数月ビュー（multiMonth）
+
+`MultiMonthView` が描画します。連続する `multiMonthCount`（既定 `3`）ヶ月分の月グリッドを縦に並べます（四半期・半期のプランニング用途。FullCalendar の multiMonth 相当）。各月グリッドの構成・週の並び・帯（セグメント）表示・「+N 件」あふれ・ドラッグ操作（作成・移動・リサイズ）は、いずれも月ビューと完全に同等です。
+
+月ビューとの違いは、**前後月の日付セルに予定を表示しない**（かつ日番号のみのクリック不可な表示になる）点だけです。連続する月グリッドを縦に並べると、同じ日付（例: 7/31）が 7 月グリッドの本体と 8 月グリッドの前月はみ出しの両方に現れて二重に描画されてしまうため、「予定は自分の月のグリッドにのみ描画する」規則で解消しています。月境界をまたぐ帯は月ごとにクランプされ、「←続く／続く→」（`continuesBefore` / `continuesAfter`）で表示されます。
+
+複数月ビューも `Toolbar` のビュー切替ボタン・`useCalendarShortcuts` の `Q` キーとも既定では無効な opt-in のビューです（詳細は次節）。
+
 いずれのビューも、既定の見た目を使うには `@koyomi-cal/react/theme.css` を読み込みます。DOM 構造や CSS でのカスタマイズ方法は [テーマとスタイリング](./theming.md) を参照してください。
 
 ## ビューの切り替え
 
 ビューは次の 3 通りで切り替えられます。
 
-1. `Toolbar` のビュー切替ボタン（既定は月・週・日・リスト。年ビューは `views` prop での opt-in）
+1. `Toolbar` のビュー切替ボタン（既定は月・週・日・リスト。年ビュー・複数月ビューは `views` prop での opt-in）
 2. `calendar.api.setView(view)` を直接呼ぶ
-3. `useCalendarShortcuts` によるキーボード操作（既定は `M` / `W` / `D` / `A`。年ビューの `Y` は `views` オプションでの opt-in。詳細は [インタラクション](./interactions.md) を参照）
+3. `useCalendarShortcuts` によるキーボード操作（既定は `M` / `W` / `D` / `A`。年ビューの `Y`・複数月ビューの `Q` は `views` オプションでの opt-in。詳細は [インタラクション](./interactions.md) を参照）
 
 ```tsx
 import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi-cal/react';
@@ -77,7 +85,7 @@ function App() {
 
 ### 年ビューなど新ビューを有効にする（opt-in）
 
-年ビューは既定では `Toolbar` のボタン列にも `useCalendarShortcuts` のキーにも現れません（既存利用者の見た目・挙動を変えないための方針）。有効にしたい場合は、両方に `views` を渡します。
+年ビュー・複数月ビューは既定では `Toolbar` のボタン列にも `useCalendarShortcuts` のキーにも現れません（既存利用者の見た目・挙動を変えないための方針）。有効にしたい場合は、両方に `views` を渡します。
 
 ```tsx
 import { CalendarProvider, CalendarView, Toolbar, useCalendar, useCalendarShortcuts } from '@koyomi-cal/react';
@@ -85,20 +93,20 @@ import '@koyomi-cal/react/theme.css';
 
 function App() {
   const calendar = useCalendar({ initialView: 'month' });
-  useCalendarShortcuts({ calendar, views: ['month', 'week', 'day', 'list', 'year'] });
+  useCalendarShortcuts({ calendar, views: ['month', 'week', 'day', 'list', 'year', 'multiMonth'] });
 
   return (
     <CalendarProvider value={calendar}>
-      <Toolbar views={['month', 'week', 'day', 'list', 'year']} />
+      <Toolbar views={['month', 'week', 'day', 'list', 'year', 'multiMonth']} />
       <CalendarView />
     </CalendarProvider>
   );
 }
 
 // 期待される動作:
-// - Toolbar に「年」ボタンが追加され、クリックで年ビューに切り替わる
-// - Y キーを押すと年ビューに切り替わる
-// - views を省略した（または 'year' を含めない）場合、Y キーを押しても view は変わらない
+// - Toolbar に「年」「複数月」ボタンが追加され、クリックでそれぞれのビューに切り替わる
+// - Y キーを押すと年ビューに、Q キーを押すと複数月ビューに切り替わる
+// - views を省略した（または対象のビュー名を含めない）場合、そのビューへの切替キーは効かない
 ```
 
 ## ナビゲーション
@@ -118,6 +126,7 @@ function App() {
 | `day` | ±1 日 |
 | `list` | ±`listDays` 日 |
 | `year` | ±1 年（基準日は年初に正規化される） |
+| `multiMonth` | ±`multiMonthCount` ヶ月（基準日は月初に正規化される） |
 
 ```ts
 import { createCalendar } from '@koyomi-cal/react';
@@ -137,13 +146,14 @@ calendar.today(); // now() が指す日（この例では 2026-07-15）に戻る
 // 期待される動作:
 // - calendar.getState().currentDate が上記コメントどおりの日付になる
 // - week ビューでは next()/prev() が ±7日、day ビューでは ±1日、
-//   list ビューでは ±listDays 日（既定 30）、year ビューでは ±1 年で
+//   list ビューでは ±listDays 日（既定 30）、year ビューでは ±1 年、
+//   multiMonth ビューでは ±multiMonthCount ヶ月（既定 3）で
 //   currentDate（および getVisibleRange()）が動く
 ```
 
 ## ビューモデルを直接使う（上級編）
 
-`calendar.api.getViewModel()`（React では `useCalendar()` の戻り値の `viewModel`）は、現在のビューに対応する描画用データを返します。型は `CalendarViewModel = MonthViewModel | TimeGridViewModel | ListViewModel | YearViewModel` で、`type` フィールドにより判別できる判別共用体です。
+`calendar.api.getViewModel()`（React では `useCalendar()` の戻り値の `viewModel`）は、現在のビューに対応する描画用データを返します。型は `CalendarViewModel = MonthViewModel | TimeGridViewModel | ListViewModel | YearViewModel | MultiMonthViewModel` で、`type` フィールドにより判別できる判別共用体です。
 
 | 型 | `type` | 主なフィールド |
 | --- | --- | --- |
@@ -151,8 +161,9 @@ calendar.today(); // now() が指す日（この例では 2026-07-15）に戻る
 | `TimeGridViewModel` | `'timeGrid'` | `viewType`（`'week' \| 'day'`）、`days`（`TimeGridDay[]`）、`allDaySegments` / `allDayLaneCount`（終日行）、`slots`（時間軸の目盛り）、`nowIndicator`（現在時刻線の位置、対象日がなければ `null`） |
 | `ListViewModel` | `'list'` | `days`（予定がある日だけの `ListDay[]`）、`isEmpty` |
 | `YearViewModel` | `'year'` | `anchor`（表示対象年の1月1日）、`months`（`YearMonth[]`、12件）、`weekdays`（曜日の並び） |
+| `MultiMonthViewModel` | `'multiMonth'` | `anchor`（先頭月の1日）、`months`（`MultiMonthMonth[]`、`multiMonthCount` 件）、`weekdays`（曜日の並び） |
 
-`MonthWeek.days` は `MonthDay[]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `overflowCount` など）、`TimeGridDay.items` は `PositionedOccurrence[]`（`startMinutes` / `endMinutes` / `left` / `width` など割合ベースの配置情報）を持ちます。`YearMonth.weeks` は `YearDay[][]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `eventCount` を持ち、前後月の日付は `eventCount: 0` に固定）です。詳細なフィールドは各型の TSDoc を参照してください。
+`MonthWeek.days` は `MonthDay[]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `overflowCount` など）、`TimeGridDay.items` は `PositionedOccurrence[]`（`startMinutes` / `endMinutes` / `left` / `width` など割合ベースの配置情報）を持ちます。`YearMonth.weeks` は `YearDay[][]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `eventCount` を持ち、前後月の日付は `eventCount: 0` に固定）です。`MultiMonthMonth.weeks` は月ビューと同じ `MonthWeek[]` です（前後月の日付セルにはセグメントを配置しない点だけが月ビューと異なります）。詳細なフィールドは各型の TSDoc を参照してください。
 
 `type` で分岐すれば、ビューごとの情報を型安全に扱えます。
 
@@ -169,6 +180,8 @@ function describeViewModel(viewModel: CalendarViewModel): string {
       return `リストビュー: ${viewModel.days.length} 日に予定あり`;
     case 'year':
       return `年ビュー: ${viewModel.months.length} ヶ月`;
+    case 'multiMonth':
+      return `複数月ビュー: ${viewModel.months.length} ヶ月`;
   }
 }
 
@@ -213,15 +226,16 @@ function BareMonthGrid() {
 
 | オプション | 型 | 既定値 | 影響 |
 | --- | --- | --- | --- |
-| `weekStartsOn` | `Weekday`（`0`〜`6`、`0` = 日曜） | `0` | 月ビューの週の並び、週ビューの開始曜日、年ビューのミニ月グリッドの週の並び、ナビゲーションの起点 |
-| `dayMaxEvents` | `number` | `4` | 月ビューで 1 日に表示する予定の最大数。超過分は「+N 件」に集約される |
+| `weekStartsOn` | `Weekday`（`0`〜`6`、`0` = 日曜） | `0` | 月ビューの週の並び、週ビューの開始曜日、年ビューのミニ月グリッドの週の並び、複数月ビューの各月グリッドの週の並び、ナビゲーションの起点 |
+| `dayMaxEvents` | `number` | `4` | 月ビュー・複数月ビューで 1 日に表示する予定の最大数。超過分は「+N 件」に集約される |
 | `slotMinutes` | `number` | `60` | 週/日ビュー（時間グリッド）の時間軸の目盛り間隔（分） |
 | `listDays` | `number` | `30` | リストビューが表示する日数。`next()`/`prev()` の移動単位にもなる |
-| `hiddenWeekdays` | `readonly Weekday[]` | `[]` | 月・週ビューの列から除外する曜日（下記参照）。年ビュー・日ビューは無視する |
+| `multiMonthCount` | `number` | `3` | 複数月ビューが表示する月数。`next()`/`prev()` の移動単位にもなる |
+| `hiddenWeekdays` | `readonly Weekday[]` | `[]` | 月・週・複数月ビューの列から除外する曜日（下記参照）。年ビュー・日ビューは無視する |
 
 ## 週末などの曜日を隠す（hiddenWeekdays）
 
-`hiddenWeekdays` に曜日番号の配列を渡すと、月ビューと週ビューの列からその曜日が除外されます（Google カレンダーの「週末を表示しない」相当）。
+`hiddenWeekdays` に曜日番号の配列を渡すと、月ビューと週ビューの列からその曜日が除外されます（Google カレンダーの「週末を表示しない」相当）。複数月ビューの各月グリッドも月ビューと同じ規則で除外されます。
 
 ```tsx
 const calendar = useCalendar({ hiddenWeekdays: [0, 6] }); // 日曜・土曜を隠す
@@ -236,6 +250,7 @@ calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
 // - 土日にしか存在しない予定は表示されず、「+N 件」にも数えられない
 // - 日ビューは hiddenWeekdays を無視する（土曜へ goTo すれば表示される）
 // - 年ビューも hiddenWeekdays を無視する（ミニ月グリッドは常に 7 列のまま）
+// - 複数月ビューは月ビューと同じく列が除外される（各月グリッドが月〜金の 5 列になる）
 // - 「今日」が非表示曜日の場合、現在時刻線（nowIndicator）は表示されない
 ```
 
@@ -258,13 +273,16 @@ calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
 | `ListView` | `renderDayHeader`（`renderListDayHeader`） | 日付見出しの内容 |
 | `YearView` | `renderMonthHeader`（`renderYearMonthHeader`） | ミニ月グリッドの見出しの内容（第 2 引数で既定内容を受け取る） |
 | `YearView` | `renderDayCell`（`renderYearDayCell`） | 日セルの内容（日番号＋件数マーカー）をラップ・置換（第 2 引数で既定内容を受け取る） |
-| `Toolbar` | `labels`（`ToolbarLabels`） | 「月/週/日/リスト/年/今日」等の全文言 |
-| `Toolbar` | `views`（`readonly CalendarViewType[]`） | ビュー切替ボタンとして表示するビューの一覧・並び順（既定 `['month', 'week', 'day', 'list']`。年ビューは opt-in） |
+| `MultiMonthView` | `renderEvent`（`renderMultiMonthEvent`） | セグメントの表示内容（既定は `MonthView` と同じ） |
+| `MultiMonthView` | `renderDayCell`（`renderMultiMonthDayCell`） | 日セルに祝日ラベルやバッジ等を差し込み（第 2 引数で既定内容を受け取る。前後月の日付セルはインタラクティブでないため適用されない） |
+| `MultiMonthView` | `overflowLabel`（`multiMonthOverflowLabel`） | 「+N 件」の文言（`(count) => ReactNode`） |
+| `Toolbar` | `labels`（`ToolbarLabels`） | 「月/週/日/リスト/年/複数月/今日」等の全文言 |
+| `Toolbar` | `views`（`readonly CalendarViewType[]`） | ビュー切替ボタンとして表示するビューの一覧・並び順（既定 `['month', 'week', 'day', 'list']`。年ビュー・複数月ビューは opt-in） |
 
 ```tsx
 <Toolbar
-  labels={{ month: 'Month', week: 'Week', day: 'Day', list: 'List', year: 'Year', today: 'Today' }}
-  views={['month', 'week', 'day', 'list', 'year']}
+  labels={{ month: 'Month', week: 'Week', day: 'Day', list: 'List', year: 'Year', multiMonth: 'Multi-month', today: 'Today' }}
+  views={['month', 'week', 'day', 'list', 'year', 'multiMonth']}
 />
 <CalendarView
   monthOverflowLabel={(count) => `+${count} more`}

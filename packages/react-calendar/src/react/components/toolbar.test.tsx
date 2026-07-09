@@ -29,6 +29,7 @@ function renderToolbar(
   initialView?: CalendarViewType,
   labels?: ToolbarProps['labels'],
   views?: ToolbarProps['views'],
+  multiMonthCount?: number,
 ) {
   const capture: { current: UseCalendarResult | null } = { current: null };
 
@@ -39,6 +40,7 @@ function renderToolbar(
       initialDate: NOW,
       // exactOptionalPropertyTypes 下では undefined 値のキーを直接書けないため省略する
       ...(initialView !== undefined ? { initialView } : {}),
+      ...(multiMonthCount !== undefined ? { multiMonthCount } : {}),
       locale: 'ja',
     });
     capture.current = calendar;
@@ -114,7 +116,11 @@ describe('Toolbar', () => {
 
   it('週ビューのタイトルは getVisibleRange を formatRangeTitle した文字列になる', () => {
     const { container, capture } = renderToolbar('week');
-    const range = visibleRangeFor('week', NOW, 'Asia/Tokyo', { weekStartsOn: 0, listDays: 30 });
+    const range = visibleRangeFor('week', NOW, 'Asia/Tokyo', {
+      weekStartsOn: 0,
+      listDays: 30,
+      multiMonthCount: 3,
+    });
     expect(capture.current?.api.getVisibleRange()).toEqual(range);
 
     const title = container.querySelector('[data-koyomi="title"]');
@@ -123,7 +129,11 @@ describe('Toolbar', () => {
 
   it('リストビューのタイトルは getVisibleRange を formatRangeTitle した文字列になる', () => {
     const { container } = renderToolbar('list');
-    const range = visibleRangeFor('list', NOW, 'Asia/Tokyo', { weekStartsOn: 0, listDays: 30 });
+    const range = visibleRangeFor('list', NOW, 'Asia/Tokyo', {
+      weekStartsOn: 0,
+      listDays: 30,
+      multiMonthCount: 3,
+    });
 
     const title = container.querySelector('[data-koyomi="title"]');
     expect(title?.textContent).toBe(formatRangeTitle(range, 'Asia/Tokyo', 'ja'));
@@ -296,5 +306,42 @@ describe('Toolbar', () => {
     const title = container.querySelector('[data-koyomi="title"]');
     expect(title?.textContent).toBe(formatYearTitle(NOW, 'Asia/Tokyo', 'ja'));
     expect(title?.textContent).toBe('2026年');
+  });
+
+  it("views={['month', 'multiMonth']} を指定すると2ボタンになり、複数月ボタンのクリックで setView('multiMonth') が呼ばれる", () => {
+    const { container, capture } = renderToolbar('month', undefined, ['month', 'multiMonth']);
+    const viewsGroup = container.querySelector('[data-koyomi="toolbar-views"]');
+    const buttons = viewsGroup?.querySelectorAll('[data-koyomi="button"]') ?? [];
+    expect(buttons).toHaveLength(2);
+
+    const multiMonthButton = container.querySelector('[data-koyomi-action="view-multimonth"]');
+    expect(multiMonthButton).not.toBeNull();
+    if (multiMonthButton === null) {
+      throw new Error('view-multimonth ボタンが見つかりません');
+    }
+    fireEvent.click(multiMonthButton);
+    expect(capture.current?.api.getState().view).toBe('multiMonth');
+  });
+
+  it('labels.multiMonth で複数月ビュー切替ボタンの表示文字列を差し替えられる', () => {
+    const { container } = renderToolbar('month', { multiMonth: '複数月表示' }, [
+      'month',
+      'multiMonth',
+    ]);
+    expect(container.querySelector('[data-koyomi-action="view-multimonth"]')?.textContent).toBe(
+      '複数月表示',
+    );
+  });
+
+  it('複数月ビューのタイトルは「2026年7月〜2026年9月」形式になる（既定 multiMonthCount=3）', () => {
+    const { container } = renderToolbar('multiMonth');
+    const title = container.querySelector('[data-koyomi="title"]');
+    expect(title?.textContent).toBe('2026年7月〜2026年9月');
+  });
+
+  it('multiMonthCount:1 の複数月ビューのタイトルは単月と同じ「2026年7月」単独になる', () => {
+    const { container } = renderToolbar('multiMonth', undefined, undefined, 1);
+    const title = container.querySelector('[data-koyomi="title"]');
+    expect(title?.textContent).toBe('2026年7月');
   });
 });
