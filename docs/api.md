@@ -149,6 +149,7 @@ function useCalendarShortcuts(params: {
   calendar: UseCalendarResult;
   enabled?: boolean;
   onCreate?: () => void;
+  views?: readonly CalendarViewType[];
 }): void
 ```
 
@@ -157,10 +158,13 @@ Google カレンダー準拠のキーボードショートカットを有効に�
 | キー | 動作 |
 | --- | --- |
 | `M` / `W` / `D` / `A` | 月 / 週 / 日 / リスト表示に切り替え |
+| `Y` | 年表示に切り替え（`views` に `'year'` を含む場合のみ。既定では無効） |
 | `T` | 今日へ移動 |
 | `J`, `N` | 次の期間へ |
 | `K`, `P` | 前の期間へ |
 | `C` | `onCreate` を呼ぶ（予定作成 UI の起点） |
+
+`views`（既定 `['month', 'week', 'day', 'list']`）でビュー切替キーの対象ビューを制限します。新ビュー（年 等）のキーは opt-in で、既定では無効です。`Toolbar` の `views` prop（下記）と同じ既定値・同じ opt-in 方針です。
 
 ```tsx
 import { CalendarProvider, CalendarView, useCalendar, useCalendarShortcuts } from '@koyomi-cal/react';
@@ -352,7 +356,7 @@ function App() {
 function CalendarView(props: CalendarViewProps): ReactElement
 ```
 
-現在のビュー（`state.view`）に応じて `MonthView` / `TimeGridView` / `ListView` を出し分けるスイッチコンポーネントです。ルート要素に `data-koyomi="root"` と `data-koyomi-view` が付きます。
+現在のビュー（`state.view`）に応じて `MonthView` / `TimeGridView` / `ListView` / `YearView` を出し分けるスイッチコンポーネントです。ルート要素に `data-koyomi="root"` と `data-koyomi-view` が付きます。
 
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
@@ -368,6 +372,8 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `virtualizeList` | `boolean` | リストビューを仮想化する（`ListView` の代わりに `VirtualListView`）。既定 `false` |
 | `listEstimateDayHeight` | `number \| ((day: ListDay, index: number) => number)` | 仮想化時の日セクション推定高（`VirtualListView.estimateDayHeight` へ転送） |
 | `listOverscan` | `number` | 仮想化時の前後 overscan 日数（`VirtualListView.overscan` へ転送） |
+| `renderYearMonthHeader` | `(month: YearMonth, defaultContent: ReactNode) => ReactNode` | 年ビューのミニ月グリッドの見出しのカスタム描画（`YearView.renderMonthHeader` へ転送） |
+| `renderYearDayCell` | `(day: YearDay, defaultContent: ReactNode) => ReactNode` | 年ビューの日セルのカスタム描画（`YearView.renderDayCell` へ転送） |
 
 ### `MonthView`
 
@@ -432,6 +438,21 @@ function VirtualListView(props: VirtualListViewProps): ReactElement | null
 
 `CalendarView` からは `virtualizeList` / `listEstimateDayHeight` / `listOverscan` プロップで opt-in できます（下記 `CalendarView` を参照）。
 
+### `YearView`
+
+```ts
+function YearView(props: YearViewProps): ReactElement | null
+```
+
+年ビュー（1 月〜12 月分のミニ月グリッド）を描画します。`viewModel.type !== 'year'` の場合は `null` を返します。予定は密度（件数マーカー）のみを表示し、帯・タイトルの表示やドラッグ操作はありません。日セルのクリックでその日の日ビューに切り替わります（`goTo` + `setView('day')`）。
+
+| プロパティ | シグネチャ | 説明 |
+| --- | --- | --- |
+| `renderMonthHeader` | `(month: YearMonth, defaultContent: ReactNode) => ReactNode` | ミニ月グリッドの見出しの内容 |
+| `renderDayCell` | `(day: YearDay, defaultContent: ReactNode) => ReactNode` | 日セルの内容（日番号＋件数マーカー）をラップ・置換する |
+
+ルート要素には月ビューと同じ WAI-ARIA grid ロール（ミニ月単位で `grid` / `row` / `columnheader` / `gridcell`）と、各日セルへの完全な日付＋件数の `aria-label`（例:「7月10日 予定3件」）・今日への `aria-current="date"` が付与されます。`hiddenWeekdays` は無視されます（常に 7 列。日ビューと同じ扱い）。
+
 ### `Toolbar`
 
 ```ts
@@ -440,6 +461,11 @@ function Toolbar(props: ToolbarProps): ReactElement
 interface ToolbarProps {
   /** ボタン文言の差し替え（省略時は日本語の既定文言） */
   labels?: ToolbarLabels;
+  /**
+   * ビュー切替ボタンとして表示するビューの一覧（並び順もこの配列に従う）。
+   * 既定は `['month', 'week', 'day', 'list']`（新ビューは opt-in）。
+   */
+  views?: readonly CalendarViewType[];
 }
 
 interface ToolbarLabels {
@@ -447,13 +473,14 @@ interface ToolbarLabels {
   week?: ReactNode;
   day?: ReactNode;
   list?: ReactNode;
+  year?: ReactNode;
   today?: ReactNode;
   prev?: ReactNode;
   next?: ReactNode;
 }
 ```
 
-「今日」「前へ」「次へ」のナビゲーション、期間タイトル、ビュー切替（月・週・日・リスト）を提供します。タイトルは現在のビューに応じて `formatMonthTitle` / `formatDayTitle` / `formatRangeTitle` のいずれかで整形されます。`labels` で全ボタン文言を差し替えられます（i18n 対応）。
+「今日」「前へ」「次へ」のナビゲーション、期間タイトル、ビュー切替（既定は月・週・日・リスト。`views` prop で年ビュー等を追加できる opt-in）を提供します。タイトルは現在のビューに応じて `formatMonthTitle` / `formatDayTitle` / `formatRangeTitle` / `formatYearTitle` のいずれかで整形されます。`labels` で全ボタン文言を差し替えられます（i18n 対応）。
 
 ## 型
 
@@ -532,14 +559,14 @@ interface ToolbarLabels {
 
 `initialDate` / `initialView` は**作成時専用**です（`updateOptions` は型レベルで受け付けません。変更には `goTo` / `setView` を使います）。
 
-`ResolvedCalendarOptions` は既定値適用後の型で、`onEventsChange` を除くすべてのフィールドが必須になったものです（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `locale` / `hiddenWeekdays` / `now`）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list'` です。
+`ResolvedCalendarOptions` は既定値適用後の型で、`onEventsChange` を除くすべてのフィールドが必須になったものです（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `locale` / `hiddenWeekdays` / `now`）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year'` です。
 
 ### 状態とビューモデル
 
 | 型 | 説明 |
 | --- | --- |
 | `CalendarState` | `{ view; currentDate; timeZone; events; dragPreview; options: ResolvedCalendarOptions }`。`getState()` の戻り値 |
-| `CalendarViewModel` | `MonthViewModel | TimeGridViewModel | ListViewModel`。`getViewModel()` の戻り値 |
+| `CalendarViewModel` | `MonthViewModel | TimeGridViewModel | ListViewModel | YearViewModel`。`getViewModel()` の戻り値 |
 | `MonthViewModel` | `{ type: 'month'; anchor: Date; weeks: readonly MonthWeek[]; weekdays: readonly Weekday[] }` |
 | `MonthWeek` | `{ days: readonly MonthDay[]; segments: readonly EventSegment[]; laneCount: number }` |
 | `MonthDay` | `{ date; key; inCurrentMonth; isToday; overflowCount }` |
@@ -550,6 +577,9 @@ interface ToolbarLabels {
 | `PositionedOccurrence` | `{ occurrence; startMinutes; endMinutes; left; width; continuesBefore; continuesAfter }`。時間グリッドに配置されたオカレンス（割合・分単位） |
 | `ListViewModel` | `{ type: 'list'; days: readonly ListDay[]; isEmpty: boolean }` |
 | `ListDay` | `{ date; key; isToday; occurrences: readonly EventOccurrence[] }` |
+| `YearViewModel` | `{ type: 'year'; anchor: Date; months: readonly YearMonth[]; weekdays: readonly Weekday[] }` |
+| `YearMonth` | `{ anchor: Date; key: string; weeks: readonly (readonly YearDay[])[] }`。週数は 4〜6 |
+| `YearDay` | `{ date; key; inCurrentMonth; isToday; eventCount }`。前後月の日付（`inCurrentMonth: false`）は常に `eventCount: 0` |
 
 `nowIndicator` は `{ dayKey: string; minutes: number } | null`（表示範囲内に「今日」がない場合は `null`）です。ビューごとの表示仕様は [ビュー](./views.md) を参照してください。
 
@@ -618,6 +648,7 @@ console.log(dateKeyInZone(next, 'Asia/Tokyo')); // => '2026-07-03'
 | 関数 | 説明 |
 | --- | --- |
 | `startOfWeekInZone(date, timeZone, weekStartsOn): Date` | その週の開始日 0:00 の絶対時刻を返す |
+| `startOfYearInZone(date, timeZone): Date` | その年の 1 月 1 日 0:00 の絶対時刻を返す |
 | `monthGridRange(anchor, timeZone, weekStartsOn): DateRange` | 月ビューのグリッド範囲（前後月の日付を含む、4〜6 週）を返す |
 | `eachDayInRange(range, timeZone): Date[]` | 範囲内の各日の開始時刻（0:00）を列挙する |
 | `rangesOverlap(a, b): boolean` | 2 つの範囲が重なるかどうかを判定する（`end` は排他） |
@@ -762,6 +793,7 @@ import { shortcutForKey, snapToInterval } from '@koyomi-cal/react';
 
 console.log(snapToInterval(37, 15)); // => 30
 console.log(shortcutForKey('w')); // => { type: 'view', view: 'week' }
+console.log(shortcutForKey('y')); // => { type: 'view', view: 'year' }
 console.log(shortcutForKey('s')); // => null（該当なし）
 ```
 
@@ -774,6 +806,7 @@ console.log(shortcutForKey('s')); // => null（該当なし）
 | `buildMonthViewModel(params): MonthViewModel` | 月ビューのビューモデル（週・日・帯セグメント）を構築する。`hiddenWeekdays` で列を除外できる |
 | `buildTimeGridViewModel(params): TimeGridViewModel` | 週/日ビューのビューモデル（終日行・時間グリッド配置）を構築する。`hiddenWeekdays` 対応 |
 | `buildListViewModel(params): ListViewModel` | リストビューのビューモデル（日付ごとのオカレンス一覧）を構築する |
+| `buildYearViewModel(params): YearViewModel` | 年ビューのビューモデル（12 ヶ月分のミニ月グリッド・日ごとの予定件数）を構築する。`hiddenWeekdays` は無視する |
 
 ```ts
 import { buildMonthViewModel } from '@koyomi-cal/react';
@@ -790,6 +823,20 @@ console.log(model.type); // => 'month'
 console.log(model.weeks.length >= 4 && model.weeks.length <= 6); // => true
 ```
 
+```ts
+import { buildYearViewModel } from '@koyomi-cal/react';
+
+const yearModel = buildYearViewModel({
+  currentDate: new Date('2026-07-15T00:00:00+09:00'),
+  timeZone: 'Asia/Tokyo',
+  occurrences: [],
+  weekStartsOn: 0,
+  now: new Date('2026-07-15T00:00:00+09:00'),
+});
+console.log(yearModel.type); // => 'year'
+console.log(yearModel.months.length); // => 12
+```
+
 ### 日時ラベル整形（`react/components/format`）
 
 ビルトインコンポーネントが使う `Intl.DateTimeFormat` ベースの整形ヘルパです。`timeZone` / `locale` を必須引数として受け取り、暗黙のローカルタイムゾーンには依存しません。`ja` ロケール以外は `Intl` の既定の書式に委ねます。
@@ -800,21 +847,23 @@ console.log(model.weeks.length >= 4 && model.weeks.length <= 6); // => true
 | `formatMonthTitle(date, timeZone, locale): string` | 月ビューのタイトル（例: `'2026年7月'`） |
 | `formatDayTitle(date, timeZone, locale): string` | 日ビューのタイトル（例: `'2026年7月15日(水)'`） |
 | `formatRangeTitle(range, timeZone, locale): string` | 週/リストビューのタイトル（例: `'7月5日〜7月11日'`） |
+| `formatYearTitle(date, timeZone, locale): string` | 年ビューのタイトル（例: `'2026年'`） |
 | `formatWeekday(weekday, locale): string` | 曜日の短縮ラベル（例: `'日'`） |
 | `formatDayHeader(date, timeZone, locale): string` | 時間グリッドの日ヘッダー用ラベル（例: `'15 (水)'`） |
 
 ```ts
-import { formatMonthTitle, formatTime, formatWeekday } from '@koyomi-cal/react';
+import { formatMonthTitle, formatTime, formatWeekday, formatYearTitle } from '@koyomi-cal/react';
 
 console.log(formatTime(new Date('2026-07-15T01:00:00Z'), 'Asia/Tokyo', 'ja')); // => '10:00'
 console.log(formatMonthTitle(new Date('2026-07-15T01:00:00Z'), 'Asia/Tokyo', 'ja')); // => '2026年7月'
+console.log(formatYearTitle(new Date('2026-07-15T01:00:00Z'), 'Asia/Tokyo', 'ja')); // => '2026年'
 console.log(formatWeekday(3, 'ja')); // => '水'
 ```
 
 ## 関連ページ
 
 - [はじめに](./getting-started.md)
-- [ビュー（月・週・日・リスト）](./views.md)
+- [ビュー（月・週・日・リスト・年）](./views.md)
 - [予定の管理](./events.md)
 - [インタラクション（作成・移動・リサイズ）](./interactions.md)
 - [繰り返し予定](./recurrence.md)

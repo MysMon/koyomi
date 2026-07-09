@@ -22,6 +22,7 @@ import {
   rangesOverlap,
   startOfMonthInZone,
   startOfWeekInZone,
+  startOfYearInZone,
   visibleRangeFor,
 } from './date-utils';
 import { dateKeyInZone, minutesOfDayInZone } from './timezone';
@@ -31,6 +32,9 @@ const TOKYO = 'Asia/Tokyo';
 const NY = 'America/New_York';
 const UTC = 'UTC';
 const SANTIAGO = 'America/Santiago';
+// America/Lima は 1990-01-01 の現地 0:00 に DST が開始し、0:00〜0:59 が存在せず
+// 1:00 に繰り上げられる（1989-12-31 23:59 -05:00 の直後が 1990-01-01 01:00 -04:00）。
+const LIMA = 'America/Lima';
 
 describe('startOfWeekInZone', () => {
   it('週開始=日曜: 水曜の日時から直前の日曜 0:00 を返す', () => {
@@ -71,6 +75,23 @@ describe('startOfMonthInZone', () => {
     const date = new Date('2026-06-30T20:00:00Z'); // 東京 7/1 / NY 6/30
     expect(startOfMonthInZone(date, TOKYO).toISOString()).toBe('2026-06-30T15:00:00.000Z'); // 7/1 0:00 JST
     expect(startOfMonthInZone(date, NY).toISOString()).toBe('2026-06-01T04:00:00.000Z'); // 6/1 0:00 EDT
+  });
+});
+
+describe('startOfYearInZone', () => {
+  it('年初(Asia/Tokyo)の日時はそのまま同じ年初 0:00 を返す', () => {
+    const date = new Date('2025-12-31T15:00:00Z'); // 2026-01-01 0:00 JST
+    expect(startOfYearInZone(date, TOKYO).toISOString()).toBe('2025-12-31T15:00:00.000Z');
+  });
+
+  it('年央の日時から年初 0:00 へ正規化する', () => {
+    const date = new Date('2026-07-15T01:00:00Z'); // 7/15 10:00 JST
+    expect(startOfYearInZone(date, TOKYO).toISOString()).toBe('2025-12-31T15:00:00.000Z'); // 2026-01-01 0:00 JST
+  });
+
+  it('1月1日の深夜 0:00 が存在しないゾーンでは、繰り上げられた実在時刻を返す（America/Lima・startOfDayInZone 由来の挙動）', () => {
+    const midYear = new Date('1990-07-15T00:00:00Z'); // 1990 年内の任意の日時
+    expect(startOfYearInZone(midYear, LIMA).toISOString()).toBe('1990-01-01T05:00:00.000Z'); // 1/1 1:00（繰り上げ）
   });
 });
 
@@ -409,6 +430,27 @@ describe('visibleRangeFor', () => {
     expect(range.end.toISOString()).toBe('2026-09-13T03:00:00.000Z'); // 9/13 0:00
     expect(minutesOfDayInZone(range.end, SANTIAGO)).toBe(0);
   });
+
+  it('year: 基準日を含む年（年初 0:00 から翌年初 0:00 まで）', () => {
+    const range = visibleRangeFor('year', current, TOKYO, options);
+    expect(range.start.toISOString()).toBe('2025-12-31T15:00:00.000Z'); // 2026-01-01 0:00 JST
+    expect(range.end.toISOString()).toBe('2026-12-31T15:00:00.000Z'); // 2027-01-01 0:00 JST
+  });
+
+  it('year: 年またぎ（12/31）の基準日でも同じ年の範囲になる', () => {
+    const dec31 = new Date('2026-12-31T01:00:00Z'); // 12/31(木) 10:00 JST
+    const range = visibleRangeFor('year', dec31, TOKYO, options);
+    expect(range.start.toISOString()).toBe('2025-12-31T15:00:00.000Z');
+    expect(range.end.toISOString()).toBe('2026-12-31T15:00:00.000Z');
+  });
+
+  it('year: うるう年（2024 年）でも年初〜翌年初の範囲になり、366 日ある', () => {
+    const leapMid = new Date('2024-02-20T01:00:00Z'); // 2024/2/20(火) 10:00 JST
+    const range = visibleRangeFor('year', leapMid, TOKYO, options);
+    expect(range.start.toISOString()).toBe('2023-12-31T15:00:00.000Z'); // 2024-01-01 0:00 JST
+    expect(range.end.toISOString()).toBe('2024-12-31T15:00:00.000Z'); // 2025-01-01 0:00 JST
+    expect(eachDayInRange(range, TOKYO)).toHaveLength(366);
+  });
 });
 
 describe('navigateDate', () => {
@@ -490,6 +532,18 @@ describe('navigateDate', () => {
     );
     expect(navigateDate('month', utcDate, 1, UTC, options).toISOString()).toBe(
       '2026-08-01T00:00:00.000Z',
+    );
+  });
+
+  it('year: 年央の日付から +1 で翌年 1/1 0:00 に正規化される', () => {
+    expect(navigateDate('year', current, 1, TOKYO, options).toISOString()).toBe(
+      '2026-12-31T15:00:00.000Z', // 2027-01-01 0:00 JST
+    );
+  });
+
+  it('year: 年央の日付から -1 で前年 1/1 0:00 に正規化される', () => {
+    expect(navigateDate('year', current, -1, TOKYO, options).toISOString()).toBe(
+      '2024-12-31T15:00:00.000Z', // 2025-01-01 0:00 JST
     );
   });
 });

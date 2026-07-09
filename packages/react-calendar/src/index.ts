@@ -15,6 +15,7 @@ export {
   navigateDate,
   rangesOverlap,
   startOfWeekInZone,
+  startOfYearInZone,
   visibleRangeFor,
 } from './core/date-utils';
 // イベント展開
@@ -96,11 +97,15 @@ export type {
   TimeSlot,
   TimeZoneId,
   Weekday,
+  YearDay,
+  YearMonth,
+  YearViewModel,
 } from './core/types';
 // ビューモデルビルダー
 export { buildListViewModel } from './core/views/list-view';
 export { buildMonthViewModel } from './core/views/month-view';
 export { buildTimeGridViewModel } from './core/views/time-grid-view';
+export { buildYearViewModel } from './core/views/year-view';
 export type { VirtualItem } from './core/virtualization';
 // React: ビルトインコンポーネント（ヘッドレス）
 export { CalendarView, type CalendarViewProps } from './react/components/calendar-view';
@@ -111,6 +116,7 @@ export {
   formatRangeTitle,
   formatTime,
   formatWeekday,
+  formatYearTitle,
 } from './react/components/format';
 export { ListView, type ListViewProps } from './react/components/list-view';
 export { MonthView, type MonthViewProps } from './react/components/month-view';
@@ -120,6 +126,7 @@ export {
   VirtualListView,
   type VirtualListViewProps,
 } from './react/components/virtual-list-view';
+export { YearView, type YearViewProps } from './react/components/year-view';
 // React: コンテキスト
 export { CalendarProvider, type CalendarProviderProps, useCalendarContext } from './react/context';
 // React: 型

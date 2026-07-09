@@ -217,12 +217,23 @@ function App() {
 | `W` | 週ビューに切り替え |
 | `D` | 日ビューに切り替え |
 | `A` | リストビューに切り替え |
+| `Y` | 年ビューに切り替え（`views` オプションに `'year'` を含めた場合のみ。既定では無効） |
 | `T` | 今日へ移動 |
 | `J` または `N` | 次の期間へ移動 |
 | `K` または `P` | 前の期間へ移動 |
 | `C` | `onCreate` コールバックを呼ぶ（作成 UI の起点） |
 
 大文字・小文字は区別しません。`Ctrl` / `Cmd` / `Alt` などの修飾キーを伴う場合は無視されます。`input` / `textarea` / `select` にフォーカスがある間、および `contenteditable` 要素の内側では、すべてのショートカットが無効になります。`enabled: false` を渡すと一時的に無効化できます。
+
+新ビュー（年ビュー等）への切替キーは既定では無効です。`views` オプション（既定 `['month', 'week', 'day', 'list']`）に対象のビューを追加すると、そのビューへの切替キーだけが有効になります（`Toolbar` の `views` prop と同じ opt-in 方針。詳細は [ビュー](./views.md#年ビューなど新ビューを有効にするopt-in) を参照）。
+
+```tsx
+useCalendarShortcuts({ calendar, views: ['month', 'week', 'day', 'list', 'year'] });
+
+// 期待される動作:
+// - Y キーを押すと calendar.state.view が 'year' になる
+// - views に 'year' を含めない場合、Y キーを押しても view は変わらない（既存 M/W/D/A/T の挙動は不変）
+```
 
 ## キーボードのみでの予定操作
 
@@ -317,7 +328,7 @@ function CustomDayRow() {
 
 ## 関連ページ
 
-- [ビュー（月・週・日・リスト）](./views.md)
+- [ビュー（月・週・日・リスト・年）](./views.md)
 - [予定の管理](./events.md)
 - [繰り返し予定](./recurrence.md)
 - [タイムゾーン](./timezones.md)

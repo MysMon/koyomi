@@ -339,6 +339,24 @@ describe('createCalendar', () => {
       expect(calendar.getViewModel().type).toBe('list');
     });
 
+    it("setView('year') 後は年ビューのビューモデル（12 ヶ月分）を返す", () => {
+      const calendar = makeCalendar();
+      calendar.setView('year');
+      const vm = calendar.getViewModel();
+      expect(vm.type).toBe('year');
+      if (vm.type !== 'year') throw new Error('unreachable');
+      expect(vm.months).toHaveLength(12);
+    });
+
+    it('年ビューの getVisibleRange は年初 0:00 〜翌年初 0:00 の範囲になる', () => {
+      const calendar = makeCalendar();
+      calendar.setView('year');
+      const range = calendar.getVisibleRange();
+      // 東京の 2026-01-01 0:00 〜 2027-01-01 0:00
+      expect(range.start.toISOString()).toBe('2025-12-31T15:00:00.000Z');
+      expect(range.end.toISOString()).toBe('2026-12-31T15:00:00.000Z');
+    });
+
     it('状態が変わらない限りビューモデルはキャッシュされる（同一参照）', () => {
       const calendar = makeCalendar({ events: [MEETING] });
       const a = calendar.getViewModel();

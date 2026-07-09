@@ -14,7 +14,7 @@ import type { CalendarViewType } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
-import { formatDayTitle, formatMonthTitle, formatRangeTitle } from './format';
+import { formatDayTitle, formatMonthTitle, formatRangeTitle, formatYearTitle } from './format';
 import type { ToolbarProps } from './toolbar';
 import { Toolbar } from './toolbar';
 
@@ -25,7 +25,11 @@ const NOW = new Date('2026-07-15T01:00:00Z');
  * `useCalendar` を呼び出し `Toolbar` を包んで描画するテスト用ラッパ。
  * `capture.current` から最新の `UseCalendarResult` を取得できる。
  */
-function renderToolbar(initialView?: CalendarViewType, labels?: ToolbarProps['labels']) {
+function renderToolbar(
+  initialView?: CalendarViewType,
+  labels?: ToolbarProps['labels'],
+  views?: ToolbarProps['views'],
+) {
   const capture: { current: UseCalendarResult | null } = { current: null };
 
   function Harness(): ReactElement {
@@ -40,7 +44,10 @@ function renderToolbar(initialView?: CalendarViewType, labels?: ToolbarProps['la
     capture.current = calendar;
     return (
       <CalendarProvider value={calendar}>
-        <Toolbar {...(labels !== undefined ? { labels } : {})} />
+        <Toolbar
+          {...(labels !== undefined ? { labels } : {})}
+          {...(views !== undefined ? { views } : {})}
+        />
       </CalendarProvider>
     );
   }
@@ -254,5 +261,40 @@ describe('Toolbar', () => {
     expect(
       container.querySelector('[data-koyomi-action="today"]')?.getAttribute('aria-label'),
     ).toBe('今日');
+  });
+
+  it('views 未指定では従来どおり月/週/日/リストの4ボタンのみになる（year ボタンは出ない。回帰ガード）', () => {
+    const { container } = renderToolbar('month');
+    const viewsGroup = container.querySelector('[data-koyomi="toolbar-views"]');
+    const buttons = viewsGroup?.querySelectorAll('[data-koyomi="button"]') ?? [];
+    expect(buttons).toHaveLength(4);
+    expect(container.querySelector('[data-koyomi-action="view-year"]')).toBeNull();
+  });
+
+  it("views={['month', 'year']} を指定すると2ボタンになり、年ボタンのクリックで setView('year') が呼ばれる", () => {
+    const { container, capture } = renderToolbar('month', undefined, ['month', 'year']);
+    const viewsGroup = container.querySelector('[data-koyomi="toolbar-views"]');
+    const buttons = viewsGroup?.querySelectorAll('[data-koyomi="button"]') ?? [];
+    expect(buttons).toHaveLength(2);
+
+    const yearButton = container.querySelector('[data-koyomi-action="view-year"]');
+    expect(yearButton).not.toBeNull();
+    if (yearButton === null) {
+      throw new Error('view-year ボタンが見つかりません');
+    }
+    fireEvent.click(yearButton);
+    expect(capture.current?.api.getState().view).toBe('year');
+  });
+
+  it('labels.year で年ビュー切替ボタンの表示文字列を差し替えられる', () => {
+    const { container } = renderToolbar('month', { year: 'Year' }, ['month', 'year']);
+    expect(container.querySelector('[data-koyomi-action="view-year"]')?.textContent).toBe('Year');
+  });
+
+  it('年ビューのタイトルは formatYearTitle と同じ「2026年」になる', () => {
+    const { container } = renderToolbar('year');
+    const title = container.querySelector('[data-koyomi="title"]');
+    expect(title?.textContent).toBe(formatYearTitle(NOW, 'Asia/Tokyo', 'ja'));
+    expect(title?.textContent).toBe('2026年');
   });
 });

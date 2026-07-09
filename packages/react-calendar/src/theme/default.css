@@ -5,7 +5,7 @@
  *   import '@koyomi-cal/react/theme.css';
  *
  * ビルトインコンポーネント（Toolbar / CalendarView / MonthView / TimeGridView /
- * ListView）はスタイルを一切持たないヘッドレスなコンポーネントで、DOM 上の
+ * ListView / YearView）はスタイルを一切持たないヘッドレスなコンポーネントで、DOM 上の
  * `data-koyomi="<部位名>"` 属性だけを目印にしている（クラス名は生成しない）。
  * このファイルはその属性だけをセレクタにして見た目を組み立てる。
  * 利用側が独自テーマを当てたい場合も同じ属性をフックにすればよい。
@@ -689,6 +689,96 @@
   color: var(--koyomi-muted);
   font-size: 0.9em;
   text-align: center;
+}
+
+/* ---------------------------------------------------------------------------
+ * 年ビュー
+ * ------------------------------------------------------------------------ */
+
+[data-koyomi="year"] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+  padding: 12px;
+}
+
+[data-koyomi="year-month"] {
+  border: 1px solid var(--koyomi-border);
+  border-radius: var(--koyomi-radius);
+  padding: 8px;
+}
+
+[data-koyomi="year-month-title"] {
+  margin-bottom: 6px;
+  font-size: 0.95em;
+  font-weight: 600;
+  text-align: center;
+}
+
+[data-koyomi="year-weekdays"] {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+[data-koyomi="year-weekday"] {
+  padding: 2px 0;
+  color: var(--koyomi-muted);
+  font-size: 0.7em;
+  text-align: center;
+}
+
+[data-koyomi="year-week"] {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+/* グリッドの 1 マス（role="gridcell"）。正方形にして中の year-day ボタンを敷き詰める */
+[data-koyomi="year-day-cell"] {
+  aspect-ratio: 1 / 1;
+}
+
+/* 日セル本体のボタン（year-day-cell の内側いっぱいに敷く） */
+[data-koyomi="year-day"] {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--koyomi-radius);
+  color: var(--koyomi-fg);
+  font-size: 0.78em;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-koyomi="year-day"]:hover {
+  background-color: var(--koyomi-border);
+}
+
+/* 前後月の日付は減光する（月ビューの data-outside と同じ扱い） */
+[data-koyomi="year-day"][data-outside] {
+  color: var(--koyomi-muted);
+  opacity: 0.6;
+}
+
+[data-koyomi="year-day"][data-today] {
+  border-radius: 999px;
+  background-color: var(--koyomi-accent);
+  color: var(--koyomi-event-fg);
+}
+
+/* 予定件数のドットマーカー（件数の数値は表示しない。密度の俯瞰が目的） */
+[data-koyomi="year-day-count"] {
+  position: absolute;
+  bottom: 3px;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background-color: var(--koyomi-event-color, var(--koyomi-accent));
+}
+
+[data-koyomi="year-day"][data-today] [data-koyomi="year-day-count"] {
+  background-color: var(--koyomi-event-fg);
 }
 
 /* ---------------------------------------------------------------------------

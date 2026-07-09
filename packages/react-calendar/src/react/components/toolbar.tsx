@@ -10,15 +10,22 @@
 import type { ReactElement, ReactNode } from 'react';
 import type { CalendarViewType } from '../../core/types';
 import { useCalendarContext } from '../context';
-import { formatDayTitle, formatMonthTitle, formatRangeTitle } from './format';
+import { formatDayTitle, formatMonthTitle, formatRangeTitle, formatYearTitle } from './format';
 
-/** ビュー切替ボタンの定義（表示順は DOM 仕様どおり）。既定文字列は `labels` で差し替えられる。 */
-const VIEW_BUTTONS: readonly { view: CalendarViewType; action: string; defaultLabel: string }[] = [
-  { view: 'month', action: 'view-month', defaultLabel: '月' },
-  { view: 'week', action: 'view-week', defaultLabel: '週' },
-  { view: 'day', action: 'view-day', defaultLabel: '日' },
-  { view: 'list', action: 'view-list', defaultLabel: 'リスト' },
-];
+/** ビュー切替ボタンの定義（`view` → ボタン属性・既定文字列）。既定文字列は `labels` で差し替えられる。 */
+const VIEW_BUTTON_DEFS: Record<CalendarViewType, { action: string; defaultLabel: string }> = {
+  month: { action: 'view-month', defaultLabel: '月' },
+  week: { action: 'view-week', defaultLabel: '週' },
+  day: { action: 'view-day', defaultLabel: '日' },
+  list: { action: 'view-list', defaultLabel: 'リスト' },
+  year: { action: 'view-year', defaultLabel: '年' },
+};
+
+/**
+ * ビュー切替ボタンの既定の表示対象と並び順。
+ * 既存 4 ビューのみ（新ビューのボタンは `views` prop での opt-in。既定の見た目は従来と不変）。
+ */
+const DEFAULT_TOOLBAR_VIEWS: readonly CalendarViewType[] = ['month', 'week', 'day', 'list'];
 
 /** `today` / `prev` / `next` ボタンの既定ラベル（表示文字列 兼 aria-label の既定値）。 */
 const DEFAULT_TODAY_LABEL = '今日';
@@ -38,6 +45,8 @@ export interface ToolbarLabels {
   day?: ReactNode;
   /** リストビュー切替ボタンの表示文字列。省略時は「リスト」。 */
   list?: ReactNode;
+  /** 年ビュー切替ボタンの表示文字列。省略時は「年」。 */
+  year?: ReactNode;
   /** 「今日」ボタンの表示文字列（aria-label にも使う）。省略時は「今日」。 */
   today?: ReactNode;
   /**
@@ -58,6 +67,12 @@ export interface ToolbarLabels {
 export interface ToolbarProps {
   /** 固定文字列の差し替え。省略したキーは既定の日本語文字列のまま。 */
   labels?: ToolbarLabels;
+  /**
+   * ビュー切替ボタンとして表示するビューの一覧（並び順もこの配列に従う）。
+   * 既定は `['month', 'week', 'day', 'list']`（既存 4 ビュー。既定の見た目は従来と不変）。
+   * 新ビューのボタンを出す場合はここに含める（例: `['month', 'week', 'day', 'list', 'year']`）。
+   */
+  views?: readonly CalendarViewType[];
 }
 
 /**
@@ -104,6 +119,8 @@ export function Toolbar(props: ToolbarProps): ReactElement {
       case 'week':
       case 'list':
         return formatRangeTitle(api.getVisibleRange(), timeZone, locale);
+      case 'year':
+        return formatYearTitle(currentDate, timeZone, locale);
     }
   }
 
@@ -143,18 +160,21 @@ export function Toolbar(props: ToolbarProps): ReactElement {
           toolbar-views は div[role="group"] と定めている。fieldset はテーマなしでの
           既定描画（枠線・余白）が大きく変わるためヘッドレス用途に不向き */}
       <div data-koyomi="toolbar-views" role="group" aria-label="表示切替">
-        {VIEW_BUTTONS.map((button) => (
-          <button
-            key={button.view}
-            type="button"
-            data-koyomi="button"
-            data-koyomi-action={button.action}
-            aria-pressed={view === button.view}
-            onClick={() => api.setView(button.view)}
-          >
-            {labels?.[button.view] ?? button.defaultLabel}
-          </button>
-        ))}
+        {(props.views ?? DEFAULT_TOOLBAR_VIEWS).map((buttonView) => {
+          const def = VIEW_BUTTON_DEFS[buttonView];
+          return (
+            <button
+              key={buttonView}
+              type="button"
+              data-koyomi="button"
+              data-koyomi-action={def.action}
+              aria-pressed={view === buttonView}
+              onClick={() => api.setView(buttonView)}
+            >
+              {labels?.[buttonView] ?? def.defaultLabel}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
