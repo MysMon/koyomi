@@ -104,7 +104,9 @@ export function useCalendar(options?: UseCalendarOptions): UseCalendarResult {
   // onEventsChange と同様に、レンダーごとの最新値が反映される
   const refreshSeconds = options?.refreshSeconds ?? 0;
   useEffect(() => {
-    if (refreshSeconds <= 0) {
+    // 有限かつ正のときだけ自動更新する。NaN / Infinity / 0 以下は無効
+    // （NaN は `<= 0` を通り抜けて setInterval(NaN)=実質 0ms の暴走ループになるため明示排除）。
+    if (!Number.isFinite(refreshSeconds) || refreshSeconds <= 0) {
       return undefined;
     }
     const timer = setInterval(() => {

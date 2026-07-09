@@ -86,7 +86,9 @@ function resolveSize(
 ): number {
   const measuredSize = measured.get(getKey(index));
   const size = measuredSize ?? estimateSize(index);
-  return size > 0 ? size : 0;
+  // 有限かつ正の値のみ採用する。NaN / Infinity / 負値は 0 に丸め、totalSize や
+  // スペーサ高（before/after）に NaN / Infinity が伝播してレイアウトが壊れるのを防ぐ。
+  return Number.isFinite(size) && size > 0 ? size : 0;
 }
 
 /**

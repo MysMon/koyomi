@@ -547,6 +547,12 @@ export function updateEventIn(
 ): CalendarEvent[] {
   const event = findEventOrThrow(events, id);
 
+  // 不正な RRULE を state に混入させない（createEventIn と同じ検証。展開時に初めて
+  // 例外化するのを防ぐ）。`rrule: undefined`（繰り返し解除）は検証対象外。
+  if (patch.rrule !== undefined) {
+    normalizeRRuleString(patch.rrule);
+  }
+
   // オーバーライドの ID + 'thisAndFollowing' / 'all' は親シリーズへの適用に読み替える
   // （'thisAndFollowing' の分割点はオーバーライドの originalStart）
   if (event.recurringEventId !== undefined && target !== undefined && target.scope !== 'this') {

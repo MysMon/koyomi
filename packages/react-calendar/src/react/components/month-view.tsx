@@ -232,6 +232,15 @@ function stopPropagation(event: ReactPointerEvent<HTMLButtonElement>): void {
   event.stopPropagation();
 }
 
+// 条件付きスプレッドで付与する data / ARIA 属性。明示的な型注釈でリテラル型を確定させ、
+// `as const` を使わずに `aria-current` の union（'date'）へ適合させる。
+const TODAY_CELL_ATTRS: { 'data-today': 'true'; 'aria-current': 'date' } = {
+  'data-today': 'true',
+  'aria-current': 'date',
+};
+const OUTSIDE_CELL_ATTRS: { 'data-outside': 'true' } = { 'data-outside': 'true' };
+const ALL_DAY_EVENT_ATTRS: { 'data-all-day': 'true' } = { 'data-all-day': 'true' };
+
 /** 週内での選択（ドラッグプレビュー）帯の可視列範囲。 */
 interface WeekSelectionSpan {
   /** 開始列（可視列インデックス、0 起点）。 */
@@ -456,10 +465,8 @@ const MonthWeekRow = memo(function MonthWeekRow(props: {
               data-koyomi="month-day"
               role="gridcell"
               aria-label={formatFullDateLabel(day.date, timeZone, locale)}
-              {...(day.isToday
-                ? { 'data-today': 'true' as const, 'aria-current': 'date' as const }
-                : {})}
-              {...(!day.inCurrentMonth ? { 'data-outside': 'true' as const } : {})}
+              {...(day.isToday ? TODAY_CELL_ATTRS : {})}
+              {...(!day.inCurrentMonth ? OUTSIDE_CELL_ATTRS : {})}
             >
               {renderDayCell ? renderDayCell(day, defaultContent) : defaultContent}
             </div>
@@ -524,7 +531,7 @@ const MonthEventButton = memo(function MonthEventButton(props: {
       type="button"
       {...segmentProps}
       {...continuesAttrs(segment.continuesBefore, segment.continuesAfter)}
-      {...(occurrence.allDay ? { 'data-all-day': 'true' as const } : {})}
+      {...(occurrence.allDay ? ALL_DAY_EVENT_ATTRS : {})}
       data-koyomi="month-event"
       style={style}
       aria-label={formatEventAriaLabel(occurrence, timeZone, locale)}

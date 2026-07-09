@@ -138,6 +138,37 @@ describe('useCalendar', () => {
     }
   });
 
+  it('refreshSeconds が NaN のときは自動更新タイマーを張らない（暴走ループ防止）', () => {
+    vi.useFakeTimers();
+    try {
+      let refreshCount = 0;
+      let current = new Date('2026-07-15T01:00:00Z');
+      renderHook(() =>
+        useCalendar({
+          timeZone: 'Asia/Tokyo',
+          initialDate: new Date('2026-07-15T01:00:00Z'),
+          initialView: 'week',
+          now: () => {
+            // viewModel 構築のたびに呼ばれる。タイマー起因の再構築を検出するため
+            // 進行させた時間の中で now が繰り返し呼ばれ続けないことを確認する。
+            refreshCount += 1;
+            return current;
+          },
+          refreshSeconds: Number.NaN,
+        }),
+      );
+      const baseline = refreshCount;
+      current = new Date('2026-07-15T01:05:00Z');
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+      });
+      // NaN では setInterval を張らないため、時間を進めても追加の refresh は起きない
+      expect(refreshCount).toBe(baseline);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('SSR（renderToString）でも例外にならず初期状態を描画できる', () => {
     function ServerComponent(): ReactElement {
       const calendar = useCalendar({

@@ -254,6 +254,33 @@ describe('updateEventIn: 単発イベント', () => {
     expect(result).toHaveLength(1);
   });
 
+  it('patch の不正な rrule は Error を投げ、state に混入しない（createEventIn と同じ検証）', () => {
+    expect(() =>
+      updateEventIn([single], 'single-1', { rrule: 'FOO=BAR' }, undefined, makeContext()),
+    ).toThrow(Error);
+    expect(() =>
+      updateEventIn([single], 'single-1', { rrule: 'FREQ=BOGUS' }, undefined, makeContext()),
+    ).toThrow(Error);
+    // 正しい rrule は受理される
+    const ok = updateEventIn(
+      [single],
+      'single-1',
+      { rrule: 'FREQ=DAILY' },
+      undefined,
+      makeContext(),
+    );
+    expect(ok[0]?.rrule).toBe('FREQ=DAILY');
+    // rrule: undefined（繰り返し解除）は検証をすり抜けず正常に削除される
+    const cleared = updateEventIn(
+      [{ ...single, rrule: 'FREQ=DAILY' }],
+      'single-1',
+      { rrule: undefined },
+      undefined,
+      makeContext(),
+    );
+    expect(cleared[0]?.rrule).toBeUndefined();
+  });
+
   it('存在しない id には Error を投げる（空配列を含む）', () => {
     expect(() => updateEventIn([], 'nothing', {}, undefined, makeContext())).toThrow(
       /イベントが見つかりません/,

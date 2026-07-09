@@ -477,24 +477,33 @@ export function useTimeGridDrag(params: {
     };
   }
 
-  /** 作成ドラッグ（`create`）の確定処理。 */
+  /**
+   * 作成ドラッグ（`create`）の確定処理。
+   * `onSelectRange` / `createEvent` がアプリ側で例外を投げても、`finally` で必ず
+   * プレビューを消し、例外は `reportError`（`onError`）へ流す（選択オーバーレイの残留防止）。
+   */
   function commitCreate(session: DragSession, nativeEvent: MouseEvent): void {
-    const range = session.hasMoved
-      ? computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY)
-      : clickRangeForCreate(session.anchor);
-    if (range !== null) {
-      const { calendar, callbacks } = paramsRef.current;
-      if (callbacks?.onSelectRange) {
-        callbacks.onSelectRange({ range, allDay: false });
-      } else {
-        calendar.api.createEvent({
-          title: calendar.state.options.defaultEventTitle,
-          start: range.start,
-          end: range.end,
-        });
+    try {
+      const range = session.hasMoved
+        ? computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY)
+        : clickRangeForCreate(session.anchor);
+      if (range !== null) {
+        const { calendar, callbacks } = paramsRef.current;
+        if (callbacks?.onSelectRange) {
+          callbacks.onSelectRange({ range, allDay: false });
+        } else {
+          calendar.api.createEvent({
+            title: calendar.state.options.defaultEventTitle,
+            start: range.start,
+            end: range.end,
+          });
+        }
       }
+    } catch (error) {
+      reportError(error);
+    } finally {
+      paramsRef.current.calendar.api.setDragPreview(null);
     }
-    paramsRef.current.calendar.api.setDragPreview(null);
   }
 
   /**
@@ -592,6 +601,10 @@ export function useTimeGridDrag(params: {
       if (occurrence === null) {
         return;
       }
+      // ネイティブ click の抑止フラグは、繰り返しの scope 解決（`await`）より前に
+      // 同期で立てる。await 後だと click が抑止前に到達し onEventClick が誤発火し得る
+      // （day drag と同じ扱い）。ドラッグで移動した以上、後続 click は常に抑止してよい。
+      suppressNextClickRef.current = true;
       if (session.allDayConversion !== null) {
         const conversionRange = session.allDayConversion;
         let conversionScope: RecurringEditScope | null = null;
@@ -603,7 +616,6 @@ export function useTimeGridDrag(params: {
           conversionScope = resolved;
         }
         applyAllDayConversion(occurrence, conversionScope, conversionRange);
-        suppressNextClickRef.current = true;
         return;
       }
       const range = computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY);
@@ -620,7 +632,6 @@ export function useTimeGridDrag(params: {
         recurringScope = resolved;
       }
       applyOccurrenceRange(occurrence, recurringScope, range);
-      suppressNextClickRef.current = true;
     } finally {
       paramsRef.current.calendar.api.setDragPreview(null);
     }

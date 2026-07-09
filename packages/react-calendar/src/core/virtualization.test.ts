@@ -122,6 +122,20 @@ describe('computeWindow', () => {
     expect(itemIndices).toContain(1);
   });
 
+  it('推定高が Infinity / NaN のときは 0 に丸め、totalSize / spacer に伝播させない', () => {
+    const infinite = computeWindow(
+      makeInput({ estimateSize: () => Number.POSITIVE_INFINITY, overscan: 0 }),
+    );
+    expect(Number.isFinite(infinite.totalSize)).toBe(true);
+    expect(Number.isFinite(infinite.beforeSize)).toBe(true);
+    expect(Number.isFinite(infinite.afterSize)).toBe(true);
+    expect(infinite.totalSize).toBe(0); // 全件 0 高扱い
+
+    const nan = computeWindow(makeInput({ estimateSize: () => Number.NaN }));
+    expect(Number.isNaN(nan.afterSize)).toBe(false);
+    expect(Number.isNaN(nan.totalSize)).toBe(false);
+  });
+
   it('overscan が負値でも可視範囲は欠落せず 0 として扱われる', () => {
     const result = computeWindow(makeInput({ overscan: -1, scrollOffset: 0, viewportSize: 100 }));
     // 可視 0..4 は必ず含まれる（負の overscan で内側に削られない）
