@@ -268,6 +268,33 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
     }
   }, [measureEnabled, ensureItemObserver, scheduleMeasureFlush]);
 
+  // count / getItemKey が変わったとき（表示範囲の移動など）、現在のキー集合に含まれない
+  // 過去のエントリを各キャッシュ（実測値・ref コールバック・要素マップ）から削除する。
+  // これがないと長期間レンジを移動し続ける長寿命画面でメモリが単調増加する。
+  useEffect(() => {
+    const currentKeys = new Set<string>();
+    for (let index = 0; index < count; index += 1) {
+      currentKeys.add(getItemKey(index));
+    }
+    for (const key of [...measuredRef.current.keys()]) {
+      if (!currentKeys.has(key)) {
+        measuredRef.current.delete(key);
+      }
+    }
+    for (const key of [...refCallbackCacheRef.current.keys()]) {
+      if (!currentKeys.has(key)) {
+        refCallbackCacheRef.current.delete(key);
+      }
+    }
+    for (const [key, element] of [...elementByKeyRef.current]) {
+      if (!currentKeys.has(key)) {
+        itemObserverRef.current?.unobserve(element);
+        elementByKeyRef.current.delete(key);
+        keyByElementRef.current.delete(element);
+      }
+    }
+  }, [count, getItemKey]);
+
   // アンマウント時にオブザーバと保留フレームを片付ける。
   useEffect(() => {
     return () => {
