@@ -34,6 +34,7 @@ import {
   dateFromKey,
   dateKeyInZone,
   minutesOfDayInZone,
+  startOfDayInZone,
 } from '../core/timezone';
 import type {
   DateRange,
@@ -1049,7 +1050,9 @@ export function useTimeGridDrag(params: {
     }
     const timeZone = state.timeZone;
     const dayStart = day.date;
-    const dayEnd = addDaysInZone(dayStart, 1, timeZone);
+    // 翌日の 0:00 を正規化して用いる（深夜 0:00 が存在しない DST 切替日で、
+    // 翌日 0:00 台のプレビューが前日列へ交差するのを防ぐ）。
+    const dayEnd = startOfDayInZone(addDaysInZone(dayStart, 1, timeZone), timeZone);
     if (
       preview.range.end.getTime() <= dayStart.getTime() ||
       preview.range.start.getTime() >= dayEnd.getTime()
