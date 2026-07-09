@@ -1,0 +1,156 @@
+/**
+ * @packageDocumentation
+ * リストビューの内部共有レンダラ。
+ *
+ * `ListView`（全件描画）と `VirtualListView`（仮想化）の両方が使う日セクションの
+ * 描画をここに集約する。これにより DOM 仕様（`docs/internal/components-dom.md` の
+ * 「リストビュー」）が 1 箇所に定義され、両コンポーネントで完全に一致する。
+ *
+ * 非公開モジュール（`index.ts` から re-export しない）。
+ */
+
+import type {
+  CSSProperties,
+  ReactElement,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+  Ref,
+} from 'react';
+import { formatSlotLabel, minutesOfDayInZone } from '../../core/timezone';
+import type { EventOccurrence, ListDay, TimeZoneId } from '../../core/types';
+
+/** `allDayLabel` 省略時の既定表示（終日イベントの時刻ラベル）。 */
+export const DEFAULT_ALL_DAY_LABEL = '終日';
+
+/** `emptyLabel` 省略時の既定表示（予定が 1 件もない場合のメッセージ）。 */
+export const DEFAULT_EMPTY_LABEL = '予定はありません';
+
+/**
+ * 時間指定イベントの時刻ラベルを作る（表示タイムゾーンにおける `'HH:mm〜HH:mm'`）。
+ * 終日イベントのラベルは呼び出し側で `allDayLabel` を直接使うため、ここでは扱わない。
+ */
+export function formatTimedEventTimeLabel(
+  occurrence: EventOccurrence,
+  timeZone: TimeZoneId,
+): string {
+  const startLabel = formatSlotLabel(minutesOfDayInZone(occurrence.start, timeZone));
+  const endLabel = formatSlotLabel(minutesOfDayInZone(occurrence.end, timeZone));
+  return `${startLabel}〜${endLabel}`;
+}
+
+/**
+ * 色見本（`list-event-swatch`）に設定する inline style を作る。
+ *
+ * `event.color` が指定されている場合のみ CSS 変数 `--koyomi-event-color` を
+ * 設定する（テーマ側は `var(--koyomi-event-color, 既定色)` で参照する）。
+ * このカスタムプロパティは `CSSProperties` の型に存在しないため、変数名を
+ * キーにしたオブジェクトを `CSSProperties` として扱うための `as` キャストが
+ * 必要になる（DOM 仕様で明示的に許可されている唯一の箇所）。
+ */
+export function eventSwatchStyle(color: string | undefined): CSSProperties | undefined {
+  if (color === undefined) {
+    return undefined;
+  }
+  return { '--koyomi-event-color': color } as CSSProperties;
+}
+
+/**
+ * {@link ListDaySection} の props。
+ *
+ * `sectionRef` / `role` / `ariaLabel` / `pinned` / `style` は仮想化（`VirtualListView`）
+ * 専用の任意項目で、省略時は `ListView` の従来 DOM と完全に一致する。
+ */
+export interface ListDaySectionProps {
+  /** 描画する日。 */
+  day: ListDay;
+  /** 表示タイムゾーン。 */
+  timeZone: TimeZoneId;
+  /** 日付見出しの既定内容（`'M月d日(曜)'` 形式。呼び出し側で整形済み）。 */
+  defaultDayHeader: string;
+  /** 終日イベントの時刻ラベル。 */
+  allDayLabel: ReactNode;
+  /** イベント行クリック時のハンドラ。 */
+  onEventClick: (occurrence: EventOccurrence, event: ReactMouseEvent<HTMLButtonElement>) => void;
+  /** イベント行キーダウン時のハンドラ（Enter / Space をクリック相当に橋渡し）。 */
+  onEventKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => void;
+  /** イベント行の内容をカスタム描画する関数。 */
+  renderEvent?: (occurrence: EventOccurrence) => ReactNode;
+  /** 日付見出しの内容をカスタム描画する関数（第 2 引数に既定内容）。 */
+  renderDayHeader?: (day: ListDay, defaultContent: ReactNode) => ReactNode;
+  /** 仮想化: 高さ実測用の ref コールバック。 */
+  sectionRef?: Ref<HTMLElement>;
+  /** 仮想化: `role="listitem"` を付与する。 */
+  role?: 'listitem';
+  /** 仮想化: 件数を伝える `aria-label`（例: 「7月16日(木) 予定3件」）。 */
+  ariaLabel?: string;
+  /** 仮想化: 窓外フォーカス保持アイテム（`data-koyomi-pinned="true"`）。 */
+  pinned?: boolean;
+  /** 仮想化: 絶対配置の `top` など、位置決めの数値のみを持つ inline style。 */
+  style?: CSSProperties;
+}
+
+/**
+ * リストビューの日セクション 1 件分（`<section>`＋日付見出し＋イベント行）を描画する。
+ *
+ * @param props - {@link ListDaySectionProps}
+ * @returns 日セクションの要素
+ */
+export function ListDaySection(props: ListDaySectionProps): ReactElement {
+  const {
+    day,
+    timeZone,
+    defaultDayHeader,
+    allDayLabel,
+    onEventClick,
+    onEventKeyDown,
+    renderEvent,
+    renderDayHeader,
+    sectionRef,
+    role,
+    ariaLabel,
+    pinned,
+    style,
+  } = props;
+
+  return (
+    <section
+      ref={sectionRef}
+      data-koyomi="list-day"
+      data-koyomi-date={day.key}
+      data-today={day.isToday ? 'true' : undefined}
+      {...(role !== undefined ? { role } : {})}
+      {...(ariaLabel !== undefined ? { 'aria-label': ariaLabel } : {})}
+      {...(pinned === true ? { 'data-koyomi-pinned': 'true' } : {})}
+      {...(style !== undefined ? { style } : {})}
+    >
+      <h3 data-koyomi="list-day-header">
+        {renderDayHeader !== undefined ? renderDayHeader(day, defaultDayHeader) : defaultDayHeader}
+      </h3>
+      {day.occurrences.map((occurrence) => (
+        <button
+          key={occurrence.key}
+          type="button"
+          data-koyomi="list-event"
+          onClick={(event) => onEventClick(occurrence, event)}
+          onKeyDown={onEventKeyDown}
+        >
+          {renderEvent !== undefined ? (
+            renderEvent(occurrence)
+          ) : (
+            <>
+              <span data-koyomi="list-event-time">
+                {occurrence.allDay ? allDayLabel : formatTimedEventTimeLabel(occurrence, timeZone)}
+              </span>
+              <span
+                data-koyomi="list-event-swatch"
+                style={eventSwatchStyle(occurrence.event.color)}
+              />
+              <span data-koyomi="list-event-title">{occurrence.event.title}</span>
+            </>
+          )}
+        </button>
+      ))}
+    </section>
+  );
+}

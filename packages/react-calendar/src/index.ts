@@ -101,6 +101,7 @@ export type {
 export { buildListViewModel } from './core/views/list-view';
 export { buildMonthViewModel } from './core/views/month-view';
 export { buildTimeGridViewModel } from './core/views/time-grid-view';
+export type { VirtualItem } from './core/virtualization';
 // React: ビルトインコンポーネント（ヘッドレス）
 export { CalendarView, type CalendarViewProps } from './react/components/calendar-view';
 export {
@@ -115,6 +116,10 @@ export { ListView, type ListViewProps } from './react/components/list-view';
 export { MonthView, type MonthViewProps } from './react/components/month-view';
 export { TimeGridView, type TimeGridViewProps } from './react/components/time-grid-view';
 export { Toolbar, type ToolbarLabels, type ToolbarProps } from './react/components/toolbar';
+export {
+  VirtualListView,
+  type VirtualListViewProps,
+} from './react/components/virtual-list-view';
 // React: コンテキスト
 export { CalendarProvider, type CalendarProviderProps, useCalendarContext } from './react/context';
 // React: 型
@@ -143,3 +148,9 @@ export {
   type TimeGridResizeHandleProps,
   useTimeGridDrag,
 } from './react/use-time-grid-drag';
+// React: 仮想化（ヘッドレスなプリミティブ）
+export {
+  type UseVirtualizerOptions,
+  useVirtualizer,
+  type Virtualizer,
+} from './react/use-virtualizer';

@@ -229,6 +229,39 @@ calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
 />
 ```
 
+## リストの仮想化（大量の予定・長期間）
+
+数ヶ月〜数年分の予定を一覧するなど、リストビューで DOM が肥大して描画・スクロールが重くなる場合は、可視範囲の日セクションだけを描画する `VirtualListView` を使えます。既定の `ListView` は全件描画のままで、仮想化は完全に opt-in です。
+
+```tsx
+import { CalendarProvider, VirtualListView, useCalendar } from '@koyomi-cal/react';
+
+function Agenda() {
+  const calendar = useCalendar({ initialView: 'list', listDays: 365, events });
+  return (
+    <CalendarProvider value={calendar} callbacks={{ onEventClick }}>
+      <VirtualListView estimateDayHeight={72} />
+    </CalendarProvider>
+  );
+}
+```
+
+- **高さは CSS で指定する（必須）**。ヘッドレスの原則に従い `VirtualListView` は寸法を持ちません。スクロールコンテナに境界高を CSS で与えてください。境界高が無いと仮想化は無害に無効化されます（開発ビルドで一度警告します）。
+
+  ```css
+  /* デフォルトテーマ利用時は CSS 変数でも指定できます */
+  [data-koyomi="list"][data-koyomi-virtualized] { height: 600px; }
+  /* または: :root { --koyomi-virtual-list-max-height: 600px; } */
+  ```
+
+- `estimateDayHeight`（数値または `(day, index) => number`）は実測が入るまでの推定高です。実際の高さは ResizeObserver で自動測定・補正されます。`overscan`（既定 3）で前後の追加描画日数を調整できます。
+- `data-koyomi-virtualized="true"` が付き、`role="list"` / 日セクションの `role="listitem"` と件数入りの `aria-label` が付与されます。日セクションの内容（`data-koyomi-*` 構造）は `ListView` と完全に一致します。
+- **注意**: 仮想化中はブラウザのページ内検索（Ctrl+F）が窓の外の予定に届きません。また「1 日あたり数百件」のような 1 セクション内の大量予定は仮想化の対象外です。
+
+### 独自 UI へ組み込む（useVirtualizer）
+
+`VirtualListView` はプリミティブ `useVirtualizer` の薄いラッパです。完全に独自のマークアップで仮想化したい場合は、`buildListViewModel`（[ビューモデルを直接使う](#ビューモデルを直接使う上級編)）と `useVirtualizer` を直接組み合わせられます。`useVirtualizer` はビューに依存しない汎用の縦方向ウィンドウイングを提供します（詳細は [API リファレンス](./api.md)）。
+
 ## 関連ページ
 
 - [はじめに](./getting-started.md)
