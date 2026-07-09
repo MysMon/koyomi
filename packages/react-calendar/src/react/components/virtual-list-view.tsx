@@ -13,14 +13,21 @@
  */
 
 import type { CSSProperties, ReactElement, FocusEvent as ReactFocusEvent, ReactNode } from 'react';
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EventOccurrence, ListDay } from '../../core/types';
 import { useCalendarContext } from '../context';
+import { useIsomorphicLayoutEffect } from '../use-isomorphic-layout-effect';
 import { useVirtualizer } from '../use-virtualizer';
 import { DEFAULT_ALL_DAY_LABEL, DEFAULT_EMPTY_LABEL, ListDaySection } from './list-view-parts';
 
 /** `estimateDayHeight` 省略時の 1 日セクションの推定高（px）。 */
 const DEFAULT_ESTIMATE_DAY_HEIGHT = 64;
+
+/**
+ * 仮想化が効いていない旨を開発警告する日数の閾値。これ未満の短いリストは
+ * 全件描画でも問題にならないため警告しない（誤検知を避ける）。
+ */
+const VIRTUALIZE_WARN_THRESHOLD = 40;
 
 /** 開発ビルドかどうか（`use-calendar` と同じ判定）。 */
 interface ProcessLike {
@@ -92,7 +99,7 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
   // SSR・初回クライアント render は非仮想化（全件）。マウント後に仮想化へ切り替えることで
   // hydration 不一致を避ける。
   const [enabled, setEnabled] = useState(false);
-  useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     setEnabled(true);
   }, []);
 
@@ -129,22 +136,25 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
     ...(pinnedKeys !== undefined ? { pinnedKeys } : {}),
   });
 
-  // 境界高が無い（＝仮想化が効かない）場合、開発ビルドで一度だけ警告する。
+  // 仮想化の効果が出ていない（多数の日があるのに窓が全件を含む）場合、開発ビルドで
+  // 一度だけ警告する。`clientHeight === 0` は高さ未設定でも内容高を持てば偽になるため、
+  // 「窓が全件を含む」ことを直接の指標にする。原因は境界高未設定に限らず、境界高が
+  // 高すぎる・overscan 過大でも起こり得るため、警告文は症状と候補原因の形にする。
   const warnedRef = useRef(false);
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!enabled || warnedRef.current || !isDevBuild()) {
       return;
     }
-    const element = scrollRef.current;
-    if (element !== null && element.clientHeight === 0 && days.length > 0) {
+    if (days.length > VIRTUALIZE_WARN_THRESHOLD && virtualizer.virtualItems.length >= days.length) {
       warnedRef.current = true;
       // biome-ignore lint/suspicious/noConsole: 開発ビルド限定の設定ミス警告（use-calendar と同じ流儀）
       console.warn(
-        '[koyomi] VirtualListView: スクロールコンテナに境界高（height / max-height）が設定されていないため仮想化が効きません。' +
-          '[data-koyomi="list"][data-koyomi-virtualized] に CSS で高さを与えてください。',
+        `[koyomi] VirtualListView: 全 ${days.length} 日が可視窓に入っており仮想化の効果が出ていません。` +
+          'スクロールコンテナ [data-koyomi="list"][data-koyomi-virtualized] の境界高（height / max-height）未設定、' +
+          '境界高が高すぎる、または overscan 過大のいずれかを確認してください。',
       );
     }
-  }, [enabled, days.length]);
+  }, [enabled, days.length, virtualizer.virtualItems.length]);
 
   /** フォーカスが入った日セクションのキーを記録する（窓外へ出ても DOM を保持するため）。 */
   const handleFocus = useCallback((event: ReactFocusEvent<HTMLDivElement>): void => {
@@ -234,7 +244,7 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
         sectionRef={virtualizer.measureElement(day.key)}
         role="listitem"
         ariaLabel={`${defaultDayHeader} 予定${day.occurrences.length}件`}
-        {...(extra.pinned === true ? { pinned: true } : {})}
+        {...(extra.pinned === true ? { pinned: true, eventTabbable: false } : {})}
         {...(extra.style !== undefined ? { style: extra.style } : {})}
         {...(renderEvent !== undefined ? { renderEvent } : {})}
         {...(renderDayHeader !== undefined ? { renderDayHeader } : {})}

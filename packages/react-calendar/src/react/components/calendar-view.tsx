@@ -16,6 +16,7 @@ import { useCalendarContext } from '../context';
 import { ListView } from './list-view';
 import { MonthView } from './month-view';
 import { TimeGridView } from './time-grid-view';
+import { VirtualListView } from './virtual-list-view';
 
 /**
  * `CalendarView` の props。各ビューのカスタム描画関数・ラベル props を転送する。
@@ -44,6 +45,18 @@ export interface CalendarViewProps {
   listEmptyLabel?: ReactNode;
   /** リストビューの日付見出しのカスタム描画。`ListView` の `renderDayHeader` に転送する。 */
   renderListDayHeader?: (day: ListDay, defaultContent: ReactNode) => ReactNode;
+  /**
+   * リストビューを仮想化する（`ListView` の代わりに `VirtualListView` を使う）。
+   * 大量の予定・長期間表示での DOM 肥大を抑える。既定 `false`（全件描画の `ListView`）。
+   * 有効時はスクロールコンテナに境界高を CSS で与えること
+   * （`[data-koyomi="list"][data-koyomi-virtualized]`）。詳細は `VirtualListView` を参照。
+   * リスト系のカスタム描画・ラベル（`renderListEvent` 等）はそのまま転送される。
+   */
+  virtualizeList?: boolean;
+  /** 仮想化時の日セクション推定高。`VirtualListView` の `estimateDayHeight` に転送する。 */
+  listEstimateDayHeight?: number | ((day: ListDay, index: number) => number);
+  /** 仮想化時の前後 overscan 日数。`VirtualListView` の `overscan` に転送する。 */
+  listOverscan?: number;
   /** 月ビューの日セルのカスタム描画。`MonthView` の `renderDayCell` に転送する。 */
   renderMonthDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
   /**
@@ -98,15 +111,27 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
               : {})}
           />
         );
-      case 'list':
-        return (
-          <ListView
-            {...(props.renderListEvent ? { renderEvent: props.renderListEvent } : {})}
-            {...(props.listAllDayLabel !== undefined ? { allDayLabel: props.listAllDayLabel } : {})}
-            {...(props.listEmptyLabel !== undefined ? { emptyLabel: props.listEmptyLabel } : {})}
-            {...(props.renderListDayHeader ? { renderDayHeader: props.renderListDayHeader } : {})}
-          />
-        );
+      case 'list': {
+        // 共通のリスト系 props（ListView / VirtualListView で同じ）。
+        const listProps = {
+          ...(props.renderListEvent ? { renderEvent: props.renderListEvent } : {}),
+          ...(props.listAllDayLabel !== undefined ? { allDayLabel: props.listAllDayLabel } : {}),
+          ...(props.listEmptyLabel !== undefined ? { emptyLabel: props.listEmptyLabel } : {}),
+          ...(props.renderListDayHeader ? { renderDayHeader: props.renderListDayHeader } : {}),
+        };
+        if (props.virtualizeList === true) {
+          return (
+            <VirtualListView
+              {...listProps}
+              {...(props.listEstimateDayHeight !== undefined
+                ? { estimateDayHeight: props.listEstimateDayHeight }
+                : {})}
+              {...(props.listOverscan !== undefined ? { overscan: props.listOverscan } : {})}
+            />
+          );
+        }
+        return <ListView {...listProps} />;
+      }
     }
   }
 

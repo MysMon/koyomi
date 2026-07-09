@@ -153,6 +153,27 @@ describe('useVirtualizer', () => {
     expect(result.current.totalSize).toBe(200); // 推定 10×20 のまま（実測しない）
   });
 
+  it('getScrollElement の戻り値が変わると新しい要素を購読する', () => {
+    const a = scrollElement(100); // viewport 100 → 可視 0..4 + overscan 3 → 0..7
+    const b = scrollElement(40); // viewport 40 → 可視 0..1 + overscan 3 → 0..4
+    let current = a;
+    const { result, rerender } = renderHook(() =>
+      useVirtualizer({
+        count: 10,
+        getItemKey: (index: number) => `k${index}`,
+        estimateSize: () => 20,
+        getScrollElement: () => current,
+        enabled: true,
+      }),
+    );
+    expect(result.current.virtualItems.at(-1)?.index).toBe(7);
+
+    // 要素を差し替える → 購読が貼り直され B の高さを拾う
+    current = b;
+    rerender();
+    expect(result.current.virtualItems.at(-1)?.index).toBe(4);
+  });
+
   it('measureElement は関数（ref コールバック）を返す', () => {
     const element = scrollElement(100);
     const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
