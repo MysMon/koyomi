@@ -18,6 +18,7 @@ import type {
   YearMonth,
 } from '../../core/types';
 import { useCalendarContext } from '../context';
+import type { MonthOverflowButtonProps } from '../types';
 import { ListView } from './list-view';
 import { MonthView } from './month-view';
 import { MultiMonthView } from './multi-month-view';
@@ -73,6 +74,15 @@ export interface CalendarViewProps {
    * 省略時は `+N 件`。
    */
   monthOverflowLabel?: (count: number) => ReactNode;
+  /**
+   * 月ビューの「+N 件」ボタンに追加する props。`MonthView` の `overflowButtonProps` に転送する。
+   * `aria-haspopup` / `aria-expanded` など、自前のポップオーバー UI と連携する ARIA 属性を
+   * 付与する用途に使う。
+   */
+  monthOverflowButtonProps?: (
+    day: MonthDay,
+    hiddenOccurrences: readonly EventOccurrence[],
+  ) => MonthOverflowButtonProps;
   /** 週/日ビューの日ヘッダーのカスタム描画。`TimeGridView` の `renderDayHeader` に転送する。 */
   renderTimeGridDayHeader?: (day: TimeGridDay, defaultContent: ReactNode) => ReactNode;
   /** 年ビューの月見出しのカスタム描画。`YearView` の `renderMonthHeader` に転送する。 */
@@ -88,6 +98,14 @@ export interface CalendarViewProps {
    * 省略時は `+N 件`。
    */
   multiMonthOverflowLabel?: (count: number) => ReactNode;
+  /**
+   * 複数月ビューの「+N 件」ボタンに追加する props。`MultiMonthView` の
+   * `overflowButtonProps` に転送する。
+   */
+  multiMonthOverflowButtonProps?: (
+    day: MonthDay,
+    hiddenOccurrences: readonly EventOccurrence[],
+  ) => MonthOverflowButtonProps;
   /** リソースビューのイベントブロックのカスタム描画。`ResourceView` の `renderEvent` に転送する。 */
   renderResourceEvent?: (item: PositionedOccurrence) => ReactNode;
   /** リソースビューの列見出しのカスタム描画。`ResourceView` の `renderColumnHeader` に転送する。 */
@@ -149,6 +167,9 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
             {...(props.renderMonthEvent ? { renderEvent: props.renderMonthEvent } : {})}
             {...(props.renderMonthDayCell ? { renderDayCell: props.renderMonthDayCell } : {})}
             {...(props.monthOverflowLabel ? { overflowLabel: props.monthOverflowLabel } : {})}
+            {...(props.monthOverflowButtonProps
+              ? { overflowButtonProps: props.monthOverflowButtonProps }
+              : {})}
           />
         );
       case 'week':
@@ -200,6 +221,9 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
               : {})}
             {...(props.multiMonthOverflowLabel
               ? { overflowLabel: props.multiMonthOverflowLabel }
+              : {})}
+            {...(props.multiMonthOverflowButtonProps
+              ? { overflowButtonProps: props.multiMonthOverflowButtonProps }
               : {})}
           />
         );

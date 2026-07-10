@@ -321,6 +321,7 @@ calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
 | `MonthView` | `renderEvent`（`renderMonthEvent`） | セグメントの表示内容 |
 | `MonthView` | `renderDayCell`（`renderMonthDayCell`） | 日セルに祝日ラベルやバッジ等を差し込み（第 2 引数で既定内容を受け取る） |
 | `MonthView` | `overflowLabel`（`monthOverflowLabel`） | 「+N 件」の文言（`(count) => ReactNode`） |
+| `MonthView` | `overflowButtonProps`（`monthOverflowButtonProps`） | 「+N 件」ボタンに追加する props（`aria-haspopup` / `aria-expanded` 等）。自前のポップオーバーと連携する用途（詳細は[インタラクション](./interactions.md)） |
 | `TimeGridView` | `renderEvent`（`renderTimeGridEvent`） | イベントブロックの表示内容 |
 | `TimeGridView` | `renderDayHeader`（`renderTimeGridDayHeader`） | 日ヘッダーの内容 |
 | `ListView` | `renderEvent`（`renderListEvent`） | 予定行の表示内容 |
@@ -332,6 +333,7 @@ calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
 | `MultiMonthView` | `renderEvent`（`renderMultiMonthEvent`） | セグメントの表示内容（既定は `MonthView` と同じ） |
 | `MultiMonthView` | `renderDayCell`（`renderMultiMonthDayCell`） | 日セルに祝日ラベルやバッジ等を差し込み（第 2 引数で既定内容を受け取る。前後月の日付セルはインタラクティブでないため適用されない） |
 | `MultiMonthView` | `overflowLabel`（`multiMonthOverflowLabel`） | 「+N 件」の文言（`(count) => ReactNode`） |
+| `MultiMonthView` | `overflowButtonProps`（`multiMonthOverflowButtonProps`） | 「+N 件」ボタンに追加する props（`MonthView` と同じ） |
 | `ResourceView` | `renderEvent`（`renderResourceEvent`） | 時間指定イベントブロックの表示内容 |
 | `ResourceView` | `renderColumnHeader`（`renderResourceColumnHeader`） | 列見出しの内容（リソース名、または未割り当て列は `unassignedLabel`）をラップ・置換（第 2 引数で既定内容を受け取る） |
 | `ResourceView` | `unassignedLabel`（`resourceUnassignedLabel`） | 未割り当て列の見出しラベル（既定「未割り当て」） |

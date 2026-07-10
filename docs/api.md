@@ -434,6 +434,7 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `renderMonthEvent` | `(segment: EventSegment) => ReactNode` | 月ビューのセグメントのカスタム描画 |
 | `renderMonthDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 月ビューの日セルのカスタム描画（`MonthView.renderDayCell` へ転送） |
 | `monthOverflowLabel` | `(count: number) => ReactNode` | 月ビューの「+N 件」の文言（`MonthView.overflowLabel` へ転送） |
+| `monthOverflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 月ビューの「+N 件」ボタンに追加する props（`MonthView.overflowButtonProps` へ転送） |
 | `renderTimeGridEvent` | `(item: PositionedOccurrence) => ReactNode` | 週/日ビューのイベントブロックのカスタム描画 |
 | `renderTimeGridDayHeader` | `(day: TimeGridDay, defaultContent: ReactNode) => ReactNode` | 週/日ビューの日ヘッダーのカスタム描画（`TimeGridView.renderDayHeader` へ転送） |
 | `renderListEvent` | `(occurrence: EventOccurrence) => ReactNode` | リストビューのイベント行のカスタム描画 |
@@ -448,6 +449,7 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `renderMultiMonthEvent` | `(segment: EventSegment) => ReactNode` | 複数月ビューのセグメントのカスタム描画（`MultiMonthView.renderEvent` へ転送） |
 | `renderMultiMonthDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 複数月ビューの日セルのカスタム描画（`MultiMonthView.renderDayCell` へ転送） |
 | `multiMonthOverflowLabel` | `(count: number) => ReactNode` | 複数月ビューの「+N 件」の文言（`MultiMonthView.overflowLabel` へ転送） |
+| `multiMonthOverflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 複数月ビューの「+N 件」ボタンに追加する props（`MultiMonthView.overflowButtonProps` へ転送） |
 | `renderResourceEvent` | `(item: PositionedOccurrence) => ReactNode` | リソースビューのイベントブロックのカスタム描画（`ResourceView.renderEvent` へ転送） |
 | `renderResourceColumnHeader` | `(column: ResourceColumn, defaultContent: ReactNode) => ReactNode` | リソースビューの列見出しのカスタム描画（`ResourceView.renderColumnHeader` へ転送） |
 | `resourceUnassignedLabel` | `ReactNode` | リソースビューの未割り当て列ラベル（既定「未割り当て」。`ResourceView.unassignedLabel` へ転送） |
@@ -470,6 +472,7 @@ function MonthView(props: MonthViewProps): ReactElement | null
 | `renderEvent` | `(segment: EventSegment) => ReactNode` | セグメントの表示内容。省略時は終日・複数日セグメントはタイトルのみ、単日の時間指定セグメントは `'H:mm タイトル'` |
 | `renderDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 日セルの内容（日番号ボタン＋「+N 件」ボタン）をラップ・置換する。祝日ラベルやバッジの注入用 |
 | `overflowLabel` | `(count: number) => ReactNode` | 「+N 件」ボタンの文言（既定 `+N 件`） |
+| `overflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 「+N 件」ボタンに追加する props（`aria-haspopup` / `aria-expanded` 等）。省略時は追加の props を付与しない |
 
 ルート要素には WAI-ARIA の grid ロール（`grid` / `row` / `columnheader` / `gridcell`）と、各日セルへの完全な日付の `aria-label`・今日への `aria-current="date"` が付与されます。
 
@@ -548,6 +551,7 @@ function MultiMonthView(props: MultiMonthViewProps): ReactElement | null
 | `renderEvent` | `(segment: EventSegment) => ReactNode` | セグメントの表示内容。既定内容は `MonthView` と同じ |
 | `renderDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 日セルの内容をラップ・置換する。前後月の日付セル（`data-outside`）はインタラクティブでないため適用されない |
 | `overflowLabel` | `(count: number) => ReactNode` | 「+N 件」ボタンの文言（既定 `+N 件`） |
+| `overflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 「+N 件」ボタンに追加する props（`MonthView` と同じ） |
 
 `MonthView` との違いは、前後月の日付セルに予定を表示しない点だけです。月境界をまたぐ帯は月ごとにクランプされ、`continuesBefore` / `continuesAfter` で「←続く／続く→」を示します（月ビューの複数週セグメントと同じセマンティクス）。前後月の日付セルはクリック・キーボード操作の対象になりません（`tabIndex` なし）。
 
@@ -757,6 +761,8 @@ interface ToolbarLabels {
 | `RangeSelection` | `{ range: DateRange; allDay: boolean; resourceId?: string | null }` | 範囲選択（新規作成操作）の内容。`resourceId` はリソース/タイムラインビューでの選択時のみ設定される（`null` は未割り当てレーン） |
 | `EventChange` | `{ occurrence: EventOccurrence; newRange: DateRange; allDay: boolean; scope: RecurringEditScope | null; resourceId?: string | null }` | ドラッグ・キーボードによるイベント変更の内容。`resourceId` はリソース/タイムラインビューでの変更時のみ設定される（`null` は未割り当てへの移動） |
 | `EventDelete` | `{ occurrence: EventOccurrence; scope: RecurringEditScope | null }` | キーボード削除の内容 |
+| `OverflowClickDetails` | `{ visibleOccurrences: readonly EventOccurrence[] }` | `onOverflowClick` の第 3 引数。その日で表示中のオカレンス一覧（`hiddenOccurrences` と組み合わせて全件を把握できる） |
+| `MonthOverflowButtonProps` | `{ 'aria-haspopup'?: 'true' | 'dialog' | 'menu' | 'listbox' | 'tree' | 'grid'; 'aria-expanded'?: boolean; 'aria-controls'?: string }` | 「+N 件」ボタンに追加する props（`overflowButtonProps` の戻り値） |
 | `CalendarInteractionCallbacks` | 下表参照 | インタラクションのコールバック集 |
 
 **`CalendarInteractionCallbacks` のフィールド**（すべて省略可能）
@@ -769,7 +775,7 @@ interface ToolbarLabels {
 | `onEventDelete?` | `(deletion: EventDelete) => void` | 削除の適用はライブラリが行うため、これは通知のみ |
 | `onError?` | `(error: unknown) => void` | `console.error` に出力する |
 | `resolveRecurringScope?` | `(occurrence: EventOccurrence, action: 'move' | 'resize' | 'delete' | 'update') => Promise<RecurringEditScope | null>` | `'this'`（この予定のみ）を返す |
-| `onOverflowClick?` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => void` | その日の日ビューに切り替える |
+| `onOverflowClick?` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[], details: OverflowClickDetails) => void` | その日の日ビューに切り替える |
 
 ## 低レベルユーティリティ
 

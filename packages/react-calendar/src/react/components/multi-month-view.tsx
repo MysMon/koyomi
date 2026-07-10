@@ -30,6 +30,7 @@ import type {
   TimeZoneId,
 } from '../../core/types';
 import { useCalendarContext } from '../context';
+import type { MonthOverflowButtonProps } from '../types';
 import { useDayDrag } from '../use-day-drag';
 import { formatMonthTitle } from './format';
 import type { MonthDayDragHandlers } from './month-view-parts';
@@ -61,6 +62,17 @@ export interface MultiMonthViewProps {
    * @param count - 「+N 件」に集約された非表示イベント数
    */
   overflowLabel?: (count: number) => ReactNode;
+  /**
+   * 「+N 件」ボタンに追加する props を返す関数。`aria-haspopup` / `aria-expanded` など、
+   * 自前のポップオーバー UI と連携するための ARIA 属性を付与する用途に使う。
+   * 省略時は追加の props を付与しない。
+   * @param day - 対象の日
+   * @param hiddenOccurrences - その日で「+N 件」に集約された非表示のオカレンス一覧
+   */
+  overflowButtonProps?: (
+    day: MonthDay,
+    hiddenOccurrences: readonly EventOccurrence[],
+  ) => MonthOverflowButtonProps;
 }
 
 /** 「+N 件」の既定ラベル（`MonthView` と同じ）。 */
@@ -86,7 +98,12 @@ function defaultOverflowLabel(count: number): ReactNode {
  * ```
  */
 export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null {
-  const { renderEvent, overflowLabel = defaultOverflowLabel, renderDayCell } = props;
+  const {
+    renderEvent,
+    overflowLabel = defaultOverflowLabel,
+    renderDayCell,
+    overflowButtonProps,
+  } = props;
   const { api, state, viewModel, callbacks } = useCalendarContext();
   const calendar = { api, state, viewModel };
   // コンポーネント全体で 1 インスタンス（モジュール冒頭の TSDoc を参照）。
@@ -109,9 +126,13 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
   const onOverflowClickCallback = callbacks.onOverflowClick;
   /** 「+N 件」クリック。`onOverflowClick` があればそれを呼び、なければ day ビューへ切り替える。 */
   const handleOverflowClick = useCallback(
-    (day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]): void => {
+    (
+      day: MonthDay,
+      hiddenOccurrences: readonly EventOccurrence[],
+      visibleOccurrences: readonly EventOccurrence[],
+    ): void => {
       if (onOverflowClickCallback !== undefined) {
-        onOverflowClickCallback(day, hiddenOccurrences);
+        onOverflowClickCallback(day, hiddenOccurrences, { visibleOccurrences });
         return;
       }
       goToDay(day.date);
@@ -143,6 +164,7 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
           renderDayCell={renderDayCell}
           onDayNumberClick={goToDay}
           onOverflowClick={handleOverflowClick}
+          overflowButtonProps={overflowButtonProps}
         />
       ))}
     </div>
@@ -177,8 +199,24 @@ function MultiMonthMonthSection(props: {
   renderDayCell: ((day: MonthDay, defaultContent: ReactNode) => ReactNode) | undefined;
   /** 日番号クリック時のハンドラ。 */
   onDayNumberClick: (date: Date) => void;
-  /** 「+N 件」クリック時のハンドラ。 */
-  onOverflowClick: (day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => void;
+  /**
+   * 「+N 件」クリック時のハンドラ。
+   * @param day - 対象の日
+   * @param hiddenOccurrences - その日の非表示（あふれ）のオカレンス一覧（開始時刻順）
+   * @param visibleOccurrences - その日の表示中のオカレンス一覧（開始時刻順）
+   */
+  onOverflowClick: (
+    day: MonthDay,
+    hiddenOccurrences: readonly EventOccurrence[],
+    visibleOccurrences: readonly EventOccurrence[],
+  ) => void;
+  /**
+   * 「+N 件」ボタンに追加する props を返す関数（`aria-haspopup` / `aria-expanded` など）。
+   * 省略時は追加の props を付与しない。
+   */
+  overflowButtonProps:
+    | ((day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps)
+    | undefined;
 }): ReactElement {
   const {
     month,
@@ -191,6 +229,7 @@ function MultiMonthMonthSection(props: {
     renderDayCell,
     onDayNumberClick,
     onOverflowClick,
+    overflowButtonProps,
   } = props;
 
   const firstWeek = month.weeks[0];
@@ -236,6 +275,7 @@ function MultiMonthMonthSection(props: {
               renderDayCell={renderDayCell}
               onDayNumberClick={onDayNumberClick}
               onOverflowClick={onOverflowClick}
+              overflowButtonProps={overflowButtonProps}
               interactiveOutsideDays={false}
             />
           ))}
