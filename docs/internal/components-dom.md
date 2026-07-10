@@ -114,20 +114,18 @@ div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"]
         … 曜日＋日番号（renderDayHeader で差し替え可）。
           曜日ラベルは span[data-koyomi="timegrid-weekday"]（Intl、month-weekday/year-weekday と同じ流儀）
           日番号は button[data-koyomi="timegrid-day-number"]（aria-label=完全な日付、day ビューへ）
-    div[data-koyomi="timegrid-allday"] (role="presentation")  … allday-row と選択プレビューレイヤーをまとめるラッパー
-                                                          （grid→row 間の透過ラッパ。レイヤーの絶対配置の基準）
-      div[data-koyomi="allday-row"] (role="row")
-        div[data-koyomi="timegrid-axis-gutter"][data-koyomi-timezone] (role="presentation") × timeAxes.length
-        div[data-koyomi="allday-cells"] (role="presentation")  … position: relative の基準（row→gridcell 間の透過ラッパ）
-          div[data-koyomi="allday-cell"][data-koyomi-date] (role="gridcell", aria-label=完全な日付) × days   … getDayCellProps（allDay 作成用）
-            button[data-koyomi="allday-event"] × n     … getSegmentProps。開始日のセルが DOM 上所有する
-                 （positioned ancestor は allday-cells のため、複数日スパンの座標は従来どおり）。
-                 style: insetInlineStart/width %、top: lane × var(--koyomi-lane-height, 24px)。
-                 continues/dragging 属性は月と同じ
-              span[data-koyomi="allday-resize"][data-edge="start|end"]?
-                 … getSegmentResizeHandleProps（editable: false / continues 側には出力しない）
-      div[data-koyomi="allday-events"] (aria-hidden)   … allday-row の外側（兄弟要素）に置く選択プレビューレイヤー
-        div[data-koyomi="day-selection"]?              … allDay プレビュー
+    div[data-koyomi="allday-row"] (role="row")
+      div[data-koyomi="timegrid-axis-gutter"][data-koyomi-timezone] (role="presentation") × timeAxes.length
+      div[data-koyomi="allday-cells"] (role="presentation")  … position: relative の基準（row→gridcell 間の透過ラッパ）
+        div[data-koyomi="allday-cell"][data-koyomi-date] (role="gridcell", aria-label=完全な日付) × days   … getDayCellProps（allDay 作成用）
+          button[data-koyomi="allday-event"] × n     … getSegmentProps。開始日のセルが DOM 上所有する
+               （positioned ancestor は allday-cells のため、複数日スパンの座標は従来どおり）。
+               style: insetInlineStart/width %、top: lane × var(--koyomi-lane-height, 24px)。
+               continues/dragging 属性は月と同じ
+            span[data-koyomi="allday-resize"][data-edge="start|end"]?
+               … getSegmentResizeHandleProps（editable: false / continues 側には出力しない）
+        div[data-koyomi="day-selection"]? (aria-hidden)  … allDay プレビュー（allday-cells 直下。
+             % オフセットが列位置と常に一致し、テーマ変数に依存しない）
   div[data-koyomi="timegrid-body"]   … role なし（role="grid" の子孫ではないため presentation で打ち消す必要がない）。
                                         連続的な時間位置決めのため grid 化しない（詳細は docs/accessibility.md）
     div[data-koyomi="time-axis"][data-koyomi-timezone] × timeAxes.length  … 先頭が主軸（表示 TZ）、以降が timeAxisZones の指定順
@@ -162,8 +160,8 @@ div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"]
   内部の予定ボタンが grid の子孫としてアクセシビリティツリーに漏れ出さないようにする。
   終日の帯（`allday-event`）は複数日にまたがり得るが、DOM 上は開始日の `allday-cell`
   （`gridcell`）の子として所有させる（ResourceView と同じ正当なネスト。grid の子孫の
-  focusable を row/gridcell の所有関係の外に置かないため）。範囲選択プレビューの
-  レイヤー（`allday-events`）は focusable を含まず `aria-hidden` で除外する。
+  focusable を row/gridcell の所有関係の外に置かないため）。範囲選択プレビュー
+  （`day-selection`）も `allday-cells` 直下に置き、focusable を含まず `aria-hidden` で除外する。
   判断根拠・既知の制限の詳細は `docs/accessibility.md` を参照
 
 ## リストビュー（ListView）
