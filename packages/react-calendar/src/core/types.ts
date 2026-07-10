@@ -216,6 +216,27 @@ export type CalendarEventPatch = {
   [K in keyof Omit<CalendarEvent, 'id'>]?: Omit<CalendarEvent, 'id'>[K] | undefined;
 };
 
+/**
+ * 1 件のイベントに対する変更前後のスナップショット。undo（元に戻す）UI の実装に使う。
+ *
+ * - `before` のみ（`after` なし）— そのイベントは削除された
+ * - `after` のみ（`before` なし）— そのイベントは新規作成された
+ *   （`scope: 'this'` によるオーバーライド生成、`scope: 'thisAndFollowing'` による
+ *   分割後の新シリーズなど）
+ * - 両方あり — そのイベントの内容が変更された（EXDATE 追加・`recurringEventId` の
+ *   付け替えなど、他イベントの操作に伴う副次的な変更も含む）
+ *
+ * {@link CalendarApi.updateEvent} / {@link CalendarApi.deleteEvent} の戻り値、
+ * および React 層の `onEventChange` / `onEventDelete` コールバックのペイロード
+ * （`changes` フィールド）で使われる。
+ */
+export interface EventChangeEntry {
+  /** 変更前のイベント。新規作成の場合は存在しない。 */
+  before?: CalendarEvent;
+  /** 変更後のイベント。削除の場合は存在しない。 */
+  after?: CalendarEvent;
+}
+
 // ---------------------------------------------------------------------------
 // ビューモデル
 // ---------------------------------------------------------------------------
@@ -918,19 +939,27 @@ export interface CalendarApi {
    * @param patch - 変更内容
    * @param target - 繰り返しイベントの場合の対象オカレンスと適用範囲。
    *   単発イベントでは省略する。
+   * @returns 影響を受けた各イベントの before/after 一覧（undo の実装に使う。
+   *   単発イベントの変更では対象イベント 1 件のみ、繰り返しのスコープ操作
+   *   （オーバーライド生成・シリーズ分割）では影響を受けたイベントすべてを含む）
    */
   updateEvent(
     id: EventId,
     patch: CalendarEventPatch,
     target?: { occurrenceStart: Date; scope: RecurringEditScope },
-  ): void;
+  ): readonly EventChangeEntry[];
   /**
    * イベントを削除する。
    * @param id - 対象イベントの ID
    * @param target - 繰り返しイベントの場合の対象オカレンスと適用範囲。
    *   単発イベントでは省略する。
+   * @returns 影響を受けた各イベントの before/after 一覧（undo の実装に使う。
+   *   {@link updateEvent} と同様）
    */
-  deleteEvent(id: EventId, target?: { occurrenceStart: Date; scope: RecurringEditScope }): void;
+  deleteEvent(
+    id: EventId,
+    target?: { occurrenceStart: Date; scope: RecurringEditScope },
+  ): readonly EventChangeEntry[];
 
   // --- ビューモデル ---
 

@@ -32,10 +32,15 @@ import type {
   CalendarEvent,
   CalendarEventInput,
   CalendarEventPatch,
+  EventChangeEntry,
   EventId,
   RecurringEditScope,
   TimeZoneId,
 } from './types';
+
+// undo（元に戻す）UI 向けに before/after 情報を扱う側からも `./mutations` から
+// 直接インポートできるよう、型定義の実体（`./types`）を re-export する。
+export type { EventChangeEntry } from './types';
 
 /**
  * 変更操作の共通コンテキスト。
@@ -680,6 +685,154 @@ export function deleteEventIn(
 }
 
 /**
+ * before/after 情報付きの変更操作の結果。
+ */
+export interface EventMutationResult {
+  /** 操作後のイベント一覧。 */
+  events: CalendarEvent[];
+  /** 影響を受けた各イベントの before/after 一覧（順序は保証しない）。 */
+  changes: EventChangeEntry[];
+}
+
+/**
+ * 値の構造的な等価性を判定する（{@link diffEventChanges} の無変化パッチ検出専用）。
+ *
+ * `applyPatch` は変更の有無によらず常に新しいオブジェクト（複製）を返すため、
+ * `updateEventInWithChanges(events, id, {}, ...)` のような値として無変化のパッチでも
+ * 参照比較（`===`）だけでは「変更あり」と誤検出してしまう。この関数は `Date` を
+ * 時刻（`getTime()`）で、配列・プレーンオブジェクト（`extendedProps` 等）を
+ * 再帰的に比較することで、値としては同一な before/after を正しく「無変化」と判定する。
+ */
+function isStructurallyEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) {
+    return true;
+  }
+  if (a instanceof Date || b instanceof Date) {
+    return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((value, index) => isStructurallyEqual(value, b[index]))
+    );
+  }
+  if (typeof a === 'object' && a !== null && typeof b === 'object' && b !== null) {
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    if (aKeys.length !== bKeys.length) {
+      return false;
+    }
+    // a / b はこの時点でプレーンオブジェクトと判定済みだが、キーによる動的アクセスには
+    // 型情報がないため Record<string, unknown> へのキャストが必要（isStructurallyEqual
+    // 自体が unknown を受け取る再帰関数のため、これ以上の型の絞り込みはできない）
+    const aRecord = a as Record<string, unknown>;
+    const bRecord = b as Record<string, unknown>;
+    return aKeys.every(
+      (key) => Object.hasOwn(bRecord, key) && isStructurallyEqual(aRecord[key], bRecord[key]),
+    );
+  }
+  return false;
+}
+
+/**
+ * 操作前後のイベント配列を比較し、影響を受けた各イベントの before/after 一覧を返す。
+ *
+ * mutations.ts の各操作（`mapPatch` / `splitSeries` / `truncateSeries` などが内部で使う
+ * 配列操作）は、変更していないイベントを常に同一参照のまま返す（新しい複製を作らない）。
+ * そのため、id が一致し参照も同一（`===`）のイベントは「影響を受けていない」とみなし、
+ * 参照比較だけで正しく差分を検出できる。
+ *
+ * 一方、`applyPatch` が絡む変更（`mapPatch` 経由の更新）は、パッチの内容によらず常に
+ * 新しい複製を返すため、参照が異なっていても値としては無変化な場合がある
+ * （例: 空パッチ `{}`、既存値と同じ値を明示指定したパッチ）。そのため参照が異なる
+ * 場合は {@link isStructurallyEqual} で値としての差分の有無も確認し、値も同一なら
+ * 「影響を受けていない」として changes に含めない。
+ *
+ * @param before - 操作前のイベント配列
+ * @param after - 操作後のイベント配列
+ * @returns 影響を受けた各イベントの before/after 一覧（順序は保証しない）
+ */
+function diffEventChanges(
+  before: readonly CalendarEvent[],
+  after: readonly CalendarEvent[],
+): EventChangeEntry[] {
+  const beforeById = new Map(before.map((event) => [event.id, event]));
+  const afterById = new Map(after.map((event) => [event.id, event]));
+  const changes: EventChangeEntry[] = [];
+  for (const [id, beforeEvent] of beforeById) {
+    const afterEvent = afterById.get(id);
+    if (afterEvent === undefined) {
+      changes.push({ before: beforeEvent });
+    } else if (afterEvent !== beforeEvent && !isStructurallyEqual(beforeEvent, afterEvent)) {
+      changes.push({ before: beforeEvent, after: afterEvent });
+    }
+  }
+  for (const [id, afterEvent] of afterById) {
+    if (!beforeById.has(id)) {
+      changes.push({ after: afterEvent });
+    }
+  }
+  return changes;
+}
+
+/**
+ * イベントを更新し、影響を受けた各イベントの before/after も返す（{@link updateEventIn} の拡張版）。
+ *
+ * 単発イベントの変更では対象イベント 1 件の before/after のみを返す。繰り返しイベントの
+ * スコープ操作では、オーバーライド生成（`scope: 'this'`）・シリーズ分割
+ * （`scope: 'thisAndFollowing'`）で作成・変更されたイベント（分割点以降のオーバーライドの
+ * `recurringEventId` 付け替えを含む）をすべて含む。undo（元に戻す）UI の実装に使う。
+ *
+ * @param events - 現在のイベント一覧
+ * @param id - 対象イベントの ID（{@link updateEventIn} と同じ）
+ * @param patch - 変更内容
+ * @param target - 繰り返しの対象オカレンスとスコープ（単発イベントでは省略）
+ * @param context - 変更コンテキスト
+ * @returns 更新後のイベント一覧と、影響を受けた各イベントの before/after 一覧
+ * @example
+ * ```ts
+ * const { events, changes } = updateEventInWithChanges(current, id, { title: '変更後' }, undefined, context);
+ * // changes[0] は { before: 変更前のイベント, after: 変更後のイベント }
+ * ```
+ */
+export function updateEventInWithChanges(
+  events: readonly CalendarEvent[],
+  id: EventId,
+  patch: CalendarEventPatch,
+  target: RecurringTarget | undefined,
+  context: MutationContext,
+): EventMutationResult {
+  const next = updateEventIn(events, id, patch, target, context);
+  return { events: next, changes: diffEventChanges(events, next) };
+}
+
+/**
+ * イベントを削除し、影響を受けた各イベントの before/after も返す（{@link deleteEventIn} の拡張版）。
+ *
+ * 削除されたイベントは `after` を持たない（`before` のみ）。`scope: 'this'` / `'thisAndFollowing'`
+ * でマスターに EXDATE が追加された場合や、`scope: 'thisAndFollowing'` で分割点以降の
+ * オーバーライドが取り除かれた場合も、影響を受けたイベントすべてを含む。
+ * undo（元に戻す）UI の実装に使う。
+ *
+ * @param events - 現在のイベント一覧
+ * @param id - 対象イベントの ID（{@link deleteEventIn} と同じ）
+ * @param target - 繰り返しの対象オカレンスとスコープ（単発イベントでは省略）
+ * @param context - 変更コンテキスト
+ * @returns 削除後のイベント一覧と、影響を受けた各イベントの before/after 一覧
+ */
+export function deleteEventInWithChanges(
+  events: readonly CalendarEvent[],
+  id: EventId,
+  target: RecurringTarget | undefined,
+  context: MutationContext,
+): EventMutationResult {
+  const next = deleteEventIn(events, id, target, context);
+  return { events: next, changes: diffEventChanges(events, next) };
+}
+
+/**
  * オカレンスの移動（ドラッグ＆ドロップ）を適用する。
  *
  * `updateEventIn` の便利ラッパ。オカレンスの新しい開始時刻から `start` / `end` の
@@ -755,4 +908,30 @@ export function moveOccurrenceIn(
       ? undefined
       : { occurrenceStart: params.occurrenceStart, scope: params.scope };
   return updateEventIn(events, id, patch, target, context);
+}
+
+/**
+ * オカレンスの移動（ドラッグ＆ドロップ）を適用し、影響を受けた各イベントの before/after も
+ * 返す（{@link moveOccurrenceIn} の拡張版）。undo（元に戻す）UI の実装に使う。
+ *
+ * @param events - 現在のイベント一覧
+ * @param id - 対象イベントの ID
+ * @param params - {@link moveOccurrenceIn} と同じ
+ * @param context - 変更コンテキスト
+ * @returns 移動後のイベント一覧と、影響を受けた各イベントの before/after 一覧
+ */
+export function moveOccurrenceInWithChanges(
+  events: readonly CalendarEvent[],
+  id: EventId,
+  params: {
+    occurrenceStart: Date;
+    newStart: Date;
+    newEnd?: Date;
+    allDay?: boolean;
+    scope?: RecurringEditScope;
+  },
+  context: MutationContext,
+): EventMutationResult {
+  const next = moveOccurrenceIn(events, id, params, context);
+  return { events: next, changes: diffEventChanges(events, next) };
 }

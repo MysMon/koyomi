@@ -156,12 +156,18 @@ calendar.setResources([{ id: 'room-a', title: '会議室A（改称）' }]);
 - `getEvents()` — すべてのソースイベントを返す
 - `setEvents(events)` — イベント一覧を置き換える（外部ストアとの同期用）
 - `createEvent(input)` — イベントを作成する（`id` 省略時は自動採番）
-- `updateEvent(id, patch, target?)` — イベントを更新する
-- `deleteEvent(id, target?)` — イベントを削除する
+- `updateEvent(id, patch, target?)` — イベントを更新する。影響を受けた各イベントの
+  before/after 一覧（`readonly EventChangeEntry[]`）を返す
+- `deleteEvent(id, target?)` — イベントを削除する。`updateEvent` と同様、影響を受けた
+  各イベントの before/after 一覧を返す
 
 繰り返しイベントに対する `updateEvent` / `deleteEvent` の第 3 引数
 `target`（対象オカレンスと適用範囲）については [繰り返し予定](./recurrence.md) を
 参照してください。単発イベントでは省略します。
+
+`updateEvent` / `deleteEvent` の戻り値（`EventChangeEntry[]`）を使った
+undo（元に戻す）UI の実装方法は
+[undo（元に戻す）を実装する](#undo元に戻すを実装する) を参照してください。
 
 ```ts
 import { createCalendar } from '@koyomi-cal/react';
@@ -265,6 +271,63 @@ function useCalendarSyncedWithServer(initialEvents: CalendarEvent[], saveToServe
   return { calendar, applyRemoteEvents };
 }
 ```
+
+## undo（元に戻す）を実装する
+
+`updateEvent` / `deleteEvent`（ドラッグ操作から呼ばれる場合を含む）は、
+影響を受けた各イベントの変更前後のスナップショット `readonly EventChangeEntry[]`
+を返します。
+
+```ts
+interface EventChangeEntry {
+  before?: CalendarEvent; // 変更前のイベント。新規作成の場合は存在しない
+  after?: CalendarEvent; // 変更後のイベント。削除の場合は存在しない
+}
+```
+
+- **`before` のみ（`after` なし）** — そのイベントは削除された
+- **`after` のみ（`before` なし）** — そのイベントは新規作成された
+  （繰り返しの `scope: 'this'` によるオーバーライド生成、`scope: 'thisAndFollowing'`
+  による分割後の新シリーズなど）
+- **両方あり** — そのイベントの内容が変更された（EXDATE 追加・`recurringEventId`
+  の付け替えなど、他イベントの操作に伴う副次的な変更も含む）
+
+単発イベントの変更・削除では対象イベント 1 件のみを含みますが、繰り返しイベントの
+スコープ操作（オーバーライド生成・シリーズ分割・打ち切り）では、作成・変更・削除
+されたイベントすべてを漏れなく含みます。そのため `changes` をそのまま逆再生すれば、
+操作前の状態を完全に復元できます。
+
+```tsx
+import type { CalendarApi, EventChangeEntry } from '@koyomi-cal/react';
+
+/**
+ * changes を逆再生してイベント一覧を操作前の状態に戻す。
+ * `setEvents` は onEventsChange を呼ばない（エコー防止）ため、
+ * undo による復元自体をアプリ側の保存処理へ送り返すことはない。
+ */
+function undoChanges(api: CalendarApi, changes: readonly EventChangeEntry[]): void {
+  const byId = new Map(api.getEvents().map((event) => [event.id, event]));
+  for (const change of changes) {
+    if (change.after !== undefined) {
+      byId.delete(change.after.id); // 新規作成されたイベントを取り除く
+    }
+  }
+  for (const change of changes) {
+    if (change.before !== undefined) {
+      byId.set(change.before.id, change.before); // 変更前の内容に戻す
+    }
+  }
+  api.setEvents([...byId.values()]);
+}
+
+// 使用例: 変更確定後に受け取った changes を保持しておき、
+// 「元に戻す」ボタンが押されたら undoChanges(api, changes) を呼ぶ
+```
+
+React 層の `onEventChange` / `onEventDelete` コールバック（`EventChange` /
+`EventDelete` の `changes` フィールド）も同じ `EventChangeEntry[]` を渡すため、
+ドラッグ操作の undo にもそのまま使えます。詳細は
+[インタラクション](./interactions.md#ドラッグ移動リサイズ) を参照してください。
 
 ## オカレンス（EventOccurrence）とは
 

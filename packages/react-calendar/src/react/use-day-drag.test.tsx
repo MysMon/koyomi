@@ -1506,7 +1506,13 @@ describe('useDayDrag - onEventDelete 通知', () => {
 
     expect(api.getEvents()).toHaveLength(0);
     expect(onEventDelete).toHaveBeenCalledTimes(1);
-    expect(onEventDelete.mock.calls[0]?.[0]).toEqual({ occurrence, scope: null });
+    expect(onEventDelete.mock.calls[0]?.[0]).toEqual({
+      occurrence,
+      scope: null,
+      // 単発イベントの削除では、削除前のイベント（created）のみが before として
+      // 1 件含まれる（after は持たない）
+      changes: [{ before: created }],
+    });
   });
 
   it('繰り返しオカレンスの削除確定後、解決したスコープで onEventDelete が呼ばれる', async () => {
@@ -1548,7 +1554,13 @@ describe('useDayDrag - onEventDelete 通知', () => {
     });
 
     expect(onEventDelete).toHaveBeenCalledTimes(1);
-    expect(onEventDelete.mock.calls[0]?.[0]).toEqual({ occurrence, scope: 'all' });
+    expect(onEventDelete.mock.calls[0]?.[0]).toEqual({
+      occurrence,
+      scope: 'all',
+      // scope: 'all' はマスター（created）自体を削除する。オーバーライドは
+      // 存在しないため、changes はマスターの before のみの 1 件になる
+      changes: [{ before: created }],
+    });
   });
 
   it('resolveRecurringScope が null を返すとキャンセルされ、onEventDelete は呼ばれない', async () => {
@@ -2330,6 +2342,9 @@ describe('useDayDrag - 時間グリッドへの変換ドラッグ', () => {
       newRange: { start, end },
       allDay: false,
       scope: null,
+      // 単発イベントの変換では、変更前（created）・変更後（updated）の
+      // before/after が 1 件のみ含まれる
+      changes: [{ before: created, after: updated }],
     });
   });
 

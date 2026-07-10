@@ -12,6 +12,7 @@ import type {
   CalendarState,
   CalendarViewModel,
   DateRange,
+  EventChangeEntry,
   EventOccurrence,
   MonthDay,
   RecurringEditScope,
@@ -64,6 +65,15 @@ export interface EventChange {
    * 設定される（`null` は未割り当てへの移動）。既存ビューでは省略。
    */
   resourceId?: string | null;
+  /**
+   * 影響を受けた各イベントの before/after 一覧（undo の実装に使う）。
+   * 単発イベントの変更では対象イベント 1 件のみを含む。繰り返しイベントの
+   * スコープ操作（`scope: 'this'` のオーバーライド生成、`scope: 'thisAndFollowing'`
+   * のシリーズ分割）では、作成・変更されたイベントすべて（分割点以降の
+   * オーバーライドの `recurringEventId` 付け替えを含む）を漏れなく含む。
+   * `CalendarApi.updateEvent` の戻り値がそのまま渡される。
+   */
+  changes: readonly EventChangeEntry[];
 }
 
 /**
@@ -74,6 +84,14 @@ export interface EventDelete {
   occurrence: EventOccurrence;
   /** 繰り返しイベントの場合に適用されたスコープ（単発は `null`）。 */
   scope: RecurringEditScope | null;
+  /**
+   * 影響を受けた各イベントの before/after 一覧（undo の実装に使う）。
+   * 削除されたイベントは `after` を持たない。繰り返しイベントの `scope: 'this'` /
+   * `'thisAndFollowing'` でマスターに EXDATE が追加された場合や、分割点以降の
+   * オーバーライドが取り除かれた場合も、影響を受けたイベントすべてを漏れなく含む。
+   * `CalendarApi.deleteEvent` の戻り値がそのまま渡される。
+   */
+  changes: readonly EventChangeEntry[];
 }
 
 /**

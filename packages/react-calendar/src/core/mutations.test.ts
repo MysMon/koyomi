@@ -16,9 +16,13 @@ import {
   applyPatch,
   createEventIn,
   deleteEventIn,
+  deleteEventInWithChanges,
+  type EventChangeEntry,
   type MutationContext,
   moveOccurrenceIn,
+  moveOccurrenceInWithChanges,
   updateEventIn,
+  updateEventInWithChanges,
 } from './mutations';
 import { expandRecurrence } from './recurrence';
 import { getWallClock } from './timezone';
@@ -1512,5 +1516,334 @@ describe('不変性: 入力配列・入力イベントオブジェクトを変�
       makeContext(),
     );
     expect(events).toEqual(before);
+  });
+});
+
+describe('before/after スナップショット（undo 基盤）', () => {
+  /** イベント配列を id をキーにした Record に変換する（順序に依存しない比較のため）。 */
+  function byId(events: readonly CalendarEvent[]): Record<string, CalendarEvent> {
+    return Object.fromEntries(events.map((event) => [event.id, event]));
+  }
+
+  /**
+   * 変更後のイベント配列と changes から、変更前の状態（id → イベント）を復元する。
+   * 新規作成されたイベント（`before` なし）は復元後の状態に含めない。
+   */
+  function reconstructBefore(
+    after: readonly CalendarEvent[],
+    changes: readonly EventChangeEntry[],
+  ): Record<string, CalendarEvent> {
+    const map = byId(after);
+    for (const change of changes) {
+      if (change.after !== undefined) {
+        delete map[change.after.id];
+      }
+    }
+    for (const change of changes) {
+      if (change.before !== undefined) {
+        map[change.before.id] = change.before;
+      }
+    }
+    return map;
+  }
+
+  /**
+   * 変更前のイベント配列と changes から、変更後の状態（id → イベント）を復元する。
+   * 削除されたイベント（`after` なし）は復元後の状態に含めない。
+   */
+  function reconstructAfter(
+    before: readonly CalendarEvent[],
+    changes: readonly EventChangeEntry[],
+  ): Record<string, CalendarEvent> {
+    const map = byId(before);
+    for (const change of changes) {
+      if (change.before !== undefined && change.after === undefined) {
+        delete map[change.before.id];
+      }
+    }
+    for (const change of changes) {
+      if (change.after !== undefined) {
+        map[change.after.id] = change.after;
+      }
+    }
+    return map;
+  }
+
+  describe('updateEventInWithChanges: 単発イベントの移動', () => {
+    it('before/after 1 件のみが含まれ、双方向に状態を完全に復元できる', () => {
+      const single: CalendarEvent = {
+        id: 'single-1',
+        title: '歯医者',
+        start: new Date('2026-07-01T05:00:00Z'),
+        end: new Date('2026-07-01T06:00:00Z'),
+      };
+      const result = updateEventInWithChanges(
+        [single],
+        'single-1',
+        { start: new Date('2026-07-02T05:00:00Z'), end: new Date('2026-07-02T06:00:00Z') },
+        undefined,
+        makeContext(),
+      );
+      expect(result.changes).toEqual([
+        { before: single, after: findById(result.events, 'single-1') },
+      ]);
+      expect(reconstructAfter([single], result.changes)).toEqual(byId(result.events));
+      expect(reconstructBefore(result.events, result.changes)).toEqual(byId([single]));
+    });
+  });
+
+  describe("updateEventInWithChanges: scope 'this'（オーバーライド作成）", () => {
+    it('作成されたオーバーライドのみが changes に含まれ（before なし）、マスターは含まれない', () => {
+      const master = makeMaster();
+      const occurrenceStart = new Date('2026-07-03T00:00:00Z');
+      const result = updateEventInWithChanges(
+        [master],
+        'master-1',
+        { title: '臨時' },
+        { occurrenceStart, scope: 'this' },
+        makeContext(),
+      );
+      expect(result.changes).toEqual([{ after: findById(result.events, 'gen-1') }]);
+      expect(reconstructAfter([master], result.changes)).toEqual(byId(result.events));
+      expect(reconstructBefore(result.events, result.changes)).toEqual(byId([master]));
+    });
+  });
+
+  describe("updateEventInWithChanges: scope 'thisAndFollowing'（シリーズ分割）", () => {
+    it('旧マスター（変更）・新シリーズ（作成）・分割点以降のオーバーライド（付け替え）が漏れなく changes に含まれる', () => {
+      const beforeSplit = makeOverride({
+        id: 'ov-2',
+        start: new Date('2026-07-02T02:00:00Z'),
+        end: new Date('2026-07-02T03:00:00Z'),
+        originalStart: new Date('2026-07-02T00:00:00Z'),
+      });
+      const afterSplit = makeOverride({
+        id: 'ov-5',
+        start: new Date('2026-07-05T02:00:00Z'),
+        end: new Date('2026-07-05T03:00:00Z'),
+        originalStart: new Date('2026-07-05T00:00:00Z'),
+      });
+      const master = makeMaster();
+      const events = [master, beforeSplit, afterSplit];
+      const splitPoint = new Date('2026-07-04T00:00:00Z');
+      const result = updateEventInWithChanges(
+        events,
+        'master-1',
+        { title: '新シリーズ' },
+        { occurrenceStart: splitPoint, scope: 'thisAndFollowing' },
+        makeContext(),
+      );
+
+      // 旧マスター（変更）・新シリーズ（作成）・ov-5（recurringEventId 付け替え）の 3 件のみ
+      expect(result.changes).toHaveLength(3);
+      const byChangeId = (id: string) =>
+        result.changes.find((change) => (change.before ?? change.after)?.id === id);
+      expect(byChangeId('master-1')).toEqual({
+        before: master,
+        after: findById(result.events, 'master-1'),
+      });
+      expect(byChangeId('gen-1')).toEqual({ after: findById(result.events, 'gen-1') });
+      expect(byChangeId('ov-5')).toEqual({
+        before: afterSplit,
+        after: findById(result.events, 'ov-5'),
+      });
+      // 分割点より前の ov-2 は付け替えの対象外なので changes に含まれない
+      expect(byChangeId('ov-2')).toBeUndefined();
+
+      expect(reconstructAfter(events, result.changes)).toEqual(byId(result.events));
+      expect(reconstructBefore(result.events, result.changes)).toEqual(byId(events));
+    });
+  });
+
+  describe("updateEventInWithChanges: scope 'all'", () => {
+    it('マスターの before/after のみが changes に含まれ、既存のオーバーライドは含まれない', () => {
+      const master = makeMaster();
+      const override = makeOverride();
+      const events = [master, override];
+      const result = updateEventInWithChanges(
+        events,
+        'master-1',
+        { title: '全体変更' },
+        { occurrenceStart: new Date('2026-07-03T00:00:00Z'), scope: 'all' },
+        makeContext(),
+      );
+      expect(result.changes).toEqual([
+        { before: master, after: findById(result.events, 'master-1') },
+      ]);
+      expect(reconstructAfter(events, result.changes)).toEqual(byId(result.events));
+      expect(reconstructBefore(result.events, result.changes)).toEqual(byId(events));
+    });
+  });
+
+  describe('deleteEventInWithChanges: 単発イベント', () => {
+    it('削除されたイベントのみが before のみで changes に含まれる', () => {
+      const single: CalendarEvent = {
+        id: 'single-1',
+        title: '歯医者',
+        start: new Date('2026-07-01T05:00:00Z'),
+      };
+      const result = deleteEventInWithChanges([single], 'single-1', undefined, makeContext());
+      expect(result.changes).toEqual([{ before: single }]);
+      expect(reconstructAfter([single], result.changes)).toEqual(byId(result.events));
+      expect(reconstructBefore(result.events, result.changes)).toEqual(byId([single]));
+    });
+  });
+
+  describe("deleteEventInWithChanges: scope 'this'", () => {
+    it('未オーバーライドのオカレンス削除は、マスターの before/after（EXDATE 追加）のみが changes に含まれる', () => {
+      const master = makeMaster();
+      const occ = new Date('2026-07-05T00:00:00Z');
+      const result = deleteEventInWithChanges(
+        [master],
+        'master-1',
+        { occurrenceStart: occ, scope: 'this' },
+        makeContext(),
+      );
+      expect(result.changes).toEqual([
+        { before: master, after: findById(result.events, 'master-1') },
+      ]);
+      expect(reconstructAfter([master], result.changes)).toEqual(byId(result.events));
+      expect(reconstructBefore(result.events, result.changes)).toEqual(byId([master]));
+    });
+
+    it('オーバーライド済みのオカレンス削除は、オーバーライド除去（before のみ）とマスターの EXDATE 追加（before/after）の 2 件が changes に含まれる', () => {
+      const master = makeMaster();
+      const override = makeOverride();
+      const events = [master, override];
+      const result = deleteEventInWithChanges(
+        events,
+        'ov-3',
+        { occurrenceStart: new Date('2026-07-03T02:00:00Z'), scope: 'this' },
+        makeContext(),
+      );
+      expect(result.changes).toHaveLength(2);
+      const byChangeId = (id: string) =>
+        result.changes.find((change) => (change.before ?? change.after)?.id === id);
+      expect(byChangeId('ov-3')).toEqual({ before: override });
+      expect(byChangeId('master-1')).toEqual({
+        before: master,
+        after: findById(result.events, 'master-1'),
+      });
+      expect(reconstructAfter(events, result.changes)).toEqual(byId(result.events));
+      expect(reconstructBefore(result.events, result.changes)).toEqual(byId(events));
+    });
+  });
+
+  describe("deleteEventInWithChanges: scope 'thisAndFollowing'", () => {
+    it('マスターの打ち切り（before/after）と分割点以降のオーバーライド除去（before のみ）が漏れなく changes に含まれる', () => {
+      const master = makeMaster();
+      const atBoundary = makeOverride({
+        id: 'ov-4',
+        start: new Date('2026-07-04T02:00:00Z'),
+        originalStart: new Date('2026-07-04T00:00:00Z'),
+      });
+      const beforeBoundary = makeOverride({
+        id: 'ov-2',
+        start: new Date('2026-07-02T02:00:00Z'),
+        originalStart: new Date('2026-07-02T00:00:00Z'),
+      });
+      const events = [master, atBoundary, beforeBoundary];
+      const result = deleteEventInWithChanges(
+        events,
+        'master-1',
+        { occurrenceStart: new Date('2026-07-04T00:00:00Z'), scope: 'thisAndFollowing' },
+        makeContext(),
+      );
+      expect(result.changes).toHaveLength(2);
+      const byChangeId = (id: string) =>
+        result.changes.find((change) => (change.before ?? change.after)?.id === id);
+      expect(byChangeId('master-1')).toEqual({
+        before: master,
+        after: findById(result.events, 'master-1'),
+      });
+      expect(byChangeId('ov-4')).toEqual({ before: atBoundary });
+      // 分割点より前の ov-2 は変更されないので changes に含まれない
+      expect(byChangeId('ov-2')).toBeUndefined();
+      expect(reconstructAfter(events, result.changes)).toEqual(byId(result.events));
+      expect(reconstructBefore(result.events, result.changes)).toEqual(byId(events));
+    });
+  });
+
+  describe("deleteEventInWithChanges: scope 'all'", () => {
+    it('マスターとそれを参照するすべてのオーバーライドが before のみで changes に含まれる', () => {
+      const master = makeMaster();
+      const override = makeOverride();
+      const events = [master, override];
+      const result = deleteEventInWithChanges(
+        events,
+        'master-1',
+        { occurrenceStart: new Date('2026-07-05T00:00:00Z'), scope: 'all' },
+        makeContext(),
+      );
+      expect(result.events).toEqual([]);
+      expect(result.changes).toHaveLength(2);
+      const byChangeId = (id: string) =>
+        result.changes.find((change) => (change.before ?? change.after)?.id === id);
+      expect(byChangeId('master-1')).toEqual({ before: master });
+      expect(byChangeId('ov-3')).toEqual({ before: override });
+      expect(reconstructAfter(events, result.changes)).toEqual(byId(result.events));
+      expect(reconstructBefore(result.events, result.changes)).toEqual(byId(events));
+    });
+  });
+
+  describe('moveOccurrenceInWithChanges', () => {
+    it("繰り返しの 'this' 移動でオーバーライドが作成され、changes にはオーバーライドのみ（before なし）が含まれる", () => {
+      const master = makeMaster();
+      const occ = new Date('2026-07-03T00:00:00Z');
+      const result = moveOccurrenceInWithChanges(
+        [master],
+        'master-1',
+        { occurrenceStart: occ, newStart: new Date('2026-07-03T06:00:00Z'), scope: 'this' },
+        makeContext(),
+      );
+      expect(result.changes).toEqual([{ after: findById(result.events, 'gen-1') }]);
+      expect(reconstructAfter([master], result.changes)).toEqual(byId(result.events));
+      expect(reconstructBefore(result.events, result.changes)).toEqual(byId([master]));
+    });
+  });
+
+  describe('updateEventInWithChanges: 値として無変化のパッチ', () => {
+    it('空パッチ（{}）を適用しても changes は空になる（applyPatch が新しい参照を返しても値は同一）', () => {
+      const single: CalendarEvent = {
+        id: 'single-1',
+        title: '歯医者',
+        start: new Date('2026-07-01T05:00:00Z'),
+        end: new Date('2026-07-01T06:00:00Z'),
+      };
+      const result = updateEventInWithChanges([single], 'single-1', {}, undefined, makeContext());
+      expect(result.changes).toEqual([]);
+    });
+
+    it('既存の値と同じ値を明示的に指定したパッチでも changes は空になる（extendedProps・exdates 等の構造比較を含む）', () => {
+      const master = makeMaster({ exdates: [new Date('2026-07-05T00:00:00Z')] });
+      const result = updateEventInWithChanges(
+        [master],
+        'master-1',
+        {
+          title: master.title,
+          color: master.color,
+          // 同じ内容だが別参照の Date / 配列 / オブジェクトを明示的に指定する
+          exdates: [new Date('2026-07-05T00:00:00Z')],
+          extendedProps: { team: 'dev' },
+        },
+        undefined,
+        makeContext(),
+      );
+      expect(result.changes).toEqual([]);
+    });
+
+    it('実際に値が変わるフィールドが 1 つでもあれば、通常どおり changes に含まれる', () => {
+      const master = makeMaster();
+      const result = updateEventInWithChanges(
+        [master],
+        'master-1',
+        { title: master.title, color: '#000000' },
+        undefined,
+        makeContext(),
+      );
+      expect(result.changes).toEqual([
+        { before: master, after: findById(result.events, 'master-1') },
+      ]);
+    });
   });
 });

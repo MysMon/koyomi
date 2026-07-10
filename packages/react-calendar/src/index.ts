@@ -42,10 +42,15 @@ export {
   type CreateEventResult,
   createEventIn,
   deleteEventIn,
+  deleteEventInWithChanges,
+  type EventChangeEntry,
+  type EventMutationResult,
   type MutationContext,
   moveOccurrenceIn,
+  moveOccurrenceInWithChanges,
   type RecurringTarget,
   updateEventIn,
+  updateEventInWithChanges,
 } from './core/mutations';
 // 繰り返しルール
 export {

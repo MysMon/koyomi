@@ -13,7 +13,7 @@
 import { navigateDate, visibleRangeFor } from './date-utils';
 import { expandEvents } from './expansion';
 import type { MutationContext, RecurringTarget } from './mutations';
-import { createEventIn, deleteEventIn, updateEventIn } from './mutations';
+import { createEventIn, deleteEventInWithChanges, updateEventInWithChanges } from './mutations';
 import { getLocalTimeZone, isValidTimeZone, parseTimeOfDay } from './timezone';
 import type {
   BusinessHoursRule,
@@ -28,6 +28,7 @@ import type {
   CalendarViewType,
   DateRange,
   DragPreview,
+  EventChangeEntry,
   EventId,
   EventOccurrence,
   ResolvedCalendarOptions,
@@ -556,15 +557,19 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       id: EventId,
       patch: CalendarEventPatch,
       target?: { occurrenceStart: Date; scope: RecurringTarget['scope'] },
-    ): void {
-      applyEventsChange(updateEventIn(events, id, patch, target, mutationContext()));
+    ): readonly EventChangeEntry[] {
+      const result = updateEventInWithChanges(events, id, patch, target, mutationContext());
+      applyEventsChange(result.events);
+      return result.changes;
     },
 
     deleteEvent(
       id: EventId,
       target?: { occurrenceStart: Date; scope: RecurringTarget['scope'] },
-    ): void {
-      applyEventsChange(deleteEventIn(events, id, target, mutationContext()));
+    ): readonly EventChangeEntry[] {
+      const result = deleteEventInWithChanges(events, id, target, mutationContext());
+      applyEventsChange(result.events);
+      return result.changes;
     },
 
     // --- ビューモデル ---

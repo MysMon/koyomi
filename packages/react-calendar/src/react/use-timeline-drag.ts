@@ -365,7 +365,7 @@ export function useTimelineDrag(params: {
       // 未割り当てへの移動は「キーが存在し値が undefined = フィールド削除」のパッチセマンティクス
       patch.resourceId = resourceId ?? undefined;
     }
-    paramsRef.current.calendar.api.updateEvent(
+    const changes = paramsRef.current.calendar.api.updateEvent(
       occurrence.eventId,
       patch,
       recurringScope === null
@@ -378,6 +378,7 @@ export function useTimelineDrag(params: {
       allDay,
       scope: recurringScope,
       resourceId,
+      changes,
     });
   }
 
@@ -658,19 +659,19 @@ export function useTimelineDrag(params: {
       return;
     }
     if (!occurrence.isRecurring) {
-      paramsRef.current.calendar.api.deleteEvent(occurrence.eventId);
-      paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope: null });
+      const changes = paramsRef.current.calendar.api.deleteEvent(occurrence.eventId);
+      paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope: null, changes });
       return;
     }
     const scope = await resolveScopeForRecurring(paramsRef.current.callbacks, occurrence, 'delete');
     if (scope === null) {
       return;
     }
-    paramsRef.current.calendar.api.deleteEvent(occurrence.eventId, {
+    const changes = paramsRef.current.calendar.api.deleteEvent(occurrence.eventId, {
       occurrenceStart: occurrence.originalStart,
       scope,
     });
-    paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope });
+    paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope, changes });
   }
 
   /** 現在のビューモデルの行並びを返す（タイムラインビューでなければ空配列）。 */
