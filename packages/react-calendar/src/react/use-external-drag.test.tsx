@@ -224,6 +224,54 @@ describe('useExternalDrag - 月ビュー', () => {
     expect(calendarSink.current?.state.dragPreview).toBeNull();
   });
 
+  it('複数日の帯の上（開始日以外の列）へドロップすると、帯の開始日ではなくポインタ直下の日へ解決される', () => {
+    // 帯（month-event）は DOM 上は開始日の gridcell の子として描画されるため、
+    // 最前面要素（帯）から closest() で辿ると常に開始日のセルへ解決してしまう。
+    // elementsFromPoint の列挙にはポインタ直下のセル自身も含まれるので、
+    // 「候補自身がセルにマッチするもの」を優先して正しい日へ解決することを保証する
+    const onExternalDrop = vi.fn();
+    const events: CalendarEvent[] = [
+      // 7/20〜7/22 の 3 日間の帯（end 排他で 7/23 0:00）。帯は 7/20 セルの子になる
+      { id: 'band', title: '合宿', start: '2026-07-20', end: '2026-07-23', allDay: true },
+    ];
+    const { container } = render(
+      <Harness view="month" events={events} onExternalDrop={onExternalDrop} />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const band = container.querySelector('[data-koyomi="month-event"]');
+    const cell22 = container.querySelector(
+      '[data-koyomi="month-day"][data-koyomi-date="2026-07-22"]',
+    );
+    expect(source).toBeInstanceOf(HTMLElement);
+    expect(band).toBeInstanceOf(HTMLElement);
+    expect(cell22).toBeInstanceOf(HTMLElement);
+    if (
+      !(source instanceof HTMLElement) ||
+      !(band instanceof HTMLElement) ||
+      !(cell22 instanceof HTMLElement)
+    ) {
+      throw new Error('要素が見つかりません');
+    }
+    // 帯は 7/20 セルの子であることを前提として確認しておく（前提が変わったらテストも見直す）
+    expect(band.closest('[data-koyomi="month-day"]')).toHaveAttribute(
+      'data-koyomi-date',
+      '2026-07-20',
+    );
+    // ポインタは 7/22 の列の上にあり、直下は手前から [帯, 7/22 セル] の順
+    mockElementsFromPoint([band, cell22]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+    releasePointer(10, 10);
+
+    expect(onExternalDrop).toHaveBeenCalledTimes(1);
+    expect(onExternalDrop).toHaveBeenCalledWith({
+      range: { start: at('2026-07-22T00:00'), end: at('2026-07-23T00:00') },
+      allDay: true,
+      payload: { title: '外部の予定' },
+    });
+  });
+
   it('既存イベント（month-event）の上へドロップしても、その下のセルの終日範囲で onExternalDrop が呼ばれる', () => {
     // month-event はセル（month-day）の兄弟要素として重ねて描画されるため、
     // ポインタ直下の最前面要素は月イベントのボタンになる。実ブラウザの

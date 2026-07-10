@@ -37,6 +37,7 @@ import { useEffect, useRef, useState } from 'react';
 import { timeAtGridPosition, timeAtTimelineOffset } from '../core/interaction';
 import { addDaysInZone, addMinutesInZone, dateFromKey } from '../core/timezone';
 import type { DateRange, TimeZoneId } from '../core/types';
+import { resourceIdFromLaneKey } from '../core/views/lane-key';
 import { attachDragSessionListeners } from './drag-common';
 import type { UseCalendarResult } from './types';
 
@@ -126,17 +127,9 @@ interface ExternalDropResolution {
   resourceId?: string | null;
 }
 
-/**
- * 列/行キー（{@link ResourceColumn.key} / {@link TimelineRow.key} と同じ
- * `` `r:${id}` `` / `'unassigned'` 形式）からリソース ID を復元する。
- * 未割り当て・解釈不能な値は `null` に正規化する。
- */
-function resourceIdFromColumnKey(key: string | null): string | null {
-  if (key === null || key === 'unassigned') {
-    return null;
-  }
-  return key.startsWith('r:') ? key.slice(2) : null;
-}
+// 列/行キー（ResourceColumn.key / TimelineRow.key）のデコードは、エンコーダと
+// 対で管理される core/views/lane-key.ts の resourceIdFromLaneKey を使う
+// （リテラルの直書き再実装は形式変更時に静かに壊れるため禁止）
 
 /** 矩形内での座標の割合（0〜1）を求める。矩形のサイズが 0 以下なら 0（0 除算防止）。 */
 function fractionAlong(start: number, size: number, pointer: number): number {
@@ -174,14 +167,29 @@ function elementsAtPoint(clientX: number, clientY: number): readonly Element[] {
 }
 
 /**
- * 候補要素（手前から奥の順）を順に見て、最初に `selector` にマッチする要素
- * （自身または祖先）を返す。
+ * 候補要素（手前から奥の順）から `selector` にマッチするセルを解決する。
+ *
+ * まず「候補自身がセルにマッチするもの」を優先する。イベントの帯は DOM 上は
+ * 開始日の gridcell の子として描画される（ARIA 上の所有関係の要請）ため、
+ * 最前面要素（帯）から `closest()` で辿ると、ポインタが帯の何日目にあっても
+ * 常に開始日のセルへ解決してしまう。`elementsFromPoint` の列挙にはポインタ
+ * 直下のセル自身も含まれるので、自身マッチを優先すれば正しい日へ解決できる。
+ *
+ * どの候補も自身はマッチしない場合のみ、祖先を辿るフォールバックを行う
+ * （セル内の日番号ボタン等だけがヒットする構成や、単一要素の
+ * `elementFromPoint` しか使えない環境向け。この場合は候補がセルの子孫で
+ * あることが前提なので `closest()` で正しいセルに到達できる）。
  *
  * @param elements - {@link elementsAtPoint} が返す候補（手前から奥の順）
  * @param selector - 探すセルの CSS セレクタ（`data-koyomi` 属性セレクタ）
- * @returns 最初に見つかった `HTMLElement`。どの候補も該当しなければ `null`
+ * @returns 解決された `HTMLElement`。どの候補からも解決できなければ `null`
  */
 function closestAmong(elements: readonly Element[], selector: string): HTMLElement | null {
+  for (const element of elements) {
+    if (element instanceof HTMLElement && element.matches(selector)) {
+      return element;
+    }
+  }
   for (const element of elements) {
     const match = element.closest(selector);
     if (match instanceof HTMLElement) {
@@ -265,7 +273,7 @@ function resolveResourceDrop(
   const { timeZone, snap, defaultEventMinutes, day } = context;
   const alldayCell = closestAmong(elements, '[data-koyomi="resource-allday-cell"]');
   if (alldayCell !== null) {
-    const resourceId = resourceIdFromColumnKey(alldayCell.getAttribute('data-koyomi-resource'));
+    const resourceId = resourceIdFromLaneKey(alldayCell.getAttribute('data-koyomi-resource'));
     return {
       range: { start: day, end: addDaysInZone(day, 1, timeZone) },
       allDay: true,
@@ -276,7 +284,7 @@ function resolveResourceDrop(
   if (column === null) {
     return null;
   }
-  const resourceId = resourceIdFromColumnKey(column.getAttribute('data-koyomi-resource'));
+  const resourceId = resourceIdFromLaneKey(column.getAttribute('data-koyomi-resource'));
   const rect = column.getBoundingClientRect();
   const start = timeAtGridPosition({
     day,
@@ -316,7 +324,7 @@ function resolveTimelineDrop(
   if (row === null) {
     return null;
   }
-  const resourceId = resourceIdFromColumnKey(row.getAttribute('data-koyomi-resource'));
+  const resourceId = resourceIdFromLaneKey(row.getAttribute('data-koyomi-resource'));
   const rect = row.getBoundingClientRect();
   const fraction = fractionAlong(rect.left, rect.width, clientX);
   const displayMinutes = fraction * days.length * MINUTES_PER_DAY;

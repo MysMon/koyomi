@@ -32,6 +32,7 @@ import type {
   TimelineViewModel,
   TimeZoneId,
 } from '../types';
+import { laneKeyForResource, UNASSIGNED_LANE_KEY } from './lane-key';
 
 /** 1 日の分（24:00 = 1440 分）。DST 日でも表示スケールは 24 時間として扱う。 */
 const MINUTES_PER_DAY = 1440;
@@ -44,13 +45,14 @@ const MINUTES_PER_DAY = 1440;
  */
 const ZERO_LENGTH_EFFECTIVE_MINUTES = 30;
 
-/** 未割り当て行のキー（{@link ./resource-view} の未割り当て列と同じ形式）。 */
-const UNASSIGNED_KEY = 'unassigned';
+/** 未割り当て行のキー（{@link UNASSIGNED_LANE_KEY} の別名。既存コードの可読性のため）。 */
+const UNASSIGNED_KEY = UNASSIGNED_LANE_KEY;
 
-/** リソース行のキーを組み立てる（`'unassigned'` という ID のリソースと衝突しない形式）。 */
-function resourceRowKey(resourceId: string): string {
-  return `r:${resourceId}`;
-}
+/**
+ * リソース行のキーを組み立てる（{@link laneKeyForResource} の別名）。
+ * 形式は core/views/lane-key.ts が encode/decode の対で管理する。
+ */
+const resourceRowKey = laneKeyForResource;
 
 /** 行内アイテムの表示順（表示分の開始昇順 → 長い順 → キー辞書順）。 */
 interface RowEntry {
