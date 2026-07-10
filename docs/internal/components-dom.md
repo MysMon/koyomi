@@ -97,22 +97,30 @@ div[data-koyomi="month"] (role="grid")
 
 ```
 div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"]
-  div[data-koyomi="timegrid-header"]
-    div[data-koyomi="timegrid-axis-gutter"][data-koyomi-timezone] × timeAxes.length … 左上の空き（時間軸幅の確保）
-    div[data-koyomi="timegrid-day-header"][data-koyomi-date][data-today?][aria-current="date"?] × days
-      … 曜日＋日番号（renderDayHeader で差し替え可）。
-        曜日ラベルは span[data-koyomi="timegrid-weekday"]（Intl、month-weekday/year-weekday と同じ流儀）
-        日番号は button[data-koyomi="timegrid-day-number"]（aria-label=完全な日付、day ビューへ）
-  div[data-koyomi="allday-row"]
-    div[data-koyomi="timegrid-axis-gutter"][data-koyomi-timezone] × timeAxes.length
-    div[data-koyomi="allday-cells"]                  … position: relative の基準
-      div[data-koyomi="allday-cell"][data-koyomi-date] × days   … getDayCellProps（allDay 作成用）
-      button[data-koyomi="allday-event"] × n         … getSegmentProps。style: insetInlineStart/width %、
-           top: lane × var(--koyomi-lane-height, 24px)。continues/dragging 属性は月と同じ
-        span[data-koyomi="allday-resize"][data-edge="start|end"]?
-           … getSegmentResizeHandleProps（editable: false / continues 側には出力しない）
-      div[data-koyomi="day-selection"]?              … allDay プレビュー
-  div[data-koyomi="timegrid-body"]
+  div[data-koyomi="timegrid-grid"] (role="grid")            … 日ヘッダー行・終日行だけをまとめる a11y 用ラッパー
+                                                                （row/rowgroup 以外を子孫に持たないよう本文はこの外側に置く）
+    div[data-koyomi="timegrid-header"] (role="row")
+      div[data-koyomi="timegrid-axis-gutter"][data-koyomi-timezone] (role="presentation") × timeAxes.length … 左上の空き（時間軸幅の確保）
+      div[data-koyomi="timegrid-day-header"][data-koyomi-date][data-today?] (role="columnheader", aria-current="date"?) × days
+        … 曜日＋日番号（renderDayHeader で差し替え可）。
+          曜日ラベルは span[data-koyomi="timegrid-weekday"]（Intl、month-weekday/year-weekday と同じ流儀）
+          日番号は button[data-koyomi="timegrid-day-number"]（aria-label=完全な日付、day ビューへ）
+    div[data-koyomi="timegrid-allday"] (role="presentation")  … allday-row と選択プレビューレイヤーをまとめるラッパー
+                                                          （grid→row 間の透過ラッパ。レイヤーの絶対配置の基準）
+      div[data-koyomi="allday-row"] (role="row")
+        div[data-koyomi="timegrid-axis-gutter"][data-koyomi-timezone] (role="presentation") × timeAxes.length
+        div[data-koyomi="allday-cells"] (role="presentation")  … position: relative の基準（row→gridcell 間の透過ラッパ）
+          div[data-koyomi="allday-cell"][data-koyomi-date] (role="gridcell", aria-label=完全な日付) × days   … getDayCellProps（allDay 作成用）
+            button[data-koyomi="allday-event"] × n     … getSegmentProps。開始日のセルが DOM 上所有する
+                 （positioned ancestor は allday-cells のため、複数日スパンの座標は従来どおり）。
+                 style: insetInlineStart/width %、top: lane × var(--koyomi-lane-height, 24px)。
+                 continues/dragging 属性は月と同じ
+              span[data-koyomi="allday-resize"][data-edge="start|end"]?
+                 … getSegmentResizeHandleProps（editable: false / continues 側には出力しない）
+      div[data-koyomi="allday-events"] (aria-hidden)   … allday-row の外側（兄弟要素）に置く選択プレビューレイヤー
+        div[data-koyomi="day-selection"]?              … allDay プレビュー
+  div[data-koyomi="timegrid-body"]   … role なし（role="grid" の子孫ではないため presentation で打ち消す必要がない）。
+                                        連続的な時間位置決めのため grid 化しない（詳細は docs/accessibility.md）
     div[data-koyomi="time-axis"][data-koyomi-timezone] × timeAxes.length  … 先頭が主軸（表示 TZ）、以降が timeAxisZones の指定順
       div[data-koyomi="time-slot-label"] × slots     … 'HH:mm'（この軸のタイムゾーンでの現地時刻）
     div[data-koyomi="timegrid-days"]
@@ -134,11 +142,22 @@ div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"]
         div[data-koyomi="now-indicator"]? (aria-hidden) … style: top %（nowIndicator の日のみ）
 ```
 
+- a11y: 日ヘッダー行・終日行は離散セルなので、両者だけをまとめた `timegrid-grid`
+  （`role="grid"`）の中で row/columnheader/gridcell を構成する（月ビューと同じ方針）。
+  `role="grid"` の owned elements は row/rowgroup に限られる（WAI-ARIA grid パターン）ため、
+  本文（`timegrid-body`）は grid 化しないだけでなく `timegrid-grid` の外側（兄弟要素）に置き、
+  内部の予定ボタンが grid の子孫としてアクセシビリティツリーに漏れ出さないようにする。
+  終日の帯（`allday-event`）は複数日にまたがり得るが、DOM 上は開始日の `allday-cell`
+  （`gridcell`）の子として所有させる（ResourceView と同じ正当なネスト。grid の子孫の
+  focusable を row/gridcell の所有関係の外に置かないため）。範囲選択プレビューの
+  レイヤー（`allday-events`）は focusable を含まず `aria-hidden` で除外する。
+  判断根拠・既知の制限の詳細は `docs/accessibility.md` を参照
+
 ## リストビュー（ListView）
 
 ```
 div[data-koyomi="list"]
-  section[data-koyomi="list-day"][data-koyomi-date][data-today?] × n
+  section[data-koyomi="list-day"][data-koyomi-date][data-today?] (aria-current="date"?) × n
     h3[data-koyomi="list-day-header"]                … 日付ラベル（Intl、renderDayHeader で差し替え可）
     button[data-koyomi="list-event"] × n
       span[data-koyomi="list-event-time"]            … allDayLabel（既定「終日」）または「HH:mm〜HH:mm」
@@ -148,6 +167,9 @@ div[data-koyomi="list"]
 ```
 
 - リストのイベントはクリックで `onEventClick`（ドラッグなし）。Enter/Space も同様
+- a11y: 日付ごとに独立した `<section>` の一覧であり、行・列からなる表形式ではないため
+  WAI-ARIA grid パターンは適用しない（判断根拠は `docs/accessibility.md` 参照）。今日の
+  section には他ビューと同様 `aria-current="date"` を付ける
 
 ### 仮想化（VirtualListView）— opt-in 時の DOM 拡張
 
@@ -238,20 +260,23 @@ div[data-koyomi="multimonth"]
 
 ```
 div[data-koyomi="resource"][data-koyomi-columns="<列数>"]
-  div[data-koyomi="resource-header"]
-    div[data-koyomi="timegrid-axis-gutter"]                … 左上の空き（時間軸幅の確保）
-    div[data-koyomi="resource-headers"]
-      div[data-koyomi="resource-header-cell"][data-koyomi-resource-id]? × columns
-         … リソース名（renderColumnHeader で差し替え可）。未割り当て列は data-koyomi-resource-id なし。
-           style: --koyomi-event-color（resource.color 指定時のみ）
-  div[data-koyomi="allday-row"]
-    div[data-koyomi="timegrid-axis-gutter"]
-    div[data-koyomi="resource-allday-cells"]                … position: relative の基準
-      div[data-koyomi="resource-allday-cell"][data-koyomi-resource][data-koyomi-preview-target?] × columns
-         … getAllDayCellProps（クリックで当日 1 日分の終日イベント作成）
-        button[data-koyomi="allday-event"] × n             … getAllDayItemProps（列間移動のみ）
-           style: --koyomi-event-color（event.color ?? resource.color）
-  div[data-koyomi="resource-body"]
+  div[data-koyomi="resource-grid"] (role="grid")            … 列見出し行・終日行だけをまとめる a11y 用ラッパー
+                                                                （row/rowgroup 以外を子孫に持たないよう本文はこの外側に置く）
+    div[data-koyomi="resource-header"] (role="row")
+      div[data-koyomi="timegrid-axis-gutter"] (role="presentation")   … 左上の空き（時間軸幅の確保）
+      div[data-koyomi="resource-headers"] (role="presentation")  … row→columnheader 間の透過ラッパ
+        div[data-koyomi="resource-header-cell"][data-koyomi-resource-id]? (role="columnheader") × columns
+           … リソース名（renderColumnHeader で差し替え可）。未割り当て列は data-koyomi-resource-id なし。
+             style: --koyomi-event-color（resource.color 指定時のみ）
+    div[data-koyomi="allday-row"] (role="row")
+      div[data-koyomi="timegrid-axis-gutter"] (role="presentation")
+      div[data-koyomi="resource-allday-cells"] (role="presentation")  … position: relative の基準（row→gridcell 間の透過ラッパ）
+        div[data-koyomi="resource-allday-cell"][data-koyomi-resource][data-koyomi-preview-target?] (role="gridcell", aria-label=リソース名/未割り当て) × columns
+           … getAllDayCellProps（クリックで当日 1 日分の終日イベント作成。キーボードでの直接作成には未対応 = 既知の制限）
+          button[data-koyomi="allday-event"] × n             … getAllDayItemProps（列間移動のみ）
+             style: --koyomi-event-color（event.color ?? resource.color）
+  div[data-koyomi="resource-body"]   … role なし（role="grid" の子孫ではないため presentation で打ち消す必要がない）。
+                                        連続的な時間位置決めのため grid 化しない（詳細は docs/accessibility.md）
     div[data-koyomi="time-axis"]
       div[data-koyomi="time-slot-label"] × slots           … 'HH:mm'
     div[data-koyomi="resource-columns"]
@@ -272,9 +297,14 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"]
   div[data-koyomi="resource-empty"]?                        … isEmpty のとき emptyLabel（既定「リソースがありません」）
 ```
 
-- `isEmpty` の場合は `div[data-koyomi="resource"]` の直下に `resource-empty` のみを描画する（上記の内部構造は出力しない）
+- `isEmpty` の場合は `div[data-koyomi="resource"]` の直下に `resource-empty` のみを描画する（上記の内部構造は出力しない。`resource-grid` も生成しない）
 - イベントの aria-label は「タイトル、開始〜終了、リソース名」（週/日ビューの aria-label にリソース名を付け足した形。未割り当て列はリソース名部分を省略）
-- a11y は週/日ビューの現状（grid 系 role なし）に合わせ、role なし + 操作要素は `<button>`
+- a11y: 列見出し行・終日行は離散セルなので、両者だけをまとめた `resource-grid`
+  （`role="grid"`）の中で row/columnheader/gridcell を構成する（週/日ビューと同じ方針）。
+  `role="grid"` の owned elements は row/rowgroup に限られる（WAI-ARIA grid パターン）ため、
+  本文（`resource-body`）は grid 化しないだけでなく `resource-grid` の外側（兄弟要素）に置き、
+  内部の予定ボタンが grid の子孫としてアクセシビリティツリーに漏れ出さないようにする。
+  操作要素は `<button>` + 完全な `aria-label`。判断根拠・既知の制限の詳細は `docs/accessibility.md` を参照
 
 ## タイムラインビュー（TimelineView）
 
@@ -284,22 +314,24 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"]
 `position: sticky` で固定する（二重スクロール同期の JS は持たない）。
 
 ```
-div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"]
-  div[data-koyomi="timeline-body"]                          … 横スクロールコンテナ
-    div[data-koyomi="timeline-header-row"]
-      div[data-koyomi="timeline-corner"]                    … 左上の空き（行見出し幅の確保）
-      div[data-koyomi="timeline-axis"]
+div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"] (role="grid")
+  div[data-koyomi="timeline-body"] (role="presentation")    … 横スクロールコンテナ（grid→row 間の透過ラッパ）
+    div[data-koyomi="timeline-header-row"] (role="row")
+      div[data-koyomi="timeline-corner"] (role="columnheader", aria-label=cornerLabel)
+                                                                  … 左上の角セル（行見出し列の列見出し。視覚上は空。
+                                                                    presentation で隠すと本文行と列数がずれるため公開する）
+      div[data-koyomi="timeline-axis"] (role="columnheader")     … 日ヘッダー＋時刻目盛りをまとめた1セル
         div[data-koyomi="timeline-day-headers"]
-          div[data-koyomi="timeline-day-header"][data-today?] × days
+          div[data-koyomi="timeline-day-header"][data-today?] (aria-current="date"?) × days
              … 日付見出し（formatDayHeader）。style: width %（1440 / totalMinutes）
         div[data-koyomi="timeline-slots"]
           div[data-koyomi="timeline-slot-label"] × slots    … 日内時刻（TimelineSlot.label）。
                                                                 style: insetInlineStart %
-    div[data-koyomi="timeline-row-group"] × rows
-      div[data-koyomi="timeline-resource-header"][data-koyomi-resource-id]?
+    div[data-koyomi="timeline-row-group"] (role="row") × rows
+      div[data-koyomi="timeline-resource-header"][data-koyomi-resource-id]? (role="rowheader")
          … リソース名（renderRowHeader で差し替え可）。未割り当て行は data-koyomi-resource-id なし。
            style: --koyomi-event-color（resource.color 指定時のみ）。position: sticky（テーマ側）
-      div[data-koyomi="timeline-row"][data-koyomi-resource] × rows
+      div[data-koyomi="timeline-row"][data-koyomi-resource] (role="gridcell") × rows
          … getRowProps を展開。position: relative の基準。style: --koyomi-timeline-lanes（行のレーン数）
         button[data-koyomi="timeline-item"] × n             … getItemProps を展開
            [data-koyomi-lane][data-all-day?][data-continues-before?][data-continues-after?][data-koyomi-dragging?]
@@ -323,7 +355,10 @@ div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"]
   開発ビルドで一度だけ `console.warn` する（`timelineDays × ceil(1440 / slotMinutes)` が大きい構成）
 - `now-indicator` は週/日ビュー・リソースビューと同じ部位名だが、こちらは縦線
   （`data-orientation="vertical"`）として描画される点が異なる
-- a11y は週/日ビューの現状（grid 系 role なし）に合わせ、role なし + 操作要素は `<button>`
+- a11y: 行＝リソース・列＝時間トラックという 2 列固定の構造なので、他ビューと異なり本文にも
+  `role="grid"` を適用し grid/row/columnheader/rowheader/gridcell を完全に構成する（各行が
+  「rowheader + gridcell 1 セル」の固定 2 セルで、日単位の離散列を持たないため）。帯自体は
+  `<button>` + 完全な `aria-label`。判断根拠の詳細は `docs/accessibility.md` を参照
 
 ## CalendarView
 

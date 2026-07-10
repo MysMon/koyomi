@@ -127,6 +127,7 @@ export function ListDaySection(props: ListDaySectionProps): ReactElement {
       data-koyomi="list-day"
       data-koyomi-date={day.key}
       data-today={day.isToday ? 'true' : undefined}
+      aria-current={day.isToday ? 'date' : undefined}
       {...(role !== undefined ? { role } : {})}
       {...(ariaLabel !== undefined ? { 'aria-label': ariaLabel } : {})}
       {...(pinned === true ? { 'data-koyomi-pinned': 'true' } : {})}

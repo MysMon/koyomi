@@ -439,6 +439,7 @@ function App() {
 - [はじめに](./getting-started.md)
 - [予定の管理](./events.md)
 - [インタラクション（作成・移動・リサイズ）](./interactions.md)
+- [アクセシビリティ](./accessibility.md)
 - [タイムゾーン](./timezones.md)
 - [テーマとスタイリング](./theming.md)
 - [API リファレンス](./api.md)

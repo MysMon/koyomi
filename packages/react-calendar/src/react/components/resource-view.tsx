@@ -9,8 +9,15 @@
  * デフォルトテーマのスタイルを共有する。ドラッグ操作は
  * {@link useResourceGridDrag} に委譲する。
  *
- * a11y は週/日ビューの現状（grid 系 role なし）に合わせ、操作要素は `<button>` +
- * 完全な `aria-label`（日時 + リソース名）とする。
+ * a11y: 列見出し行・終日行はリソース単位の離散セルなので、両者だけをまとめた
+ * `resource-grid`（`role="grid"`）の中で row/columnheader/gridcell を構成する
+ * （TimeGridView と同じ方針）。本文（時間軸 + リソース列）は連続的な時間位置決めで
+ * 離散セルに対応しないため grid 化しない。`role="grid"` の owned elements は
+ * row/rowgroup に限られる（WAI-ARIA grid パターン）ため、本文は grid 化しないだけでなく
+ * `resource-grid` の**外側**（兄弟要素）に置き、内部の予定ボタンが grid の子孫として
+ * アクセシビリティツリーに漏れ出さないようにする。操作要素は `<button>` + 完全な
+ * `aria-label`（日時 + リソース名）とする
+ * （判断根拠・既知の制限の詳細は `docs/accessibility.md` 参照）。
  */
 
 import type { ReactElement, ReactNode, Ref } from 'react';
@@ -71,6 +78,15 @@ function toDivRef(ref: Ref<HTMLElement>): (element: HTMLDivElement | null) => vo
       ref.current = element;
     }
   };
+}
+
+/**
+ * `ReactNode` のラベルを `aria-label` 属性用の文字列に変換する。
+ * `aria-label` は文字列しか受け付けないため、`label` が文字列でない
+ * （JSX 等が渡された）場合は `fallback` を使う（`toolbar.tsx` の同名ヘルパと同じ方針）。
+ */
+function ariaLabelText(label: ReactNode, fallback: string): string {
+  return typeof label === 'string' ? label : fallback;
 }
 
 /**
@@ -266,57 +282,82 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
 
   return (
     <div data-koyomi="resource" data-koyomi-columns={String(columns.length)}>
-      <div data-koyomi="resource-header">
-        <div data-koyomi="timegrid-axis-gutter" />
-        <div data-koyomi="resource-headers">
-          {columns.map((column) => {
-            const defaultContent = column.resource?.title ?? unassignedLabel;
-            return (
+      {/* biome-ignore lint/a11y/useSemanticElements: DOM 仕様が定める div ベースの ARIA grid（TimeGridView と同じ方針。<table> はテーマ CSS と噛み合わないため不採用） */}
+      <div data-koyomi="resource-grid" role="grid">
+        {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA row */}
+        {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない（フォーカスは各 columnheader/gridcell が担う） */}
+        <div data-koyomi="resource-header" role="row">
+          <div data-koyomi="timegrid-axis-gutter" role="presentation" />
+          {/* row と columnheader の間に挟まるレイアウト用ラッパー。role="presentation" で
+              所有関係を透過させる（row の required owned elements 違反を避ける） */}
+          <div data-koyomi="resource-headers" role="presentation">
+            {columns.map((column) => {
+              const defaultContent = column.resource?.title ?? unassignedLabel;
+              return (
+                // biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA columnheader
+                // biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない（ネイティブ <th> も単体ではタブ移動対象にならない）
+                <div
+                  key={column.key}
+                  data-koyomi="resource-header-cell"
+                  role="columnheader"
+                  {...(column.resource !== null
+                    ? { 'data-koyomi-resource-id': column.resource.id }
+                    : {})}
+                  style={withEventColorStyle({}, column.resource?.color)}
+                >
+                  {renderColumnHeader ? renderColumnHeader(column, defaultContent) : defaultContent}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA row */}
+        {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない（フォーカスは各 gridcell が担う） */}
+        <div data-koyomi="allday-row" role="row">
+          <div data-koyomi="timegrid-axis-gutter" role="presentation" />
+          {/* row と gridcell の間に挟まるレイアウト用ラッパー。role="presentation" で
+              所有関係を透過させる（row の required owned elements 違反を避ける） */}
+          <div data-koyomi="resource-allday-cells" role="presentation">
+            {columns.map((column) => (
+              // biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA gridcell
+              // biome-ignore lint/a11y/useFocusableInteractive: 現状クリック専用でキーボード操作に未対応（既知の制限。docs/accessibility.md 参照）
               <div
                 key={column.key}
-                data-koyomi="resource-header-cell"
-                {...(column.resource !== null
-                  ? { 'data-koyomi-resource-id': column.resource.id }
-                  : {})}
-                style={withEventColorStyle({}, column.resource?.color)}
+                {...drag.getAllDayCellProps(column)}
+                data-koyomi="resource-allday-cell"
+                role="gridcell"
+                aria-label={
+                  column.resource?.title ?? ariaLabelText(unassignedLabel, DEFAULT_UNASSIGNED_LABEL)
+                }
+                data-koyomi-preview-target={drag.isAllDayPreviewTarget(column) ? 'true' : undefined}
+                // 終日アイテムはレーン（配列順）で縦積みするため、レーン数分の高さを確保する
+                // （週/日ビューの allday-cells の minHeight と同じ方式）
+                style={{
+                  minHeight: `calc(${Math.max(2, column.allDayItems.length)} * var(--koyomi-lane-height, 24px))`,
+                }}
               >
-                {renderColumnHeader ? renderColumnHeader(column, defaultContent) : defaultContent}
+                {column.allDayItems.map((occurrence, lane) => (
+                  <AllDayItemButton
+                    key={occurrence.key}
+                    occurrence={occurrence}
+                    column={column}
+                    lane={lane}
+                    timeZone={timeZone}
+                    locale={locale}
+                    drag={stableDrag}
+                    isDragging={drag.isDragging}
+                  />
+                ))}
               </div>
-            );
-          })}
+            ))}
+          </div>
         </div>
       </div>
-      <div data-koyomi="allday-row">
-        <div data-koyomi="timegrid-axis-gutter" />
-        <div data-koyomi="resource-allday-cells">
-          {columns.map((column) => (
-            <div
-              key={column.key}
-              {...drag.getAllDayCellProps(column)}
-              data-koyomi="resource-allday-cell"
-              data-koyomi-preview-target={drag.isAllDayPreviewTarget(column) ? 'true' : undefined}
-              // 終日アイテムはレーン（配列順）で縦積みするため、レーン数分の高さを確保する
-              // （週/日ビューの allday-cells の minHeight と同じ方式）
-              style={{
-                minHeight: `calc(${Math.max(2, column.allDayItems.length)} * var(--koyomi-lane-height, 24px))`,
-              }}
-            >
-              {column.allDayItems.map((occurrence, lane) => (
-                <AllDayItemButton
-                  key={occurrence.key}
-                  occurrence={occurrence}
-                  column={column}
-                  lane={lane}
-                  timeZone={timeZone}
-                  locale={locale}
-                  drag={stableDrag}
-                  isDragging={drag.isDragging}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* 本文（時間軸 + リソース列）は連続的な時間位置決めで離散セルに対応しないため grid 化しない
+          （詳細は docs/accessibility.md 参照）。role="grid" の owned elements は row/rowgroup
+          に限られる（WAI-ARIA grid パターン）ため、grid 化しないだけでなく上の resource-grid の
+          外側（兄弟要素）に置く。role は付けない（grid の子孫ではないため presentation で
+          打ち消す必要がない） */}
       <div data-koyomi="resource-body">
         <div data-koyomi="time-axis">
           {slots.map((slot) => (

@@ -457,3 +457,123 @@ describe('ResourceView - ドラッグプレビュー', () => {
     expect(allDayCells[1]).toHaveAttribute('data-koyomi-preview-target', 'true');
   });
 });
+
+describe('ResourceView - ARIA', () => {
+  it('列見出し行・終日行は role="grid" の中で row/columnheader/gridcell を構成する', () => {
+    const { container } = render(<Harness resources={[ROOM_A, ROOM_B]} />);
+
+    // 列見出し行・終日行だけをまとめた専用ラッパー（resource-grid）に role="grid" が付く
+    expect(container.querySelector('[data-koyomi="resource"]')).not.toHaveAttribute('role');
+    expect(container.querySelector('[data-koyomi="resource-grid"]')).toHaveAttribute(
+      'role',
+      'grid',
+    );
+    expect(container.querySelector('[data-koyomi="resource-header"]')).toHaveAttribute(
+      'role',
+      'row',
+    );
+    // unassignedLane: 'auto' かつ未割り当てイベントが無いため 2 列（会議室A・会議室B）
+    expect(
+      container.querySelectorAll('[data-koyomi="resource-header-cell"][role="columnheader"]'),
+    ).toHaveLength(2);
+    expect(container.querySelector('[data-koyomi="allday-row"]')).toHaveAttribute('role', 'row');
+    expect(
+      container.querySelectorAll('[data-koyomi="resource-allday-cell"][role="gridcell"]'),
+    ).toHaveLength(2);
+
+    // row → columnheader/gridcell の間に挟まるレイアウト用ラッパーは role="presentation" で
+    // 所有関係を透過させる（required owned elements 違反を避ける）
+    expect(container.querySelector('[data-koyomi="resource-headers"]')).toHaveAttribute(
+      'role',
+      'presentation',
+    );
+    expect(container.querySelector('[data-koyomi="resource-allday-cells"]')).toHaveAttribute(
+      'role',
+      'presentation',
+    );
+
+    // 本文（時間軸 + リソース列）は連続的な時間位置決めで離散セルに対応しないため grid 化せず、
+    // role="grid" の owned elements（row/rowgroup）違反を避けるため resource-grid の
+    // 外側（兄弟要素）に置かれる。role は付かない
+    expect(container.querySelector('[data-koyomi="resource-body"]')).not.toHaveAttribute('role');
+  });
+
+  it('role="grid" の要素は本文の予定ボタンを子孫に含まない（WAI-ARIA grid パターンの owned elements 違反を避ける）', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '会議',
+        start: '2026-07-15T10:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'room-a',
+      },
+    ];
+    const { container } = render(<Harness resources={[ROOM_A, ROOM_B]} events={events} />);
+
+    const grid = container.querySelector('[role="grid"]');
+    expect(grid).not.toBeNull();
+    // role="grid" の直接・間接の子孫として row/rowgroup 以外の要素（予定ボタン）が
+    // 現れてはいけない（role="presentation" は自身の役割を消すだけで、内部の
+    // <button> はアクセシビリティツリー上 grid の子孫として露出してしまうため）
+    expect(grid?.querySelector('[data-koyomi="timegrid-event"]')).toBeNull();
+    // 本文コンテナ自体も role="grid" の外側（子孫ではない）に置く
+    expect(grid?.querySelector('[data-koyomi="resource-body"]')).toBeNull();
+  });
+
+  it('終日セルの aria-label はリソース名（未割り当て列は「未割り当て」）になる', () => {
+    const events: CalendarEvent[] = [
+      // resourceId 未指定 → 未割り当て列を生成させる
+      {
+        id: 'unassigned-1',
+        title: '未割当予定',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T10:00',
+      },
+    ];
+    const { container } = render(<Harness resources={[ROOM_A, ROOM_B]} events={events} />);
+    const cells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
+    expect(cells[0]).toHaveAttribute('aria-label', '会議室A');
+    expect(cells[1]).toHaveAttribute('aria-label', '会議室B');
+    expect(cells[2]).toHaveAttribute('aria-label', '未割り当て');
+  });
+
+  it('unassignedLabel でカスタムラベルを渡すと、未割り当て列の終日セルの aria-label にも同じラベルが反映される（columnheader と一致する）', () => {
+    const events: CalendarEvent[] = [
+      // resourceId 未指定 → 未割り当て列を生成させる
+      {
+        id: 'unassigned-1',
+        title: '未割当予定',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T10:00',
+      },
+    ];
+    const { container } = render(
+      <Harness resources={[ROOM_A]} events={events} viewProps={{ unassignedLabel: '担当未定' }} />,
+    );
+    const headers = container.querySelectorAll('[data-koyomi="resource-header-cell"]');
+    const cells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
+    // columnheader の表示内容（既存挙動）と gridcell の aria-label（今回の修正対象）が一致する
+    expect(headers[headers.length - 1]?.textContent).toBe('担当未定');
+    expect(cells[cells.length - 1]).toHaveAttribute('aria-label', '担当未定');
+  });
+
+  it('unassignedLabel に文字列でない ReactNode を渡した場合、未割り当て列の終日セルの aria-label は既定文言にフォールバックする', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'unassigned-1',
+        title: '未割当予定',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T10:00',
+      },
+    ];
+    const { container } = render(
+      <Harness
+        resources={[ROOM_A]}
+        events={events}
+        viewProps={{ unassignedLabel: <span>担当未定</span> }}
+      />,
+    );
+    const cells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
+    expect(cells[cells.length - 1]).toHaveAttribute('aria-label', '未割り当て');
+  });
+});

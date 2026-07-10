@@ -14,8 +14,11 @@
  * `--koyomi-timeline-lanes`（レーン数）・ルートの `data-koyomi-days`（表示日数）を
  * フックに計算できる。
  *
- * a11y は週/日ビューの現状（grid 系 role なし）に合わせ、帯は `<button>` +
- * 完全な `aria-label`（日時 + リソース名）とする。
+ * a11y: 行＝リソース・列＝時間トラックという 2 列固定の構造なので `role="grid"` で
+ * grid/row/columnheader/rowheader/gridcell を完全に構成できる（他ビューと異なり本文にも
+ * grid を適用する。理由は各行が「行見出し + 時間トラック 1 セル」の 2 セル固定で、
+ * 週/日・リソースビューのような日単位の離散列を持たないため）。帯自体は `<button>` +
+ * 完全な `aria-label`（日時 + リソース名）とする（判断根拠の詳細は `docs/accessibility.md` 参照）。
  */
 
 import type { CSSProperties, ReactElement, ReactNode, Ref } from 'react';
@@ -33,6 +36,9 @@ const DEFAULT_UNASSIGNED_LABEL = '未割り当て';
 
 /** 空状態の既定メッセージ。 */
 const DEFAULT_EMPTY_LABEL = 'リソースがありません';
+
+/** ヘッダー行の角セル（行見出し列の列見出し）の既定 `aria-label`。 */
+const DEFAULT_CORNER_LABEL = 'リソース';
 
 /** 開発ビルドで目盛り数の警告を出す閾値。 */
 const SLOT_COUNT_WARNING_THRESHOLD = 1000;
@@ -55,6 +61,12 @@ export interface TimelineViewProps {
   unassignedLabel?: ReactNode;
   /** 空状態（行が 1 つもない）のメッセージ。省略時は「リソースがありません」。 */
   emptyLabel?: ReactNode;
+  /**
+   * ヘッダー行の角セル（行見出し列の列見出し）の `aria-label`。省略時は「リソース」。
+   * 角セルは視覚上は空だが、本文行の行見出し（`rowheader`）列に対応する
+   * `columnheader` として支援技術に公開される（列対応のずれを防ぐため）。
+   */
+  cornerLabel?: string;
 }
 
 /**
@@ -213,6 +225,7 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
     renderRowHeader,
     unassignedLabel = DEFAULT_UNASSIGNED_LABEL,
     emptyLabel = DEFAULT_EMPTY_LABEL,
+    cornerLabel = DEFAULT_CORNER_LABEL,
   } = props;
   const { api, state, viewModel, callbacks } = useCalendarContext();
   const calendar = { api, state, viewModel };
@@ -249,17 +262,30 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
   }
 
   return (
-    <div data-koyomi="timeline" data-koyomi-days={String(days.length)}>
-      <div data-koyomi="timeline-body">
-        <div data-koyomi="timeline-header-row">
-          <div data-koyomi="timeline-corner" />
-          <div data-koyomi="timeline-axis">
+    // biome-ignore lint/a11y/useSemanticElements: DOM 仕様が定める div ベースの ARIA grid（TimeGridView と同じ方針。<table> はテーマ CSS と噛み合わないため不採用）
+    <div data-koyomi="timeline" data-koyomi-days={String(days.length)} role="grid">
+      {/* grid と row の間に挟まるスクロールコンテナ。role="presentation" で
+          所有関係を透過させる（grid の required owned elements 違反を避ける） */}
+      <div data-koyomi="timeline-body" role="presentation">
+        {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA row */}
+        {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない（フォーカスは各 columnheader が担う） */}
+        <div data-koyomi="timeline-header-row" role="row">
+          {/* 角セル（行見出し列の列見出し）。presentation で隠すとヘッダー行と本文行で
+              公開される列数がずれる（本文 = rowheader + gridcell の 2 列）ため、
+              視覚上は空でも columnheader として公開する */}
+          {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA columnheader */}
+          {/* biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない（ネイティブ <th> も単体ではタブ移動対象にならない） */}
+          <div data-koyomi="timeline-corner" role="columnheader" aria-label={cornerLabel} />
+          {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA columnheader（日ヘッダー・時刻目盛りをまとめた 1 セル） */}
+          {/* biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない（ネイティブ <th> も単体ではタブ移動対象にならない） */}
+          <div data-koyomi="timeline-axis" role="columnheader">
             <div data-koyomi="timeline-day-headers">
               {days.map((day) => (
                 <div
                   key={day.key}
                   data-koyomi="timeline-day-header"
                   data-today={day.isToday ? 'true' : undefined}
+                  aria-current={day.isToday ? 'date' : undefined}
                   style={{ width: `${(MINUTES_PER_DAY / totalMinutes) * 100}%` }}
                 >
                   {formatDayHeader(day.date, timeZone, locale)}
@@ -337,18 +363,26 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
   const headerContent = row.resource?.title ?? unassignedLabel;
 
   return (
-    <div data-koyomi="timeline-row-group">
+    // biome-ignore lint/a11y/useSemanticElements: 上記ヘッダー行と同様、div ベースの ARIA row
+    // biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない（フォーカスは rowheader/gridcell 内の各要素が担う）
+    <div data-koyomi="timeline-row-group" role="row">
+      {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA rowheader */}
+      {/* biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない（ネイティブ <th> も単体ではタブ移動対象にならない） */}
       <div
         data-koyomi="timeline-resource-header"
+        role="rowheader"
         {...(row.resource !== null ? { 'data-koyomi-resource-id': row.resource.id } : {})}
         style={withEventColorStyle({}, row.resource?.color)}
       >
         {renderRowHeader ? renderRowHeader(row, headerContent) : headerContent}
       </div>
+      {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA gridcell（時間トラック 1 本を 1 セルとして扱う） */}
+      {/* biome-ignore lint/a11y/useFocusableInteractive: gridcell 自体はフォーカス対象にしない（内部の帯ボタンが個別にフォーカス可能） */}
       <div
         {...rowProps}
         ref={toDivRef(ref)}
         data-koyomi="timeline-row"
+        role="gridcell"
         style={withLaneCountStyle(row.laneCount)}
       >
         {row.items.map((item) => {

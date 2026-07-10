@@ -134,6 +134,11 @@ export interface CalendarViewProps {
    * 省略時は「リソースがありません」。
    */
   timelineEmptyLabel?: ReactNode;
+  /**
+   * タイムラインのヘッダー行の角セルの `aria-label`。`TimelineView` の
+   * `cornerLabel` に転送する。省略時は「リソース」。
+   */
+  timelineCornerLabel?: string;
 }
 
 /**
@@ -251,6 +256,9 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
               : {})}
             {...(props.timelineUnassignedLabel !== undefined
               ? { unassignedLabel: props.timelineUnassignedLabel }
+              : {})}
+            {...(props.timelineCornerLabel !== undefined
+              ? { cornerLabel: props.timelineCornerLabel }
               : {})}
             {...(props.timelineEmptyLabel !== undefined
               ? { emptyLabel: props.timelineEmptyLabel }
