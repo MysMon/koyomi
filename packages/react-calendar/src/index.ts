@@ -174,6 +174,13 @@ export {
   useDayDrag,
 } from './react/use-day-drag';
 export {
+  type ExternalDraggableProps,
+  type ExternalDragHandlers,
+  type ExternalDropInfo,
+  type UseExternalDragParams,
+  useExternalDrag,
+} from './react/use-external-drag';
+export {
   type ResourceAllDayCellProps,
   type ResourceColumnProps,
   type ResourceEventProps,
