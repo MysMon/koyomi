@@ -287,6 +287,42 @@ describe('useVirtualizer', () => {
       expect(element.scrollLeft).toBe(180); // index 9 = 9×20
       expect(element.scrollTop).toBe(0);
     });
+
+    it('RTL では負の scrollLeft を論理オフセットとして解釈して可視窓を計算する', async () => {
+      // CSSOM View の標準挙動: dir=rtl の水平スクロールは開始位置が scrollLeft=0 で、
+      // 奥（より多くの列がある方向）へ進むほど負の値になる
+      const element = horizontalScrollElement(100);
+      element.style.direction = 'rtl';
+      const { result } = renderHook(() =>
+        useVirtualizer({ ...baseOptions(element, true), axis: 'horizontal' }),
+      );
+
+      await act(async () => {
+        element.scrollLeft = -100;
+        element.dispatchEvent(new Event('scroll'));
+        await nextFrame();
+      });
+
+      const indices = result.current.virtualItems.map((item) => item.index);
+      expect(indices).toContain(5);
+      expect(indices).toContain(9);
+      expect(result.current.beforeSize).toBeGreaterThan(0);
+    });
+
+    it('RTL では scrollToIndex が負の scrollLeft を書き込む', () => {
+      const element = horizontalScrollElement(100);
+      element.style.direction = 'rtl';
+      const { result } = renderHook(() =>
+        useVirtualizer({ ...baseOptions(element, true), axis: 'horizontal' }),
+      );
+
+      act(() => {
+        result.current.scrollToIndex(9, { align: 'start' });
+      });
+
+      expect(element.scrollLeft).toBe(-180); // index 9 = 9×20 の論理オフセットを RTL の座標系へ
+      expect(element.scrollTop).toBe(0);
+    });
   });
 
   describe('viewportPadding', () => {

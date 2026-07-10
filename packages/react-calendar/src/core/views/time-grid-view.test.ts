@@ -792,6 +792,35 @@ describe('buildTimeGridViewModel', () => {
     });
   });
 
+  describe('機能無効時のアロケーション回避（参照共有）', () => {
+    it('timeAxisZones 未指定時、主軸の slots・各日の timeAxes は共有参照になる（無駄な複製を作らない）', () => {
+      const model = build();
+      // 主軸の slots はビューモデルの slots そのもの（内容コピーではない）
+      expect(model.timeAxes[0]?.slots).toBe(model.slots);
+      // 追加軸がなければ日ごとの差（DST 対応の日別算出）も生じないため、
+      // 全日がトップレベルと同一の timeAxes を共有する
+      for (const day of model.days) {
+        expect(day.timeAxes).toBe(model.timeAxes);
+      }
+    });
+
+    it('businessHours 未指定時、各日の businessHourSlots は全日で共有参照になる', () => {
+      const model = build();
+      const first = model.days[0]?.businessHourSlots;
+      expect(first).toBeDefined();
+      for (const day of model.days) {
+        expect(day.businessHourSlots).toBe(first);
+      }
+      expect(first?.every((slot) => slot.isBusinessHours === false)).toBe(true);
+    });
+
+    it('timeAxisZones 指定時は各日の timeAxes が日別に算出される（従来どおり）', () => {
+      const model = build({ timeAxisZones: ['America/New_York'] });
+      expect(model.days[0]?.timeAxes).not.toBe(model.timeAxes);
+      expect(model.days[0]?.timeAxes[1]?.timeZone).toBe('America/New_York');
+    });
+  });
+
   describe('hiddenWeekdays（非表示曜日）', () => {
     it('week ビューでは非表示曜日の列が days から除外される', () => {
       const model = build({ hiddenWeekdays: [0, 6] });

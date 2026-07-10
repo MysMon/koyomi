@@ -116,21 +116,38 @@ function offsetSizeOf(element: HTMLElement, axis: 'vertical' | 'horizontal'): nu
   return axis === 'horizontal' ? element.offsetWidth : element.offsetHeight;
 }
 
-/** スクロール要素から軸方向の { スクロール位置, ビューポート寸法 } を読み取る。 */
-function readScrollMetrics(element: HTMLElement, axis: 'vertical' | 'horizontal'): ScrollMetrics {
-  return axis === 'horizontal'
-    ? { scrollOffset: element.scrollLeft, viewportSize: element.clientWidth }
-    : { scrollOffset: element.scrollTop, viewportSize: element.clientHeight };
+/**
+ * 要素の書字方向が RTL かどうかを判定する。
+ *
+ * CSSOM View の標準挙動では、RTL の水平スクロールは開始位置が `scrollLeft = 0` で、
+ * 奥（より多くの内容がある方向）へ進むほど**負**の値になる。ウィンドウイング計算は
+ * 「開始からの論理オフセット（常に 0 以上）」を前提にするため、読み書きの両方で
+ * 符号を変換する（{@link readScrollMetrics} / {@link writeScrollOffset}）。
+ */
+function isRtl(element: HTMLElement): boolean {
+  return getComputedStyle(element).direction === 'rtl';
 }
 
-/** スクロール要素の軸方向のスクロール位置を書き換える。 */
+/** スクロール要素から軸方向の { スクロール位置（論理オフセット）, ビューポート寸法 } を読み取る。 */
+function readScrollMetrics(element: HTMLElement, axis: 'vertical' | 'horizontal'): ScrollMetrics {
+  if (axis === 'horizontal') {
+    const raw = element.scrollLeft;
+    return {
+      scrollOffset: isRtl(element) ? -raw : raw,
+      viewportSize: element.clientWidth,
+    };
+  }
+  return { scrollOffset: element.scrollTop, viewportSize: element.clientHeight };
+}
+
+/** スクロール要素の軸方向のスクロール位置を、論理オフセットから書き換える。 */
 function writeScrollOffset(
   element: HTMLElement,
   axis: 'vertical' | 'horizontal',
   value: number,
 ): void {
   if (axis === 'horizontal') {
-    element.scrollLeft = value;
+    element.scrollLeft = isRtl(element) ? -value : value;
   } else {
     element.scrollTop = value;
   }

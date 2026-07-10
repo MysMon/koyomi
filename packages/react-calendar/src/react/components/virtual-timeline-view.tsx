@@ -654,8 +654,20 @@ export const VirtualTimelineView = forwardRef<VirtualTimelineViewHandle, Virtual
             />
             {virtualizer.pinnedItems.map((item) => {
               const row = rows[item.index];
+              // 位置決めに必須のスタイルは inline で出力する（ヘッドレス原則）。
+              // position: absolute をテーマ CSS 任せにすると、独自 CSS の利用者では
+              // pinned 行が通常フローへ割り込み、行の重複表示・高さ跳ねが起きる
+              // （VirtualResourceView の columnPositionStyle と同じ方針）
               return row !== undefined
-                ? renderRow(row, { pinned: true, style: { top: `${item.start}px` } })
+                ? renderRow(row, {
+                    pinned: true,
+                    style: {
+                      position: 'absolute',
+                      top: `${item.start}px`,
+                      insetInlineStart: 0,
+                      width: '100%',
+                    },
+                  })
                 : null;
             })}
           </div>
