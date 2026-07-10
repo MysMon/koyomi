@@ -483,7 +483,7 @@ export function useTimeGridDrag(params: {
     recurringScope: RecurringEditScope | null,
     range: DateRange,
   ): void {
-    paramsRef.current.calendar.api.updateEvent(
+    const changes = paramsRef.current.calendar.api.updateEvent(
       occurrence.eventId,
       { start: range.start, end: range.end },
       recurringScope === null
@@ -495,6 +495,7 @@ export function useTimeGridDrag(params: {
       newRange: range,
       allDay: false,
       scope: recurringScope,
+      changes,
     });
   }
 
@@ -508,7 +509,7 @@ export function useTimeGridDrag(params: {
     recurringScope: RecurringEditScope | null,
     range: DateRange,
   ): void {
-    paramsRef.current.calendar.api.updateEvent(
+    const changes = paramsRef.current.calendar.api.updateEvent(
       occurrence.eventId,
       { start: range.start, end: range.end, allDay: true },
       recurringScope === null
@@ -520,6 +521,7 @@ export function useTimeGridDrag(params: {
       newRange: range,
       allDay: true,
       scope: recurringScope,
+      changes,
     });
   }
 
@@ -838,19 +840,19 @@ export function useTimeGridDrag(params: {
       return;
     }
     if (!occurrence.isRecurring) {
-      paramsRef.current.calendar.api.deleteEvent(occurrence.eventId);
-      paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope: null });
+      const changes = paramsRef.current.calendar.api.deleteEvent(occurrence.eventId);
+      paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope: null, changes });
       return;
     }
     const scope = await resolveScopeForRecurring(paramsRef.current.callbacks, occurrence, 'delete');
     if (scope === null) {
       return;
     }
-    paramsRef.current.calendar.api.deleteEvent(occurrence.eventId, {
+    const changes = paramsRef.current.calendar.api.deleteEvent(occurrence.eventId, {
       occurrenceStart: occurrence.originalStart,
       scope,
     });
-    paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope });
+    paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope, changes });
   }
 
   /**

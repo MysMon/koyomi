@@ -356,6 +356,18 @@ describe('createCalendar', () => {
       expect(calendar.getEvents()).toEqual([]);
     });
 
+    it('updateEvent / deleteEvent は影響を受けたイベントの before/after 一覧を返す（undo 基盤）', () => {
+      const calendar = makeCalendar();
+      const created = calendar.createEvent({ title: 'a', start: '2026-07-15T13:00' });
+
+      const updateChanges = calendar.updateEvent(created.id, { title: 'b' });
+      expect(updateChanges).toEqual([{ before: created, after: { ...created, title: 'b' } }]);
+
+      const deleteChanges = calendar.deleteEvent(created.id);
+      expect(deleteChanges).toEqual([{ before: { ...created, title: 'b' } }]);
+      expect(calendar.getEvents()).toEqual([]);
+    });
+
     it('setEvents は一覧を置き換えるが onEventsChange は呼ばない', () => {
       const onEventsChange = vi.fn();
       const calendar = makeCalendar({ onEventsChange });

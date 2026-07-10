@@ -29,6 +29,7 @@ import { dayDragPreviewRange, timeAtGridPosition } from '../core/interaction';
 import { addDaysInZone, addMinutesInZone, dateFromKey, startOfDayInZone } from '../core/timezone';
 import type {
   DateRange,
+  EventChangeEntry,
   EventOccurrence,
   EventSegment,
   RecurringEditScope,
@@ -318,6 +319,7 @@ export function useDayDrag(params: {
   ): Promise<void> {
     try {
       let scope: RecurringEditScope | null = null;
+      let changes: readonly EventChangeEntry[];
       if (occurrence.isRecurring) {
         const resolveRecurringScope = callbacksRef.current?.resolveRecurringScope;
         scope =
@@ -327,19 +329,23 @@ export function useDayDrag(params: {
         if (scope === null) {
           return;
         }
-        apiRef.current.updateEvent(
+        changes = apiRef.current.updateEvent(
           occurrence.eventId,
           { start: range.start, end: range.end },
           { occurrenceStart: occurrence.originalStart, scope },
         );
       } else {
-        apiRef.current.updateEvent(occurrence.eventId, { start: range.start, end: range.end });
+        changes = apiRef.current.updateEvent(occurrence.eventId, {
+          start: range.start,
+          end: range.end,
+        });
       }
       callbacksRef.current?.onEventChange?.({
         occurrence,
         newRange: range,
         allDay: occurrence.allDay,
         scope,
+        changes,
       });
     } finally {
       apiRef.current.setDragPreview(null);
@@ -358,6 +364,7 @@ export function useDayDrag(params: {
   ): Promise<void> {
     try {
       let scope: RecurringEditScope | null = null;
+      let changes: readonly EventChangeEntry[];
       if (occurrence.isRecurring) {
         const resolveRecurringScope = callbacksRef.current?.resolveRecurringScope;
         scope =
@@ -367,13 +374,13 @@ export function useDayDrag(params: {
         if (scope === null) {
           return;
         }
-        apiRef.current.updateEvent(
+        changes = apiRef.current.updateEvent(
           occurrence.eventId,
           { start: range.start, end: range.end, allDay: false },
           { occurrenceStart: occurrence.originalStart, scope },
         );
       } else {
-        apiRef.current.updateEvent(occurrence.eventId, {
+        changes = apiRef.current.updateEvent(occurrence.eventId, {
           start: range.start,
           end: range.end,
           allDay: false,
@@ -384,6 +391,7 @@ export function useDayDrag(params: {
         newRange: range,
         allDay: false,
         scope,
+        changes,
       });
     } finally {
       apiRef.current.setDragPreview(null);
@@ -400,6 +408,7 @@ export function useDayDrag(params: {
       return;
     }
     let scope: RecurringEditScope | null = null;
+    let changes: readonly EventChangeEntry[];
     if (occurrence.isRecurring) {
       const resolveRecurringScope = callbacksRef.current?.resolveRecurringScope;
       scope =
@@ -409,14 +418,14 @@ export function useDayDrag(params: {
       if (scope === null) {
         return;
       }
-      apiRef.current.deleteEvent(occurrence.eventId, {
+      changes = apiRef.current.deleteEvent(occurrence.eventId, {
         occurrenceStart: occurrence.originalStart,
         scope,
       });
     } else {
-      apiRef.current.deleteEvent(occurrence.eventId);
+      changes = apiRef.current.deleteEvent(occurrence.eventId);
     }
-    callbacksRef.current?.onEventDelete?.({ occurrence, scope });
+    callbacksRef.current?.onEventDelete?.({ occurrence, scope, changes });
   }
 
   /**

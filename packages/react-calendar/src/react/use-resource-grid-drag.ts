@@ -349,7 +349,7 @@ export function useResourceGridDrag(params: {
       // パッチセマンティクスに従う
       patch.resourceId = resourceId ?? undefined;
     }
-    paramsRef.current.calendar.api.updateEvent(
+    const changes = paramsRef.current.calendar.api.updateEvent(
       occurrence.eventId,
       patch,
       recurringScope === null
@@ -362,6 +362,7 @@ export function useResourceGridDrag(params: {
       allDay,
       scope: recurringScope,
       resourceId,
+      changes,
     });
   }
 
@@ -668,19 +669,19 @@ export function useResourceGridDrag(params: {
       return;
     }
     if (!occurrence.isRecurring) {
-      paramsRef.current.calendar.api.deleteEvent(occurrence.eventId);
-      paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope: null });
+      const changes = paramsRef.current.calendar.api.deleteEvent(occurrence.eventId);
+      paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope: null, changes });
       return;
     }
     const scope = await resolveScopeForRecurring(paramsRef.current.callbacks, occurrence, 'delete');
     if (scope === null) {
       return;
     }
-    paramsRef.current.calendar.api.deleteEvent(occurrence.eventId, {
+    const changes = paramsRef.current.calendar.api.deleteEvent(occurrence.eventId, {
       occurrenceStart: occurrence.originalStart,
       scope,
     });
-    paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope });
+    paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope, changes });
   }
 
   /** 現在のビューモデルの列並びを返す（リソースビューでなければ空配列）。 */

@@ -60,8 +60,8 @@ unsubscribe();
 | `getResources` | `(): readonly CalendarResource[]` | すべてのリソースを返す（表示順） |
 | `setResources` | `(resources: readonly CalendarResource[]): void` | リソース一覧を置き換える（外部ストア同期用。`events`/`setEvents` と同じ流儀） |
 | `createEvent` | `(input: CalendarEventInput): CalendarEvent` | イベントを作成し、`id` 確定済みのイベントを返す |
-| `updateEvent` | `(id: EventId, patch: CalendarEventPatch, target?: { occurrenceStart: Date; scope: RecurringEditScope }): void` | イベントを更新する。繰り返しは `target` でスコープを指定 |
-| `deleteEvent` | `(id: EventId, target?: { occurrenceStart: Date; scope: RecurringEditScope }): void` | イベントを削除する |
+| `updateEvent` | `(id: EventId, patch: CalendarEventPatch, target?: { occurrenceStart: Date; scope: RecurringEditScope }): readonly EventChangeEntry[]` | イベントを更新する。繰り返しは `target` でスコープを指定。戻り値は影響を受けた各イベントの before/after 一覧（undo 用途） |
+| `deleteEvent` | `(id: EventId, target?: { occurrenceStart: Date; scope: RecurringEditScope }): readonly EventChangeEntry[]` | イベントを削除する。戻り値は `updateEvent` と同様 |
 | `getViewModel` | `(): CalendarViewModel` | 現在のビューに対応するビューモデルを構築して返す |
 | `getVisibleRange` | `(): DateRange` | 現在のビューが表示している日時範囲を返す |
 | `getOccurrences` | `(range: DateRange): readonly EventOccurrence[]` | 指定範囲のオカレンス一覧を開始時刻順で返す |
@@ -717,6 +717,7 @@ interface ToolbarLabels {
 | `CalendarEvent` | カレンダーイベント（ソースデータ）。下表参照 |
 | `CalendarEventInput` | `Omit<CalendarEvent, 'id'> & { id?: EventId }`。`createEvent` の入力 |
 | `CalendarEventPatch` | `Omit<CalendarEvent, 'id'>` の各フィールドが省略可能かつ明示的に `\| undefined` を許容する部分更新型（`exactOptionalPropertyTypes: true` でも `{ rrule: undefined }` のようなリテラルをそのまま書ける）。キーが存在し値が `undefined` の場合はそのフィールドを削除するが、必須フィールドだった `title` / `start` は削除されず元の値を維持する |
+| `EventChangeEntry` | `{ before?: CalendarEvent; after?: CalendarEvent }`。1 件のイベントの変更前後のスナップショット（undo 用途）。`before` のみは削除、`after` のみは新規作成、両方ありは変更を表す |
 | `EventOccurrence` | イベントのオカレンス。下表参照 |
 | `RecurringEditScope` | `'this' | 'thisAndFollowing' | 'all'`。繰り返しの編集・削除の適用範囲 |
 | `CalendarResource` | カレンダーのリソース（会議室・設備・担当者など、予定の割当先）。下表参照 |
@@ -847,8 +848,8 @@ interface ToolbarLabels {
 | `UseCalendarResult` | `{ api: CalendarApi; state: CalendarState; viewModel: CalendarViewModel }` | `useCalendar` の戻り値 |
 | `CalendarContextValue` | `UseCalendarResult & { callbacks: CalendarInteractionCallbacks }` | `useCalendarContext()` の戻り値 |
 | `RangeSelection` | `{ range: DateRange; allDay: boolean; resourceId?: string | null }` | 範囲選択（新規作成操作）の内容。`resourceId` はリソース/タイムラインビューでの選択時のみ設定される（`null` は未割り当てレーン） |
-| `EventChange` | `{ occurrence: EventOccurrence; newRange: DateRange; allDay: boolean; scope: RecurringEditScope | null; resourceId?: string | null }` | ドラッグ・キーボードによるイベント変更の内容。`resourceId` はリソース/タイムラインビューでの変更時のみ設定される（`null` は未割り当てへの移動） |
-| `EventDelete` | `{ occurrence: EventOccurrence; scope: RecurringEditScope | null }` | キーボード削除の内容 |
+| `EventChange` | `{ occurrence: EventOccurrence; newRange: DateRange; allDay: boolean; scope: RecurringEditScope | null; resourceId?: string | null; changes: readonly EventChangeEntry[] }` | ドラッグ・キーボードによるイベント変更の内容。`resourceId` はリソース/タイムラインビューでの変更時のみ設定される（`null` は未割り当てへの移動）。`changes` は影響を受けた各イベントの before/after 一覧（undo 用途） |
+| `EventDelete` | `{ occurrence: EventOccurrence; scope: RecurringEditScope | null; changes: readonly EventChangeEntry[] }` | キーボード削除の内容。`changes` は `EventChange` と同様 |
 | `OverflowClickDetails` | `{ visibleOccurrences: readonly EventOccurrence[] }` | `onOverflowClick` の第 3 引数。その日で表示中のオカレンス一覧（`hiddenOccurrences` と組み合わせて全件を把握できる） |
 | `MonthOverflowButtonProps` | `{ 'aria-haspopup'?: 'true' | 'dialog' | 'menu' | 'listbox' | 'tree' | 'grid'; 'aria-expanded'?: boolean; 'aria-controls'?: string }` | 「+N 件」ボタンに追加する props（`overflowButtonProps` の戻り値） |
 | `CalendarInteractionCallbacks` | 下表参照 | インタラクションのコールバック集 |
@@ -970,9 +971,14 @@ Google カレンダーの編集・削除操作（繰り返しの「この予定�
 | `updateEventIn(events, id, patch, target, context): CalendarEvent[]` | イベントを更新する（繰り返しはスコープに従う） |
 | `deleteEventIn(events, id, target, context): CalendarEvent[]` | イベントを削除する（繰り返しはスコープに従う） |
 | `moveOccurrenceIn(events, id, params, context): CalendarEvent[]` | オカレンスの移動（ドラッグ＆ドロップ）を `updateEventIn` 経由で適用する便利関数。長さは既定で元のオカレンスの長さを維持するが、`newEnd` を省略しつつ `allDay` が変換前の値から変化する場合（時間指定 ⇔ 終日の変換）は、変換前の長さ（ミリ秒）をそのまま引き継がず、終日化はちょうど 1 日・時間指定化は `defaultEventMinutes` を既定の長さとして使う |
+| `updateEventInWithChanges(events, id, patch, target, context): EventMutationResult` | `updateEventIn` の拡張版。影響を受けた各イベントの before/after（`changes`）も返す（undo 用途） |
+| `deleteEventInWithChanges(events, id, target, context): EventMutationResult` | `deleteEventIn` の拡張版。`changes` も返す |
+| `moveOccurrenceInWithChanges(events, id, params, context): EventMutationResult` | `moveOccurrenceIn` の拡張版。`changes` も返す |
 | `MutationContext`（型） | `{ displayTimeZone: TimeZoneId; defaultEventMinutes: number; generateId: () => EventId }` |
 | `RecurringTarget`（型） | `{ occurrenceStart: Date; scope: RecurringEditScope }` |
 | `CreateEventResult`（型） | `{ events: CalendarEvent[]; created: CalendarEvent }` |
+| `EventMutationResult`（型） | `{ events: CalendarEvent[]; changes: EventChangeEntry[] }` |
+| `EventChangeEntry`（型） | `{ before?: CalendarEvent; after?: CalendarEvent }`。`before` のみは削除、`after` のみは新規作成、両方ありは変更を表す |
 
 ```ts
 import { applyPatch, createEventIn } from '@koyomi-cal/react';

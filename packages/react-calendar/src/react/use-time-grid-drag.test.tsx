@@ -391,6 +391,9 @@ describe('useTimeGridDrag', () => {
       newRange: { start: at(`${TUE}T12:00`), end: at(`${TUE}T13:00`) },
       allDay: false,
       scope: null,
+      // 単発イベントの移動では、変更前（event）・変更後（events[0]）の
+      // before/after が 1 件のみ含まれる
+      changes: [{ before: event, after: events[0] }],
     });
   });
 
@@ -882,15 +885,19 @@ describe('useTimeGridDrag', () => {
       start: `${TUE}T09:00`,
       end: `${TUE}T09:30`,
     };
-    renderHarness({ events: [event], callbacks: { onEventDelete } });
+    const { sink } = renderHarness({ events: [event], callbacks: { onEventDelete } });
     const occurrenceKey = `ev-delete-notify@${at(`${TUE}T09:00`).toISOString()}`;
     const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
 
     fireEvent.keyDown(eventEl, { key: 'Delete' });
 
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(0);
     expect(onEventDelete).toHaveBeenCalledWith({
       occurrence: expect.objectContaining({ eventId: 'ev-delete-notify' }),
       scope: null,
+      // 単発イベントの削除では、削除前のイベント（event）のみが before として
+      // 1 件含まれる（after は持たない）
+      changes: [{ before: event }],
     });
   });
 
@@ -904,7 +911,10 @@ describe('useTimeGridDrag', () => {
       end: '2026-07-01T11:00',
       rrule: 'FREQ=WEEKLY;BYDAY=WE',
     };
-    renderHarness({ events: [event], callbacks: { resolveRecurringScope, onEventDelete } });
+    const { sink } = renderHarness({
+      events: [event],
+      callbacks: { resolveRecurringScope, onEventDelete },
+    });
     const occurrenceKey = `recurring-delete-notify@${at(`${WED}T10:00`).toISOString()}`;
     const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
 
@@ -912,9 +922,14 @@ describe('useTimeGridDrag', () => {
       fireEvent.keyDown(eventEl, { key: 'Delete' });
     });
 
+    // scope: 'this' でオーバーライドが未作成の場合はマスターへの EXDATE 追加になる
+    // （マスター自体は残る）ため、マスターの before/after が 1 件のみ含まれる
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
     expect(onEventDelete).toHaveBeenCalledWith({
       occurrence: expect.objectContaining({ eventId: 'recurring-delete-notify' }),
       scope: 'this',
+      changes: [{ before: event, after: events[0] }],
     });
   });
 
@@ -1019,6 +1034,7 @@ describe('useTimeGridDrag', () => {
       newRange: { start: at(`${TUE}T10:15`), end: at(`${TUE}T11:15`) },
       allDay: false,
       scope: null,
+      changes: [{ before: event, after: events[0] }],
     });
   });
 
@@ -1191,6 +1207,7 @@ describe('useTimeGridDrag - 終日行への変換ドラッグ', () => {
       newRange: { start: at(`${TUE}T00:00`), end: at(`${WED}T00:00`) },
       allDay: true,
       scope: null,
+      changes: [{ before: event, after: events[0] }],
     });
   });
 
@@ -1290,6 +1307,7 @@ describe('useTimeGridDrag - 終日行への変換ドラッグ', () => {
       newRange: { start: at(`${TUE}T12:00`), end: at(`${TUE}T13:00`) },
       allDay: false,
       scope: null,
+      changes: [{ before: event, after: events[0] }],
     });
   });
 

@@ -108,6 +108,7 @@ function App() {
     // change.occurrence: 変更対象のオカレンス
     // change.newRange: 変更後の日時範囲
     // change.scope: 繰り返し予定に適用したスコープ（単発なら null）
+    // change.changes: 影響を受けた各イベントの before/after 一覧（undo 用途。後述）
   }
 
   return (
@@ -125,6 +126,8 @@ function App() {
 ```
 
 `onEventChange` はドラッグ操作（`useDayDrag` / `useTimeGridDrag`、およびそれらを内部で使うビルトインコンポーネント）による移動・リサイズが確定したときにのみ呼ばれます。`calendar.api.updateEvent(...)` を直接呼んだ場合は呼ばれません。
+
+undo（元に戻す）UI の実装方法は [予定の管理](./events.md#undo元に戻すを実装する) を参照してください。
 
 ## リソースビュー・タイムラインビューのドラッグ操作
 
@@ -211,8 +214,8 @@ async function resolveRecurringScope(): Promise<RecurringEditScope | null> {
 | --- | --- | --- |
 | `onSelectRange` | 空き領域のクリック・ドラッグで範囲選択が確定したとき | `defaultEventTitle`（既定 `'(タイトルなし)'`）で即時作成する |
 | `onEventClick` | 予定がクリック、または Enter・Space で選択されたとき | 何もしない |
-| `onEventChange` | ドラッグ・キーボードによる移動・リサイズが確定し、変更が適用された後 | （通知のみ。変更の適用自体は常にライブラリが行う） |
-| `onEventDelete` | キーボード（Delete/Backspace）による削除が適用された後 | （通知のみ。undo UI やトーストの起点に使える） |
+| `onEventChange` | ドラッグ・キーボードによる移動・リサイズが確定し、変更が適用された後 | （通知のみ。変更の適用自体は常にライブラリが行う。`changes` に影響を受けた各イベントの before/after が入り undo に使える） |
+| `onEventDelete` | キーボード（Delete/Backspace）による削除が適用された後 | （通知のみ。undo UI やトーストの起点に使える。`changes` に影響を受けた各イベントの before/after が入る） |
 | `onError` | インタラクション中の非同期処理（スコープ解決や適用）が例外を投げたとき | `console.error` に出力する |
 | `resolveRecurringScope` | 繰り返し予定の移動・リサイズ・削除・更新の適用範囲を決めるとき | 常に `'this'`（この予定のみ） |
 | `onOverflowClick` | 月ビューの「+N 件」がクリックされたとき。第 2 引数で非表示のオカレンス一覧（`hiddenOccurrences`）、第 3 引数（`details`）で表示中のオカレンス一覧（`visibleOccurrences`）を受け取れる | その日の日ビューに切り替える |
