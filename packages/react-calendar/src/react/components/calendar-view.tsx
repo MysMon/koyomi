@@ -10,7 +10,10 @@ import type {
   ListDay,
   MonthDay,
   PositionedOccurrence,
+  ResourceColumn,
   TimeGridDay,
+  TimelineItem,
+  TimelineRow,
   YearDay,
   YearMonth,
 } from '../../core/types';
@@ -18,7 +21,9 @@ import { useCalendarContext } from '../context';
 import { ListView } from './list-view';
 import { MonthView } from './month-view';
 import { MultiMonthView } from './multi-month-view';
+import { ResourceView } from './resource-view';
 import { TimeGridView } from './time-grid-view';
+import { TimelineView } from './timeline-view';
 import { VirtualListView } from './virtual-list-view';
 import { YearView } from './year-view';
 
@@ -83,6 +88,34 @@ export interface CalendarViewProps {
    * 省略時は `+N 件`。
    */
   multiMonthOverflowLabel?: (count: number) => ReactNode;
+  /** リソースビューのイベントブロックのカスタム描画。`ResourceView` の `renderEvent` に転送する。 */
+  renderResourceEvent?: (item: PositionedOccurrence) => ReactNode;
+  /** リソースビューの列見出しのカスタム描画。`ResourceView` の `renderColumnHeader` に転送する。 */
+  renderResourceColumnHeader?: (column: ResourceColumn, defaultContent: ReactNode) => ReactNode;
+  /**
+   * リソースビューの未割り当て列ラベル。`ResourceView` の `unassignedLabel` に転送する。
+   * 省略時は「未割り当て」。
+   */
+  resourceUnassignedLabel?: ReactNode;
+  /**
+   * リソースビューの空状態メッセージ。`ResourceView` の `emptyLabel` に転送する。
+   * 省略時は「リソースがありません」。
+   */
+  resourceEmptyLabel?: ReactNode;
+  /** タイムラインの帯のカスタム描画。`TimelineView` の `renderEvent` に転送する。 */
+  renderTimelineEvent?: (item: TimelineItem) => ReactNode;
+  /** タイムラインの行見出しのカスタム描画。`TimelineView` の `renderRowHeader` に転送する。 */
+  renderTimelineRowHeader?: (row: TimelineRow, defaultContent: ReactNode) => ReactNode;
+  /**
+   * タイムラインの未割り当て行ラベル。`TimelineView` の `unassignedLabel` に転送する。
+   * 省略時は「未割り当て」。
+   */
+  timelineUnassignedLabel?: ReactNode;
+  /**
+   * タイムラインの空状態メッセージ。`TimelineView` の `emptyLabel` に転送する。
+   * 省略時は「リソースがありません」。
+   */
+  timelineEmptyLabel?: ReactNode;
 }
 
 /**
@@ -167,6 +200,36 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
               : {})}
             {...(props.multiMonthOverflowLabel
               ? { overflowLabel: props.multiMonthOverflowLabel }
+              : {})}
+          />
+        );
+      case 'resource':
+        return (
+          <ResourceView
+            {...(props.renderResourceEvent ? { renderEvent: props.renderResourceEvent } : {})}
+            {...(props.renderResourceColumnHeader
+              ? { renderColumnHeader: props.renderResourceColumnHeader }
+              : {})}
+            {...(props.resourceUnassignedLabel !== undefined
+              ? { unassignedLabel: props.resourceUnassignedLabel }
+              : {})}
+            {...(props.resourceEmptyLabel !== undefined
+              ? { emptyLabel: props.resourceEmptyLabel }
+              : {})}
+          />
+        );
+      case 'timeline':
+        return (
+          <TimelineView
+            {...(props.renderTimelineEvent ? { renderEvent: props.renderTimelineEvent } : {})}
+            {...(props.renderTimelineRowHeader
+              ? { renderRowHeader: props.renderTimelineRowHeader }
+              : {})}
+            {...(props.timelineUnassignedLabel !== undefined
+              ? { unassignedLabel: props.timelineUnassignedLabel }
+              : {})}
+            {...(props.timelineEmptyLabel !== undefined
+              ? { emptyLabel: props.timelineEmptyLabel }
               : {})}
           />
         );

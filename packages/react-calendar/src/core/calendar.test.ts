@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createCalendar } from './calendar';
-import type { CalendarEvent } from './types';
+import type { CalendarEvent, CalendarResource } from './types';
 
 /** テスト用の固定「現在時刻」。東京の 2026-07-15 10:00。 */
 const NOW = new Date('2026-07-15T01:00:00Z');
@@ -32,6 +32,9 @@ const DAILY: CalendarEvent = {
   rrule: 'FREQ=DAILY',
   timeZone: 'Asia/Tokyo',
 };
+
+/** テスト用のリソース。 */
+const ROOM: CalendarResource = { id: 'room-1', title: '会議室A' };
 
 describe('createCalendar', () => {
   describe('初期状態', () => {
@@ -321,6 +324,58 @@ describe('createCalendar', () => {
     });
   });
 
+  describe('リソース', () => {
+    it('resources 初期値は省略時 []、指定時はその配列が反映される', () => {
+      const withoutResources = makeCalendar();
+      expect(withoutResources.getResources()).toEqual([]);
+      expect(withoutResources.getState().resources).toEqual([]);
+
+      const withResources = makeCalendar({ resources: [ROOM] });
+      expect(withResources.getResources()).toEqual([ROOM]);
+      expect(withResources.getState().resources).toEqual([ROOM]);
+    });
+
+    it('setResources は一覧を置き換える', () => {
+      const calendar = makeCalendar();
+      calendar.setResources([ROOM]);
+      expect(calendar.getResources()).toEqual([ROOM]);
+    });
+
+    it('setResources は同一参照を渡しても通知されない（events と同じ参照比較）', () => {
+      const calendar = makeCalendar({ resources: [ROOM] });
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+      calendar.setResources(calendar.getResources());
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('setResources は内容が同じでも異なる配列参照を渡せば通知される', () => {
+      const calendar = makeCalendar({ resources: [ROOM] });
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+      calendar.setResources([{ ...ROOM }]);
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(calendar.getResources()).toEqual([ROOM]);
+    });
+
+    it('updateOptions({ resources }) でリソース一覧を差し替えられる', () => {
+      const calendar = makeCalendar();
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+      calendar.updateOptions({ resources: [ROOM] });
+      expect(calendar.getResources()).toEqual([ROOM]);
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('updateOptions({ resources }) に同一参照を渡しても通知されない', () => {
+      const calendar = makeCalendar({ resources: [ROOM] });
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+      calendar.updateOptions({ resources: calendar.getResources() });
+      expect(listener).not.toHaveBeenCalled();
+    });
+  });
+
   describe('ビューモデル', () => {
     it('ビューに応じた型のビューモデルを返す', () => {
       const calendar = makeCalendar();
@@ -392,6 +447,101 @@ describe('createCalendar', () => {
       // 東京の 2026-07-01 0:00 〜 2026-10-01 0:00（既定 multiMonthCount=3）
       expect(range.start.toISOString()).toBe('2026-06-30T15:00:00.000Z');
       expect(range.end.toISOString()).toBe('2026-09-30T15:00:00.000Z');
+    });
+
+    it("setView('resource') 後はリソースビューのビューモデル（列 = リソース）を返す", () => {
+      const calendar = makeCalendar({ resources: [ROOM] });
+      calendar.setView('resource');
+      const vm = calendar.getViewModel();
+      expect(vm.type).toBe('resource');
+      if (vm.type !== 'resource') throw new Error('unreachable');
+      expect(vm.columns).toHaveLength(1);
+      expect(vm.columns[0]?.resource).toEqual(ROOM);
+      expect(vm.columns[0]?.key).toBe('r:room-1');
+    });
+
+    it("setView('timeline') 後はタイムラインビューのビューモデル（行 = リソース）を返す", () => {
+      const calendar = makeCalendar({ resources: [ROOM] });
+      calendar.setView('timeline');
+      const vm = calendar.getViewModel();
+      expect(vm.type).toBe('timeline');
+      if (vm.type !== 'timeline') throw new Error('unreachable');
+      expect(vm.rows).toHaveLength(1);
+      expect(vm.rows[0]?.resource).toEqual(ROOM);
+      expect(vm.rows[0]?.key).toBe('r:room-1');
+      expect(vm.days).toHaveLength(1); // 既定 timelineDays=1
+      expect(vm.totalMinutes).toBe(1440);
+    });
+
+    it('timelineDays を updateOptions で変更するとタイムラインの表示日数に反映される', () => {
+      const calendar = makeCalendar({ resources: [ROOM] });
+      calendar.setView('timeline');
+      calendar.updateOptions({ timelineDays: 7 });
+      const vm = calendar.getViewModel();
+      expect(vm.type).toBe('timeline');
+      if (vm.type !== 'timeline') throw new Error('unreachable');
+      expect(vm.days).toHaveLength(7);
+      expect(vm.totalMinutes).toBe(7 * 1440);
+      expect(calendar.getState().options.timelineDays).toBe(7);
+    });
+
+    it('timelineDays に 0 以下を渡すと 1 へ正規化される', () => {
+      const calendar = makeCalendar({ timelineDays: 0 });
+      expect(calendar.getState().options.timelineDays).toBe(1);
+
+      calendar.updateOptions({ timelineDays: -3 });
+      expect(calendar.getState().options.timelineDays).toBe(1);
+    });
+
+    it("unassignedLane の既定は 'auto'（該当オカレンスがなければ未割り当て列/行を生成しない）", () => {
+      const calendar = makeCalendar();
+      expect(calendar.getState().options.unassignedLane).toBe('auto');
+
+      calendar.setView('resource');
+      const resourceVm = calendar.getViewModel();
+      expect(resourceVm.type).toBe('resource');
+      if (resourceVm.type !== 'resource') throw new Error('unreachable');
+      expect(resourceVm.columns).toHaveLength(0);
+      expect(resourceVm.isEmpty).toBe(true);
+    });
+
+    it("unassignedLane: 'always' を指定すると未割り当て列/行が該当オカレンスがなくても常に生成される", () => {
+      const calendar = makeCalendar({ unassignedLane: 'always' });
+      expect(calendar.getState().options.unassignedLane).toBe('always');
+
+      calendar.setView('resource');
+      const resourceVm = calendar.getViewModel();
+      expect(resourceVm.type).toBe('resource');
+      if (resourceVm.type !== 'resource') throw new Error('unreachable');
+      expect(resourceVm.columns).toHaveLength(1);
+      expect(resourceVm.columns[0]?.resource).toBeNull();
+      expect(resourceVm.columns[0]?.key).toBe('unassigned');
+      expect(resourceVm.isEmpty).toBe(false);
+
+      calendar.setView('timeline');
+      const timelineVm = calendar.getViewModel();
+      expect(timelineVm.type).toBe('timeline');
+      if (timelineVm.type !== 'timeline') throw new Error('unreachable');
+      expect(timelineVm.rows).toHaveLength(1);
+      expect(timelineVm.rows[0]?.resource).toBeNull();
+      expect(timelineVm.isEmpty).toBe(false);
+    });
+
+    it('resources がリソース/タイムラインビューモデルの列/行に反映される（setResources 経由）', () => {
+      const calendar = makeCalendar();
+      calendar.setResources([ROOM]);
+
+      calendar.setView('resource');
+      const resourceVm = calendar.getViewModel();
+      expect(resourceVm.type).toBe('resource');
+      if (resourceVm.type !== 'resource') throw new Error('unreachable');
+      expect(resourceVm.columns.map((c) => c.resource?.id)).toEqual(['room-1']);
+
+      calendar.setView('timeline');
+      const timelineVm = calendar.getViewModel();
+      expect(timelineVm.type).toBe('timeline');
+      if (timelineVm.type !== 'timeline') throw new Error('unreachable');
+      expect(timelineVm.rows.map((r) => r.resource?.id)).toEqual(['room-1']);
     });
 
     it('状態が変わらない限りビューモデルはキャッシュされる（同一参照）', () => {

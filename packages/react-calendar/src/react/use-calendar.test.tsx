@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CalendarEvent } from '../core/types';
+import type { CalendarEvent, CalendarResource } from '../core/types';
 import { useCalendar } from './use-calendar';
 
 /** テスト用の固定「現在時刻」。東京の 2026-07-15 10:00。 */
@@ -217,6 +217,31 @@ describe('useCalendar', () => {
 
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]?.[0]).toContain('setEvents');
+    });
+
+    it('マウント後に異なる resources 配列を渡すと console.warn で一度だけ警告する', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const initialResources: readonly CalendarResource[] = [{ id: 'room-1', title: '会議室A' }];
+      const nextResources: readonly CalendarResource[] = [{ id: 'room-2', title: '会議室B' }];
+
+      const { rerender } = renderHook(
+        (props: { resources: readonly CalendarResource[] }) =>
+          useCalendar({
+            timeZone: 'Asia/Tokyo',
+            now: () => NOW,
+            initialDate: NOW,
+            resources: props.resources,
+          }),
+        { initialProps: { resources: initialResources } },
+      );
+
+      expect(warn).not.toHaveBeenCalled();
+
+      rerender({ resources: nextResources });
+      rerender({ resources: nextResources });
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain('setResources');
     });
   });
 });

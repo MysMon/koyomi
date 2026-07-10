@@ -40,6 +40,11 @@ export interface RangeSelection {
   range: DateRange;
   /** 終日枠（月ビューのセル・終日行）での選択かどうか。 */
   allDay: boolean;
+  /**
+   * 選択が行われたレーンのリソース ID。リソース/タイムラインビューでの
+   * 選択時のみ設定される（`null` は未割り当てレーン）。既存ビューでは省略。
+   */
+  resourceId?: string | null;
 }
 
 /**
@@ -54,6 +59,11 @@ export interface EventChange {
   allDay: boolean;
   /** 繰り返しイベントの場合に適用されたスコープ（単発は `null`）。 */
   scope: RecurringEditScope | null;
+  /**
+   * 変更後の割当先リソース ID。リソース/タイムラインビューでの変更時のみ
+   * 設定される（`null` は未割り当てへの移動）。既存ビューでは省略。
+   */
+  resourceId?: string | null;
 }
 
 /**

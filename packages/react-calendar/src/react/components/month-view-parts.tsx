@@ -8,6 +8,8 @@
  * 両コンポーネントで完全に一致する。
  *
  * 非公開モジュール（`index.ts` から re-export しない）。
+ * 一部のヘルパ（`withEventColorStyle` / `formatEventAriaLabel` / `formatTimeLabel`）は
+ * リソースビュー・タイムラインビューのコンポーネントとも共有する。
  */
 
 import type {
@@ -68,7 +70,7 @@ function formatDayNumberLabel(date: Date, timeZone: TimeZoneId, locale: string):
 }
 
 /** 時刻ラベル（`'H:mm'`、時は非ゼロ埋めの 24 時間制）を Intl で生成する。 */
-function formatTimeLabel(date: Date, timeZone: TimeZoneId, locale: string): string {
+export function formatTimeLabel(date: Date, timeZone: TimeZoneId, locale: string): string {
   return getDateTimeFormat(locale, timeZone, 'time', {
     timeZone,
     hour: 'numeric',
@@ -114,7 +116,7 @@ function inclusiveEndInstant(occurrence: EventOccurrence): Date {
  * 終日イベントは日付範囲（`'タイトル、M月d日〜M月d日'`、単日なら日付 1 つのみ）、
  * 時間指定イベントは `'タイトル、M月d日 H:mm〜H:mm'` の形式になる。
  */
-function formatEventAriaLabel(
+export function formatEventAriaLabel(
   occurrence: EventOccurrence,
   timeZone: TimeZoneId,
   locale: string,
@@ -160,7 +162,10 @@ function defaultSegmentContent(
  * `CSSProperties` の型定義にはカスタムプロパティが含まれないため、ここでのみ
  * `as` によるキャストを行う（CLAUDE.md に記載された唯一の許容箇所）。
  */
-function withEventColorStyle(style: CSSProperties, color: string | undefined): CSSProperties {
+export function withEventColorStyle(
+  style: CSSProperties,
+  color: string | undefined,
+): CSSProperties {
   if (color === undefined) {
     return style;
   }

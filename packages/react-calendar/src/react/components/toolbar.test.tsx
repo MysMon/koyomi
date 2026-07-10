@@ -30,6 +30,7 @@ function renderToolbar(
   labels?: ToolbarProps['labels'],
   views?: ToolbarProps['views'],
   multiMonthCount?: number,
+  timelineDays?: number,
 ) {
   const capture: { current: UseCalendarResult | null } = { current: null };
 
@@ -41,6 +42,7 @@ function renderToolbar(
       // exactOptionalPropertyTypes 下では undefined 値のキーを直接書けないため省略する
       ...(initialView !== undefined ? { initialView } : {}),
       ...(multiMonthCount !== undefined ? { multiMonthCount } : {}),
+      ...(timelineDays !== undefined ? { timelineDays } : {}),
       locale: 'ja',
     });
     capture.current = calendar;
@@ -120,6 +122,7 @@ describe('Toolbar', () => {
       weekStartsOn: 0,
       listDays: 30,
       multiMonthCount: 3,
+      timelineDays: 1,
     });
     expect(capture.current?.api.getVisibleRange()).toEqual(range);
 
@@ -133,6 +136,7 @@ describe('Toolbar', () => {
       weekStartsOn: 0,
       listDays: 30,
       multiMonthCount: 3,
+      timelineDays: 1,
     });
 
     const title = container.querySelector('[data-koyomi="title"]');
@@ -343,5 +347,86 @@ describe('Toolbar', () => {
     const { container } = renderToolbar('multiMonth', undefined, undefined, 1);
     const title = container.querySelector('[data-koyomi="title"]');
     expect(title?.textContent).toBe('2026年7月');
+  });
+
+  it('views 未指定では従来どおりリソース/タイムラインのボタンも出ない（回帰ガード）', () => {
+    const { container } = renderToolbar('month');
+    expect(container.querySelector('[data-koyomi-action="view-resource"]')).toBeNull();
+    expect(container.querySelector('[data-koyomi-action="view-timeline"]')).toBeNull();
+  });
+
+  it("views={['month', 'resource', 'timeline']} を指定すると3ボタンになり、各ボタンのクリックで setView が呼ばれる", () => {
+    const { container, capture } = renderToolbar('month', undefined, [
+      'month',
+      'resource',
+      'timeline',
+    ]);
+    const viewsGroup = container.querySelector('[data-koyomi="toolbar-views"]');
+    const buttons = viewsGroup?.querySelectorAll('[data-koyomi="button"]') ?? [];
+    expect(buttons).toHaveLength(3);
+
+    const resourceButton = container.querySelector('[data-koyomi-action="view-resource"]');
+    expect(resourceButton).not.toBeNull();
+    if (resourceButton === null) {
+      throw new Error('view-resource ボタンが見つかりません');
+    }
+    fireEvent.click(resourceButton);
+    expect(capture.current?.api.getState().view).toBe('resource');
+
+    const timelineButton = container.querySelector('[data-koyomi-action="view-timeline"]');
+    expect(timelineButton).not.toBeNull();
+    if (timelineButton === null) {
+      throw new Error('view-timeline ボタンが見つかりません');
+    }
+    fireEvent.click(timelineButton);
+    expect(capture.current?.api.getState().view).toBe('timeline');
+  });
+
+  it('labels.resource / labels.timeline でリソース/タイムラインビュー切替ボタンの表示文字列を差し替えられる', () => {
+    const { container } = renderToolbar('month', { resource: 'Resources', timeline: 'Timeline' }, [
+      'month',
+      'resource',
+      'timeline',
+    ]);
+    expect(container.querySelector('[data-koyomi-action="view-resource"]')?.textContent).toBe(
+      'Resources',
+    );
+    expect(container.querySelector('[data-koyomi-action="view-timeline"]')?.textContent).toBe(
+      'Timeline',
+    );
+  });
+
+  it('labels を省略するとリソース/タイムラインのボタンも既定の日本語文字列になる（後方互換）', () => {
+    const { container } = renderToolbar('month', undefined, ['month', 'resource', 'timeline']);
+    expect(container.querySelector('[data-koyomi-action="view-resource"]')?.textContent).toBe(
+      'リソース',
+    );
+    expect(container.querySelector('[data-koyomi-action="view-timeline"]')?.textContent).toBe(
+      'タイムライン',
+    );
+  });
+
+  it('リソースビューのタイトルは日ビューと同じ「2026年7月15日(水)」形式になる', () => {
+    const { container } = renderToolbar('resource');
+    const title = container.querySelector('[data-koyomi="title"]');
+    expect(title?.textContent).toBe(formatDayTitle(NOW, 'Asia/Tokyo', 'ja'));
+    expect(title?.textContent).toBe('2026年7月15日(水)');
+  });
+
+  it('タイムラインのタイトルは既定（timelineDays=1）では日ビューと同じ「2026年7月15日(水)」形式になる', () => {
+    const { container } = renderToolbar('timeline');
+    const title = container.querySelector('[data-koyomi="title"]');
+    expect(title?.textContent).toBe(formatDayTitle(NOW, 'Asia/Tokyo', 'ja'));
+    expect(title?.textContent).toBe('2026年7月15日(水)');
+  });
+
+  it('タイムラインのタイトルは timelineDays:7 では表示範囲の「7月15日〜7月21日」のような範囲形式になる', () => {
+    const { container, capture } = renderToolbar('timeline', undefined, undefined, undefined, 7);
+    const title = container.querySelector('[data-koyomi="title"]');
+    const range = capture.current?.api.getVisibleRange();
+    expect(range).toBeDefined();
+    if (range === undefined) throw new Error('unreachable');
+    expect(title?.textContent).toBe(formatRangeTitle(range, 'Asia/Tokyo', 'ja'));
+    expect(title?.textContent).not.toBe(formatDayTitle(NOW, 'Asia/Tokyo', 'ja'));
   });
 });

@@ -5,7 +5,8 @@
  *   import '@koyomi-cal/react/theme.css';
  *
  * ビルトインコンポーネント（Toolbar / CalendarView / MonthView / TimeGridView /
- * ListView / YearView / MultiMonthView）はスタイルを一切持たないヘッドレスなコンポーネントで、DOM 上の
+ * ListView / YearView / MultiMonthView / ResourceView / TimelineView）はスタイルを
+ * 一切持たないヘッドレスなコンポーネントで、DOM 上の
  * `data-koyomi="<部位名>"` 属性だけを目印にしている（クラス名は生成しない）。
  * このファイルはその属性だけをセレクタにして見た目を組み立てる。
  * 利用側が独自テーマを当てたい場合も同じ属性をフックにすればよい。
@@ -25,6 +26,10 @@
  *   --koyomi-month-header-height 月セルの日番号行の高さ（イベント帯の上端オフセットにも使用）
  *   --koyomi-lane-height         帯セグメント 1 レーンの高さ
  *   --koyomi-hour-height         時間グリッド 1 時間分の高さ
+ *   --koyomi-resource-column-width  リソースビューの列の最小幅（列数が多いと横スクロール）
+ *   --koyomi-timeline-day-width     タイムラインビューの 1 日分のトラック幅
+ *   --koyomi-timeline-lane-height   タイムラインビューの帯 1 レーンの高さ
+ *   --koyomi-timeline-header-width  タイムラインビューの行見出し列（左端固定列）の幅
  *
  * 上記に加え、時間グリッドの時刻軸幅をヘッダー・終日行・本体で揃えるための
  * 内部変数として --koyomi-time-axis-width も定義している（必要なら上書き可）。
@@ -54,6 +59,10 @@
   --koyomi-lane-height: 24px;
   --koyomi-hour-height: 48px;
   --koyomi-time-axis-width: 56px;
+  --koyomi-resource-column-width: 160px;
+  --koyomi-timeline-day-width: 720px;
+  --koyomi-timeline-lane-height: 28px;
+  --koyomi-timeline-header-width: 120px;
 
   background-color: var(--koyomi-bg);
   color: var(--koyomi-fg);
@@ -357,7 +366,8 @@
   flex-direction: column;
 }
 
-[data-koyomi="timegrid-header"] {
+[data-koyomi="timegrid-header"],
+[data-koyomi="resource-header"] {
   display: flex;
   border-bottom: 1px solid var(--koyomi-border);
 }
@@ -367,15 +377,20 @@
   width: var(--koyomi-time-axis-width);
 }
 
-[data-koyomi="timegrid-day-header"] {
-  flex: 1 1 0;
-  min-width: 0;
+[data-koyomi="timegrid-day-header"],
+[data-koyomi="resource-header-cell"] {
   padding: 4px;
   border-inline-start: 1px solid var(--koyomi-border);
   text-align: center;
 }
 
-[data-koyomi="timegrid-day-header"]:first-child {
+[data-koyomi="timegrid-day-header"] {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+[data-koyomi="timegrid-day-header"]:first-child,
+[data-koyomi="resource-header-cell"]:first-child {
   border-inline-start: none;
 }
 
@@ -410,24 +425,50 @@
   border-bottom: 1px solid var(--koyomi-border);
 }
 
-[data-koyomi="allday-cells"] {
+[data-koyomi="allday-cells"],
+[data-koyomi="resource-allday-cells"] {
   position: relative;
   display: flex;
   flex: 1 1 0;
+  min-width: 0;
   /* レーン数はビューモデル側でのみ把握できるため、既定では 2 レーン分を確保する */
   min-height: calc(var(--koyomi-lane-height) * 2);
 }
 
-[data-koyomi="allday-cell"] {
-  flex: 1 1 0;
-  min-width: 0;
+/* リソース列は数十列まで増えうる（§6.5）。横スクロールはルート（[data-koyomi="resource"]）が
+   一括で担うため、この行自体はスクロールコンテナにしない（3 行が独立にスクロールして
+   ずれるのを防ぐ） */
+[data-koyomi="resource-allday-cells"] {
+  min-width: max-content;
+}
+
+[data-koyomi="allday-cell"],
+[data-koyomi="resource-allday-cell"] {
   border-inline-start: 1px solid var(--koyomi-border);
   /* 終日行からの作成ドラッグをタッチのスクロールに奪われないようにする */
   touch-action: none;
 }
 
-[data-koyomi="allday-cell"]:first-child {
+[data-koyomi="allday-cell"] {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* リソース列は最小幅を確保し、収まらなければ横スクロールに任せる（flex-shrink させない） */
+[data-koyomi="resource-allday-cell"] {
+  position: relative;
+  flex: 1 1 var(--koyomi-resource-column-width, 160px);
+  min-width: var(--koyomi-resource-column-width, 160px);
+}
+
+[data-koyomi="allday-cell"]:first-child,
+[data-koyomi="resource-allday-cell"]:first-child {
   border-inline-start: none;
+}
+
+/* ドラッグ中の終日イベントの移動先プレビュー（列全体をハイライト） */
+[data-koyomi="resource-allday-cell"][data-koyomi-preview-target="true"] {
+  box-shadow: inset 0 0 0 2px var(--koyomi-accent);
 }
 
 [data-koyomi="allday-event"] {
@@ -461,7 +502,8 @@
   border-end-end-radius: 0;
 }
 
-[data-koyomi="timegrid-body"] {
+[data-koyomi="timegrid-body"],
+[data-koyomi="resource-body"] {
   display: flex;
   max-height: 640px;
   overflow-y: auto;
@@ -488,27 +530,45 @@
   border-top: none;
 }
 
-[data-koyomi="timegrid-days"] {
+[data-koyomi="timegrid-days"],
+[data-koyomi="resource-columns"] {
   position: relative;
   display: flex;
   flex: 1 1 0;
 }
 
-[data-koyomi="timegrid-day"] {
+/* リソース列は数十列まで増えうる（§6.5）。横スクロールはルートが一括で担う（終日行と同じ理由） */
+[data-koyomi="resource-columns"] {
+  min-width: max-content;
+}
+
+[data-koyomi="timegrid-day"],
+[data-koyomi="resource-column"] {
   position: relative;
-  flex: 1 1 0;
-  min-width: 0;
   height: calc(24 * var(--koyomi-hour-height));
   border-inline-start: 1px solid var(--koyomi-border);
   /* 空き領域からの作成ドラッグをタッチのスクロールに奪われないようにする */
   touch-action: none;
 }
 
-[data-koyomi="timegrid-day"]:first-child {
+[data-koyomi="timegrid-day"] {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* リソース列は最小幅を確保し、収まらなければ横スクロールに任せる（flex-shrink させない） */
+[data-koyomi="resource-column"] {
+  flex: 1 1 var(--koyomi-resource-column-width, 160px);
+  min-width: var(--koyomi-resource-column-width, 160px);
+}
+
+[data-koyomi="timegrid-day"]:first-child,
+[data-koyomi="resource-column"]:first-child {
   border-inline-start: none;
 }
 
-[data-koyomi="timegrid-day"][data-today] {
+[data-koyomi="timegrid-day"][data-today],
+[data-koyomi="resource-column"][data-today] {
   background-color: var(--koyomi-today-bg);
 }
 
@@ -574,9 +634,10 @@
   background-color: rgba(0, 0, 0, 0.15);
 }
 
-/* 帯セグメント（月ビュー・終日行）の左右端リサイズハンドル */
+/* 帯セグメント（月ビュー・終日行・タイムライン）の左右端リサイズハンドル */
 [data-koyomi="month-event-resize"],
-[data-koyomi="allday-resize"] {
+[data-koyomi="allday-resize"],
+[data-koyomi="timeline-resize"] {
   position: absolute;
   inset-block: 0;
   width: 6px;
@@ -586,17 +647,20 @@
 }
 
 [data-koyomi="month-event-resize"][data-edge="start"],
-[data-koyomi="allday-resize"][data-edge="start"] {
+[data-koyomi="allday-resize"][data-edge="start"],
+[data-koyomi="timeline-resize"][data-edge="start"] {
   inset-inline-start: 0;
 }
 
 [data-koyomi="month-event-resize"][data-edge="end"],
-[data-koyomi="allday-resize"][data-edge="end"] {
+[data-koyomi="allday-resize"][data-edge="end"],
+[data-koyomi="timeline-resize"][data-edge="end"] {
   inset-inline-end: 0;
 }
 
 [data-koyomi="month-event-resize"]:hover,
-[data-koyomi="allday-resize"]:hover {
+[data-koyomi="allday-resize"]:hover,
+[data-koyomi="timeline-resize"]:hover {
   background-color: rgba(0, 0, 0, 0.15);
 }
 
@@ -627,6 +691,22 @@
   height: 8px;
   border-radius: 999px;
   background-color: #ea4335;
+}
+
+/*
+ * タイムラインビューの現在時刻線（縦線）。横 = 時間軸のため、横方向に伸びる
+ * 既定（横線）ではなく縦方向いっぱいに伸びる縦線にする。横方向の位置は
+ * コンポーネント側が inline の insetInlineStart（%）で指定するため、
+ * ここでは inset-inline を 0 埋めしない（既定の全幅ボーダーを打ち消す）。
+ * 属性セレクタ 2 つ分（既定より詳細度が高い）なので、後勝ちに頼らず確実に上書きされる。
+ */
+[data-koyomi="now-indicator"][data-orientation="vertical"] {
+  inset-inline: auto;
+  inset-block: 0;
+  width: 0;
+  height: auto;
+  border-top: none;
+  border-inline-start: 2px solid #ea4335;
 }
 
 /* ---------------------------------------------------------------------------
@@ -684,7 +764,9 @@
   text-overflow: ellipsis;
 }
 
-[data-koyomi="list-empty"] {
+[data-koyomi="list-empty"],
+[data-koyomi="resource-empty"],
+[data-koyomi="timeline-empty"] {
   padding: 24px;
   color: var(--koyomi-muted);
   font-size: 0.9em;
@@ -838,4 +920,257 @@
   position: absolute;
   inset-inline-start: 0;
   width: 100%;
+}
+
+/* ---------------------------------------------------------------------------
+ * リソースビュー
+ *
+ * 列見出し行・終日行・本体は構造・属性名とも週/日ビュー（時間グリッド）に準じており、
+ * 列見出し（resource-header 系）以外は上記「週/日ビュー」節の
+ * timegrid-header / allday-cells / allday-cell / timegrid-body / timegrid-days /
+ * timegrid-day 系セレクタに resource-* を相乗りさせてある（イベントブロック・
+ * リサイズハンドル・現在時刻線・プレビューは data-koyomi 属性そのものを共有するため
+ * 追加 CSS 不要）。ここで当てるのはリソースビュー固有の列見出しラッパーと、
+ * 列数が多い場合の横スクロール対応（§6.5: 列方向の仮想化は非目標、横スクロールで対応）。
+ * ------------------------------------------------------------------------ */
+
+/* ルートが唯一の横スクロールコンテナ。列見出し行・終日行・本体の 3 行が
+   独立にスクロールしてずれないよう、横スクロールはここに集約する（縦スクロールは
+   従来どおり resource-body が担う） */
+[data-koyomi="resource"] {
+  display: flex;
+  flex-direction: column;
+  overflow-x: auto;
+}
+
+/* 各行の中身は列の最小幅の合計まで伸ばし、ルートのスクロール幅に反映させる */
+[data-koyomi="resource"] > [data-koyomi="resource-header"],
+[data-koyomi="resource"] > [data-koyomi="allday-row"],
+[data-koyomi="resource"] > [data-koyomi="resource-body"] {
+  min-width: max-content;
+}
+
+/* 時間軸のガター・時間軸は横スクロールしても左に固定する（タイムラインの行見出しと同じ手法） */
+[data-koyomi="resource"] [data-koyomi="timegrid-axis-gutter"],
+[data-koyomi="resource"] [data-koyomi="time-axis"] {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  background-color: var(--koyomi-bg);
+}
+
+[data-koyomi="resource-headers"] {
+  display: flex;
+  flex: 1 1 0;
+  min-width: max-content;
+}
+
+[data-koyomi="resource-header-cell"] {
+  position: relative;
+  flex: 1 1 var(--koyomi-resource-column-width, 160px);
+  min-width: var(--koyomi-resource-column-width, 160px);
+  padding-inline-start: 14px;
+}
+
+/* リソースの色（未設定なら既定アクセント色）を示す色ドット */
+[data-koyomi="resource-header-cell"]::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  inset-inline-start: 4px;
+  width: 8px;
+  height: 8px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background-color: var(--koyomi-event-color, var(--koyomi-accent));
+}
+
+/* ---------------------------------------------------------------------------
+ * タイムラインビュー
+ *
+ * 横 = 表示分（§7.2）、縦 = リソース行。単一の横スクロールコンテナ
+ * （timeline-body）に行見出し列・左上コーナーを position: sticky で固定する
+ * （二重スクロール同期の JS は持たない。timeline-body の直下に timeline-header-row と
+ * 各 timeline-row-group が並ぶ構造だからこそ、sticky の基準（timeline-body）が
+ * 全行の高さ分を覆い、スクロールし続けても固定され続ける）。
+ * 帯（timeline-item）・リサイズハンドル・プレビュー・現在時刻線（縦線）は
+ * 上記の共通セレクタ（timeline-resize は月/終日行のリサイズハンドルへ相乗り、
+ * now-indicator[data-orientation="vertical"] は「週/日ビュー」節末尾を参照）。
+ * ------------------------------------------------------------------------ */
+
+[data-koyomi="timeline"] {
+  display: flex;
+  flex-direction: column;
+}
+
+[data-koyomi="timeline-body"] {
+  position: relative;
+  max-height: 640px;
+  overflow: auto;
+}
+
+[data-koyomi="timeline-header-row"] {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  background-color: var(--koyomi-bg);
+  border-bottom: 1px solid var(--koyomi-border);
+}
+
+[data-koyomi="timeline-corner"],
+[data-koyomi="timeline-resource-header"] {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  flex: none;
+  width: var(--koyomi-timeline-header-width, 120px);
+  background-color: var(--koyomi-bg);
+  border-inline-end: 1px solid var(--koyomi-border);
+}
+
+[data-koyomi="timeline-resource-header"] {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding-inline: 14px 8px;
+  font-size: 0.9em;
+}
+
+/* リソースの色（未設定なら既定アクセント色）を示す色ドット（resource-header-cell と同型） */
+[data-koyomi="timeline-resource-header"]::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  inset-inline-start: 4px;
+  width: 8px;
+  height: 8px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background-color: var(--koyomi-event-color, var(--koyomi-accent));
+}
+
+[data-koyomi="timeline-axis"] {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+}
+
+/*
+ * トラック幅（timeline-axis / timeline-row の実効幅）:
+ * timeline-day-header は自身の幅を親（timeline-day-headers）に対する % で、
+ * timeline-slot-label / timeline-item は insetInlineStart（%）を親
+ * （timeline-slots / timeline-row）に対する割合で指定している（inline style。
+ * コンポーネント側の仕様）。そのため親に実寸の min-width を与えないと
+ * 横スクロールが機能しない。
+ * 表示日数（timelineDays）はルート [data-koyomi="timeline"] の data-koyomi-days
+ * 属性にしか現れず、CSS の calc() で属性値を数値として取り出す標準的な方法はない
+ * （attr() の数値変換は現時点で全ブラウザには広まっていない）。そのため既定では
+ * 1 日分（ライブラリの既定 timelineDays）を仮定した固定値を当てる。
+ * timelineDays を 1 より大きくして使う場合は、利用側で data-koyomi-days の値に
+ * 応じた上書きを追加する（例: 7 日分）:
+ *
+ *   [data-koyomi="timeline"][data-koyomi-days="7"] [data-koyomi="timeline-axis"],
+ *   [data-koyomi="timeline"][data-koyomi-days="7"] [data-koyomi="timeline-row"] {
+ *     min-width: calc(var(--koyomi-timeline-day-width, 720px) * 7);
+ *   }
+ */
+[data-koyomi="timeline-axis"],
+[data-koyomi="timeline-row"] {
+  min-width: calc(var(--koyomi-timeline-day-width, 720px) * 1);
+}
+
+[data-koyomi="timeline-day-headers"] {
+  display: flex;
+  border-bottom: 1px solid var(--koyomi-border);
+}
+
+[data-koyomi="timeline-day-header"] {
+  flex: none;
+  min-width: 0;
+  padding: 4px;
+  border-inline-start: 1px solid var(--koyomi-border);
+  text-align: center;
+}
+
+[data-koyomi="timeline-day-header"]:first-child {
+  border-inline-start: none;
+}
+
+[data-koyomi="timeline-day-header"][data-today] {
+  background-color: var(--koyomi-today-bg);
+}
+
+[data-koyomi="timeline-slots"] {
+  position: relative;
+  height: 20px;
+}
+
+[data-koyomi="timeline-slot-label"] {
+  position: absolute;
+  top: 0;
+  padding-inline-start: 4px;
+  color: var(--koyomi-muted);
+  font-size: 0.7em;
+  white-space: nowrap;
+}
+
+[data-koyomi="timeline-row-group"] {
+  display: flex;
+  border-bottom: 1px solid var(--koyomi-border);
+}
+
+[data-koyomi="timeline-row"] {
+  position: relative;
+  flex: 1 1 auto;
+  height: calc(var(--koyomi-timeline-lane-height, 28px) * var(--koyomi-timeline-lanes, 1));
+  /* 空き領域からの作成ドラッグをタッチのスクロールに奪われないようにする */
+  touch-action: none;
+}
+
+[data-koyomi="timeline-item"] {
+  position: absolute;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  height: calc(var(--koyomi-timeline-lane-height, 28px) - 2px);
+  padding: 2px 4px;
+  border-radius: var(--koyomi-radius);
+  background-color: var(--koyomi-event-color, var(--koyomi-accent));
+  box-shadow: 0 0 0 1px var(--koyomi-bg);
+  color: var(--koyomi-event-fg);
+  font-size: 0.8em;
+  /* ドラッグ移動をタッチのスクロールに奪われないようにする */
+  touch-action: none;
+}
+
+[data-koyomi="timeline-item"]:hover {
+  box-shadow:
+    0 0 0 1px var(--koyomi-bg),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+[data-koyomi="timeline-item"][data-continues-before] {
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+}
+
+[data-koyomi="timeline-item"][data-continues-after] {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+
+[data-koyomi="timeline-item-content"] {
+  overflow: hidden;
+  line-height: 1.3;
+}
+
+[data-koyomi="timeline-preview"] {
+  position: absolute;
+  inset-block: 0;
+  border: 1px dashed var(--koyomi-accent);
+  border-radius: var(--koyomi-radius);
+  background-color: var(--koyomi-accent);
+  opacity: 0.2;
+  pointer-events: none;
 }

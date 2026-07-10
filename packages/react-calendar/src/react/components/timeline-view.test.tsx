@@ -1,0 +1,407 @@
+/**
+ * timeline-view.tsx のテスト。
+ *
+ * `useCalendar` + `CalendarProvider` で実際のカレンダーエンジンを組み立て、
+ * `TimelineView` が生成する DOM を `data-koyomi="..."` 属性で検証する。
+ * テストプロセスは vitest.config.ts により TZ=Asia/Tokyo で実行される。
+ */
+import { render } from '@testing-library/react';
+import type { ReactElement, ReactNode } from 'react';
+import { describe, expect, it } from 'vitest';
+import type {
+  CalendarEvent,
+  CalendarResource,
+  CalendarViewType,
+  TimelineItem,
+  TimelineRow,
+} from '../../core/types';
+import { CalendarProvider } from '../context';
+import { useCalendar } from '../use-calendar';
+import type { TimelineViewProps } from './timeline-view';
+import { TimelineView } from './timeline-view';
+
+/** 表示タイムゾーン。 */
+const TOKYO = 'Asia/Tokyo';
+/** テスト用の固定「現在時刻」。Asia/Tokyo で 2026-07-15（水） 10:00。 */
+const NOW = new Date('2026-07-15T01:00:00Z');
+/** events 未指定時に毎レンダー同じ参照を渡し、useCalendar の開発時警告を避ける。 */
+const EMPTY_EVENTS: readonly CalendarEvent[] = [];
+/** resources 未指定時に毎レンダー同じ参照を渡す。 */
+const EMPTY_RESOURCES: readonly CalendarResource[] = [];
+
+/** テスト用ハーネスの props。 */
+interface HarnessProps {
+  /** 初期ビュー。既定は 'timeline'。 */
+  initialView?: CalendarViewType;
+  /** 初期表示日（既定は NOW = 今日）。 */
+  initialDate?: Date;
+  /** 初期イベント。 */
+  events?: readonly CalendarEvent[];
+  /** リソース一覧。 */
+  resources?: readonly CalendarResource[];
+  /** 未割り当てレーンの生成規則。 */
+  unassignedLane?: 'auto' | 'always';
+  /** 表示日数。 */
+  timelineDays?: number;
+  /** 時間軸の目盛り間隔（分）。 */
+  slotMinutes?: number;
+  /** `TimelineView` へそのまま渡す追加 props。 */
+  viewProps?: TimelineViewProps;
+}
+
+/** `TimelineView` を `CalendarProvider` 配下で描画するテスト用ハーネス。 */
+function Harness(props: HarnessProps): ReactElement {
+  const calendar = useCalendar({
+    timeZone: TOKYO,
+    now: () => NOW,
+    initialDate: props.initialDate ?? NOW,
+    initialView: props.initialView ?? 'timeline',
+    events: props.events ?? EMPTY_EVENTS,
+    resources: props.resources ?? EMPTY_RESOURCES,
+    unassignedLane: props.unassignedLane ?? 'auto',
+    ...(props.timelineDays !== undefined ? { timelineDays: props.timelineDays } : {}),
+    ...(props.slotMinutes !== undefined ? { slotMinutes: props.slotMinutes } : {}),
+  });
+  return (
+    <CalendarProvider value={calendar}>
+      <TimelineView {...(props.viewProps ?? {})} />
+    </CalendarProvider>
+  );
+}
+
+/** 2 リソース分の固定フィクスチャ。 */
+const CRANE_1: CalendarResource = { id: 'crane-1', title: 'クレーン1号機', color: '#0000ff' };
+const CRANE_2: CalendarResource = { id: 'crane-2', title: 'クレーン2号機' };
+
+describe('TimelineView - viewModel ガード', () => {
+  it('viewModel.type が timeline 以外のときは何も描画しない', () => {
+    const { container } = render(<Harness initialView="month" resources={[CRANE_1]} />);
+    expect(container.querySelector('[data-koyomi="timeline"]')).toBeNull();
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('viewModel.type が timeline のときは data-koyomi="timeline" のルートを描画する', () => {
+    const { container } = render(<Harness resources={[CRANE_1]} />);
+    expect(container.querySelector('[data-koyomi="timeline"]')).not.toBeNull();
+  });
+});
+
+describe('TimelineView - DOM 構造', () => {
+  it('data-koyomi-days に表示日数が反映され、日ヘッダーと目盛りが同数分描画される', () => {
+    const { container } = render(<Harness resources={[CRANE_1]} timelineDays={3} />);
+    const root = container.querySelector('[data-koyomi="timeline"]');
+    expect(root).toHaveAttribute('data-koyomi-days', '3');
+    expect(root?.querySelector('[data-koyomi="timeline-body"]')).not.toBeNull();
+    expect(container.querySelectorAll('[data-koyomi="timeline-day-header"]')).toHaveLength(3);
+    // slotMinutes 既定 60 分 × 3 日 = 72 個
+    expect(container.querySelectorAll('[data-koyomi="timeline-slot-label"]')).toHaveLength(72);
+  });
+
+  it('行数がリソース数 + 未割り当て分になり、timeline-row / timeline-item が描画される', () => {
+    const events: CalendarEvent[] = [
+      // resourceId 未指定 → 未割り当て行に合流し、'auto' の未割り当て行を生成させる
+      {
+        id: 'unassigned-1',
+        title: '未割当作業',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T10:00',
+      },
+      {
+        id: 'e1',
+        title: '荷揚げ',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'crane-1',
+      },
+    ];
+    const { container } = render(
+      <Harness resources={[CRANE_1, CRANE_2]} events={events} unassignedLane="auto" />,
+    );
+    expect(container.querySelectorAll('[data-koyomi="timeline-row"]')).toHaveLength(3);
+    expect(container.querySelectorAll('[data-koyomi="timeline-resource-header"]')).toHaveLength(3);
+    expect(container.querySelectorAll('[data-koyomi="timeline-item"]')).toHaveLength(2);
+  });
+
+  it('リソース行には data-koyomi-resource-id が付き、未割り当て行には付かない', () => {
+    const { container } = render(<Harness resources={[CRANE_1]} unassignedLane="always" />);
+    const headers = container.querySelectorAll('[data-koyomi="timeline-resource-header"]');
+    expect(headers).toHaveLength(2);
+    expect(headers[0]).toHaveAttribute('data-koyomi-resource-id', 'crane-1');
+    expect(headers[1]).not.toHaveAttribute('data-koyomi-resource-id');
+  });
+});
+
+describe('TimelineView - 空状態', () => {
+  it('行が 1 つもないとき data-koyomi="timeline-empty" と既定メッセージを描画する', () => {
+    const { container } = render(<Harness resources={[]} unassignedLane="auto" />);
+    expect(container.querySelector('[data-koyomi="timeline-row"]')).toBeNull();
+    const empty = container.querySelector('[data-koyomi="timeline-empty"]');
+    expect(empty).not.toBeNull();
+    expect(empty?.textContent).toBe('リソースがありません');
+  });
+
+  it('emptyLabel でメッセージを差し替えられる', () => {
+    const { container } = render(
+      <Harness
+        resources={[]}
+        unassignedLane="auto"
+        viewProps={{ emptyLabel: '設備がありません' }}
+      />,
+    );
+    const empty = container.querySelector('[data-koyomi="timeline-empty"]');
+    expect(empty?.textContent).toBe('設備がありません');
+  });
+});
+
+describe('TimelineView - 帯の位置', () => {
+  it('style の insetInlineStart/width が表示分 / totalMinutes の % で計算される', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '荷揚げ',
+        start: '2026-07-15T06:00',
+        end: '2026-07-15T12:00',
+        resourceId: 'crane-1',
+      },
+    ];
+    const { container } = render(
+      <Harness resources={[CRANE_1]} events={events} timelineDays={1} />,
+    );
+    const item = container.querySelector('[data-koyomi="timeline-item"]') as HTMLElement | null;
+    expect(item).not.toBeNull();
+    // 6:00 = 360 分 → 360/1440*100 = 25%、6 時間 = 360 分 → 25%
+    expect(item?.style.insetInlineStart).toBe('25%');
+    expect(item?.style.width).toBe('25%');
+  });
+
+  it('timelineDays > 1 のとき totalMinutes は日数 × 1440 になり、2 日目の帯の位置に反映される', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '2日目作業',
+        start: '2026-07-16T06:00',
+        end: '2026-07-16T12:00',
+        resourceId: 'crane-1',
+      },
+    ];
+    const { container } = render(
+      <Harness resources={[CRANE_1]} events={events} timelineDays={2} />,
+    );
+    const item = container.querySelector('[data-koyomi="timeline-item"]') as HTMLElement | null;
+    expect(item).not.toBeNull();
+    // totalMinutes = 2880。2 日目 6:00 = 1440+360=1800分 → 1800/2880*100 = 62.5%
+    // 6 時間 = 360 分 → 360/2880*100 = 12.5%
+    expect(item?.style.insetInlineStart).toBe('62.5%');
+    expect(item?.style.width).toBe('12.5%');
+  });
+});
+
+describe('TimelineView - レーン', () => {
+  it('重なる帯は data-koyomi-lane が異なり、--koyomi-timeline-lanes に行のレーン数が反映される', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'a',
+        title: 'A',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'crane-1',
+      },
+      {
+        id: 'b',
+        title: 'B',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'crane-1',
+      },
+    ];
+    const { container } = render(<Harness resources={[CRANE_1]} events={events} />);
+    const items = Array.from(container.querySelectorAll('[data-koyomi="timeline-item"]'));
+    expect(items).toHaveLength(2);
+    const lanes = items.map((el) => el.getAttribute('data-koyomi-lane')).sort();
+    expect(lanes).toEqual(['0', '1']);
+
+    const row = container.querySelector('[data-koyomi="timeline-row"]');
+    expect(row?.getAttribute('style')).toContain('--koyomi-timeline-lanes: 2');
+  });
+});
+
+describe('TimelineView - カスタム描画 props', () => {
+  it('renderEvent で帯の内容を差し替えられる', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '荷揚げ',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'crane-1',
+      },
+    ];
+    const renderEvent = (item: TimelineItem): ReactElement => (
+      <span data-koyomi="custom-item">CUSTOM:{item.occurrence.event.title}</span>
+    );
+    const { container } = render(
+      <Harness resources={[CRANE_1]} events={events} viewProps={{ renderEvent }} />,
+    );
+    const custom = container.querySelector('[data-koyomi="custom-item"]');
+    expect(custom).not.toBeNull();
+    expect(custom?.textContent).toBe('CUSTOM:荷揚げ');
+  });
+
+  it('renderRowHeader で行見出しの内容を差し替えられ、defaultContent には既定の内容が渡る', () => {
+    const renderRowHeader = (row: TimelineRow, defaultContent: ReactNode): ReactElement => (
+      <div data-koyomi="custom-row-header">
+        CUSTOM:{row.key}:{defaultContent}
+      </div>
+    );
+    const { container } = render(<Harness resources={[CRANE_1]} viewProps={{ renderRowHeader }} />);
+    const custom = container.querySelector('[data-koyomi="custom-row-header"]');
+    expect(custom).not.toBeNull();
+    expect(custom?.textContent).toBe('CUSTOM:r:crane-1:クレーン1号機');
+  });
+
+  it('unassignedLabel で未割り当て行のラベルを差し替えられる', () => {
+    const { container } = render(
+      <Harness
+        resources={[CRANE_1]}
+        unassignedLane="always"
+        viewProps={{ unassignedLabel: '担当未定' }}
+      />,
+    );
+    const headers = container.querySelectorAll('[data-koyomi="timeline-resource-header"]');
+    expect(headers[headers.length - 1]?.textContent).toBe('担当未定');
+  });
+});
+
+describe('TimelineView - 終日帯', () => {
+  it('data-all-day が付き、リサイズハンドルが描画されない', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'ad1',
+        title: '定期点検',
+        start: '2026-07-15',
+        end: '2026-07-16',
+        allDay: true,
+        resourceId: 'crane-1',
+      },
+    ];
+    const { container } = render(<Harness resources={[CRANE_1]} events={events} />);
+    const item = container.querySelector('[data-koyomi="timeline-item"]');
+    expect(item).toHaveAttribute('data-all-day', 'true');
+    expect(item?.querySelectorAll('[data-koyomi="timeline-resize"]')).toHaveLength(0);
+  });
+
+  it('時間指定の帯には編集可能なら左右のリサイズハンドルが data-edge 付きで描画される', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '荷揚げ',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'crane-1',
+      },
+    ];
+    const { container } = render(<Harness resources={[CRANE_1]} events={events} />);
+    const item = container.querySelector('[data-koyomi="timeline-item"]');
+    expect(item).not.toHaveAttribute('data-all-day');
+    expect(
+      item?.querySelector('[data-koyomi="timeline-resize"][data-edge="start"]'),
+    ).not.toBeNull();
+    expect(item?.querySelector('[data-koyomi="timeline-resize"][data-edge="end"]')).not.toBeNull();
+  });
+
+  it('editable: false の帯にはリサイズハンドルが描画されない', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'locked',
+        title: '編集不可',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T10:00',
+        resourceId: 'crane-1',
+        editable: false,
+      },
+    ];
+    const { container } = render(<Harness resources={[CRANE_1]} events={events} />);
+    const item = container.querySelector('[data-koyomi="timeline-item"]');
+    expect(item?.querySelectorAll('[data-koyomi="timeline-resize"]')).toHaveLength(0);
+  });
+});
+
+describe('TimelineView - continues 属性', () => {
+  it('表示範囲外へ続く帯には continuesBefore/After が付く', () => {
+    const events: CalendarEvent[] = [
+      // 前日 22:00 〜 当日 2:00（表示範囲は当日 1 日のみ）
+      {
+        id: 'cross',
+        title: '夜間作業',
+        start: '2026-07-14T22:00',
+        end: '2026-07-15T02:00',
+        resourceId: 'crane-1',
+      },
+    ];
+    const { container } = render(
+      <Harness resources={[CRANE_1]} events={events} timelineDays={1} />,
+    );
+    const item = container.querySelector('[data-koyomi="timeline-item"]');
+    expect(item).toHaveAttribute('data-continues-before', 'true');
+    expect(item).not.toHaveAttribute('data-continues-after');
+    // 表示範囲の先頭にクランプされる
+    expect((item as HTMLElement).style.insetInlineStart).toBe('0%');
+  });
+});
+
+describe('TimelineView - 現在時刻線', () => {
+  it('表示範囲に「今」が含まれるときのみ now-indicator が描画される', () => {
+    const { container: inRangeContainer } = render(
+      <Harness resources={[CRANE_1]} initialDate={NOW} timelineDays={1} />,
+    );
+    const indicator = inRangeContainer.querySelector('[data-koyomi="now-indicator"]');
+    expect(indicator).not.toBeNull();
+    expect(indicator).toHaveAttribute('aria-hidden', 'true');
+    expect(indicator).toHaveAttribute('data-orientation', 'vertical');
+
+    const { container: outOfRangeContainer } = render(
+      <Harness
+        resources={[CRANE_1]}
+        initialDate={new Date('2026-07-10T01:00:00Z')}
+        timelineDays={1}
+      />,
+    );
+    expect(outOfRangeContainer.querySelector('[data-koyomi="now-indicator"]')).toBeNull();
+  });
+});
+
+describe('TimelineView - リソース color の反映', () => {
+  it('行見出しに --koyomi-event-color として反映される', () => {
+    const { container } = render(<Harness resources={[CRANE_1, CRANE_2]} />);
+    const headers = container.querySelectorAll('[data-koyomi="timeline-resource-header"]');
+    expect(headers[0]?.getAttribute('style')).toContain('--koyomi-event-color: #0000ff');
+    expect(headers[1]?.getAttribute('style') ?? '').not.toContain('--koyomi-event-color');
+  });
+
+  it('イベント自身に color が無い場合はリソースの color が帯にも反映される', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '荷揚げ',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T10:00',
+        resourceId: 'crane-1',
+      },
+      {
+        id: 'e2',
+        title: '色指定あり',
+        start: '2026-07-15T13:00',
+        end: '2026-07-15T14:00',
+        resourceId: 'crane-1',
+        color: '#00ff00',
+      },
+    ];
+    const { container } = render(<Harness resources={[CRANE_1]} events={events} />);
+    const items = Array.from(container.querySelectorAll('[data-koyomi="timeline-item"]'));
+    const withoutOwnColor = items.find((el) => el.textContent?.includes('荷揚げ'));
+    const withOwnColor = items.find((el) => el.textContent?.includes('色指定あり'));
+    expect(withoutOwnColor?.getAttribute('style')).toContain('--koyomi-event-color: #0000ff');
+    // イベント自身の color が優先される
+    expect(withOwnColor?.getAttribute('style')).toContain('--koyomi-event-color: #00ff00');
+  });
+});

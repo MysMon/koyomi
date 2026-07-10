@@ -94,6 +94,23 @@ export function useCalendar(options?: UseCalendarOptions): UseCalendarResult {
     );
   }
 
+  // resources も events と同じ「初期値のみ有効」仕様のため、同様に一度だけ警告する
+  const initialResourcesRef = useRef(options?.resources);
+  const warnedResourcesRef = useRef(false);
+  if (
+    isDevBuild() &&
+    !warnedResourcesRef.current &&
+    options?.resources !== undefined &&
+    options.resources !== initialResourcesRef.current
+  ) {
+    warnedResourcesRef.current = true;
+    // biome-ignore lint/suspicious/noConsole: 開発ビルド限定の意図的な利用者向け警告
+    console.warn(
+      '[koyomi] useCalendar の options.resources は初期値としてのみ使われ、マウント後の変更は反映されません。' +
+        'リソースを動的に更新するには calendar.api.setResources(nextResources) を使ってください。',
+    );
+  }
+
   // 第三引数（getServerSnapshot）を渡すことで SSR（renderToString / Next.js 等）でも
   // 例外にならず初期スナップショットを描画できる。スナップショットは
   // キャッシュされた同一参照を返すため、サーバーレンダー中の一貫性も保たれる。

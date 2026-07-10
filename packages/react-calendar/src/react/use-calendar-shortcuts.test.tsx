@@ -157,6 +157,88 @@ describe('useCalendarShortcuts', () => {
     expect(calendar.api.getState().view).toBe('multiMonth');
   });
 
+  it('既定では r キーは無効（ビューが変わらず、preventDefault もされない）', () => {
+    const calendar = makeCalendar();
+    renderHook(() => useCalendarShortcuts({ calendar }));
+
+    let defaultPrevented: boolean | null = null;
+    function captureListener(event: KeyboardEvent): void {
+      defaultPrevented = event.defaultPrevented;
+    }
+    document.addEventListener('keydown', captureListener);
+    pressKey('r');
+    document.removeEventListener('keydown', captureListener);
+
+    expect(calendar.api.getState().view).toBe('month');
+    expect(defaultPrevented).toBe(false);
+  });
+
+  it("views に 'resource' を含めると r キーでリソースビューへ切り替わる", () => {
+    const calendar = makeCalendar();
+    renderHook(() =>
+      useCalendarShortcuts({ calendar, views: ['month', 'week', 'day', 'list', 'resource'] }),
+    );
+
+    pressKey('r');
+
+    expect(calendar.api.getState().view).toBe('resource');
+  });
+
+  it('既定では l キーは無効（ビューが変わらず、preventDefault もされない）', () => {
+    const calendar = makeCalendar();
+    renderHook(() => useCalendarShortcuts({ calendar }));
+
+    let defaultPrevented: boolean | null = null;
+    function captureListener(event: KeyboardEvent): void {
+      defaultPrevented = event.defaultPrevented;
+    }
+    document.addEventListener('keydown', captureListener);
+    pressKey('l');
+    document.removeEventListener('keydown', captureListener);
+
+    expect(calendar.api.getState().view).toBe('month');
+    expect(defaultPrevented).toBe(false);
+  });
+
+  it("views に 'timeline' を含めると l キーでタイムラインビューへ切り替わる", () => {
+    const calendar = makeCalendar();
+    renderHook(() =>
+      useCalendarShortcuts({ calendar, views: ['month', 'week', 'day', 'list', 'timeline'] }),
+    );
+
+    pressKey('l');
+
+    expect(calendar.api.getState().view).toBe('timeline');
+  });
+
+  it('views に resource / timeline を追加しても既存の M/W/D/A/T の挙動は変わらない（回帰ガード）', () => {
+    const calendar = makeCalendar();
+    calendar.api.goTo(new Date('2026-01-01T00:00:00Z'));
+    renderHook(() =>
+      useCalendarShortcuts({
+        calendar,
+        views: ['month', 'week', 'day', 'list', 'resource', 'timeline'],
+      }),
+    );
+
+    pressKey('w');
+    expect(calendar.api.getState().view).toBe('week');
+
+    pressKey('d');
+    expect(calendar.api.getState().view).toBe('day');
+
+    pressKey('a');
+    expect(calendar.api.getState().view).toBe('list');
+
+    pressKey('m');
+    expect(calendar.api.getState().view).toBe('month');
+
+    pressKey('t');
+    const { currentDate, timeZone } = calendar.api.getState();
+    // NOW（2026-07-15 東京）に戻っていること
+    expect(new Intl.DateTimeFormat('en-CA', { timeZone }).format(currentDate)).toBe('2026-07-15');
+  });
+
   it('views に year を追加しても既存の M/W/D/A/T の挙動は変わらない（回帰ガード）', () => {
     const calendar = makeCalendar();
     calendar.api.goTo(new Date('2026-01-01T00:00:00Z'));

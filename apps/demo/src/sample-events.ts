@@ -8,7 +8,7 @@
  * 一通り確認できるように構成している。
  */
 
-import type { CalendarEvent, Weekday } from '@koyomi-cal/react';
+import type { CalendarEvent, CalendarResource, Weekday } from '@koyomi-cal/react';
 import { addDaysInZone, dateKeyInZone, weekdayInZone } from '@koyomi-cal/react';
 
 /** サンプルイベントの基準タイムゾーン（デモの初期表示タイムゾーンと合わせる）。 */
@@ -46,6 +46,7 @@ export const sampleEvents: CalendarEvent[] = [
     // 毎日 9:00〜9:15 に繰り返される朝会。「毎日」の繰り返しの例。
     id: 'sample-daily-standup',
     title: '朝会',
+    resourceId: 'room-a',
     start: `${dayKey(0)}T09:00:00`,
     end: `${dayKey(0)}T09:15:00`,
     rrule: 'FREQ=DAILY',
@@ -57,6 +58,7 @@ export const sampleEvents: CalendarEvent[] = [
     // 今日の曜日に毎週繰り返される定例。「BYDAY」の繰り返しの例。
     id: 'sample-weekly-sync',
     title: 'チーム定例',
+    resourceId: 'room-a',
     start: `${dayKey(0)}T14:00:00`,
     end: `${dayKey(0)}T15:00:00`,
     rrule: `FREQ=WEEKLY;BYDAY=${todayByDayCode()}`,
@@ -68,6 +70,7 @@ export const sampleEvents: CalendarEvent[] = [
     // 今日 10:00〜11:00 の単発会議。次のイベントと同時間帯で重なりを作る。
     id: 'sample-meeting-a',
     title: '商談: A社様',
+    resourceId: 'room-b',
     start: `${dayKey(0)}T10:00:00`,
     end: `${dayKey(0)}T11:00:00`,
     color: '#e67c73',
@@ -77,6 +80,7 @@ export const sampleEvents: CalendarEvent[] = [
     // sample-meeting-a と同時間帯（今日 10:00〜11:00）に重なる単発会議。
     id: 'sample-meeting-b',
     title: '採用面接',
+    resourceId: 'room-b',
     start: `${dayKey(0)}T10:00:00`,
     end: `${dayKey(0)}T11:00:00`,
     color: '#f4511e',
@@ -95,6 +99,7 @@ export const sampleEvents: CalendarEvent[] = [
     // 明日から 3 日間にまたがる終日イベント（end は排他的なので +3 日）。
     id: 'sample-multi-day',
     title: '出張（大阪）',
+    resourceId: 'car-1',
     start: dayKey(1),
     end: dayKey(4),
     allDay: true,
@@ -135,8 +140,21 @@ export const sampleEvents: CalendarEvent[] = [
     // 明日午後の単発の 1on1 面談。
     id: 'sample-one-on-one',
     title: '1on1 面談',
+    resourceId: 'room-a',
     start: `${dayKey(1)}T15:00:00`,
     end: `${dayKey(1)}T15:30:00`,
     color: '#7986cb',
   },
+];
+
+/**
+ * デモ用のサンプルリソース（リソースビュー・タイムラインビューで使用する）。
+ *
+ * `resourceId` を持たないサンプル予定（創立記念日・夜間バッチ監視など）は
+ * 未割り当てレーンに表示される。
+ */
+export const sampleResources: CalendarResource[] = [
+  { id: 'room-a', title: '会議室A', color: '#3f51b5' },
+  { id: 'room-b', title: '会議室B', color: '#00897b' },
+  { id: 'car-1', title: '社用車1号', color: '#ef6c00' },
 ];
