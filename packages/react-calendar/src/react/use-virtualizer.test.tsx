@@ -116,6 +116,59 @@ describe('useVirtualizer', () => {
     expect(element.scrollTop).toBe(180); // index 9 = 9×20
   });
 
+  it('scrollToIndex(align="center") が対象をビューポート中央に置くスクロール位置になる', () => {
+    const element = scrollElement(100); // viewport 100px、itemSize 20px
+    const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+
+    act(() => {
+      result.current.scrollToIndex(9, { align: 'center' });
+    });
+
+    // start(180) - (viewport(100) - itemSize(20)) / 2 = 180 - 40 = 140
+    expect(element.scrollTop).toBe(140);
+  });
+
+  describe('scrollToIndex(既定値 align="auto")', () => {
+    it('対象が可視域より下にあるときは、対象の下端がちょうど収まる位置まで最小限スクロールする', () => {
+      const element = scrollElement(100); // viewport 100px（可視 0..4）
+      const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+
+      act(() => {
+        // align 省略 → 既定値 'auto'
+        result.current.scrollToIndex(9);
+      });
+
+      // index9 の start=180・end=200。end(200) が可視域下端(0+100=100)を超えるため
+      // end - viewport = 200 - 100 = 100 まで（start の 180 までは飛ばさない）
+      expect(element.scrollTop).toBe(100);
+    });
+
+    it('対象が可視域より上にあるときは、対象の start までスクロールする', () => {
+      const element = scrollElement(100);
+      const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+      element.scrollTop = 200; // 可視域を下（index 10..14 相当）へ動かしておく
+
+      act(() => {
+        result.current.scrollToIndex(0);
+      });
+
+      // index0 の start=0 は現在の scrollTop(200) より上にあるため、start までスクロールする
+      expect(element.scrollTop).toBe(0);
+    });
+
+    it('対象が既に可視域内にあるときは何もスクロールしない', () => {
+      const element = scrollElement(100); // viewport 100px（可視 0..4）
+      const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+
+      act(() => {
+        // index2 は start=40・end=60 で、現在の可視域 0..100 に完全に収まっている
+        result.current.scrollToIndex(2);
+      });
+
+      expect(element.scrollTop).toBe(0);
+    });
+  });
+
   it('pinnedKeys の窓外アイテムを pinnedItems に含める', () => {
     const element = scrollElement(40); // 可視 0..1
     const { result } = renderHook(() =>

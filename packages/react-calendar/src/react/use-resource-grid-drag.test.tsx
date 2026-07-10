@@ -25,6 +25,10 @@ const TOKYO = 'Asia/Tokyo';
 const NOW = new Date('2026-07-15T01:00:00Z');
 /** リソースビューの表示日（NOW の属する日）。 */
 const DAY = '2026-07-15';
+/** DAY の前日（日をまたぐオカレンスの検証用）。 */
+const PREV_DAY = '2026-07-14';
+/** DAY の翌日（日をまたぐオカレンスの検証用）。 */
+const NEXT_DAY = '2026-07-16';
 
 /** 東京タイムゾーンの現地時刻 `'YYYY-MM-DDTHH:mm'` から絶対時刻を作るテストヘルパ。 */
 function at(isoLocal: string): Date {
@@ -149,6 +153,13 @@ function releasePointer(clientX: number, clientY: number): void {
 function pressEscape(): void {
   act(() => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+}
+
+/** document への pointercancel ディスパッチ（`use-time-grid-drag.test.tsx` と同じ手法）。 */
+function firePointerCancel(): void {
+  act(() => {
+    document.dispatchEvent(new MouseEvent('pointercancel', { bubbles: true }));
   });
 }
 
@@ -598,5 +609,191 @@ describe('useResourceGridDrag - 参照先のない resourceId の正規化（Cod
     // 単発イベントのキーボード変更は同期的に完結するため、直接検証できる
     const events = sink.current?.api.getEvents() ?? [];
     expect(events[0]?.resourceId).toBe('room-b');
+  });
+});
+
+describe('useResourceGridDrag - previewFor（ドラッグプレビューの列別表示）', () => {
+  it('作成ドラッグ中、対象列にのみ timegrid-preview が出現し、対象外の列には出ない', () => {
+    const { container } = renderHarness({ resources: [ROOM_A, ROOM_B] });
+    mockAllColumnRects(container);
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+    const roomAColumn = columns[0];
+    if (roomAColumn === undefined) {
+      throw new Error('room-a 列が見つかりません');
+    }
+    const x = columnCenterX(0);
+
+    firePointerDown(roomAColumn, x, 600); // 10:00
+    movePointer(x, 690); // 11:30
+
+    const preview = roomAColumn.querySelector('[data-koyomi="timegrid-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).toHaveAttribute('data-kind', 'create');
+    const style = (preview as HTMLElement).style;
+    expect(style.top).toContain('41.66');
+    expect(style.height).toBe('6.25%'); // (690-600)/1440*100
+
+    // 対象外の列（room-b）にはプレビューが出ない
+    expect(columns[1]?.querySelector('[data-koyomi="timegrid-preview"]')).toBeNull();
+
+    releasePointer(x, 690);
+  });
+
+  it('移動ドラッグで列をまたぐと、元の列のプレビューは消え、移動先の列にのみ出現する', () => {
+    const event: CalendarEvent = {
+      id: 'ev-move-preview',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container } = renderHarness({ resources: [ROOM_A, ROOM_B], events: [event] });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-move-preview', `${DAY}T10:00`);
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+
+    firePointerDown(eventEl, columnCenterX(0), 600); // room-a 列 10:00 を掴む
+    movePointer(columnCenterX(1), 660); // room-b 列 11:00 へ（+1h）
+
+    // 元の列（room-a）にはプレビューが残らない
+    expect(columns[0]?.querySelector('[data-koyomi="timegrid-preview"]')).toBeNull();
+    const preview = columns[1]?.querySelector('[data-koyomi="timegrid-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).toHaveAttribute('data-kind', 'move');
+    const style = (preview as HTMLElement).style;
+    expect(style.top).toContain('45.83');
+    expect(style.height).toContain('4.16');
+
+    releasePointer(columnCenterX(1), 660);
+  });
+
+  it('前日から続くオカレンスをリサイズすると、プレビュー開始が日の 0 分（top: 0%）にクランプされる', () => {
+    const event: CalendarEvent = {
+      id: 'ev-continues-before',
+      title: '夜間作業',
+      start: `${PREV_DAY}T22:00`,
+      end: `${DAY}T02:00`,
+      resourceId: 'room-a',
+    };
+    const { container } = renderHarness({ resources: [ROOM_A], events: [event] });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-continues-before', `${PREV_DAY}T22:00`);
+    const handleEl = eventEl.querySelector('[data-koyomi-resize-handle="end"]');
+    if (handleEl === null) {
+      throw new Error('終了端のリサイズハンドルが見つかりません');
+    }
+    const column = container.querySelector('[data-koyomi="resource-column"]');
+    if (column === null) {
+      throw new Error('列が見つかりません');
+    }
+
+    firePointerDown(handleEl, columnCenterX(0), 600);
+    movePointer(columnCenterX(0), 720); // 12:00
+
+    const preview = column.querySelector('[data-koyomi="timegrid-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).toHaveAttribute('data-kind', 'resize');
+    const style = (preview as HTMLElement).style;
+    // 実際の開始（前日22:00）は表示日より前のため 0% にクランプされる
+    expect(style.top).toBe('0%');
+    expect(style.height).toBe('50%'); // (720-0)/1440*100
+
+    releasePointer(columnCenterX(0), 720);
+  });
+
+  it('翌日へ続くオカレンスをリサイズすると、プレビュー終了が終端（0〜1440 分の 1440 分側）にクランプされる', () => {
+    const event: CalendarEvent = {
+      id: 'ev-continues-after',
+      title: '夜間作業',
+      start: `${DAY}T22:00`,
+      end: `${NEXT_DAY}T02:00`,
+      resourceId: 'room-a',
+    };
+    const { container } = renderHarness({ resources: [ROOM_A], events: [event] });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-continues-after', `${DAY}T22:00`);
+    const handleEl = eventEl.querySelector('[data-koyomi-resize-handle="start"]');
+    if (handleEl === null) {
+      throw new Error('開始端のリサイズハンドルが見つかりません');
+    }
+    const column = container.querySelector('[data-koyomi="resource-column"]');
+    if (column === null) {
+      throw new Error('列が見つかりません');
+    }
+
+    firePointerDown(handleEl, columnCenterX(0), 1320);
+    movePointer(columnCenterX(0), 1080); // 18:00
+
+    const preview = column.querySelector('[data-koyomi="timegrid-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).toHaveAttribute('data-kind', 'resize');
+    const style = (preview as HTMLElement).style;
+    expect(style.top).toBe('75%'); // 1080/1440*100
+    // 実際の終了（翌日02:00）は表示日より後のため 1440 分側（height 込みで 100%）にクランプされる
+    expect(style.height).toBe('25%'); // (1440-1080)/1440*100
+
+    releasePointer(columnCenterX(0), 1080);
+  });
+});
+
+describe('useResourceGridDrag - isAllDayPreviewTarget（終日プレビューの対象列）', () => {
+  it('終日アイテムの列間移動中、移動先の列にのみ data-koyomi-preview-target が付く', () => {
+    const event: CalendarEvent = {
+      id: 'ev-allday-preview',
+      title: '休暇',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-a',
+    };
+    const { container } = renderHarness({ resources: [ROOM_A, ROOM_B], events: [event] });
+    mockAllColumnRects(container);
+    const allDayItemEl = container.querySelector('[data-koyomi="allday-event"]');
+    if (allDayItemEl === null) {
+      throw new Error('終日アイテムが見つかりません');
+    }
+    const allDayCells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
+
+    firePointerDown(allDayItemEl, columnCenterX(0), 10);
+    movePointer(columnCenterX(1), 10);
+
+    expect(allDayCells[0]).not.toHaveAttribute('data-koyomi-preview-target');
+    expect(allDayCells[1]).toHaveAttribute('data-koyomi-preview-target', 'true');
+
+    releasePointer(columnCenterX(1), 10);
+  });
+});
+
+describe('useResourceGridDrag - pointercancel によるキャンセル', () => {
+  it('ドラッグ中に pointercancel が発生するとキャンセルされ、イベントは変更されない（コミットもされない）', () => {
+    const event: CalendarEvent = {
+      id: 'ev-pointercancel',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({ resources: [ROOM_A, ROOM_B], events: [event] });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-pointercancel', `${DAY}T10:00`);
+
+    firePointerDown(eventEl, columnCenterX(0), 600);
+    movePointer(columnCenterX(1), 720);
+    expect(sink.current?.state.dragPreview).not.toBeNull();
+
+    firePointerCancel();
+
+    expect(sink.current?.state.dragPreview).toBeNull();
+
+    // pointercancel 後は document のリスナーが外れているため、以降の pointerup は無視される
+    releasePointer(columnCenterX(1), 720);
+
+    const events = sink.current?.api.getEvents() ?? [];
+    // 変更されていないため、ソースイベントの start/end は元の文字列のまま
+    expect(events[0]).toMatchObject({
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    });
   });
 });

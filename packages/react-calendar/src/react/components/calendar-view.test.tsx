@@ -5,7 +5,7 @@
 import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
-import type { CalendarEvent, CalendarViewType } from '../../core/types';
+import type { CalendarEvent, CalendarResource, CalendarViewType } from '../../core/types';
 import { CalendarProvider } from '../context';
 import { useCalendar } from '../use-calendar';
 import type { CalendarViewProps } from './calendar-view';
@@ -19,11 +19,15 @@ const DEFAULT_EVENTS: readonly CalendarEvent[] = [
   { id: 'e1', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
 ];
 
+/** `renderView` の既定リソース（リソース未指定時は空配列で固定参照を渡す）。 */
+const EMPTY_RESOURCES: readonly CalendarResource[] = [];
+
 /** `CalendarView` を指定ビューで描画するテスト用ラッパ。 */
 function renderView(
   initialView: CalendarViewType,
   props?: CalendarViewProps,
   events?: readonly CalendarEvent[],
+  resources?: readonly CalendarResource[],
 ) {
   function Harness(): ReactElement {
     const calendar = useCalendar({
@@ -32,6 +36,7 @@ function renderView(
       initialDate: NOW,
       initialView,
       events: events ?? DEFAULT_EVENTS,
+      resources: resources ?? EMPTY_RESOURCES,
     });
     return (
       <CalendarProvider value={calendar}>
@@ -55,6 +60,10 @@ describe('CalendarView', () => {
     ['week', 'timegrid'],
     ['day', 'timegrid'],
     ['list', 'list'],
+    ['year', 'year'],
+    ['multiMonth', 'multimonth'],
+    ['resource', 'resource'],
+    ['timeline', 'timeline'],
   ] as const)('ビュー %s では data-koyomi="%s" のビューが描画される', (view, expected) => {
     const { container } = renderView(view);
     expect(container.querySelector(`[data-koyomi="${expected}"]`)).not.toBeNull();
@@ -196,6 +205,146 @@ describe('CalendarView', () => {
       const header = container.querySelector('[data-testid="custom-day-header-2026-07-15"]');
       expect(header).not.toBeNull();
       expect(header?.textContent).toContain('◎');
+    });
+
+    it('renderYearMonthHeader が YearView へ転送される', () => {
+      const { container } = renderView('year', {
+        renderYearMonthHeader: (month, defaultContent) => (
+          <div data-testid={`custom-year-header-${month.key}`}>{defaultContent}★</div>
+        ),
+      });
+
+      const header = container.querySelector('[data-testid="custom-year-header-2026-07"]');
+      expect(header).not.toBeNull();
+      expect(header?.textContent).toContain('★');
+    });
+
+    it('renderYearDayCell が YearView へ転送される', () => {
+      const { container } = renderView('year', {
+        renderYearDayCell: (day, defaultContent) => (
+          <span data-testid={`custom-year-day-${day.key}`}>{defaultContent}☆</span>
+        ),
+      });
+
+      const cell = container.querySelector('[data-testid="custom-year-day-2026-07-15"]');
+      expect(cell).not.toBeNull();
+      expect(cell?.textContent).toContain('☆');
+    });
+
+    it('renderMultiMonthEvent が MultiMonthView へ転送される', () => {
+      const { container } = renderView('multiMonth', {
+        renderMultiMonthEvent: (segment) => (
+          <span data-testid="custom-multimonth">{segment.occurrence.event.title}カスタム</span>
+        ),
+      });
+
+      const event = container.querySelector('[data-koyomi="month-event"]');
+      expect(event?.querySelector('[data-testid="custom-multimonth"]')?.textContent).toBe(
+        '会議カスタム',
+      );
+    });
+
+    it('multiMonthOverflowLabel が MultiMonthView の overflowLabel へ転送される', () => {
+      // dayMaxEvents 既定 4 を超えるイベントを同日に 6 件並べて「+N 件」を発生させる
+      const events: CalendarEvent[] = Array.from({ length: 6 }, (_, index) => ({
+        id: `mm-ov-${index}`,
+        title: `予定${index}`,
+        start: '2026-07-15T10:00',
+        end: '2026-07-15T11:00',
+      }));
+      const { container } = renderView(
+        'multiMonth',
+        { multiMonthOverflowLabel: (count) => `他 ${count} 件を表示` },
+        events,
+      );
+
+      const overflow = container.querySelector('[data-koyomi="month-overflow"]');
+      expect(overflow?.textContent).toContain('他');
+      expect(overflow?.textContent).toContain('件を表示');
+    });
+
+    it('renderResourceEvent が ResourceView へ転送される', () => {
+      const events: CalendarEvent[] = [
+        {
+          id: 'e1',
+          title: '会議',
+          start: '2026-07-15T10:00',
+          end: '2026-07-15T11:00',
+          resourceId: 'room-a',
+        },
+      ];
+      const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
+      const { container } = renderView(
+        'resource',
+        {
+          renderResourceEvent: (item) => (
+            <span data-testid="custom-resource">{item.occurrence.event.title}カスタム</span>
+          ),
+        },
+        events,
+        resources,
+      );
+
+      const event = container.querySelector('[data-koyomi="timegrid-event"]');
+      expect(event?.querySelector('[data-testid="custom-resource"]')?.textContent).toBe(
+        '会議カスタム',
+      );
+    });
+
+    it('resourceUnassignedLabel が ResourceView の unassignedLabel へ転送される', () => {
+      const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
+      // DEFAULT_EVENTS は resourceId 未指定 → unassignedLane 既定 'auto' でも
+      // 未割り当て列が作られる（resource-view.test.tsx と同じ理由）
+      const { container } = renderView(
+        'resource',
+        { resourceUnassignedLabel: '担当未定' },
+        DEFAULT_EVENTS,
+        resources,
+      );
+
+      const headers = container.querySelectorAll('[data-koyomi="resource-header-cell"]');
+      const unassignedHeader = headers[headers.length - 1];
+      expect(unassignedHeader?.textContent).toBe('担当未定');
+    });
+
+    it('renderTimelineEvent が TimelineView へ転送される', () => {
+      const events: CalendarEvent[] = [
+        {
+          id: 'e1',
+          title: '会議',
+          start: '2026-07-15T10:00',
+          end: '2026-07-15T11:00',
+          resourceId: 'room-a',
+        },
+      ];
+      const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
+      const { container } = renderView(
+        'timeline',
+        {
+          renderTimelineEvent: (item) => (
+            <span data-testid="custom-timeline">{item.occurrence.event.title}カスタム</span>
+          ),
+        },
+        events,
+        resources,
+      );
+
+      const event = container.querySelector('[data-koyomi="timeline-item"]');
+      expect(event?.querySelector('[data-testid="custom-timeline"]')?.textContent).toBe(
+        '会議カスタム',
+      );
+    });
+
+    it('timelineEmptyLabel が TimelineView の emptyLabel へ転送される', () => {
+      const { container } = renderView(
+        'timeline',
+        { timelineEmptyLabel: '担当者がいません' },
+        [],
+        [],
+      );
+
+      const empty = container.querySelector('[data-koyomi="timeline-empty"]');
+      expect(empty?.textContent).toBe('担当者がいません');
     });
   });
 });

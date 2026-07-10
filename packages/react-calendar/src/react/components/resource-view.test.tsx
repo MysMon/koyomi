@@ -5,7 +5,7 @@
  * `ResourceView` が生成する DOM を `data-koyomi="..."` 属性で検証する。
  * テストプロセスは vitest.config.ts により TZ=Asia/Tokyo で実行される。
  */
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 import type {
@@ -16,6 +16,7 @@ import type {
   ResourceColumn,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
+import type { UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
 import type { ResourceViewProps } from './resource-view';
 import { ResourceView } from './resource-view';
@@ -43,6 +44,8 @@ interface HarnessProps {
   unassignedLane?: 'auto' | 'always';
   /** `ResourceView` へそのまま渡す追加 props。 */
   viewProps?: ResourceViewProps;
+  /** `useCalendar` の戻り値を外部から観測するための入れ物。 */
+  sink?: { current: UseCalendarResult | null };
 }
 
 /** `ResourceView` を `CalendarProvider` 配下で描画するテスト用ハーネス。 */
@@ -56,6 +59,9 @@ function Harness(props: HarnessProps): ReactElement {
     resources: props.resources ?? EMPTY_RESOURCES,
     unassignedLane: props.unassignedLane ?? 'auto',
   });
+  if (props.sink) {
+    props.sink.current = calendar;
+  }
   return (
     <CalendarProvider value={calendar}>
       <ResourceView {...(props.viewProps ?? {})} />
@@ -391,5 +397,63 @@ describe('ResourceView - Codex 再レビュー回帰', () => {
     const item = container.querySelector('[data-koyomi="allday-event"]');
     expect(item instanceof HTMLElement ? item.style.width : '').toBe('100%');
     expect(item instanceof HTMLElement ? item.style.insetInlineStart : '').toBe('0%');
+  });
+});
+
+describe('ResourceView - ドラッグプレビュー', () => {
+  it('setDragPreview 後、対象列にのみ timegrid-preview が data-kind・top・height 付きで出現する', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(<Harness resources={[ROOM_A, ROOM_B]} sink={sink} />);
+
+    expect(container.querySelector('[data-koyomi="timegrid-preview"]')).toBeNull();
+
+    act(() => {
+      sink.current?.api.setDragPreview({
+        kind: 'resize',
+        occurrenceKey: 'e1@2026-07-15T01:00:00.000Z',
+        range: {
+          start: new Date('2026-07-15T01:00:00Z'), // 10:00 JST
+          end: new Date('2026-07-15T03:00:00Z'), // 12:00 JST
+        },
+        allDay: false,
+        resourceId: 'room-a',
+      });
+    });
+
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+    const preview = columns[0]?.querySelector('[data-koyomi="timegrid-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).toHaveAttribute('data-kind', 'resize');
+    // ドラッグプレビューは装飾要素なので読み上げ対象から外す
+    expect(preview).toHaveAttribute('aria-hidden', 'true');
+    const style = (preview as HTMLElement).style;
+    // 10:00 = 600分 → 600/1440*100 ≈ 41.66...%、12:00 = 720分 → 高さ 120/1440*100 ≈ 8.33...%
+    expect(style.top).toContain('41.66');
+    expect(style.height).toContain('8.33');
+
+    // 対象外の列（room-b）にはプレビューが出ない
+    expect(columns[1]?.querySelector('[data-koyomi="timegrid-preview"]')).toBeNull();
+  });
+
+  it('setDragPreview（allDay: true）後、対象列の終日セルにのみ data-koyomi-preview-target が付く', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(<Harness resources={[ROOM_A, ROOM_B]} sink={sink} />);
+
+    act(() => {
+      sink.current?.api.setDragPreview({
+        kind: 'move',
+        occurrenceKey: 'ad1@2026-07-15T00:00:00.000Z',
+        range: {
+          start: new Date('2026-07-14T15:00:00Z'), // 2026-07-15 0:00 JST
+          end: new Date('2026-07-15T15:00:00Z'), // 2026-07-16 0:00 JST
+        },
+        allDay: true,
+        resourceId: 'room-b',
+      });
+    });
+
+    const allDayCells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
+    expect(allDayCells[0]).not.toHaveAttribute('data-koyomi-preview-target');
+    expect(allDayCells[1]).toHaveAttribute('data-koyomi-preview-target', 'true');
   });
 });
