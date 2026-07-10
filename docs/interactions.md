@@ -215,7 +215,7 @@ async function resolveRecurringScope(): Promise<RecurringEditScope | null> {
 | `onEventDelete` | キーボード（Delete/Backspace）による削除が適用された後 | （通知のみ。undo UI やトーストの起点に使える） |
 | `onError` | インタラクション中の非同期処理（スコープ解決や適用）が例外を投げたとき | `console.error` に出力する |
 | `resolveRecurringScope` | 繰り返し予定の移動・リサイズ・削除・更新の適用範囲を決めるとき | 常に `'this'`（この予定のみ） |
-| `onOverflowClick` | 月ビューの「+N 件」がクリックされたとき。第 2 引数で非表示のオカレンス一覧（`hiddenOccurrences`）を受け取れる | その日の日ビューに切り替える |
+| `onOverflowClick` | 月ビューの「+N 件」がクリックされたとき。第 2 引数で非表示のオカレンス一覧（`hiddenOccurrences`）、第 3 引数（`details`）で表示中のオカレンス一覧（`visibleOccurrences`）を受け取れる | その日の日ビューに切り替える |
 
 ## キーボードショートカット
 
@@ -291,6 +291,73 @@ useCalendarShortcuts({
 移動・リサイズは最小長（時間グリッドは `snapMinutes` 分、帯は 1 日）を下回る操作を無視します。繰り返し予定では `resolveRecurringScope` が呼ばれ、適用後に `onEventChange`（削除は `onEventDelete`）が通知されます。
 
 **日セルにフォーカスした状態（月ビュー・終日行）:** `Enter` または `Space` でその日 1 日分の範囲選択（`onSelectRange`、`allDay: true`）が発火します。リストビューの予定行は Enter・Space によるクリックのみに対応します。
+
+## 「+N 件」のポップオーバーを自前で組む
+
+Koyomi はポップオーバー・ダイアログなどの UI を提供しません（ヘッドレスの方針）。月ビュー・複数月ビューの「+N 件」ボタンは、隠れた予定を一覧表示するポップオーバーの起点になるよう `onOverflowClick` と `overflowButtonProps` を提供しており、[Floating UI](https://floating-ui.com/) 等の位置決めライブラリと組み合わせて自前の UI を構築できます。
+
+- `onOverflowClick(day, hiddenOccurrences, details)` — `hiddenOccurrences` が「+N 件」に集約された非表示のオカレンス一覧、`details.visibleOccurrences` がその日で表示中のオカレンス一覧（いずれも開始時刻順）。両方を合わせるとその日の全オカレンスを取得できる
+- `overflowButtonProps?: (day, hiddenOccurrences) => { 'aria-haspopup'?, 'aria-expanded'?, 'aria-controls'? }` — 「+N 件」ボタンに追加する ARIA 属性を返す。ポップオーバーの開閉状態を `aria-expanded` で示す用途に使う
+- ボタンは `Enter` / `Space` でもクリック相当が発火する（フォーカス済みの状態でキーボードのみでも開ける）
+
+```tsx
+import { useState } from 'react';
+import { useFloating, offset, flip, shift } from '@floating-ui/react';
+import { CalendarProvider, MonthView, useCalendar } from '@koyomi-cal/react';
+import type { EventOccurrence, MonthDay } from '@koyomi-cal/react';
+
+function MonthWithOverflowPopover() {
+  const calendar = useCalendar({ initialView: 'month' });
+  const [openDay, setOpenDay] = useState<MonthDay | null>(null);
+  const [occurrences, setOccurrences] = useState<readonly EventOccurrence[]>([]);
+  const { refs, floatingStyles } = useFloating({
+    open: openDay !== null,
+    onOpenChange: (open) => {
+      if (!open) setOpenDay(null);
+    },
+    middleware: [offset(4), flip(), shift()],
+  });
+
+  return (
+    <CalendarProvider
+      value={calendar}
+      callbacks={{
+        onOverflowClick: (day, hiddenOccurrences, details) => {
+          // 表示中＋非表示を合わせてその日の全件を一覧にする
+          setOccurrences([...details.visibleOccurrences, ...hiddenOccurrences]);
+          setOpenDay(day);
+        },
+      }}
+    >
+      <MonthView
+        overflowButtonProps={(day) => ({
+          'aria-haspopup': 'dialog',
+          'aria-expanded': openDay?.key === day.key,
+        })}
+        renderDayCell={(day, defaultContent) =>
+          day.key === openDay?.key ? (
+            <div ref={refs.setReference}>{defaultContent}</div>
+          ) : (
+            defaultContent
+          )
+        }
+      />
+      {openDay !== null && (
+        <div ref={refs.setFloating} style={floatingStyles} role="dialog">
+          {occurrences.map((occurrence) => (
+            <div key={occurrence.key}>{occurrence.event.title}</div>
+          ))}
+        </div>
+      )}
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - 「+N 件」をクリック（または Enter/Space）すると、その日の全予定
+//   （表示中＋非表示）が Floating UI で位置決めされたポップオーバーに一覧表示される
+// - ポップオーバーが開いている間、対応する「+N 件」ボタンの aria-expanded が true になる
+```
 
 ## Escape / pointercancel でのドラッグキャンセル
 

@@ -12,12 +12,13 @@ import type {
   CalendarApi,
   CalendarEvent,
   CalendarViewType,
+  EventOccurrence,
   EventSegment,
   MonthDay,
   Weekday,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
-import type { CalendarInteractionCallbacks } from '../types';
+import type { CalendarInteractionCallbacks, MonthOverflowButtonProps } from '../types';
 import { useCalendar } from '../use-calendar';
 import type { DayDragHandlers } from '../use-day-drag';
 import { MonthView } from './month-view';
@@ -41,6 +42,10 @@ function Harness(props: {
   renderEvent?: (segment: EventSegment) => ReactElement;
   overflowLabel?: (count: number) => ReactNode;
   renderDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
+  overflowButtonProps?: (
+    day: MonthDay,
+    hiddenOccurrences: readonly EventOccurrence[],
+  ) => MonthOverflowButtonProps;
   apiRef?: { current: CalendarApi | null };
 }): ReactElement {
   const calendar = useCalendar({
@@ -67,6 +72,9 @@ function Harness(props: {
         {...(props.renderEvent !== undefined ? { renderEvent: props.renderEvent } : {})}
         {...(props.overflowLabel !== undefined ? { overflowLabel: props.overflowLabel } : {})}
         {...(props.renderDayCell !== undefined ? { renderDayCell: props.renderDayCell } : {})}
+        {...(props.overflowButtonProps !== undefined
+          ? { overflowButtonProps: props.overflowButtonProps }
+          : {})}
       />
     </CalendarProvider>
   );
@@ -286,6 +294,91 @@ describe('MonthView - クリック操作', () => {
     expect(apiRef.current?.getState().view).toBe('month');
   });
 
+  it('Enter キーで「+N 件」ボタンから onOverflowClick が発火する', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+    ];
+    const onOverflowClick = vi.fn();
+    const { container } = render(
+      <Harness events={events} dayMaxEvents={1} callbacks={{ onOverflowClick }} />,
+    );
+
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('「+N件」ボタンが見つかりません');
+    }
+    fireEvent.keyDown(overflowButton, { key: 'Enter' });
+
+    expect(onOverflowClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('Space キーで「+N 件」ボタンから onOverflowClick が発火する', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+    ];
+    const onOverflowClick = vi.fn();
+    const { container } = render(
+      <Harness events={events} dayMaxEvents={1} callbacks={{ onOverflowClick }} />,
+    );
+
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('「+N件」ボタンが見つかりません');
+    }
+    fireEvent.keyDown(overflowButton, { key: ' ' });
+
+    expect(onOverflowClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('Enter キーでの発火でも既定動作（day ビュー遷移）が働く（onOverflowClick 未指定時）', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+    ];
+    const apiRef: { current: CalendarApi | null } = { current: null };
+    const { container } = render(<Harness events={events} dayMaxEvents={1} apiRef={apiRef} />);
+
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('「+N件」ボタンが見つかりません');
+    }
+    fireEvent.keyDown(overflowButton, { key: 'Enter' });
+
+    expect(apiRef.current?.getState().view).toBe('day');
+  });
+
+  it('Enter キーでの発火は親の日セルへ伝播せず、onSelectRange や既定タイトルでのイベント作成が二重発火しない', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+    ];
+    const onOverflowClick = vi.fn();
+    const onSelectRange = vi.fn();
+    const apiRef: { current: CalendarApi | null } = { current: null };
+    const { container } = render(
+      <Harness
+        events={events}
+        dayMaxEvents={1}
+        callbacks={{ onOverflowClick, onSelectRange }}
+        apiRef={apiRef}
+      />,
+    );
+
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('「+N件」ボタンが見つかりません');
+    }
+    fireEvent.keyDown(overflowButton, { key: 'Enter' });
+
+    expect(onOverflowClick).toHaveBeenCalledTimes(1);
+    expect(onSelectRange).not.toHaveBeenCalled();
+    // 親の日セルの onKeyDown（commitSelection）まで伝播すると、onSelectRange 未指定時は
+    // 既定タイトルの終日イベントが作成されてしまう。伝播が止まっていればイベント数は不変。
+    expect(apiRef.current?.getEvents()).toHaveLength(2);
+  });
+
   it('日番号クリックで day ビューに切り替わり、その日へ goTo される', () => {
     const apiRef: { current: CalendarApi | null } = { current: null };
     const { container } = render(<Harness apiRef={apiRef} />);
@@ -433,6 +526,71 @@ describe('MonthView - overflowLabel / renderDayCell', () => {
     expect(cell?.querySelector('[data-testid="badge"]')?.textContent).toBe('2026-07-10');
     // 既定内容（日番号ボタン）は defaultContent 経由でそのまま描画される
     expect(cell?.querySelector('[data-koyomi="month-day-number"]')).not.toBeNull();
+  });
+});
+
+describe('MonthView - オーバーフロー基盤', () => {
+  it('onOverflowClick の第 3 引数（details）に表示中のオカレンス一覧が渡り、件数が dayMaxEvents と整合する', () => {
+    // dayMaxEvents=1 のため、3 件中 1 件が表示・2 件が「+2 件」に集約される
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+      { id: 'e3', title: 'C', start: '2026-07-08T11:00', end: '2026-07-08T11:30' },
+    ];
+    const onOverflowClick = vi.fn();
+    const { container } = render(
+      <Harness events={events} dayMaxEvents={1} callbacks={{ onOverflowClick }} />,
+    );
+
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('「+N件」ボタンが見つかりません');
+    }
+    fireEvent.click(overflowButton);
+
+    expect(onOverflowClick).toHaveBeenCalledTimes(1);
+    const [day, hiddenOccurrences, details] = onOverflowClick.mock.calls[0] as [
+      MonthDay,
+      readonly EventOccurrence[],
+      { visibleOccurrences: readonly EventOccurrence[] },
+    ];
+    expect(day.key).toBe('2026-07-08');
+    expect(hiddenOccurrences).toHaveLength(2);
+    expect(hiddenOccurrences.map((occurrence) => occurrence.event.title)).toEqual(['B', 'C']);
+    expect(details.visibleOccurrences).toHaveLength(1);
+    expect(details.visibleOccurrences.map((occurrence) => occurrence.event.title)).toEqual(['A']);
+    // 表示中 + 非表示 = その日の全オカレンス数
+    expect(details.visibleOccurrences.length + hiddenOccurrences.length).toBe(events.length);
+  });
+
+  it('overflowButtonProps を渡すと「+N 件」ボタンに aria-haspopup / aria-expanded が付与される', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+    ];
+    const { container } = render(
+      <Harness
+        events={events}
+        dayMaxEvents={1}
+        overflowButtonProps={() => ({ 'aria-haspopup': 'true', 'aria-expanded': false })}
+      />,
+    );
+
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    expect(overflowButton).toHaveAttribute('aria-haspopup', 'true');
+    expect(overflowButton).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('overflowButtonProps を渡さない場合、aria-haspopup / aria-expanded は付与されない', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+    ];
+    const { container } = render(<Harness events={events} dayMaxEvents={1} />);
+
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    expect(overflowButton).not.toHaveAttribute('aria-haspopup');
+    expect(overflowButton).not.toHaveAttribute('aria-expanded');
   });
 });
 

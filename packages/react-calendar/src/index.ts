@@ -158,6 +158,8 @@ export type {
   CalendarInteractionCallbacks,
   EventChange,
   EventDelete,
+  MonthOverflowButtonProps,
+  OverflowClickDetails,
   RangeSelection,
   UseCalendarResult,
 } from './react/types';

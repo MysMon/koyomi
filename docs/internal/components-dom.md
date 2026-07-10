@@ -66,7 +66,10 @@ div[data-koyomi="month"] (role="grid")
           … 内容は renderDayCell で差し替え可能（既定は以下）
           button[data-koyomi="month-day-number"]     … クリックでその日の day ビューへ
           button[data-koyomi="month-overflow"]?      … 「+N 件」（overflowCount > 0 のとき、
-                                                        文言は overflowLabel で差し替え可）
+                                                        文言は overflowLabel で差し替え可。
+                                                        Enter/Space でも onClick 相当が発火。
+                                                        overflowButtonProps で
+                                                        aria-haspopup/aria-expanded 等を追加可）
       div[data-koyomi="month-events"] (aria-hidden への配慮は role="presentation")
         button[data-koyomi="month-event"] × n        … useDayDrag.getSegmentProps を展開
            [data-all-day?][data-continues-before?][data-continues-after?][data-koyomi-dragging?]

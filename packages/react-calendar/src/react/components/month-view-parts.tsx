@@ -15,6 +15,7 @@
 import type {
   CSSProperties,
   ReactElement,
+  KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
   PointerEvent as ReactPointerEvent,
   Ref,
@@ -29,6 +30,7 @@ import type {
   MonthWeek,
   TimeZoneId,
 } from '../../core/types';
+import type { MonthOverflowButtonProps } from '../types';
 import type { DayCellProps, DayDragHandlers } from '../use-day-drag';
 
 /**
@@ -241,6 +243,28 @@ function stopPropagation(event: ReactPointerEvent<HTMLButtonElement>): void {
   event.stopPropagation();
 }
 
+/**
+ * Enter / Space をクリック相当として扱う。
+ * jsdom を含む DOM 実装は `<button>` へのキーボード操作を自動で click に
+ * 変換しないため、明示的に `click()` を呼んで `onClick` へ橋渡しする
+ * （`list-view.tsx` の `handleEventKeyDown` と同じ対策）。
+ *
+ * また、親の日セル（`getDayCellProps` の `onKeyDown`）まで keydown が伝播すると、
+ * 日セル側も Enter/Space を「その日を選択して確定」として処理してしまい、
+ * `onOverflowClick` に加えて `onSelectRange` の発火（または既定タイトルでの終日
+ * イベント作成）という意図しない副作用が起きる。pointerdown 側は
+ * `stopPropagation`（本ファイルの `stopPropagation` 関数）で対策済みだが、
+ * keydown 側にも同様に伝播を止める必要がある。
+ */
+function handleOverflowKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>): void {
+  if (event.key !== 'Enter' && event.key !== ' ') {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  event.currentTarget.click();
+}
+
 // 条件付きスプレッドで付与する data / ARIA 属性。明示的な型注釈でリテラル型を確定させ、
 // `as const` を使わずに `aria-current` の union（'date'）へ適合させる。
 const TODAY_CELL_ATTRS: { 'data-today': 'true'; 'aria-current': 'date' } = {
@@ -331,8 +355,24 @@ interface MonthWeekRowProps {
   renderDayCell: ((day: MonthDay, defaultContent: ReactNode) => ReactNode) | undefined;
   /** 日番号クリック時のハンドラ。 */
   onDayNumberClick: (date: Date) => void;
-  /** 「+N 件」クリック時のハンドラ。 */
-  onOverflowClick: (day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => void;
+  /**
+   * 「+N 件」クリック時のハンドラ。
+   * @param day - 対象の日
+   * @param hiddenOccurrences - その日の非表示（あふれ）のオカレンス一覧（開始時刻順）
+   * @param visibleOccurrences - その日の表示中のオカレンス一覧（開始時刻順）
+   */
+  onOverflowClick: (
+    day: MonthDay,
+    hiddenOccurrences: readonly EventOccurrence[],
+    visibleOccurrences: readonly EventOccurrence[],
+  ) => void;
+  /**
+   * 「+N 件」ボタンに追加する props を返す関数（`aria-haspopup` / `aria-expanded` など）。
+   * 省略時は追加の props を付与しない。
+   */
+  overflowButtonProps:
+    | ((day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps)
+    | undefined;
   /**
    * 前後月セル（`day.inCurrentMonth === false`）をインタラクティブにするか。
    *
@@ -361,6 +401,7 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
     renderDayCell,
     onDayNumberClick,
     onOverflowClick,
+    overflowButtonProps,
     interactiveOutsideDays,
   } = props;
 
@@ -376,6 +417,14 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
         (segment) =>
           segment.hidden && col >= segment.startCol && col < segment.startCol + segment.span,
       )
+      .map((segment) => segment.occurrence)
+      .sort((a, b) => a.start.getTime() - b.start.getTime());
+  }
+
+  /** 指定列（可視列インデックス）を覆う表示中セグメントのオカレンス一覧を開始時刻順で返す。 */
+  function visibleOccurrencesAt(col: number): readonly EventOccurrence[] {
+    return visibleSegments
+      .filter((segment) => col >= segment.startCol && col < segment.startCol + segment.span)
       .map((segment) => segment.occurrence)
       .sort((a, b) => a.start.getTime() - b.start.getTime());
   }
@@ -408,8 +457,12 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
                 <button
                   type="button"
                   data-koyomi="month-overflow"
+                  {...(overflowButtonProps?.(day, hiddenOccurrencesAt(dayCol)) ?? {})}
                   onPointerDown={stopPropagation}
-                  onClick={() => onOverflowClick(day, hiddenOccurrencesAt(dayCol))}
+                  onKeyDown={handleOverflowKeyDown}
+                  onClick={() =>
+                    onOverflowClick(day, hiddenOccurrencesAt(dayCol), visibleOccurrencesAt(dayCol))
+                  }
                 >
                   {overflowLabel(day.overflowCount)}
                 </button>

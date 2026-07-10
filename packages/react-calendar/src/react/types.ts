@@ -77,6 +77,35 @@ export interface EventDelete {
 }
 
 /**
+ * `onOverflowClick` の第 3 引数として渡す追加情報。
+ *
+ * 第 2 引数の `hiddenOccurrences`（「+N 件」に集約された非表示のオカレンス）と
+ * 対になる情報として、その日で実際に表示中のオカレンスも渡す。両方を合わせると
+ * その日の全オカレンスを「表示中／非表示」の区別付きで把握でき、ポップオーバーで
+ * 全件を一覧表示する用途に使える。
+ */
+export interface OverflowClickDetails {
+  /** その日で表示中（「+N 件」に集約されていない）のオカレンス一覧（開始時刻順）。 */
+  visibleOccurrences: readonly EventOccurrence[];
+}
+
+/**
+ * 月ビュー・複数月ビューの「+N 件」ボタンに追加する props。
+ *
+ * 自前のポップオーバー UI と組み合わせる際、ボタンがポップアップを持つこと
+ * （`aria-haspopup`）や開閉状態（`aria-expanded`）を支援技術に伝えるために使う。
+ * `MonthView` / `MultiMonthView` の `overflowButtonProps` から返す。
+ */
+export interface MonthOverflowButtonProps {
+  /** ボタンが何らかのポップアップ要素を持つことを示す。 */
+  'aria-haspopup'?: 'true' | 'dialog' | 'menu' | 'listbox' | 'tree' | 'grid';
+  /** ポップアップの開閉状態。 */
+  'aria-expanded'?: boolean;
+  /** 開いたポップアップ要素の id（`aria-controls` として関連付ける）。 */
+  'aria-controls'?: string;
+}
+
+/**
  * インタラクションのコールバック集。
  *
  * すべて省略可能で、省略時は次の既定動作になる:
@@ -132,8 +161,15 @@ export interface CalendarInteractionCallbacks {
    * @param day - 対象の日
    * @param hiddenOccurrences - その日で「+N 件」に集約された非表示のオカレンス一覧
    *   （開始時刻順）。ポップオーバーで隠れた予定を一覧表示する用途に使える
+   * @param details - 追加情報（表示中のオカレンス一覧 `visibleOccurrences` など）。
+   *   `hiddenOccurrences` と組み合わせることで、その日の全オカレンスを
+   *   表示中／非表示の区別付きで取得できる
    */
-  onOverflowClick?: (day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => void;
+  onOverflowClick?: (
+    day: MonthDay,
+    hiddenOccurrences: readonly EventOccurrence[],
+    details: OverflowClickDetails,
+  ) => void;
 }
 
 /**

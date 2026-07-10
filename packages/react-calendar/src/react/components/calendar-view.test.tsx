@@ -195,6 +195,24 @@ describe('CalendarView', () => {
       expect(overflow?.textContent).toContain('件を表示');
     });
 
+    it('monthOverflowButtonProps が MonthView の overflowButtonProps へ転送される', () => {
+      const events: CalendarEvent[] = Array.from({ length: 6 }, (_, index) => ({
+        id: `ov-${index}`,
+        title: `予定${index}`,
+        start: '2026-07-15T10:00',
+        end: '2026-07-15T11:00',
+      }));
+      const { container } = renderView(
+        'month',
+        { monthOverflowButtonProps: () => ({ 'aria-haspopup': 'true', 'aria-expanded': false }) },
+        events,
+      );
+
+      const overflow = container.querySelector('[data-koyomi="month-overflow"]');
+      expect(overflow).toHaveAttribute('aria-haspopup', 'true');
+      expect(overflow).toHaveAttribute('aria-expanded', 'false');
+    });
+
     it('renderTimeGridDayHeader が TimeGridView の renderDayHeader へ転送される', () => {
       const { container } = renderView('week', {
         renderTimeGridDayHeader: (day, defaultContent) => (
@@ -261,6 +279,29 @@ describe('CalendarView', () => {
       const overflow = container.querySelector('[data-koyomi="month-overflow"]');
       expect(overflow?.textContent).toContain('他');
       expect(overflow?.textContent).toContain('件を表示');
+    });
+
+    it('multiMonthOverflowButtonProps が MultiMonthView の overflowButtonProps へ転送される', () => {
+      const events: CalendarEvent[] = Array.from({ length: 6 }, (_, index) => ({
+        id: `mm-ov-${index}`,
+        title: `予定${index}`,
+        start: '2026-07-15T10:00',
+        end: '2026-07-15T11:00',
+      }));
+      const { container } = renderView(
+        'multiMonth',
+        {
+          multiMonthOverflowButtonProps: () => ({
+            'aria-haspopup': 'true',
+            'aria-expanded': false,
+          }),
+        },
+        events,
+      );
+
+      const overflow = container.querySelector('[data-koyomi="month-overflow"]');
+      expect(overflow).toHaveAttribute('aria-haspopup', 'true');
+      expect(overflow).toHaveAttribute('aria-expanded', 'false');
     });
 
     it('renderResourceEvent が ResourceView へ転送される', () => {
