@@ -285,6 +285,8 @@ function BareMonthGrid() {
 | `resources` | `readonly CalendarResource[]` | `[]` | リソースビュー・タイムラインビューの列/行になるリソース一覧（表示順）。他ビューには影響しない。詳細は [予定の管理: リソース](./events.md#リソース) を参照 |
 | `timelineDays` | `number` | `1` | タイムラインビューが表示する日数。`next()`/`prev()` の移動単位にもなる |
 | `unassignedLane` | `'auto' \| 'always'` | `'auto'` | リソース/タイムラインビューの未割り当てレーンの生成規則。`'auto'` は該当する予定があるときのみ末尾に生成、`'always'` は常に生成する（「未割り当てへ戻す」D&D を使う場合に必要。詳細は [新ビューを有効にする](#年ビューなど新ビューを有効にするopt-in) を参照） |
+| `showWeekNumbers` | `boolean` | `false` | 月ビューの週行・週ビューのヘッダーに ISO 8601 週番号を表示するか。詳細は [週番号](#週番号showweeknumbers) を参照 |
+| `businessHours` | `readonly BusinessHoursRule[]` | `[]` | 週/日ビューの営業時間の指定。詳細は [営業時間](#営業時間businesshours) を参照 |
 
 ## 週末などの曜日を隠す（hiddenWeekdays）
 
@@ -464,6 +466,69 @@ function App() {
 ただし `TimeGridViewModel.timeAxes` は週全体で 1 組だけ（表示範囲の最初の日基準）を共有するため、`viewType: 'week'` で追加軸のタイムゾーンが表示範囲の途中に DST 切替を挟む場合、切替後の日については実際のオフセットとずれます（`TimeGridView` が単一の軸列しか描画しないための制約）。日ごとに正しいオフセットが必要な場合は各日の `TimeGridDay.timeAxes`（その日自身の 0:00 を基準に個別算出）を使ってください。
 
 `timeAxisZones` 未指定時は `timeAxes`（`TimeGridViewModel` / 各 `TimeGridDay` とも）が主軸のみの 1 要素配列になり、既存の `slots` フィールドも含めビューモデルの出力は従来と変わりません。
+
+## 週番号（showWeekNumbers）
+
+`CalendarOptions.showWeekNumbers`（既定 `false`）を `true` にすると、月ビューは各週行に、週ビューはヘッダー行に ISO 8601 週番号（月曜始まりで数える週番号）が表示されます。
+
+```tsx
+import { CalendarProvider, MonthView, useCalendar } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
+
+function App() {
+  const calendar = useCalendar({ initialView: 'month', showWeekNumbers: true });
+  return (
+    <CalendarProvider value={calendar}>
+      <MonthView />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - 各週行（[data-koyomi="month-week"]）に data-koyomi-week-number="<週番号>" が付く
+// - 週ビューでは [data-koyomi="timegrid-header"] に同じ属性が付く（日ビューには付かない）
+```
+
+週番号は表示タイムゾーン基準で、週内の木曜日を基準に算出します（ISO 8601 の規則どおり、その週の木曜日が属する年・週で数える）。`weekStartsOn`（週開始曜日）の値によらず、同じ 7 日間には常に同じ週番号が付きます。年をまたぐ週（例: 1 月上旬が前年の最終週になる、12 月下旬が翌年の第 1 週になる）も正しく計算されます。
+
+`MonthWeek.weekNumber` / `TimeGridViewModel.weekNumber`（`viewType: 'day'` では常に `null`）としてビューモデルからも参照できます。属性のみを付与するヘッドレスな設計のため、実際に数字を表示するには CSS（`content: attr(data-koyomi-week-number)` 等）や `renderDayCell` 等のカスタム描画スロットを使ってください。`showWeekNumbers` 未指定時（既定）は `weekNumber` が常に `null` で、DOM 属性も出力されません（従来どおりの出力）。
+
+## 営業時間（businessHours）
+
+`CalendarOptions.businessHours`（既定 `[]`）に曜日・時間帯の指定を渡すと、週/日ビュー（時間グリッド）の該当するスロットが営業時間内としてハイライトされます。
+
+```tsx
+import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
+
+function App() {
+  const calendar = useCalendar({
+    initialView: 'week',
+    businessHours: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' }],
+  });
+  return (
+    <CalendarProvider value={calendar}>
+      <TimeGridView />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - 月〜金の 9:00〜18:00 のスロット（[data-koyomi="timegrid-slot"]）に
+//   data-koyomi-business-hours="true" が付き、デフォルトテーマでは控えめな背景色になる
+// - 土日、および平日でも 9:00 より前・18:00 以降のスロットには属性が付かない
+```
+
+`daysOfWeek` に該当する曜日について、`startTime`〜`endTime`（ともに `'HH:mm'` 形式）を営業時間として扱います（`endTime` は排他的。`startTime` ちょうどは営業時間内、`endTime` ちょうどは営業時間外）。複数件を配列で渡すと OR 判定になるため、曜日ごとに異なる時間帯を指定できます。
+
+```tsx
+businessHours: [
+  { daysOfWeek: [6], startTime: '10:00', endTime: '13:00' }, // 土曜だけ午前のみ
+  { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' }, // 平日
+]
+```
+
+`TimeGridDay.businessHourSlots`（`slots` と同じ並びの `{ minutes, isBusinessHours }[]`）としてビューモデルからも参照できます。`businessHours` 未指定時（既定 `[]`）はすべてのスロットが `isBusinessHours: false` になり、DOM 属性も出力されません（従来どおりの出力）。`startTime` が `endTime` 以降、または `'HH:mm'` 形式でない値を指定すると `Error` になります。
 
 ## 関連ページ
 

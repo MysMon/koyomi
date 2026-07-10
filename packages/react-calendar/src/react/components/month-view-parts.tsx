@@ -430,7 +430,10 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
   }
 
   return (
-    <div data-koyomi="month-week">
+    <div
+      data-koyomi="month-week"
+      {...(week.weekNumber !== null ? { 'data-koyomi-week-number': String(week.weekNumber) } : {})}
+    >
       {/* biome-ignore lint/a11y/useSemanticElements: 月ビューの DOM 仕様が定める div ベースの ARIA row（<table> は不採用、MonthView 側の理由と同じ） */}
       {/* biome-ignore lint/a11y/useFocusableInteractive: row 自体はフォーカス対象にしない（フォーカスは各 gridcell が担う） */}
       <div data-koyomi="month-days" role="row">

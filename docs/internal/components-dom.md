@@ -57,7 +57,10 @@ div[data-koyomi="month"] (role="grid")
     div[data-koyomi="month-weekday"] (role="columnheader") × 可視列数
                                                       … 曜日ラベル（Intl、週開始順、hiddenWeekdays 除外後）
   div[data-koyomi="month-weeks"] (role="rowgroup")
-    div[data-koyomi="month-week"] × 4..6            … position: relative の基準（テーマ側）
+    div[data-koyomi="month-week"][data-koyomi-week-number="<週番号>"]? × 4..6
+                                                     … position: relative の基準（テーマ側）。
+                                                       data-koyomi-week-number は
+                                                       showWeekNumbers: true のときのみ付く
       div[data-koyomi="month-days"] (role="row")
         div[data-koyomi="month-day"][data-koyomi-date="YYYY-MM-DD"]
            (role="gridcell", tabIndex=0, aria-label=完全な日付, aria-current="date"?)
@@ -99,7 +102,10 @@ div[data-koyomi="month"] (role="grid")
 div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"]
   div[data-koyomi="timegrid-grid"] (role="grid")            … 日ヘッダー行・終日行だけをまとめる a11y 用ラッパー
                                                                 （row/rowgroup 以外を子孫に持たないよう本文はこの外側に置く）
-    div[data-koyomi="timegrid-header"] (role="row")
+    div[data-koyomi="timegrid-header"][data-koyomi-week-number="<週番号>"]? (role="row")
+                                                              … data-koyomi-week-number は
+                                                                viewType: 'week' かつ
+                                                                showWeekNumbers: true のときのみ付く
       div[data-koyomi="timegrid-axis-gutter"][data-koyomi-timezone] (role="presentation") × timeAxes.length … 左上の空き（時間軸幅の確保）
       div[data-koyomi="timegrid-day-header"][data-koyomi-date][data-today?] (role="columnheader", aria-current="date"?) × days
         … 曜日＋日番号（renderDayHeader で差し替え可）。
@@ -126,7 +132,11 @@ div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"]
     div[data-koyomi="timegrid-days"]
       div[data-koyomi="timegrid-day"][data-koyomi-date][data-today?] × days
          … useTimeGridDrag.getDayProps を展開。position: relative の基準
-        div[data-koyomi="timegrid-slot"] × slots     … 罫線。style: top %
+        div[data-koyomi="timegrid-slot"][data-koyomi-business-hours]? × slots
+                                                      … 罫線。style: top %。
+                                                        data-koyomi-business-hours は
+                                                        businessHours 該当スロットのみ付き、
+                                                        その場合 style に height（次スロットまで）も追加
         button[data-koyomi="timegrid-event"] × n     … getEventProps を展開
            [data-continues-before?][data-continues-after?][data-koyomi-dragging?]
            style: top/height/left/width すべて %（top = startMinutes/1440 など）

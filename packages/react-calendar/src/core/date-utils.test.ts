@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addMonthsInZone,
   eachDayInRange,
+  isoWeekNumberOfWeek,
   monthGridRange,
   navigateDate,
   rangesOverlap,
@@ -62,6 +63,44 @@ describe('startOfWeekInZone', () => {
     const date = new Date('2026-06-28T02:00:00Z');
     expect(dateKeyInZone(startOfWeekInZone(date, TOKYO, 0), TOKYO)).toBe('2026-06-28');
     expect(dateKeyInZone(startOfWeekInZone(date, NY, 0), NY)).toBe('2026-06-21');
+  });
+});
+
+describe('isoWeekNumberOfWeek', () => {
+  it('週開始曜日によらず同じ週なら同じ ISO 週番号になる（2026-07-01 を含む週は第 27 週）', () => {
+    const anchor = new Date('2026-07-01T01:00:00Z'); // 7/1(水) 10:00 JST
+    expect(
+      isoWeekNumberOfWeek(startOfWeekInZone(anchor, TOKYO, 0), TOKYO), // 週開始=日曜
+    ).toBe(27);
+    expect(
+      isoWeekNumberOfWeek(startOfWeekInZone(anchor, TOKYO, 1), TOKYO), // 週開始=月曜
+    ).toBe(27);
+    expect(
+      isoWeekNumberOfWeek(startOfWeekInZone(anchor, TOKYO, 6), TOKYO), // 週開始=土曜
+    ).toBe(27);
+  });
+
+  it('年またぎ週（週開始=日曜）: 2025-12-28（日）始まりの週は 2026 年第 1 週', () => {
+    // 週は 2025-12-28(日)〜2026-01-03(土)。木曜日は 2026-01-01（2026 年第 1 週）
+    const weekStart = startOfWeekInZone(new Date('2025-12-30T01:00:00Z'), TOKYO, 0);
+    expect(dateKeyInZone(weekStart, TOKYO)).toBe('2025-12-28');
+    expect(isoWeekNumberOfWeek(weekStart, TOKYO)).toBe(1);
+  });
+
+  it('年またぎ週（週開始=月曜）: 2022-12-26（月）始まりの週は 2022 年第 52 週のまま', () => {
+    // 週は 2022-12-26(月)〜2023-01-01(日)。木曜日は 2022-12-29（2022 年第 52 週）
+    const weekStart = startOfWeekInZone(new Date('2022-12-28T01:00:00Z'), TOKYO, 1);
+    expect(dateKeyInZone(weekStart, TOKYO)).toBe('2022-12-26');
+    expect(isoWeekNumberOfWeek(weekStart, TOKYO)).toBe(52);
+  });
+
+  it('タイムゾーンによって週番号が変わりうる（週の区切り自体がタイムゾーンで変わるため）', () => {
+    // 2026-06-28T02:00Z は東京では 6/28(日) 11:00、NY では 6/27(土) 22:00 で、
+    // 週開始=日曜の週がそれぞれ 6/28〜7/4（木曜7/2、第27週）と
+    // 6/21〜6/27（木曜6/25、第26週）にずれる
+    const anchor = new Date('2026-06-28T02:00:00Z');
+    expect(isoWeekNumberOfWeek(startOfWeekInZone(anchor, TOKYO, 0), TOKYO)).toBe(27);
+    expect(isoWeekNumberOfWeek(startOfWeekInZone(anchor, NY, 0), NY)).toBe(26);
   });
 });
 

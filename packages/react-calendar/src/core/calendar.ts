@@ -14,8 +14,9 @@ import { navigateDate, visibleRangeFor } from './date-utils';
 import { expandEvents } from './expansion';
 import type { MutationContext, RecurringTarget } from './mutations';
 import { createEventIn, deleteEventIn, updateEventIn } from './mutations';
-import { getLocalTimeZone, isValidTimeZone } from './timezone';
+import { getLocalTimeZone, isValidTimeZone, parseTimeOfDay } from './timezone';
 import type {
+  BusinessHoursRule,
   CalendarApi,
   CalendarEvent,
   CalendarEventInput,
@@ -56,6 +57,8 @@ const DEFAULT_OPTIONS: Omit<ResolvedCalendarOptions, 'now'> = {
   unassignedLane: 'auto',
   locale: 'ja',
   hiddenWeekdays: [],
+  showWeekNumbers: false,
+  businessHours: [],
 };
 
 /**
@@ -95,6 +98,9 @@ function resolveOptions(
   if (options?.timeAxisZones !== undefined) {
     assertTimeAxisZones(options.timeAxisZones);
   }
+  if (options?.businessHours !== undefined) {
+    assertBusinessHours(options.businessHours);
+  }
   return {
     weekStartsOn: options?.weekStartsOn ?? current.weekStartsOn,
     dayMaxEvents: normalizePositiveInt(options?.dayMaxEvents ?? current.dayMaxEvents, 1),
@@ -115,13 +121,25 @@ function resolveOptions(
       options?.hiddenWeekdays !== undefined
         ? normalizeHiddenWeekdays(options.hiddenWeekdays)
         : current.hiddenWeekdays,
+    showWeekNumbers: options?.showWeekNumbers ?? current.showWeekNumbers,
+    businessHours: options?.businessHours ?? current.businessHours,
     now: options?.now ?? current.now,
   };
 }
 
+/** {@link BusinessHoursRule} 1 件同士が等しいかどうかを比較する。 */
+function businessHoursRuleEqual(a: BusinessHoursRule, b: BusinessHoursRule): boolean {
+  return (
+    a.startTime === b.startTime &&
+    a.endTime === b.endTime &&
+    a.daysOfWeek.length === b.daysOfWeek.length &&
+    a.daysOfWeek.every((weekday, index) => weekday === b.daysOfWeek[index])
+  );
+}
+
 /**
  * 解決済みオプション同士を浅く比較する。
- * `hiddenWeekdays` は配列の中身（順序込み）で比較する。
+ * `hiddenWeekdays` / `businessHours` は配列の中身（順序込み）で比較する。
  */
 function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOptions): boolean {
   return (
@@ -140,7 +158,13 @@ function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOpt
     a.locale === b.locale &&
     a.now === b.now &&
     a.hiddenWeekdays.length === b.hiddenWeekdays.length &&
-    a.hiddenWeekdays.every((weekday, index) => weekday === b.hiddenWeekdays[index])
+    a.hiddenWeekdays.every((weekday, index) => weekday === b.hiddenWeekdays[index]) &&
+    a.showWeekNumbers === b.showWeekNumbers &&
+    a.businessHours.length === b.businessHours.length &&
+    a.businessHours.every((rule, index) => {
+      const other = b.businessHours[index];
+      return other !== undefined && businessHoursRuleEqual(rule, other);
+    })
   );
 }
 
@@ -155,6 +179,23 @@ function assertTimeZone(timeZone: TimeZoneId): void {
 function assertTimeAxisZones(timeAxisZones: readonly TimeZoneId[]): void {
   for (const zone of timeAxisZones) {
     assertTimeZone(zone);
+  }
+}
+
+/**
+ * 営業時間の指定一覧を検証し、不正な要素があれば例外を投げる。
+ * `startTime` / `endTime` の形式は {@link parseTimeOfDay} が検証し、
+ * ここでは `startTime` が `endTime` より前であることを追加で検証する。
+ */
+function assertBusinessHours(businessHours: readonly BusinessHoursRule[]): void {
+  for (const rule of businessHours) {
+    const start = parseTimeOfDay(rule.startTime);
+    const end = parseTimeOfDay(rule.endTime);
+    if (start >= end) {
+      throw new Error(
+        `不正な営業時間の指定です（startTime は endTime より前である必要があります）: startTime='${rule.startTime}', endTime='${rule.endTime}'`,
+      );
+    }
   }
 }
 
@@ -290,6 +331,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           weekStartsOn: resolvedOptions.weekStartsOn,
           dayMaxEvents: resolvedOptions.dayMaxEvents,
           hiddenWeekdays: resolvedOptions.hiddenWeekdays,
+          showWeekNumbers: resolvedOptions.showWeekNumbers,
           now,
         });
       case 'week':
@@ -303,6 +345,8 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           slotMinutes: resolvedOptions.slotMinutes,
           timeAxisZones: resolvedOptions.timeAxisZones,
           hiddenWeekdays: resolvedOptions.hiddenWeekdays,
+          showWeekNumbers: resolvedOptions.showWeekNumbers,
+          businessHours: resolvedOptions.businessHours,
           now,
         });
       case 'list':

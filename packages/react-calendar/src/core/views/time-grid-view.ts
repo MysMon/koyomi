@@ -6,7 +6,12 @@
  * 日ごとに重なりレイアウトを適用する。
  */
 
-import { eachDayInRange, rangesOverlap, startOfWeekInZone } from '../date-utils';
+import {
+  eachDayInRange,
+  isoWeekNumberOfWeek,
+  rangesOverlap,
+  startOfWeekInZone,
+} from '../date-utils';
 import type { BandItemInput } from '../layout/band-layout';
 import { layoutBandItems } from '../layout/band-layout';
 import type { TimeGridItemInput } from '../layout/time-grid-layout';
@@ -18,10 +23,13 @@ import {
   formatSlotLabel,
   isSameDayInZone,
   minutesOfDayInZone,
+  parseTimeOfDay,
   startOfDayInZone,
   weekdayInZone,
 } from '../timezone';
 import type {
+  BusinessHourSlot,
+  BusinessHoursRule,
   EventOccurrence,
   EventSegment,
   PositionedOccurrence,
@@ -343,6 +351,40 @@ export function buildSlots(slotMinutes: number): TimeSlot[] {
 }
 
 /**
+ * 営業時間フラグ付きスロット（{@link BusinessHourSlot}）を構築する。
+ *
+ * `businessHours` のうち `weekday` を `daysOfWeek` に含むルールだけを対象に、
+ * 各スロットの開始分が `[startTime, endTime)`（分換算、終了は排他的）に
+ * 含まれるかどうかを判定する（複数ルールが該当する場合は OR）。
+ *
+ * @param slots - 対象スロット一覧（{@link buildSlots} の結果）
+ * @param weekday - 判定対象の日の曜日
+ * @param businessHours - 営業時間の指定一覧。空配列ならすべて `isBusinessHours: false`
+ * @returns `slots` と同じ並びの {@link BusinessHourSlot} 配列
+ *
+ * @remarks リソースビュー等、時間グリッド以外のビューは対象外（`index.ts` からは
+ * 公開しない）。
+ */
+export function buildBusinessHourSlots(
+  slots: readonly TimeSlot[],
+  weekday: Weekday,
+  businessHours: readonly BusinessHoursRule[],
+): readonly BusinessHourSlot[] {
+  const ranges = businessHours
+    .filter((rule) => rule.daysOfWeek.includes(weekday))
+    .map((rule) => ({
+      startMinutes: parseTimeOfDay(rule.startTime),
+      endMinutes: parseTimeOfDay(rule.endTime),
+    }));
+  return slots.map((slot) => ({
+    minutes: slot.minutes,
+    isBusinessHours: ranges.some(
+      (range) => slot.minutes >= range.startMinutes && slot.minutes < range.endMinutes,
+    ),
+  }));
+}
+
+/**
  * 主軸（表示タイムゾーン）＋追加軸（{@link CalendarOptions.timeAxisZones}）の
  * 時間軸配列を構築する（Google カレンダーのセカンダリタイムゾーン相当）。
  *
@@ -443,6 +485,11 @@ function lowerBoundGreaterThan(sorted: readonly number[], value: number): number
  * @param params.now - 現在時刻（`isToday` 判定と現在時刻線に使用）
  * @param params.hiddenWeekdays - 非表示にする曜日（`'week'` のときのみ有効）。省略時は `[]`
  * @param params.timeAxisZones - 時間軸に並べる追加のタイムゾーン（{@link buildTimeAxes} 参照）。省略時は `[]`
+ * @param params.showWeekNumbers - `viewType: 'week'` のとき、ISO 8601 週番号
+ *   （`TimeGridViewModel.weekNumber`）を算出するか。省略時は `false`
+ *   （`weekNumber` は常に `null`。`viewType: 'day'` では常に `null`）
+ * @param params.businessHours - 各日の時間グリッドのスロットに営業時間内フラグ
+ *   （`TimeGridDay.businessHourSlots`）を付与する指定。省略時は `[]`（すべて `false`）
  */
 export function buildTimeGridViewModel(params: {
   currentDate: Date;
@@ -454,6 +501,8 @@ export function buildTimeGridViewModel(params: {
   now: Date;
   hiddenWeekdays?: readonly Weekday[];
   timeAxisZones?: readonly TimeZoneId[];
+  showWeekNumbers?: boolean;
+  businessHours?: readonly BusinessHoursRule[];
 }): TimeGridViewModel {
   const {
     currentDate,
@@ -465,6 +514,8 @@ export function buildTimeGridViewModel(params: {
     now,
     hiddenWeekdays = [],
     timeAxisZones = [],
+    showWeekNumbers = false,
+    businessHours = [],
   } = params;
 
   // 表示範囲: week は週開始日から 7 日、day は基準日の 1 日
@@ -587,6 +638,13 @@ export function buildTimeGridViewModel(params: {
       // 基準に算出する。追加軸のタイムゾーンで週の途中に DST 切替があっても、
       // 切替後の日は正しいオフセットになる（TimeGridDay.timeAxes の TSDoc を参照）
       timeAxes: buildTimeAxes({ rangeStart: dayStart, timeZone, slots, timeAxisZones }),
+      // この日の曜日を基準に営業時間内フラグを付与する。businessHours 未指定時は
+      // buildBusinessHourSlots が全スロット isBusinessHours: false を返す
+      businessHourSlots: buildBusinessHourSlots(
+        slots,
+        weekdayInZone(dayStart, timeZone),
+        businessHours,
+      ),
     };
   });
 
@@ -598,6 +656,11 @@ export function buildTimeGridViewModel(params: {
     ? { dayKey: todayKey, minutes: minutesOfDayInZone(now, timeZone) }
     : null;
 
+  // 週番号は viewType: 'week' かつ showWeekNumbers のときのみ算出する（週内の木曜日を
+  // 基準にするため weekStartsOn の値によらない。詳細は isoWeekNumberOfWeek を参照）
+  const weekNumber =
+    viewType === 'week' && showWeekNumbers ? isoWeekNumberOfWeek(rangeStart, timeZone) : null;
+
   return {
     type: 'timeGrid',
     viewType,
@@ -607,5 +670,6 @@ export function buildTimeGridViewModel(params: {
     slots,
     timeAxes: buildTimeAxes({ rangeStart, timeZone, slots, timeAxisZones }),
     nowIndicator,
+    weekNumber,
   };
 }

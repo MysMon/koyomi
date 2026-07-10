@@ -383,3 +383,61 @@ export function parseDateValue(value: Date | string, timeZone: TimeZoneId, allDa
 export function formatSlotLabel(minutes: number): string {
   return `${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`;
 }
+
+/**
+ * 指定タイムゾーンにおける ISO 8601 週番号を返す。
+ *
+ * ISO 8601 は月曜始まりで週を数え、その週の木曜日が属する年を「ISO 週年」とする
+ * （年始・年末の数日は、暦上の年と ISO 週年がずれることがある）。
+ * ホスト実行環境のローカルタイムゾーンに依存しないよう、現地時刻の年月日成分だけを
+ * 取り出し、`Date.UTC` 上の値として演算する（{@link fromWallClock} の 2 桁年対策と
+ * 同様、実際の絶対時刻ではなく年月日の暦演算にのみ使う）。
+ *
+ * @param date - 絶対時刻
+ * @param timeZone - タイムゾーン
+ * @returns ISO 8601 週番号（1〜53）
+ * @example
+ * ```ts
+ * // 2026-01-01（UTC）は木曜日で、2026 年第 1 週に属する
+ * isoWeekNumberInZone(new Date('2026-01-01T00:00:00Z'), 'UTC'); // => 1
+ * ```
+ */
+export function isoWeekNumberInZone(date: Date, timeZone: TimeZoneId): number {
+  const wall = getWallClock(date, timeZone);
+  const asUtcDate = new Date(Date.UTC(wall.year, wall.month - 1, wall.day));
+  // ISO 8601 の曜日（月=0, 火=1, …, 日=6）。Date#getUTCDay は日曜=0 始まりのため変換する
+  const isoWeekday = (asUtcDate.getUTCDay() + 6) % 7;
+  // その週の木曜日（ISO 週番号は木曜日が属する年で数える）
+  const thursday = new Date(asUtcDate.getTime());
+  thursday.setUTCDate(thursday.getUTCDate() + (3 - isoWeekday));
+  const isoYearStart = Date.UTC(thursday.getUTCFullYear(), 0, 1);
+  const daysSinceIsoYearStart = Math.round((thursday.getTime() - isoYearStart) / 86_400_000);
+  return Math.floor(daysSinceIsoYearStart / 7) + 1;
+}
+
+/** `'HH:mm'` 形式（0 埋め 2 桁の時・分）にマッチする正規表現。 */
+const TIME_OF_DAY_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/**
+ * `'HH:mm'` 形式の時刻文字列を、その日の 0:00 からの分（0〜1439）に変換する。
+ * {@link formatSlotLabel} の逆変換にあたる。
+ *
+ * @param time - `'HH:mm'` 形式の時刻文字列（例: `'09:00'`）
+ * @returns 0〜1439 の分数
+ * @throws 形式が不正な場合は `Error`
+ * @example
+ * ```ts
+ * parseTimeOfDay('09:00'); // => 540
+ * ```
+ */
+export function parseTimeOfDay(time: string): number {
+  const match = TIME_OF_DAY_PATTERN.exec(time);
+  if (match === null) {
+    throw new Error(`時刻として解釈できない値です（'HH:mm' 形式が必要）: '${time}'`);
+  }
+  const [, hoursText, minutesText] = match;
+  if (hoursText === undefined || minutesText === undefined) {
+    throw new Error(`時刻として解釈できない値です（'HH:mm' 形式が必要）: '${time}'`);
+  }
+  return Number(hoursText) * 60 + Number(minutesText);
+}

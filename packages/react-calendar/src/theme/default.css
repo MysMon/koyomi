@@ -31,6 +31,7 @@
  *   --koyomi-timeline-lane-height   タイムラインビューの帯 1 レーンの高さ
  *   --koyomi-timeline-header-width  タイムラインビューの行見出し列（左端固定列）の幅
  *   --koyomi-now-color              現在時刻線（now-indicator）の色
+ *   --koyomi-business-hours-bg      営業時間内スロット（businessHours）の背景色
  *
  * 上記に加え、時間グリッドの時刻軸幅をヘッダー・終日行・本体で揃えるための
  * 内部変数として --koyomi-time-axis-width も定義している（必要なら上書き可）。
@@ -73,6 +74,7 @@
   --koyomi-timeline-lane-height: 28px;
   --koyomi-timeline-header-width: 120px;
   --koyomi-now-color: #ea4335;
+  --koyomi-business-hours-bg: rgba(26, 115, 232, 0.06);
 
   background-color: var(--koyomi-bg);
   color: var(--koyomi-fg);
@@ -102,6 +104,7 @@
     --koyomi-event-color: #8ab4f8;
     --koyomi-event-fg: #202124;
     --koyomi-now-color: #ea4335;
+    --koyomi-business-hours-bg: rgba(138, 180, 248, 0.08);
   }
 }
 
@@ -117,6 +120,7 @@
   --koyomi-event-color: #8ab4f8;
   --koyomi-event-fg: #202124;
   --koyomi-now-color: #ea4335;
+  --koyomi-business-hours-bg: rgba(138, 180, 248, 0.08);
 }
 
 [data-koyomi-theme="light"] [data-koyomi="root"],
@@ -129,6 +133,7 @@
   --koyomi-today-bg: #e8f0fe;
   --koyomi-event-color: #1a73e8;
   --koyomi-event-fg: #ffffff;
+  --koyomi-business-hours-bg: rgba(26, 115, 232, 0.06);
   --koyomi-now-color: #ea4335;
 }
 
@@ -633,6 +638,13 @@
   inset-inline: 0;
   border-top: 1px solid var(--koyomi-border);
   pointer-events: none;
+}
+
+/* 営業時間内スロット（businessHours）。コンポーネント側が該当スロットにのみ
+ * height（次のスロットまでの高さ）を inline style で付与するため、ここでは
+ * 控えめな背景色を敷くだけでよい */
+[data-koyomi="timegrid-slot"][data-koyomi-business-hours] {
+  background-color: var(--koyomi-business-hours-bg);
 }
 
 [data-koyomi="timegrid-event"] {

@@ -12,6 +12,7 @@ import {
   addDaysInZone,
   fromWallClock,
   getWallClock,
+  isoWeekNumberInZone,
   startOfDayInZone,
   weekdayInZone,
 } from './timezone';
@@ -29,6 +30,34 @@ export function startOfWeekInZone(date: Date, timeZone: TimeZoneId, weekStartsOn
   const weekday = weekdayInZone(dayStart, timeZone);
   const diff = (weekday - weekStartsOn + 7) % 7;
   return diff === 0 ? dayStart : addDaysInZone(dayStart, -diff, timeZone);
+}
+
+/**
+ * 週開始曜日（{@link CalendarOptions.weekStartsOn}）に依存しない ISO 8601 週番号を返す。
+ *
+ * ISO 8601 週は常に月曜始まりだが、Koyomi の週の並びは `weekStartsOn` によって
+ * 日曜始まり・土曜始まりなどに変わる。どの曜日で始まる 7 日間にも必ず木曜日が
+ * 1 日だけ含まれるため、その木曜日を基準に {@link isoWeekNumberInZone} を呼ぶことで、
+ * `weekStartsOn` の値によらず「その週」に対応する ISO 週番号を一意に返す。
+ *
+ * @param weekStart - 週の開始日（`weekStartsOn` に従う任意の曜日の 0:00。
+ *   {@link startOfWeekInZone} の戻り値を渡す想定）
+ * @param timeZone - 表示タイムゾーン
+ * @returns ISO 8601 週番号（1〜53）
+ * @example
+ * ```ts
+ * // 週開始=日曜でも週開始=月曜でも、2026-07-01 を含む週は常に第 27 週
+ * isoWeekNumberOfWeek(startOfWeekInZone(anchor, 'Asia/Tokyo', 0), 'Asia/Tokyo'); // => 27
+ * isoWeekNumberOfWeek(startOfWeekInZone(anchor, 'Asia/Tokyo', 1), 'Asia/Tokyo'); // => 27
+ * ```
+ */
+export function isoWeekNumberOfWeek(weekStart: Date, timeZone: TimeZoneId): number {
+  const startWeekday = weekdayInZone(weekStart, timeZone);
+  // weekStart から見た木曜日（weekday === 4）までの前方日数（0〜6）。
+  // 週の 7 日間には必ず木曜日が 1 日だけ含まれるため、この日数は常に非負で一意に定まる
+  const daysUntilThursday = (4 - startWeekday + 7) % 7;
+  const thursday = addDaysInZone(weekStart, daysUntilThursday, timeZone);
+  return isoWeekNumberInZone(thursday, timeZone);
 }
 
 /**

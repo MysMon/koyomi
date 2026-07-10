@@ -271,6 +271,13 @@ export interface MonthWeek {
   segments: readonly EventSegment[];
   /** この週で使用されるレーン数（表示分のみ）。 */
   laneCount: number;
+  /**
+   * この週の ISO 8601 週番号（表示タイムゾーン基準）。
+   * {@link CalendarOptions.weekStartsOn} の値によらず、週内の木曜日を基準に算出する
+   * （詳細は {@link isoWeekNumberOfWeek} を参照）。
+   * {@link CalendarOptions.showWeekNumbers} が `false`（既定）のときは `null`。
+   */
+  weekNumber: number | null;
 }
 
 /** 月ビューのビューモデル。 */
@@ -325,6 +332,13 @@ export interface TimeGridDay {
    * 正しいオフセットになる。`timeAxisZones` 未指定時は主軸のみの 1 要素配列。
    */
   timeAxes: readonly TimeAxis[];
+  /**
+   * {@link TimeGridViewModel.slots} と同じ並びで、各スロットが
+   * {@link CalendarOptions.businessHours} の営業時間内かどうかを示す
+   * （この日の曜日 {@link TimeGridDay.weekday} 基準で判定）。
+   * `businessHours` 未指定時はすべて `isBusinessHours: false`。
+   */
+  businessHourSlots: readonly BusinessHourSlot[];
 }
 
 /** 時間グリッドの目盛り 1 つ分。 */
@@ -333,6 +347,33 @@ export interface TimeSlot {
   minutes: number;
   /** 表示ラベル（例: `'09:00'`）。 */
   label: string;
+}
+
+/**
+ * 営業時間の指定 1 件分。
+ *
+ * `daysOfWeek` に該当する曜日について、`startTime`〜`endTime`（ともに `'HH:mm'` 形式、
+ * `endTime` は排他的）の間を営業時間として扱う。複数件を配列で渡すことで、
+ * 曜日ごとに異なる時間帯を指定できる。
+ */
+export interface BusinessHoursRule {
+  /** 対象の曜日一覧。 */
+  daysOfWeek: readonly Weekday[];
+  /** 開始時刻（`'HH:mm'` 形式）。 */
+  startTime: string;
+  /** 終了時刻（`'HH:mm'` 形式）。`startTime` より後である必要があり、この時刻自体は含まない。 */
+  endTime: string;
+}
+
+/** 営業時間内フラグを付与した時間グリッドのスロット。 */
+export interface BusinessHourSlot {
+  /** その日の 0:00 からの分（{@link TimeSlot.minutes} と同じ並び）。 */
+  minutes: number;
+  /**
+   * {@link CalendarOptions.businessHours} の指定に基づき、このスロットが
+   * 営業時間内かどうか。`businessHours` 未指定時は常に `false`。
+   */
+  isBusinessHours: boolean;
 }
 
 /**
@@ -387,6 +428,14 @@ export interface TimeGridViewModel {
     /** その日の 0:00 からの分。 */
     minutes: number;
   } | null;
+  /**
+   * 表示範囲の ISO 8601 週番号（表示タイムゾーン基準）。算出方法は
+   * {@link MonthWeek.weekNumber} と同じ（週内の木曜日を基準にするため
+   * {@link CalendarOptions.weekStartsOn} の値によらない）。
+   * `viewType: 'day'`、または {@link CalendarOptions.showWeekNumbers} が
+   * `false`（既定）のときは `null`。
+   */
+  weekNumber: number | null;
 }
 
 /** リストビューの 1 日分。予定のある日のみ生成される。 */
@@ -727,6 +776,20 @@ export interface CalendarOptions {
    */
   hiddenWeekdays?: readonly Weekday[];
   /**
+   * 月ビューの週行・週ビューのヘッダーに ISO 8601 週番号を表示するか。既定は `false`。
+   * `true` にすると、`MonthWeek.weekNumber` / `TimeGridViewModel.weekNumber` に値が入り、
+   * 対応する DOM 要素に `data-koyomi-week-number` 属性が付く
+   * （詳細は [ビュー: 週番号](./views.md#週番号showweeknumbers) を参照）。
+   */
+  showWeekNumbers?: boolean;
+  /**
+   * 週/日ビュー（時間グリッド）の営業時間の指定。既定は `[]`（無効。従来どおりの表示）。
+   * 指定した曜日・時間帯のスロットに `data-koyomi-business-hours` 属性が付き、
+   * デフォルトテーマでは控えめな背景色でハイライトされる
+   * （詳細は [ビュー: 営業時間](./views.md#営業時間businesshours) を参照）。
+   */
+  businessHours?: readonly BusinessHoursRule[];
+  /**
    * 現在時刻を返す関数。「今日」の判定と現在時刻線に使用する。
    * テストでの時刻固定に利用できる。既定は `() => new Date()`。
    */
@@ -766,6 +829,10 @@ export interface ResolvedCalendarOptions {
   locale: string;
   /** 非表示にする曜日。 */
   hiddenWeekdays: readonly Weekday[];
+  /** 週番号を表示するか。 */
+  showWeekNumbers: boolean;
+  /** 営業時間の指定。 */
+  businessHours: readonly BusinessHoursRule[];
   /** 現在時刻プロバイダ。 */
   now: () => Date;
 }
