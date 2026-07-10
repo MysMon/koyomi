@@ -737,6 +737,39 @@ function isStructurallyEqual(a: unknown, b: unknown): boolean {
 }
 
 /**
+ * `exdates` / `rdates` を、順序に依存しない比較キーの配列（ソート済み）へ正規化する。
+ *
+ * 両フィールドは概念上「日付の集合」であり並び順に意味がないため、同じ集合を
+ * 並び替えただけのパッチを「変更あり」と過剰検出しないようにする。`Date` は時刻値、
+ * 文字列は文字列のままキー化する（同一時刻でも `Date` と文字列は従来どおり別値扱い。
+ * 文字列のタイムゾーン解釈を持ち込まないための安全側の判定）。
+ * 未指定（`undefined`）と空配列は同じ「除外・追加なし」として扱う。
+ */
+function normalizedDateListKeys(list: readonly (Date | string)[] | undefined): readonly string[] {
+  return (list ?? [])
+    .map((value) => (value instanceof Date ? `t:${value.getTime()}` : `s:${value}`))
+    .sort();
+}
+
+/**
+ * イベント同士の「値としての同一性」を判定する。
+ *
+ * 基本は {@link isStructurallyEqual} だが、`exdates` / `rdates` だけは
+ * {@link normalizedDateListKeys} で順序に依存しない集合として比較する。
+ */
+function isEventStructurallyEqual(a: CalendarEvent, b: CalendarEvent): boolean {
+  if (
+    !isStructurallyEqual(normalizedDateListKeys(a.exdates), normalizedDateListKeys(b.exdates)) ||
+    !isStructurallyEqual(normalizedDateListKeys(a.rdates), normalizedDateListKeys(b.rdates))
+  ) {
+    return false;
+  }
+  const { exdates: _aExdates, rdates: _aRdates, ...aRest } = a;
+  const { exdates: _bExdates, rdates: _bRdates, ...bRest } = b;
+  return isStructurallyEqual(aRest, bRest);
+}
+
+/**
  * 操作前後のイベント配列を比較し、影響を受けた各イベントの before/after 一覧を返す。
  *
  * mutations.ts の各操作（`mapPatch` / `splitSeries` / `truncateSeries` などが内部で使う
@@ -747,7 +780,7 @@ function isStructurallyEqual(a: unknown, b: unknown): boolean {
  * 一方、`applyPatch` が絡む変更（`mapPatch` 経由の更新）は、パッチの内容によらず常に
  * 新しい複製を返すため、参照が異なっていても値としては無変化な場合がある
  * （例: 空パッチ `{}`、既存値と同じ値を明示指定したパッチ）。そのため参照が異なる
- * 場合は {@link isStructurallyEqual} で値としての差分の有無も確認し、値も同一なら
+ * 場合は {@link isEventStructurallyEqual} で値としての差分の有無も確認し、値も同一なら
  * 「影響を受けていない」として changes に含めない。
  *
  * @param before - 操作前のイベント配列
@@ -765,7 +798,7 @@ function diffEventChanges(
     const afterEvent = afterById.get(id);
     if (afterEvent === undefined) {
       changes.push({ before: beforeEvent });
-    } else if (afterEvent !== beforeEvent && !isStructurallyEqual(beforeEvent, afterEvent)) {
+    } else if (afterEvent !== beforeEvent && !isEventStructurallyEqual(beforeEvent, afterEvent)) {
       changes.push({ before: beforeEvent, after: afterEvent });
     }
   }

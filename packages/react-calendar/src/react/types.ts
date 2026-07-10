@@ -72,6 +72,9 @@ export interface EventChange {
    * のシリーズ分割）では、作成・変更されたイベントすべて（分割点以降の
    * オーバーライドの `recurringEventId` 付け替えを含む）を漏れなく含む。
    * `CalendarApi.updateEvent` の戻り値がそのまま渡される。
+   *
+   * ライブラリからの通知では常に値が入るため、意図的に必須フィールドにしている
+   * （このペイロードを自前で構築しているテストコード等では、空配列 `[]` を渡せばよい）。
    */
   changes: readonly EventChangeEntry[];
 }
@@ -90,6 +93,9 @@ export interface EventDelete {
    * `'thisAndFollowing'` でマスターに EXDATE が追加された場合や、分割点以降の
    * オーバーライドが取り除かれた場合も、影響を受けたイベントすべてを漏れなく含む。
    * `CalendarApi.deleteEvent` の戻り値がそのまま渡される。
+   *
+   * ライブラリからの通知では常に値が入るため、意図的に必須フィールドにしている
+   * （このペイロードを自前で構築しているテストコード等では、空配列 `[]` を渡せばよい）。
    */
   changes: readonly EventChangeEntry[];
 }
