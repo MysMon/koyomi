@@ -1030,7 +1030,9 @@
 }
 
 [data-koyomi="timeline-resource-header"] {
-  position: relative;
+  /* position は上の共通ルールの sticky を維持する（relative で上書きすると
+     横スクロール時に行見出しが流れてしまう）。sticky も配置済み要素なので
+     ::before の色ドットの絶対配置の基準としてそのまま機能する */
   display: flex;
   align-items: center;
   padding-inline: 14px 8px;
