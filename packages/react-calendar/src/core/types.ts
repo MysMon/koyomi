@@ -317,6 +317,14 @@ export interface TimeGridDay {
   weekday: Weekday;
   /** この日に配置された時間指定イベント。 */
   items: readonly PositionedOccurrence[];
+  /**
+   * この日自身の 0:00 を基準に算出した主軸＋追加軸（{@link CalendarOptions.timeAxisZones}）の
+   * 時間軸配列。{@link TimeGridViewModel.timeAxes}（表示範囲の最初の日を基準にした、
+   * 週全体で共有する 1 組の値）とは異なり、こちらは日ごとに個別計算されるため、
+   * 追加軸のタイムゾーンで表示範囲の途中に DST 切替がある週でも、切替後の日のラベルが
+   * 正しいオフセットになる。`timeAxisZones` 未指定時は主軸のみの 1 要素配列。
+   */
+  timeAxes: readonly TimeAxis[];
 }
 
 /** 時間グリッドの目盛り 1 つ分。 */
@@ -325,6 +333,26 @@ export interface TimeSlot {
   minutes: number;
   /** 表示ラベル（例: `'09:00'`）。 */
   label: string;
+}
+
+/**
+ * 週/日ビュー（時間グリッド）の時間軸 1 本分。
+ *
+ * 主軸（表示タイムゾーン）、または {@link CalendarOptions.timeAxisZones} で
+ * 追加した軸（Google カレンダーのセカンダリタイムゾーン相当）を表す。
+ */
+export interface TimeAxis {
+  /**
+   * この軸のタイムゾーン。
+   * {@link TimeGridViewModel.timeAxes} の先頭要素（主軸）は表示タイムゾーンと一致する。
+   */
+  timeZone: TimeZoneId;
+  /**
+   * この軸のスロットごとのラベル情報。要素数・`minutes` は主軸の
+   * {@link TimeGridViewModel.slots} と同じ並び（対応するインデックスキー）で、
+   * `label` はこの軸のタイムゾーンにおける現地時刻ラベル。
+   */
+  slots: readonly TimeSlot[];
 }
 
 /** 週/日ビュー（時間グリッド）のビューモデル。 */
@@ -340,6 +368,18 @@ export interface TimeGridViewModel {
   allDayLaneCount: number;
   /** 時間軸の目盛り（{@link CalendarOptions.slotMinutes} 間隔）。 */
   slots: readonly TimeSlot[];
+  /**
+   * 主軸（表示タイムゾーン）と追加軸（{@link CalendarOptions.timeAxisZones}）を
+   * 合わせた時間軸の配列。先頭が主軸（`slots` と同内容）、以降は
+   * `timeAxisZones` の指定順。`timeAxisZones` 未指定時は主軸のみの 1 要素配列になる。
+   *
+   * 追加軸のラベルは表示範囲の最初の日（週全体で共有する 1 組の値）を基準に算出するため、
+   * `viewType: 'week'` かつ追加軸のタイムゾーンで表示範囲の途中に DST 切替がある場合、
+   * 切替後の日については実際のオフセットとずれる（既定の `TimeGridView` が描画する
+   * 単一の軸列に対応するための制約）。日ごとに正しいオフセットが必要な場合は
+   * {@link TimeGridDay.timeAxes}（各日自身の 0:00 を基準に個別算出）を使う。
+   */
+  timeAxes: readonly TimeAxis[];
   /** 現在時刻線の位置。表示範囲内に「今日」がない場合は `null`。 */
   nowIndicator: {
     /** 今日の列の `key`（`'YYYY-MM-DD'`）。 */
@@ -640,6 +680,13 @@ export interface CalendarOptions {
   snapMinutes?: number;
   /** 時間グリッドの目盛り間隔（分）。既定は `60`。 */
   slotMinutes?: number;
+  /**
+   * 週/日ビュー（時間グリッド）の時間軸に並べる追加のタイムゾーン
+   * （Google カレンダーのセカンダリタイムゾーン相当）。既定は `[]`（主軸のみ）。
+   * 各要素は {@link CalendarOptions.timeZone} と同様に有効な IANA タイムゾーン ID
+   * である必要があり、不正な値を含む場合は `Error` になる。
+   */
+  timeAxisZones?: readonly TimeZoneId[];
   /** 時間指定イベントの既定の長さ（分）。`end` 省略時に使用。既定は `60`。 */
   defaultEventMinutes?: number;
   /**
@@ -701,6 +748,8 @@ export interface ResolvedCalendarOptions {
   snapMinutes: number;
   /** 時間グリッドの目盛り間隔（分）。 */
   slotMinutes: number;
+  /** 週/日ビューの時間軸に並べる追加のタイムゾーン。 */
+  timeAxisZones: readonly TimeZoneId[];
   /** 時間指定イベントの既定の長さ（分）。 */
   defaultEventMinutes: number;
   /** 既定作成で使うイベントタイトル。 */

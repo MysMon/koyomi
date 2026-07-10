@@ -100,6 +100,14 @@ describe('createCalendar', () => {
     it('不正な timeZone は Error になる', () => {
       expect(() => createCalendar({ timeZone: 'Invalid/Zone' })).toThrow();
     });
+
+    it('timeAxisZones 省略時は既定で空配列になり、不正なタイムゾーンを含むと Error になる', () => {
+      const calendar = makeCalendar();
+      expect(calendar.getState().options.timeAxisZones).toEqual([]);
+      expect(() =>
+        createCalendar({ timeZone: 'Asia/Tokyo', timeAxisZones: ['Invalid/Zone'] }),
+      ).toThrow();
+    });
   });
 
   describe('購読と状態スナップショット', () => {
@@ -256,6 +264,29 @@ describe('createCalendar', () => {
       expect(calendar.getState().timeZone).toBe('America/New_York');
       expect(() => calendar.updateOptions({ timeZone: 'Invalid/Zone' })).toThrow();
     });
+
+    it('updateOptions は不正な timeAxisZones を含むパッチ全体を原子的に拒否する（他フィールドも巻き戻る）', () => {
+      const calendar = makeCalendar({ events: [MEETING] });
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+      const before = calendar.getState();
+
+      expect(() =>
+        calendar.updateOptions({
+          timeZone: 'America/New_York',
+          events: [],
+          resources: [ROOM],
+          timeAxisZones: ['Invalid/Zone'],
+        }),
+      ).toThrow();
+
+      // バリデーション失敗時は timeZone/events/resources も一切変更されず、通知もされない
+      expect(calendar.getState()).toBe(before);
+      expect(calendar.getState().timeZone).toBe('Asia/Tokyo');
+      expect(calendar.getEvents()).toEqual([MEETING]);
+      expect(calendar.getResources()).toEqual([]);
+      expect(listener).not.toHaveBeenCalled();
+    });
   });
 
   describe('イベント CRUD', () => {
@@ -392,6 +423,21 @@ describe('createCalendar', () => {
       expect(day.days).toHaveLength(1);
       calendar.setView('list');
       expect(calendar.getViewModel().type).toBe('list');
+    });
+
+    it('timeAxisZones を指定すると週/日ビューの timeAxes に追加軸が反映される', () => {
+      const calendar = makeCalendar({
+        initialView: 'week',
+        timeAxisZones: ['America/New_York'],
+      });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'timeGrid') throw new Error('unreachable');
+      expect(vm.timeAxes.map((axis) => axis.timeZone)).toEqual(['Asia/Tokyo', 'America/New_York']);
+
+      calendar.updateOptions({ timeAxisZones: [] });
+      const vmAfter = calendar.getViewModel();
+      if (vmAfter.type !== 'timeGrid') throw new Error('unreachable');
+      expect(vmAfter.timeAxes).toHaveLength(1);
     });
 
     it("setView('year') 後は年ビューのビューモデル（12 ヶ月分）を返す", () => {

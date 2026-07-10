@@ -696,6 +696,7 @@ interface ToolbarLabels {
 | `dayMaxEvents?` | `number` | `4` |
 | `snapMinutes?` | `number` | `15` |
 | `slotMinutes?` | `number` | `60` |
+| `timeAxisZones?` | `readonly TimeZoneId[]` | `[]`（週/日ビューの時間軸に並べる追加のタイムゾーン。不正な IANA タイムゾーン ID は `Error`） |
 | `defaultEventMinutes?` | `number` | `60` |
 | `defaultEventTitle?` | `string` | `'(タイトルなし)'`（既定作成時のタイトル） |
 | `listDays?` | `number` | `30` |
@@ -713,7 +714,7 @@ interface ToolbarLabels {
 
 `timelineDays` はタイムラインビューの表示日数、`unassignedLane` はリソース/タイムラインビューの未割り当てレーンの生成規則です（`'auto'` = 該当する予定があるときのみ末尾に生成、`'always'` = 常に生成。詳細は [ビュー](./views.md#年ビューなど新ビューを有効にするopt-in) を参照）。
 
-`ResolvedCalendarOptions` は既定値適用後の型で、`onEventsChange` を除くすべてのフィールドが必須になったものです（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `multiMonthCount` / `timelineDays` / `unassignedLane` / `locale` / `hiddenWeekdays` / `now`）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' | 'resource' | 'timeline'` です。
+`ResolvedCalendarOptions` は既定値適用後の型で、`onEventsChange` を除くすべてのフィールドが必須になったものです（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `timeAxisZones` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `multiMonthCount` / `timelineDays` / `unassignedLane` / `locale` / `hiddenWeekdays` / `now`）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' | 'resource' | 'timeline'` です。
 
 ### 状態とビューモデル
 
@@ -725,9 +726,10 @@ interface ToolbarLabels {
 | `MonthWeek` | `{ days: readonly MonthDay[]; segments: readonly EventSegment[]; laneCount: number }` |
 | `MonthDay` | `{ date; key; inCurrentMonth; isToday; overflowCount }` |
 | `EventSegment` | `{ occurrence; startCol; span; lane; continuesBefore; continuesAfter; hidden }`。月ビュー・終日行・複数月ビューの帯セグメント |
-| `TimeGridViewModel` | `{ type: 'timeGrid'; viewType: 'week' | 'day'; days; allDaySegments; allDayLaneCount; slots; nowIndicator }` |
-| `TimeGridDay` | `{ date; key; isToday; weekday; items: readonly PositionedOccurrence[] }` |
+| `TimeGridViewModel` | `{ type: 'timeGrid'; viewType: 'week' | 'day'; days; allDaySegments; allDayLaneCount; slots; timeAxes: readonly TimeAxis[]; nowIndicator }` |
+| `TimeGridDay` | `{ date; key; isToday; weekday; items: readonly PositionedOccurrence[]; timeAxes: readonly TimeAxis[] }`。`timeAxes` はこの日自身の 0:00 基準（`TimeGridViewModel.timeAxes` は週全体で共有する表示範囲最初の日基準。両者の違いは [タイムゾーン: 複数 TZ 軸](./timezones.md#複数タイムゾーン軸secondary-time-zone)を参照） |
 | `TimeSlot` | `{ minutes: number; label: string }` |
+| `TimeAxis` | `{ timeZone: TimeZoneId; slots: readonly TimeSlot[] }`。時間グリッドの時間軸 1 本分。`timeAxes` は先頭が主軸（表示 TZ、`slots` と同内容）、以降が `timeAxisZones` の指定順の追加軸（[タイムゾーン: 複数 TZ 軸](./timezones.md#複数タイムゾーン軸secondary-time-zone)を参照） |
 | `PositionedOccurrence` | `{ occurrence; startMinutes; endMinutes; left; width; continuesBefore; continuesAfter }`。時間グリッドに配置されたオカレンス（割合・分単位） |
 | `ListViewModel` | `{ type: 'list'; days: readonly ListDay[]; isEmpty: boolean }` |
 | `ListDay` | `{ date; key; isToday; occurrences: readonly EventOccurrence[] }` |

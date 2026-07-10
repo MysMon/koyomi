@@ -139,6 +139,71 @@ calendar.setTimeZone('America/New_York');
 console.log(firstDayKey()); // => '2026-07-10'
 ```
 
+## 複数タイムゾーン軸（secondary time zone）
+
+週/日ビュー（時間グリッド）の時間軸に、表示タイムゾーン以外のタイムゾーンを軸として並べられます（Google カレンダーのセカンダリタイムゾーン相当）。`CalendarOptions.timeAxisZones` に IANA タイムゾーン ID の配列を渡します（検証は `timeZone` と同じ `isValidTimeZone` の流儀で、不正な値を含むと `Error` になります）。
+
+```tsx
+import { createCalendar } from '@koyomi-cal/react';
+
+const calendar = createCalendar({
+  timeZone: 'Asia/Tokyo',
+  initialView: 'week',
+  timeAxisZones: ['America/New_York'],
+});
+
+const vm = calendar.getViewModel();
+if (vm.type === 'timeGrid') {
+  console.log(vm.timeAxes.map((axis) => axis.timeZone));
+  // => ['Asia/Tokyo', 'America/New_York']（先頭が主軸、以降が指定順の追加軸）
+}
+```
+
+各追加軸のラベル（`TimeAxis.slots`）は固定オフセットの加算ではなく、実際のタイムゾーン変換で算出されます。具体的には、表示範囲の最初の日を基準に `addMinutesInZone` で主軸の現地時刻を維持した絶対時刻を求め、それを追加軸のタイムゾーンの現地時刻へ変換します。そのため、基準日が追加軸側の DST 切替日であれば、切替前後でラベルのオフセットも正しく変わります。
+
+```tsx
+import { createCalendar } from '@koyomi-cal/react';
+
+// America/New_York は 2026-03-08 の 2:00 → 3:00 に夏時間へ切り替わる
+const calendar = createCalendar({
+  timeZone: 'America/New_York',
+  initialView: 'day',
+  initialDate: new Date('2026-03-08T05:00:00Z'), // NY 0:00（切替前、EST=UTC-5）
+  timeAxisZones: ['UTC'],
+});
+
+const vm = calendar.getViewModel();
+if (vm.type === 'timeGrid') {
+  const utcAxis = vm.timeAxes[1];
+  console.log(utcAxis?.slots.find((slot) => slot.minutes === 60)?.label); // => '06:00'（NY 1:00、EST）
+  console.log(utcAxis?.slots.find((slot) => slot.minutes === 240)?.label); // => '08:00'（NY 4:00、EDT。
+  // 固定 -5 オフセットの加算では '09:00' になってしまうところ、切替後のオフセット -4 が正しく反映される）
+}
+```
+
+`timeAxisZones` を省略した場合は従来どおり主軸のみで、`TimeGridViewModel.timeAxes` は主軸 1 要素の配列になり `slots` の内容と一致します（既存の挙動と完全互換）。`TimeGridView` は `timeAxes` の数だけ時間軸の列を描画し、各列に `data-koyomi-timezone` 属性でどのタイムゾーンの軸かを識別できます（詳細は [ビュー: 複数タイムゾーン軸](./views.md#複数タイムゾーン軸timeaxiszones) を参照）。
+
+`TimeGridViewModel.timeAxes` は週全体で共有する 1 組の値で、表示範囲の**最初の日**を基準に算出します。そのため `viewType: 'week'` で追加軸のタイムゾーンが表示範囲の途中に DST 切替を挟む週では、切替後の日については実際のオフセットとずれます（既定の `TimeGridView` が単一の軸列しか描画しないための制約）。日ごとに正しいオフセットが必要な場合は、各日の `TimeGridDay.timeAxes`（その日自身の 0:00 を基準に個別算出）を使います。
+
+```tsx
+// Asia/Tokyo 主軸・America/New_York 追加軸、NY が 2026-03-08 に夏時間へ切り替わる週
+const calendar = createCalendar({
+  timeZone: 'Asia/Tokyo',
+  initialView: 'week',
+  initialDate: new Date('2026-03-08T00:00:00+09:00'), // 週開始日（日曜）
+  timeAxisZones: ['America/New_York'],
+});
+
+const vm = calendar.getViewModel();
+if (vm.type === 'timeGrid') {
+  const sunday = vm.days.find((day) => day.key === '2026-03-08');
+  const monday = vm.days.find((day) => day.key === '2026-03-09');
+  // 東京 9:00 は日曜（切替前、EST=UTC-5）では NY 19:00、月曜（切替後、EDT=UTC-4）では NY 20:00
+  console.log(sunday?.timeAxes[1]?.slots.find((slot) => slot.minutes === 540)?.label); // => '19:00'
+  console.log(monday?.timeAxes[1]?.slots.find((slot) => slot.minutes === 540)?.label); // => '20:00'
+}
+```
+
 ## now オプション（テスト・デモでの時刻固定）
 
 `CalendarOptions.now` は現在時刻を返す関数で、「今日」の判定（`isToday`）や時間グリッドの現在時刻線（`nowIndicator`）、`CalendarApi.today()` の移動先に使われます。省略時は `() => new Date()` です。テストやデモで日時を固定したい場合に指定します。

@@ -100,6 +100,7 @@ export type {
   ResolvedCalendarOptions,
   ResourceColumn,
   ResourceViewModel,
+  TimeAxis,
   TimeGridDay,
   TimeGridViewModel,
   TimelineDay,

@@ -47,6 +47,7 @@ const DEFAULT_OPTIONS: Omit<ResolvedCalendarOptions, 'now'> = {
   dayMaxEvents: 4,
   snapMinutes: 15,
   slotMinutes: 60,
+  timeAxisZones: [],
   defaultEventMinutes: 60,
   defaultEventTitle: '(タイトルなし)',
   listDays: 30,
@@ -91,11 +92,15 @@ function resolveOptions(
   base?: ResolvedCalendarOptions,
 ): ResolvedCalendarOptions {
   const current = base ?? { ...DEFAULT_OPTIONS, now: () => new Date() };
+  if (options?.timeAxisZones !== undefined) {
+    assertTimeAxisZones(options.timeAxisZones);
+  }
   return {
     weekStartsOn: options?.weekStartsOn ?? current.weekStartsOn,
     dayMaxEvents: normalizePositiveInt(options?.dayMaxEvents ?? current.dayMaxEvents, 1),
     snapMinutes: normalizePositiveInt(options?.snapMinutes ?? current.snapMinutes, 1),
     slotMinutes: normalizePositiveInt(options?.slotMinutes ?? current.slotMinutes, 1),
+    timeAxisZones: options?.timeAxisZones ?? current.timeAxisZones,
     defaultEventMinutes: normalizePositiveInt(
       options?.defaultEventMinutes ?? current.defaultEventMinutes,
       1,
@@ -124,6 +129,8 @@ function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOpt
     a.dayMaxEvents === b.dayMaxEvents &&
     a.snapMinutes === b.snapMinutes &&
     a.slotMinutes === b.slotMinutes &&
+    a.timeAxisZones.length === b.timeAxisZones.length &&
+    a.timeAxisZones.every((zone, index) => zone === b.timeAxisZones[index]) &&
     a.defaultEventMinutes === b.defaultEventMinutes &&
     a.defaultEventTitle === b.defaultEventTitle &&
     a.listDays === b.listDays &&
@@ -141,6 +148,13 @@ function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOpt
 function assertTimeZone(timeZone: TimeZoneId): void {
   if (!isValidTimeZone(timeZone)) {
     throw new Error(`不正なタイムゾーンです: '${timeZone}'`);
+  }
+}
+
+/** 追加の時間軸タイムゾーン一覧を検証し、不正な要素があれば例外を投げる。 */
+function assertTimeAxisZones(timeAxisZones: readonly TimeZoneId[]): void {
+  for (const zone of timeAxisZones) {
+    assertTimeZone(zone);
   }
 }
 
@@ -287,6 +301,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           occurrences,
           weekStartsOn: resolvedOptions.weekStartsOn,
           slotMinutes: resolvedOptions.slotMinutes,
+          timeAxisZones: resolvedOptions.timeAxisZones,
           hiddenWeekdays: resolvedOptions.hiddenWeekdays,
           now,
         });
@@ -416,9 +431,15 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
     },
 
     updateOptions(patch: Partial<Omit<CalendarOptions, 'initialView' | 'initialDate'>>): void {
-      let changed = false;
+      // 更新の原子性を保つため、いずれかのフィールドをミューテートする前に
+      // すべてのバリデーションを完了させる（resolveOptions は timeAxisZones を検証する）。
       if (patch.timeZone !== undefined && patch.timeZone !== timeZone) {
         assertTimeZone(patch.timeZone);
+      }
+      const nextResolved = resolveOptions(patch, resolvedOptions);
+
+      let changed = false;
+      if (patch.timeZone !== undefined && patch.timeZone !== timeZone) {
         timeZone = patch.timeZone;
         changed = true;
       }
@@ -434,7 +455,6 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
         // コールバックの差し替えは state スナップショットに影響しないため通知しない
         onEventsChange = patch.onEventsChange;
       }
-      const nextResolved = resolveOptions(patch, resolvedOptions);
       if (!resolvedOptionsEqual(nextResolved, resolvedOptions)) {
         resolvedOptions = nextResolved;
         changed = true;

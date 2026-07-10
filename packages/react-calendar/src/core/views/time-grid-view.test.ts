@@ -509,6 +509,102 @@ describe('buildTimeGridViewModel', () => {
     });
   });
 
+  describe('timeAxes（複数タイムゾーン軸）', () => {
+    it('timeAxisZones 未指定時は主軸のみの 1 要素配列になり、内容は slots と同一', () => {
+      const model = build({ slotMinutes: 60 });
+      expect(model.timeAxes).toHaveLength(1);
+      expect(model.timeAxes[0]?.timeZone).toBe(TOKYO);
+      expect(model.timeAxes[0]?.slots).toEqual(model.slots);
+    });
+
+    it('追加軸は timeZone と各スロットの現地時刻ラベルを持つ', () => {
+      // 表示 TZ は東京（JST=UTC+9）、追加軸は NY（この期間は EDT=UTC-4）。
+      // 東京 9:00（週最初の日の 0:00 から 540 分）は NY では前日 20:00
+      const model = build({
+        slotMinutes: 60,
+        timeAxisZones: [NEW_YORK],
+      });
+      expect(model.timeAxes).toHaveLength(2);
+      expect(model.timeAxes[0]?.timeZone).toBe(TOKYO);
+      expect(model.timeAxes[1]?.timeZone).toBe(NEW_YORK);
+      const nyAxisSlot9 = model.timeAxes[1]?.slots.find((slot) => slot.minutes === 540);
+      expect(nyAxisSlot9).toEqual({ minutes: 540, label: '20:00' });
+    });
+
+    it('複数の追加軸を指定順に並べられる', () => {
+      const model = build({
+        slotMinutes: 60,
+        timeAxisZones: [NEW_YORK, UTC],
+      });
+      expect(model.timeAxes.map((axis) => axis.timeZone)).toEqual([TOKYO, NEW_YORK, UTC]);
+    });
+
+    it('週ビューでは各日が自身の日付を基準にした timeAxes を持ち、週の途中の DST 切替後も正しいラベルになる', () => {
+      // 表示 TZ は東京、追加軸は NY。週は 2026-03-08（日）始まり＝ NY が
+      // 2:00→3:00（EST→EDT）へ切り替わる日を含む。東京 9:00 = 該当日 0:00 UTC なので、
+      // 日曜（切替前）は EST(-5) で NY 19:00（前日）、月曜以降（切替後）は EDT(-4) で NY 20:00（前日）になる。
+      // 週レベルで共有される rangeStart 基準の計算だとどちらも切替前の 19:00 のままになってしまう
+      // （回帰対象のバグ）。
+      const model = build({
+        currentDate: at('2026-03-08T00:00', TOKYO),
+        timeZone: TOKYO,
+        slotMinutes: 60,
+        timeAxisZones: [NEW_YORK],
+      });
+      const sunday = dayByKey(model, '2026-03-08');
+      const monday = dayByKey(model, '2026-03-09');
+      expect(sunday.timeAxes).toHaveLength(2);
+      expect(sunday.timeAxes[1]?.timeZone).toBe(NEW_YORK);
+      expect(sunday.timeAxes[1]?.slots.find((slot) => slot.minutes === 540)).toEqual({
+        minutes: 540,
+        label: '19:00',
+      });
+      expect(monday.timeAxes[1]?.slots.find((slot) => slot.minutes === 540)).toEqual({
+        minutes: 540,
+        label: '20:00',
+      });
+    });
+
+    it('timeAxisZones 未指定時は各日の timeAxes も主軸のみの 1 要素配列になる', () => {
+      const model = build({ slotMinutes: 60 });
+      for (const day of model.days) {
+        expect(day.timeAxes).toHaveLength(1);
+        expect(day.timeAxes[0]?.timeZone).toBe(TOKYO);
+      }
+    });
+
+    it('追加軸のラベルは実際のタイムゾーン変換で決まる（固定オフセットではない、DST 切替日で検証）', () => {
+      // America/New_York の 2026-03-08 は 2:00→3:00 に進む日（day ビューの基準日）。
+      // 主軸を NY、追加軸を UTC にすると、UTC 側のオフセットが切替前後で
+      // -5 時間 → -4 時間に変わることがラベルにそのまま現れる
+      // （固定オフセットの加算では 09:00 になってしまうところ、正しくは 08:00）
+      const model = build({
+        viewType: 'day',
+        timeZone: NEW_YORK,
+        currentDate: at('2026-03-08T00:00', NEW_YORK),
+        slotMinutes: 60,
+        timeAxisZones: [UTC],
+      });
+      const utcAxis = model.timeAxes[1];
+      expect(utcAxis?.timeZone).toBe(UTC);
+      // 0:00 NY（切替前、EST=UTC-5）→ 05:00 UTC
+      expect(utcAxis?.slots.find((slot) => slot.minutes === 0)).toEqual({
+        minutes: 0,
+        label: '05:00',
+      });
+      // 1:00 NY（切替前、EST=UTC-5）→ 06:00 UTC
+      expect(utcAxis?.slots.find((slot) => slot.minutes === 60)).toEqual({
+        minutes: 60,
+        label: '06:00',
+      });
+      // 4:00 NY（切替後、EDT=UTC-4）→ 08:00 UTC（固定 -5 オフセットなら 09:00 になってしまう）
+      expect(utcAxis?.slots.find((slot) => slot.minutes === 240)).toEqual({
+        minutes: 240,
+        label: '08:00',
+      });
+    });
+  });
+
   describe('nowIndicator（現在時刻線）', () => {
     it('now が表示範囲内なら該当日のキーと分を返す', () => {
       const model = build({ now: at('2026-07-01T10:30', TOKYO) });

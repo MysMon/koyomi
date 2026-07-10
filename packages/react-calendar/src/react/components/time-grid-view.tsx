@@ -15,6 +15,7 @@ import type {
   EventOccurrence,
   EventSegment,
   PositionedOccurrence,
+  TimeAxis,
   TimeGridDay,
   TimeSlot,
   TimeZoneId,
@@ -384,7 +385,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
     return null;
   }
 
-  const { days, allDaySegments, allDayLaneCount, slots, nowIndicator } = viewModel;
+  const { days, allDaySegments, allDayLaneCount, slots, timeAxes, nowIndicator } = viewModel;
   const { timeZone, options } = state;
   const { locale } = options;
   const columnCount = days.length;
@@ -396,7 +397,14 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
   return (
     <div data-koyomi="timegrid" data-koyomi-days={String(columnCount)}>
       <div data-koyomi="timegrid-header">
-        <div data-koyomi="timegrid-axis-gutter" />
+        {timeAxes.map((axis, index) => (
+          <div
+            // biome-ignore lint/suspicious/noArrayIndexKey: timeAxes は options 由来の固定順の配列（並べ替わらない）
+            key={`${index}-${axis.timeZone}`}
+            data-koyomi="timegrid-axis-gutter"
+            data-koyomi-timezone={axis.timeZone}
+          />
+        ))}
         {days.map((day) => {
           const defaultDayHeaderContent = (
             <>
@@ -428,7 +436,14 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
       </div>
 
       <div data-koyomi="allday-row">
-        <div data-koyomi="timegrid-axis-gutter" />
+        {timeAxes.map((axis, index) => (
+          <div
+            // biome-ignore lint/suspicious/noArrayIndexKey: 上記ヘッダー行の gutter と同じ理由（固定順の配列）
+            key={`${index}-${axis.timeZone}`}
+            data-koyomi="timegrid-axis-gutter"
+            data-koyomi-timezone={axis.timeZone}
+          />
+        ))}
         <div
           data-koyomi="allday-cells"
           style={{ minHeight: `calc(${allDayLaneCount} * var(--koyomi-lane-height, 24px))` }}
@@ -463,13 +478,10 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
       </div>
 
       <div data-koyomi="timegrid-body">
-        <div data-koyomi="time-axis">
-          {slots.map((slot) => (
-            <div key={slot.minutes} data-koyomi="time-slot-label">
-              {slot.label}
-            </div>
-          ))}
-        </div>
+        {timeAxes.map((axis, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 上記ヘッダー行の gutter と同じ理由（固定順の配列）
+          <TimeAxisColumn key={`${index}-${axis.timeZone}`} axis={axis} />
+        ))}
         <div data-koyomi="timegrid-days">
           {days.map((day) => (
             <TimeGridDayColumn
@@ -488,6 +500,23 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * 時間軸の列 1 本分（主軸または {@link CalendarOptions.timeAxisZones} の追加軸）。
+ * `data-koyomi-timezone` でどのタイムゾーンの軸かを識別できる。
+ */
+function TimeAxisColumn(props: { axis: TimeAxis }): ReactElement {
+  const { axis } = props;
+  return (
+    <div data-koyomi="time-axis" data-koyomi-timezone={axis.timeZone}>
+      {axis.slots.map((slot) => (
+        <div key={slot.minutes} data-koyomi="time-slot-label">
+          {slot.label}
+        </div>
+      ))}
     </div>
   );
 }

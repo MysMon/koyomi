@@ -13,6 +13,7 @@ import type { TimeGridItemInput } from '../layout/time-grid-layout';
 import { layoutTimeGridItems } from '../layout/time-grid-layout';
 import {
   addDaysInZone,
+  addMinutesInZone,
   dateKeyInZone,
   formatSlotLabel,
   isSameDayInZone,
@@ -24,6 +25,7 @@ import type {
   EventOccurrence,
   EventSegment,
   PositionedOccurrence,
+  TimeAxis,
   TimeGridDay,
   TimeGridViewModel,
   TimeSlot,
@@ -341,6 +343,50 @@ export function buildSlots(slotMinutes: number): TimeSlot[] {
 }
 
 /**
+ * 主軸（表示タイムゾーン）＋追加軸（{@link CalendarOptions.timeAxisZones}）の
+ * 時間軸配列を構築する（Google カレンダーのセカンダリタイムゾーン相当）。
+ *
+ * 追加軸の各スロットのラベルは、表示範囲の最初の日の 0:00（`rangeStart`）を基準に
+ * `addMinutesInZone(rangeStart, slot.minutes, timeZone)` で主軸の現地時刻を維持した
+ * 絶対時刻を算出し、それを追加軸のタイムゾーンの現地時刻へ変換して求める。
+ * 固定オフセットの加算ではなく実際のタイムゾーン変換で算出するため、`rangeStart` が
+ * 追加軸側の DST 切替日であれば、切替前後でラベルのオフセットも正しく変わる。
+ *
+ * @param params.rangeStart - 表示範囲の最初の日の 0:00（主軸のタイムゾーンにおける絶対時刻）
+ * @param params.timeZone - 表示タイムゾーン（主軸）
+ * @param params.slots - 主軸の目盛り（{@link buildSlots} の結果）
+ * @param params.timeAxisZones - 追加軸のタイムゾーン一覧。省略時は `[]`
+ * @returns 主軸を先頭とする時間軸配列（`timeAxisZones` 未指定時は主軸のみの 1 要素配列）
+ */
+export function buildTimeAxes(params: {
+  rangeStart: Date;
+  timeZone: TimeZoneId;
+  slots: readonly TimeSlot[];
+  timeAxisZones: readonly TimeZoneId[];
+}): readonly TimeAxis[] {
+  const { rangeStart, timeZone, slots, timeAxisZones } = params;
+
+  const primaryAxis: TimeAxis = {
+    timeZone,
+    // 主軸は slots と同内容（参照ではなく内容のコピー。呼び出し側の slots と
+    // 独立させても実害はないが、TimeAxis.slots の型はここでも TimeSlot なので
+    // そのまま流用できる）
+    slots: slots.map((slot) => ({ minutes: slot.minutes, label: slot.label })),
+  };
+
+  const extraAxes: TimeAxis[] = timeAxisZones.map((zone) => ({
+    timeZone: zone,
+    slots: slots.map((slot) => {
+      const instant = addMinutesInZone(rangeStart, slot.minutes, timeZone);
+      const zonedMinutes = minutesOfDayInZone(instant, zone);
+      return { minutes: slot.minutes, label: formatSlotLabel(zonedMinutes) };
+    }),
+  }));
+
+  return [primaryAxis, ...extraAxes];
+}
+
+/**
  * 昇順ソート済み配列 `sorted` に対し、`sorted[i] > value` を満たす最小の添字 `i` を返す。
  * すべて `value` 以下なら配列長を返す（二分探索、O(log n)）。
  *
@@ -396,6 +442,7 @@ function lowerBoundGreaterThan(sorted: readonly number[], value: number): number
  * @param params.slotMinutes - 時間軸の目盛り間隔（分）
  * @param params.now - 現在時刻（`isToday` 判定と現在時刻線に使用）
  * @param params.hiddenWeekdays - 非表示にする曜日（`'week'` のときのみ有効）。省略時は `[]`
+ * @param params.timeAxisZones - 時間軸に並べる追加のタイムゾーン（{@link buildTimeAxes} 参照）。省略時は `[]`
  */
 export function buildTimeGridViewModel(params: {
   currentDate: Date;
@@ -406,6 +453,7 @@ export function buildTimeGridViewModel(params: {
   slotMinutes: number;
   now: Date;
   hiddenWeekdays?: readonly Weekday[];
+  timeAxisZones?: readonly TimeZoneId[];
 }): TimeGridViewModel {
   const {
     currentDate,
@@ -416,6 +464,7 @@ export function buildTimeGridViewModel(params: {
     slotMinutes,
     now,
     hiddenWeekdays = [],
+    timeAxisZones = [],
   } = params;
 
   // 表示範囲: week は週開始日から 7 日、day は基準日の 1 日
@@ -513,6 +562,9 @@ export function buildTimeGridViewModel(params: {
     }
   }
 
+  // days（timeAxes を含む）より前に計算する必要がある
+  const slots = buildSlots(slotMinutes);
+
   const days: TimeGridDay[] = visibleDayIndices.map((index) => {
     const dayStart = dayStarts[index];
     if (dayStart === undefined) {
@@ -531,6 +583,10 @@ export function buildTimeGridViewModel(params: {
         dayEnd: dayEnds[index] ?? rangeEnd,
         timeZone,
       }),
+      // 週で共有する model.timeAxes（rangeStart 基準）とは異なり、この日自身の 0:00 を
+      // 基準に算出する。追加軸のタイムゾーンで週の途中に DST 切替があっても、
+      // 切替後の日は正しいオフセットになる（TimeGridDay.timeAxes の TSDoc を参照）
+      timeAxes: buildTimeAxes({ rangeStart: dayStart, timeZone, slots, timeAxisZones }),
     };
   });
 
@@ -548,7 +604,8 @@ export function buildTimeGridViewModel(params: {
     days,
     allDaySegments,
     allDayLaneCount,
-    slots: buildSlots(slotMinutes),
+    slots,
+    timeAxes: buildTimeAxes({ rangeStart, timeZone, slots, timeAxisZones }),
     nowIndicator,
   };
 }
