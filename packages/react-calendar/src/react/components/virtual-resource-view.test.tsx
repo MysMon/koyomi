@@ -118,6 +118,24 @@ describe('VirtualResourceView', () => {
     expect(bodyColumns.length).toBe(headerCells.length);
   });
 
+  it('終日イベントの aria-label は通常の ResourceView と同じ形式（イベント名＋日付＋リソース名）になる', () => {
+    // 回帰テスト: 仮想化版だけ aria-label がリソース名のみになっていた
+    // （スクリーンリーダーにイベント内容が読み上げられない）バグの再発防止
+    const events: CalendarEvent[] = [
+      {
+        id: 'e0',
+        title: '休暇',
+        start: '2026-07-15',
+        end: '2026-07-16',
+        allDay: true,
+        resourceId: 'r0',
+      },
+    ];
+    const { container } = render(<Harness resources={makeResources(2)} events={events} />);
+    const alldayEvent = container.querySelector('[data-koyomi="allday-event"]');
+    expect(alldayEvent).toHaveAttribute('aria-label', '休暇、7月15日、リソース0');
+  });
+
   it('大量リソース時、境界幅を与えると可視範囲のみ描画される', async () => {
     const { container } = render(<Harness resources={makeResources(200)} />);
     await setViewport(container, 200, 0);

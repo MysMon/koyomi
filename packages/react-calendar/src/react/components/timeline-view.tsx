@@ -21,24 +21,27 @@
  * 完全な `aria-label`（日時 + リソース名）とする（判断根拠の詳細は `docs/accessibility.md` 参照）。
  */
 
-import type { CSSProperties, ReactElement, ReactNode, Ref } from 'react';
-import { memo, useRef, useState } from 'react';
-import type { CalendarResource, TimelineItem, TimelineRow, TimeZoneId } from '../../core/types';
+import type { ReactElement, ReactNode } from 'react';
+import { memo } from 'react';
+import type { TimelineItem, TimelineRow, TimeZoneId } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
-import type { TimelineDragHandlers, TimelinePreviewSegment } from '../use-timeline-drag';
+import type { TimelinePreviewSegment } from '../use-timeline-drag';
 import { useTimelineDrag } from '../use-timeline-drag';
 import { formatDayHeader } from './format';
 import { formatEventAriaLabel, withEventColorStyle } from './month-view-parts';
-
-/** 未割り当て行の既定ラベル。 */
-const DEFAULT_UNASSIGNED_LABEL = '未割り当て';
-
-/** 空状態の既定メッセージ。 */
-const DEFAULT_EMPTY_LABEL = 'リソースがありません';
-
-/** ヘッダー行の角セル（行見出し列の列見出し）の既定 `aria-label`。 */
-const DEFAULT_CORNER_LABEL = 'リソース';
+import type { TimelineRowDragHandlers } from './timeline-view-parts';
+import {
+  DEFAULT_CORNER_LABEL,
+  DEFAULT_EMPTY_LABEL,
+  DEFAULT_UNASSIGNED_LABEL,
+  MINUTES_PER_DAY,
+  samePreviewSegment,
+  sameTimelineRow,
+  toDivRef,
+  useStableTimelineDrag,
+  withLaneCountStyle,
+} from './timeline-view-parts';
 
 /** 開発ビルドで目盛り数の警告を出す閾値。 */
 const SLOT_COUNT_WARNING_THRESHOLD = 1000;
@@ -69,138 +72,8 @@ export interface TimelineViewProps {
   cornerLabel?: string;
 }
 
-/**
- * `Ref<HTMLElement>` を `<div>` にそのまま渡せるコールバック ref に変換する
- * （`month-view-parts.tsx` の同名ヘルパと同じ橋渡し）。
- */
-function toDivRef(ref: Ref<HTMLElement>): (element: HTMLDivElement | null) => void {
-  return (element) => {
-    if (typeof ref === 'function') {
-      ref(element);
-      return;
-    }
-    if (ref !== null) {
-      ref.current = element;
-    }
-  };
-}
-
-/**
- * レーン数を CSS 変数 `--koyomi-timeline-lanes` として style に加える。
- * 行の高さ計算のフック（テーマ CSS が参照する数値）で、位置決めの数値のみを
- * inline に出す既存規約の範囲内。
- */
-function withLaneCountStyle(laneCount: number): CSSProperties {
-  // 'as' 使用理由: CSS カスタムプロパティ（--koyomi-timeline-lanes）は CSSProperties の
-  // 型定義に含まれないため、ここでのみ許容されたキャストを行う（CLAUDE.md 参照）。
-  return { '--koyomi-timeline-lanes': String(Math.max(1, laneCount)) } as CSSProperties;
-}
-
 /** 目盛り数の警告を出したかどうか（モジュールで一度だけ）。 */
 let warnedSlotCount = false;
-
-/**
- * `TimelineRowGroup` が実際に必要とするドラッグハンドラだけを抜き出した型。
- * `previewFor` はここに含めない（{@link TimelineView} 側で解決済みの値を `preview` prop
- * として渡すため）。
- */
-interface TimelineRowDragHandlers {
-  getRowProps: TimelineDragHandlers['getRowProps'];
-  getItemProps: TimelineDragHandlers['getItemProps'];
-  getResizeHandleProps: TimelineDragHandlers['getResizeHandleProps'];
-}
-
-/**
- * `useTimelineDrag` の戻り値は毎レンダー新しいオブジェクト（関数含む）になるため、
- * そのまま `memo` 化した子コンポーネントの props に渡すと再レンダー抑制が効かない。
- * ここで参照が変わらないラッパーを 1 度だけ作り、呼び出し時に ref 経由で常に最新の
- * ハンドラへ委譲することで、props の同一性を保ったまま最新の挙動を保証する
- * （`time-grid-view.tsx` の `useStableColumnDrag` と同じ設計）。
- */
-function useStableTimelineDrag(drag: TimelineDragHandlers): TimelineRowDragHandlers {
-  const dragRef = useRef(drag);
-  dragRef.current = drag;
-  const [stable] = useState<TimelineRowDragHandlers>(() => ({
-    getRowProps: (row) => dragRef.current.getRowProps(row),
-    getItemProps: (item) => dragRef.current.getItemProps(item),
-    getResizeHandleProps: (item, edge) => dragRef.current.getResizeHandleProps(item, edge),
-  }));
-  return stable;
-}
-
-/** `CalendarResource | null` の、表示に影響する内容が等しいかどうかを比較する。 */
-function sameResource(a: CalendarResource | null, b: CalendarResource | null): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a === null || b === null) {
-    return false;
-  }
-  return a.id === b.id && a.title === b.title && a.color === b.color;
-}
-
-/** `TimelineItem` 1 件分の、表示に影響する内容が等しいかどうかを比較する。 */
-function sameTimelineItem(a: TimelineItem, b: TimelineItem): boolean {
-  if (a === b) {
-    return true;
-  }
-  return (
-    a.occurrence.key === b.occurrence.key &&
-    a.occurrence.event.title === b.occurrence.event.title &&
-    a.occurrence.event.color === b.occurrence.event.color &&
-    a.occurrence.event.resourceId === b.occurrence.event.resourceId &&
-    a.occurrence.event.editable === b.occurrence.event.editable &&
-    a.occurrence.allDay === b.occurrence.allDay &&
-    a.occurrence.start.getTime() === b.occurrence.start.getTime() &&
-    a.occurrence.end.getTime() === b.occurrence.end.getTime() &&
-    a.startMinutes === b.startMinutes &&
-    a.endMinutes === b.endMinutes &&
-    a.lane === b.lane &&
-    a.continuesBefore === b.continuesBefore &&
-    a.continuesAfter === b.continuesAfter
-  );
-}
-
-/** `TimelineItem` 配列の内容が等しいかどうかを比較する。 */
-function sameTimelineItems(a: readonly TimelineItem[], b: readonly TimelineItem[]): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a.length !== b.length) {
-    return false;
-  }
-  return a.every((item, index) => {
-    const other = b[index];
-    return other !== undefined && sameTimelineItem(item, other);
-  });
-}
-
-/** `TimelineRow` の、{@link TimelineRowGroup} の表示に影響する内容が等しいかどうかを比較する。 */
-function sameTimelineRow(a: TimelineRow, b: TimelineRow): boolean {
-  if (a === b) {
-    return true;
-  }
-  return (
-    a.key === b.key &&
-    sameResource(a.resource, b.resource) &&
-    a.laneCount === b.laneCount &&
-    sameTimelineItems(a.items, b.items)
-  );
-}
-
-/** `TimelinePreviewSegment` の内容が等しいかどうかを比較する。 */
-function samePreviewSegment(
-  a: TimelinePreviewSegment | null,
-  b: TimelinePreviewSegment | null,
-): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a === null || b === null) {
-    return false;
-  }
-  return a.kind === b.kind && a.startMinutes === b.startMinutes && a.endMinutes === b.endMinutes;
-}
 
 /**
  * タイムラインビュー（`TimelineView`）を描画する。
@@ -325,9 +198,6 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
     </div>
   );
 }
-
-/** 1 日の分（24:00 = 1440 分）。 */
-const MINUTES_PER_DAY = 1440;
 
 /** `TimelineRowGroupImpl` の props。 */
 interface TimelineRowGroupProps {

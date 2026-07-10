@@ -34,24 +34,27 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { CalendarResource, TimelineItem, TimelineRow, TimeZoneId } from '../../core/types';
+import type { TimelineItem, TimelineRow, TimeZoneId } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
 import { useIsomorphicLayoutEffect } from '../use-isomorphic-layout-effect';
-import type { TimelineDragHandlers, TimelinePreviewSegment } from '../use-timeline-drag';
+import type { TimelinePreviewSegment } from '../use-timeline-drag';
 import { useTimelineDrag } from '../use-timeline-drag';
 import { useVirtualizer } from '../use-virtualizer';
 import { formatDayHeader } from './format';
 import { formatEventAriaLabel, withEventColorStyle } from './month-view-parts';
-
-/** 未割り当て行の既定ラベル。 */
-const DEFAULT_UNASSIGNED_LABEL = '未割り当て';
-
-/** 空状態の既定メッセージ。 */
-const DEFAULT_EMPTY_LABEL = 'リソースがありません';
-
-/** ヘッダー行の角セル（行見出し列の列見出し）の既定 `aria-label`。 */
-const DEFAULT_CORNER_LABEL = 'リソース';
+import type { TimelineRowDragHandlers } from './timeline-view-parts';
+import {
+  DEFAULT_CORNER_LABEL,
+  DEFAULT_EMPTY_LABEL,
+  DEFAULT_UNASSIGNED_LABEL,
+  MINUTES_PER_DAY,
+  samePreviewSegment,
+  sameTimelineRow,
+  toDivRef,
+  useStableTimelineDrag,
+  withLaneCountStyle,
+} from './timeline-view-parts';
 
 /** `estimateRowHeight` 省略時の 1 レーンあたりの推定高（px、既定テーマの `--koyomi-timeline-lane-height` と同じ値）。 */
 const DEFAULT_LANE_HEIGHT = 28;
@@ -96,128 +99,6 @@ export interface VirtualTimelineViewHandle {
     options?: { align?: 'auto' | 'start' | 'center' },
   ): void;
 }
-
-/**
- * `Ref<HTMLElement>` を `<div>` にそのまま渡せるコールバック ref に変換する
- * （`month-view-parts.tsx` の同名ヘルパと同じ橋渡し）。
- */
-function toDivRef(ref: Ref<HTMLElement>): (element: HTMLDivElement | null) => void {
-  return (element) => {
-    if (typeof ref === 'function') {
-      ref(element);
-      return;
-    }
-    if (ref !== null) {
-      ref.current = element;
-    }
-  };
-}
-
-/** レーン数を CSS 変数 `--koyomi-timeline-lanes` として style に加える（`timeline-view.tsx` と同じ）。 */
-function withLaneCountStyle(laneCount: number): CSSProperties {
-  // 'as' 使用理由: CSS カスタムプロパティは CSSProperties の型定義に含まれないため
-  // ここでのみ許容されたキャストを行う（CLAUDE.md 参照。timeline-view.tsx と同じ方針）。
-  return { '--koyomi-timeline-lanes': String(Math.max(1, laneCount)) } as CSSProperties;
-}
-
-/**
- * `useTimelineDrag` の戻り値（毎レンダー新しい参照）を、参照が変わらないラッパー経由で
- * 子コンポーネントの memo 化に渡すためのフック（`timeline-view.tsx` の
- * `useStableTimelineDrag` と同じ設計）。
- */
-interface TimelineRowDragHandlers {
-  getRowProps: TimelineDragHandlers['getRowProps'];
-  getItemProps: TimelineDragHandlers['getItemProps'];
-  getResizeHandleProps: TimelineDragHandlers['getResizeHandleProps'];
-}
-
-function useStableTimelineDrag(drag: TimelineDragHandlers): TimelineRowDragHandlers {
-  const dragRef = useRef(drag);
-  dragRef.current = drag;
-  const [stable] = useState<TimelineRowDragHandlers>(() => ({
-    getRowProps: (row) => dragRef.current.getRowProps(row),
-    getItemProps: (item) => dragRef.current.getItemProps(item),
-    getResizeHandleProps: (item, edge) => dragRef.current.getResizeHandleProps(item, edge),
-  }));
-  return stable;
-}
-
-/** `CalendarResource | null` の、表示に影響する内容が等しいかどうかを比較する。 */
-function sameResource(a: CalendarResource | null, b: CalendarResource | null): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a === null || b === null) {
-    return false;
-  }
-  return a.id === b.id && a.title === b.title && a.color === b.color;
-}
-
-/** `TimelineItem` 1 件分の、表示に影響する内容が等しいかどうかを比較する。 */
-function sameTimelineItem(a: TimelineItem, b: TimelineItem): boolean {
-  if (a === b) {
-    return true;
-  }
-  return (
-    a.occurrence.key === b.occurrence.key &&
-    a.occurrence.event.title === b.occurrence.event.title &&
-    a.occurrence.event.color === b.occurrence.event.color &&
-    a.occurrence.event.resourceId === b.occurrence.event.resourceId &&
-    a.occurrence.event.editable === b.occurrence.event.editable &&
-    a.occurrence.allDay === b.occurrence.allDay &&
-    a.occurrence.start.getTime() === b.occurrence.start.getTime() &&
-    a.occurrence.end.getTime() === b.occurrence.end.getTime() &&
-    a.startMinutes === b.startMinutes &&
-    a.endMinutes === b.endMinutes &&
-    a.lane === b.lane &&
-    a.continuesBefore === b.continuesBefore &&
-    a.continuesAfter === b.continuesAfter
-  );
-}
-
-/** `TimelineItem` 配列の内容が等しいかどうかを比較する。 */
-function sameTimelineItems(a: readonly TimelineItem[], b: readonly TimelineItem[]): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a.length !== b.length) {
-    return false;
-  }
-  return a.every((item, index) => {
-    const other = b[index];
-    return other !== undefined && sameTimelineItem(item, other);
-  });
-}
-
-/** `TimelineRow` の、{@link TimelineRowGroup} の表示に影響する内容が等しいかどうかを比較する。 */
-function sameTimelineRow(a: TimelineRow, b: TimelineRow): boolean {
-  if (a === b) {
-    return true;
-  }
-  return (
-    a.key === b.key &&
-    sameResource(a.resource, b.resource) &&
-    a.laneCount === b.laneCount &&
-    sameTimelineItems(a.items, b.items)
-  );
-}
-
-/** `TimelinePreviewSegment` の内容が等しいかどうかを比較する。 */
-function samePreviewSegment(
-  a: TimelinePreviewSegment | null,
-  b: TimelinePreviewSegment | null,
-): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a === null || b === null) {
-    return false;
-  }
-  return a.kind === b.kind && a.startMinutes === b.startMinutes && a.endMinutes === b.endMinutes;
-}
-
-/** 1 日の分（24:00 = 1440 分）。 */
-const MINUTES_PER_DAY = 1440;
 
 /** `TimelineRowGroupImpl` の props。 */
 interface TimelineRowGroupProps {

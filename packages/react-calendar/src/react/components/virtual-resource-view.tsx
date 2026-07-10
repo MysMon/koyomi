@@ -23,13 +23,7 @@
  * `viewportPadding` にその実測幅を渡して差し引く（詳細は `useVirtualizer` の TSDoc参照）。
  */
 
-import type {
-  CSSProperties,
-  ReactElement,
-  FocusEvent as ReactFocusEvent,
-  ReactNode,
-  Ref,
-} from 'react';
+import type { CSSProperties, ReactElement, FocusEvent as ReactFocusEvent, ReactNode } from 'react';
 import {
   forwardRef,
   memo,
@@ -41,7 +35,6 @@ import {
   useState,
 } from 'react';
 import type {
-  CalendarResource,
   EventOccurrence,
   PositionedOccurrence,
   ResourceColumn,
@@ -53,16 +46,20 @@ import { useIsomorphicLayoutEffect } from '../use-isomorphic-layout-effect';
 import type { ResourceGridDragHandlers, ResourcePreviewSegment } from '../use-resource-grid-drag';
 import { useResourceGridDrag } from '../use-resource-grid-drag';
 import { useVirtualizer } from '../use-virtualizer';
-import { formatEventAriaLabel, formatTimeLabel, withEventColorStyle } from './month-view-parts';
-
-/** 1 日の分（24:00 = 1440 分）。 */
-const MINUTES_PER_DAY = 1440;
-
-/** 未割り当てレーンの既定ラベル。 */
-const DEFAULT_UNASSIGNED_LABEL = '未割り当て';
-
-/** 空状態の既定メッセージ。 */
-const DEFAULT_EMPTY_LABEL = 'リソースがありません';
+import { withEventColorStyle } from './month-view-parts';
+import {
+  ariaLabelText,
+  ariaLabelWithResource,
+  DEFAULT_EMPTY_LABEL,
+  DEFAULT_UNASSIGNED_LABEL,
+  defaultTimedContent,
+  MINUTES_PER_DAY,
+  sameEventOccurrence,
+  samePositionedOccurrences,
+  samePreviewSegment,
+  sameResource,
+  toDivRef,
+} from './resource-view-parts';
 
 /** `columnWidth` 省略時の列幅（px、既定テーマの `--koyomi-resource-column-width` と同じ値）。 */
 const DEFAULT_COLUMN_WIDTH = 160;
@@ -103,49 +100,13 @@ export interface VirtualResourceViewHandle {
 }
 
 /**
- * `Ref<HTMLElement>` を `<div>` にそのまま渡せるコールバック ref に変換する
- * （`month-view-parts.tsx` の同名ヘルパと同じ橋渡し）。
+ * `resource-view.tsx` の `ResourceColumnDragHandlers` / `useStableResourceDrag` と
+ * 同じ設計の安定ラッパーだが、こちらは終日セル（`AllDayCell`）を独立した `memo`
+ * コンポーネントに分けているため、その props として渡す `getAllDayCellProps` を
+ * 追加で含む（`ResourceView` は終日セルを分離しておらず `drag` から直接呼ぶため、
+ * このフィールドを持たない）。この差は DOM 構造上の理由による意図的なものなので、
+ * `resource-view-parts.tsx` へは統合していない。
  */
-function toDivRef(ref: Ref<HTMLElement>): (element: HTMLDivElement | null) => void {
-  return (element) => {
-    if (typeof ref === 'function') {
-      ref(element);
-      return;
-    }
-    if (ref !== null) {
-      ref.current = element;
-    }
-  };
-}
-
-/**
- * `ReactNode` のラベルを `aria-label` 属性用の文字列に変換する（`resource-view.tsx` と同じ方針）。
- */
-function ariaLabelText(label: ReactNode, fallback: string): string {
-  return typeof label === 'string' ? label : fallback;
-}
-
-/** イベントの aria-label にリソース名を付け足す（`resource-view.tsx` と同じ）。 */
-function ariaLabelWithResource(
-  occurrence: EventOccurrence,
-  resourceTitle: string | undefined,
-  timeZone: TimeZoneId,
-  locale: string,
-): string {
-  const base = formatEventAriaLabel(occurrence, timeZone, locale);
-  return resourceTitle === undefined ? base : `${base}、${resourceTitle}`;
-}
-
-/** 時間指定イベントの既定の表示内容（開始時刻 + タイトル）。 */
-function defaultTimedContent(
-  item: PositionedOccurrence,
-  timeZone: TimeZoneId,
-  locale: string,
-): ReactNode {
-  return `${formatTimeLabel(item.occurrence.start, timeZone, locale)} ${item.occurrence.event.title}`;
-}
-
-/** `resource-view.tsx` の `useStableResourceDrag` と同じ設計の安定ラッパー。 */
 interface ResourceColumnDragHandlers {
   getColumnProps: ResourceGridDragHandlers['getColumnProps'];
   getEventProps: ResourceGridDragHandlers['getEventProps'];
@@ -167,57 +128,11 @@ function useStableResourceDrag(drag: ResourceGridDragHandlers): ResourceColumnDr
   return stable;
 }
 
-/** `CalendarResource | null` の、表示に影響する内容が等しいかどうかを比較する。 */
-function sameResource(a: CalendarResource | null, b: CalendarResource | null): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a === null || b === null) {
-    return false;
-  }
-  return a.id === b.id && a.title === b.title && a.color === b.color;
-}
-
-/** `PositionedOccurrence` 1 件分の、表示に影響する内容が等しいかどうかを比較する。 */
-function samePositionedOccurrence(a: PositionedOccurrence, b: PositionedOccurrence): boolean {
-  if (a === b) {
-    return true;
-  }
-  return (
-    a.occurrence.key === b.occurrence.key &&
-    a.occurrence.event.title === b.occurrence.event.title &&
-    a.occurrence.event.color === b.occurrence.event.color &&
-    a.occurrence.event.resourceId === b.occurrence.event.resourceId &&
-    a.occurrence.event.editable === b.occurrence.event.editable &&
-    a.occurrence.start.getTime() === b.occurrence.start.getTime() &&
-    a.occurrence.end.getTime() === b.occurrence.end.getTime() &&
-    a.startMinutes === b.startMinutes &&
-    a.endMinutes === b.endMinutes &&
-    a.left === b.left &&
-    a.width === b.width &&
-    a.continuesBefore === b.continuesBefore &&
-    a.continuesAfter === b.continuesAfter
-  );
-}
-
-/** `PositionedOccurrence` 配列の内容が等しいかどうかを比較する。 */
-function samePositionedOccurrences(
-  a: readonly PositionedOccurrence[],
-  b: readonly PositionedOccurrence[],
-): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a.length !== b.length) {
-    return false;
-  }
-  return a.every((item, index) => {
-    const other = b[index];
-    return other !== undefined && samePositionedOccurrence(item, other);
-  });
-}
-
-/** `EventOccurrence` 配列の内容が等しいかどうかを比較する（終日アイテム用）。 */
+/**
+ * `EventOccurrence` 配列の内容が等しいかどうかを比較する（終日アイテム用）。
+ * 終日セルを `memo` コンポーネント（`AllDayCell`）に分離している仮想化版だけが必要とする
+ * 比較関数（`ResourceView` は終日セルを分離していないため配列単位の比較を持たない）。
+ */
 function sameEventOccurrences(
   a: readonly EventOccurrence[],
   b: readonly EventOccurrence[],
@@ -232,36 +147,6 @@ function sameEventOccurrences(
     const other = b[index];
     return other !== undefined && sameEventOccurrence(item, other);
   });
-}
-
-/** `EventOccurrence` 1 件分の、表示に影響する内容が等しいかどうかを比較する（終日アイテム用）。 */
-function sameEventOccurrence(a: EventOccurrence, b: EventOccurrence): boolean {
-  if (a === b) {
-    return true;
-  }
-  return (
-    a.key === b.key &&
-    a.event.title === b.event.title &&
-    a.event.color === b.event.color &&
-    a.event.resourceId === b.event.resourceId &&
-    a.event.editable === b.event.editable &&
-    a.start.getTime() === b.start.getTime() &&
-    a.end.getTime() === b.end.getTime()
-  );
-}
-
-/** `ResourcePreviewSegment` の内容が等しいかどうかを比較する。 */
-function samePreviewSegment(
-  a: ResourcePreviewSegment | null,
-  b: ResourcePreviewSegment | null,
-): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a === null || b === null) {
-    return false;
-  }
-  return a.kind === b.kind && a.startMinutes === b.startMinutes && a.endMinutes === b.endMinutes;
 }
 
 /** 仮想化: 列の絶対配置スタイル（通常フローは `undefined`、pinned 列は `left` 指定）。 */
@@ -338,6 +223,10 @@ interface AllDayCellProps {
   drag: ResourceColumnDragHandlers;
   isDragging: boolean;
   isPreviewTarget: boolean;
+  /** 表示タイムゾーン（終日アイテムの aria-label 生成に使う）。 */
+  timeZone: TimeZoneId;
+  /** 書式ロケール（終日アイテムの aria-label 生成に使う）。 */
+  locale: string;
   pinned?: boolean;
   left?: number;
   /** 仮想化: 終日アイテムをタブ順に含めるか。既定 `true`（`false` で `tabIndex=-1`）。 */
@@ -353,6 +242,8 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
     drag,
     isDragging,
     isPreviewTarget,
+    timeZone,
+    locale,
     pinned,
     left,
     itemTabbable,
@@ -391,6 +282,8 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
           lane={lane}
           drag={drag}
           isDragging={isDragging}
+          timeZone={timeZone}
+          locale={locale}
           {...(itemTabbable === false ? { tabbable: false } : {})}
         />
       ))}
@@ -408,6 +301,8 @@ const AllDayCell = memo(AllDayCellImpl, (prev, next) => {
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&
     prev.isPreviewTarget === next.isPreviewTarget &&
+    prev.timeZone === next.timeZone &&
+    prev.locale === next.locale &&
     prev.pinned === next.pinned &&
     prev.left === next.left &&
     prev.itemTabbable === next.itemTabbable
@@ -421,13 +316,17 @@ interface AllDayItemButtonProps {
   lane: number;
   drag: ResourceColumnDragHandlers;
   isDragging: boolean;
+  /** 表示タイムゾーン（aria-label 生成に使う）。 */
+  timeZone: TimeZoneId;
+  /** 書式ロケール（aria-label 生成に使う）。 */
+  locale: string;
   /** 仮想化: タブ順に含めるか。既定 `true`（`false` で `tabIndex=-1`。pinned 列で使う）。 */
   tabbable?: boolean;
 }
 
 /** リソースビューの終日アイテム 1 件分のボタン（列間移動のみ）。 */
 function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
-  const { occurrence, column, lane, drag, tabbable } = props;
+  const { occurrence, column, lane, drag, timeZone, locale, tabbable } = props;
   const style = withEventColorStyle(
     {
       top: `calc(${lane} * var(--koyomi-lane-height, 24px))`,
@@ -442,7 +341,7 @@ function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
       {...drag.getAllDayItemProps(occurrence)}
       data-koyomi="allday-event"
       style={style}
-      aria-label={column.resource?.title ?? occurrence.event.title}
+      aria-label={ariaLabelWithResource(occurrence, column.resource?.title, timeZone, locale)}
       {...(tabbable === false ? { tabIndex: -1 } : {})}
     >
       {occurrence.event.title}
@@ -457,6 +356,8 @@ const AllDayItemButton = memo(AllDayItemButtonImpl, (prev, next) => {
     prev.lane === next.lane &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&
+    prev.timeZone === next.timeZone &&
+    prev.locale === next.locale &&
     prev.tabbable === next.tabbable
   );
 });
@@ -856,6 +757,8 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
                     drag={stableDrag}
                     isDragging={drag.isDragging}
                     isPreviewTarget={drag.isAllDayPreviewTarget(column)}
+                    timeZone={timeZone}
+                    locale={locale}
                   />
                 ) : null;
               })}
@@ -876,6 +779,8 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
                     drag={stableDrag}
                     isDragging={drag.isDragging}
                     isPreviewTarget={drag.isAllDayPreviewTarget(column)}
+                    timeZone={timeZone}
+                    locale={locale}
                     pinned
                     left={item.start}
                     itemTabbable={false}
