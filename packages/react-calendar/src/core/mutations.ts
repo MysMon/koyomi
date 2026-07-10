@@ -56,7 +56,11 @@ export interface MutationContext {
  * 繰り返しイベントの操作対象を指定する。
  */
 export interface RecurringTarget {
-  /** 対象オカレンスの開始時刻（オーバーライド済みの場合は現在の開始時刻）。 */
+  /**
+   * 対象オカレンスの本来の開始時刻。オーバーライド済みの場合は
+   * `originalStart`（移動・変更される前の位置）を指定する。現在の開始時刻
+   * （オーバーライドで移動済みの位置）ではない点に注意。
+   */
   occurrenceStart: Date;
   /** 適用範囲。 */
   scope: RecurringEditScope;
@@ -242,7 +246,16 @@ function appendExdate(event: CalendarEvent, occurrenceStart: Date): CalendarEven
 
 /**
  * 指定オカレンスに対応する既存のオーバーライドを探す。
- * `originalStart`（本来の開始）と現在の開始のどちらの一致でも対応付ける。
+ *
+ * `originalStart` を持つイベントは `originalStart` の一致でのみ判定し、
+ * 一致しなければ（現在の `start` が偶然 `occurrenceStart` と一致していても）
+ * そのイベントは対象外とする。現在の `start` へのフォールバックは、
+ * `originalStart` を持たないイベントに限る（`originalStart` がパース不能な
+ * 値の場合はフォールバックせず `parseDateValue` の例外がそのまま伝播する）。
+ *
+ * この区別がないと、あるオーバーライドが移動した先の時刻が別のオカレンスの
+ * 本来の開始時刻と偶然一致した場合に、無関係なオーバーライドを誤って
+ * 対応付けてしまう（配列の並び順に依存したバグになる）。
  */
 function findOverrideFor(
   events: readonly CalendarEvent[],
@@ -256,8 +269,8 @@ function findOverrideFor(
       return false;
     }
     const original = parseOriginalStart(event, context, master);
-    if (original !== null && original.getTime() === time) {
-      return true;
+    if (original !== null) {
+      return original.getTime() === time;
     }
     return parseStart(event, context, master).getTime() === time;
   });
@@ -674,12 +687,16 @@ export function deleteEventIn(
  * 繰り返しイベントの場合はスコープに従う。
  *
  * - `newEnd` 指定時はリサイズとして `end` に `newEnd` を使う
- * - `allDay` 指定時は `allDay` フラグもパッチに含める（時間 ⇔ 終日の変換）
+ * - `allDay` 指定時は `allDay` フラグもパッチに含める（時間 ⇔ 終日の変換）。
+ *   `newEnd` を省略しつつ `allDay` が変換前の値から変化する場合、変換前の長さ
+ *   （ミリ秒）はそのまま引き継がない。終日化はちょうど 1 日、時間指定化は
+ *   `defaultEventMinutes` を既定の長さとして使う
  * - 繰り返しイベント（オーバーライド含む）で `scope` 未指定の場合は例外を投げる
  *
  * @param events - 現在のイベント一覧
  * @param id - 対象イベントの ID
- * @param params.occurrenceStart - 対象オカレンスの現在の開始時刻
+ * @param params.occurrenceStart - 対象オカレンスの本来の開始時刻（オーバーライド済みの
+ *   場合は `originalStart`。現在の開始時刻ではない）
  * @param params.newStart - 移動先の開始時刻
  * @param params.newEnd - 移動先の終了時刻（リサイズ時に指定。省略時は長さ維持）
  * @param params.allDay - 移動先が終日枠かどうか（時間⇔終日の変換に使用。省略時は変更しない）
@@ -704,21 +721,31 @@ export function moveOccurrenceIn(
   if (isRecurring && params.scope === undefined) {
     throw new Error(`繰り返しイベントの移動には scope の指定が必要です: '${id}'`);
   }
-  // マスターの ID + 現在の開始時刻で「オーバーライド済みのオカレンス」を移動する場合は、
-  // マスターの既定の長さではなく、そのオーバーライド固有の長さを維持する
+  // マスターの ID + 本来の開始時刻（originalStart）で「オーバーライド済みのオカレンス」を
+  // 移動する場合は、マスターの既定の長さではなく、そのオーバーライド固有の長さを維持する
   const override =
     event.rrule !== undefined
       ? findOverrideFor(events, event, params.occurrenceStart, context)
       : undefined;
+  // 対象オカレンスの変換前の allDay フラグ（オーバーライド済みならオーバーライド自身の値）
+  const currentAllDay = (override ?? event).allDay ?? false;
+  const allDayChanges = params.allDay !== undefined && params.allDay !== currentAllDay;
   const end =
-    params.newEnd === undefined
-      ? new Date(
-          params.newStart.getTime() +
-            (override !== undefined
-              ? occurrenceDurationMs(override, context, event)
-              : occurrenceDurationMs(event, context)),
-        )
-      : new Date(params.newEnd.getTime());
+    params.newEnd !== undefined
+      ? new Date(params.newEnd.getTime())
+      : allDayChanges
+        ? // allDay が変化する変換で newEnd 省略時は、変換前の実ミリ秒差をそのまま
+          // 引き継がず、終日化はちょうど 1 日・時間指定化は defaultEventMinutes を使う
+          new Date(
+            params.newStart.getTime() +
+              (params.allDay === true ? DAY_MS : context.defaultEventMinutes * MINUTE_MS),
+          )
+        : new Date(
+            params.newStart.getTime() +
+              (override !== undefined
+                ? occurrenceDurationMs(override, context, event)
+                : occurrenceDurationMs(event, context)),
+          );
   const patch: CalendarEventPatch = { start: new Date(params.newStart.getTime()), end };
   if (params.allDay !== undefined) {
     patch.allDay = params.allDay;

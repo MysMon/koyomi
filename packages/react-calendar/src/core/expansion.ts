@@ -188,6 +188,12 @@ function resolveRdateInstants(event: CalendarEvent, interpretTimeZone: TimeZoneI
 /**
  * オーバーライドイベント自身をオカレンスとして展開する（範囲に重なる場合のみ）。
  * `originalStart` には置換した元オカレンスの開始時刻（変換済み）を渡す。
+ *
+ * オーバーライド自身の `start` / `end` の解釈に用いるタイムゾーンは、この関数内で
+ * originalStart を解釈する際（expandEvents 側）と同じ
+ * `event.timeZone ?? masterTimeZone ?? displayTimeZone` の 3 段フォールバックに揃える。
+ * こうしないと、オーバーライドが `timeZone` を省略した場合に表示 TZ で誤解釈され、
+ * マスターと異なる現地時刻として扱われてしまう。
  */
 function expandOverrideEvent(params: {
   event: CalendarEvent;
@@ -195,9 +201,12 @@ function expandOverrideEvent(params: {
   range: DateRange;
   displayTimeZone: TimeZoneId;
   defaultEventMinutes: number;
+  /** マスターイベントの timeZone（分かる場合のみ渡す。マスターの timeZone へのフォールバックに使う）。 */
+  masterTimeZone: TimeZoneId | undefined;
 }): EventOccurrence[] {
-  const { event, originalStart, range, displayTimeZone, defaultEventMinutes } = params;
-  const timeZone = event.timeZone ?? displayTimeZone;
+  const { event, originalStart, range, displayTimeZone, defaultEventMinutes, masterTimeZone } =
+    params;
+  const timeZone = event.timeZone ?? masterTimeZone ?? displayTimeZone;
   if (event.allDay === true) {
     const span = resolveAllDaySpan(event, timeZone);
     const projected = projectAllDaySpan(span.startKey, span.dayCount, displayTimeZone);
@@ -553,6 +562,9 @@ export function expandEvents(params: {
   const overriddenKeysByMaster = new Map<EventId, Set<string>>();
   // オーバーライドイベント ID → 変換済みの元オカレンスの開始時刻（オカレンスの originalStart になる値）
   const resolvedOriginalStarts = new Map<EventId, Date>();
+  // オーバーライドイベント ID → マスターの timeZone（オーバーライド自身の start/end 解釈の
+  // フォールバックに使う。expandOverrideEvent に渡す）
+  const masterTimeZoneByOverride = new Map<EventId, TimeZoneId | undefined>();
 
   for (const event of events) {
     const masterId = event.recurringEventId;
@@ -565,6 +577,7 @@ export function expandEvents(params: {
       // 参照先のないオーバーライド: 防御的に単発イベントとして扱う（通常ルートで処理）
       continue;
     }
+    masterTimeZoneByOverride.set(event.id, master.timeZone);
     // originalStart はマスターのオカレンスを指すため、オーバーライド TZ →
     // マスター TZ → 表示 TZ の順でフォールバックして現地時刻を解釈する
     const interpretTimeZone = event.timeZone ?? master.timeZone ?? displayTimeZone;
@@ -604,6 +617,7 @@ export function expandEvents(params: {
           range,
           displayTimeZone,
           defaultEventMinutes,
+          masterTimeZone: masterTimeZoneByOverride.get(event.id),
         }),
       );
       continue;
@@ -640,10 +654,19 @@ export function expandEvents(params: {
  *   `originalStart` には元オカレンスの開始時刻を設定する。オーバーライドされた
  *   元オカレンスの時刻（移動済みで存在しないオカレンス）には `null` を返す
  *
+ * `event.timeZone` 省略時の解釈に用いるタイムゾーンは `params.master` を渡せば
+ * `event.timeZone ?? master.timeZone ?? displayTimeZone` の 3 段フォールバックになり、
+ * expandEvents / expandOverrideEvent と同じ解釈になる（省略時は
+ * `event.timeZone ?? displayTimeZone` の 2 段のみ。マスターの `timeZone` へは
+ * 継承されない点に注意）。
+ *
  * @param params.event - 対象イベント
  * @param params.occurrenceStart - オカレンスの開始時刻
  * @param params.displayTimeZone - 表示タイムゾーン
  * @param params.defaultEventMinutes - `end` 省略時の既定の長さ（分）
+ * @param params.master - `event` がオーバーライドの場合の親（マスター）イベント。
+ *   渡せる場合は指定すると `event.timeZone` 省略時の解釈がマスターの
+ *   `timeZone` にフォールバックする（expandEvents と同じ解釈を保証するため）
  * @returns オカレンス。該当するオカレンスが存在しない場合は `null`
  */
 export function resolveOccurrence(params: {
@@ -651,9 +674,10 @@ export function resolveOccurrence(params: {
   occurrenceStart: Date;
   displayTimeZone: TimeZoneId;
   defaultEventMinutes: number;
+  master?: CalendarEvent;
 }): EventOccurrence | null {
-  const { event, occurrenceStart, displayTimeZone, defaultEventMinutes } = params;
-  const timeZone = event.timeZone ?? displayTimeZone;
+  const { event, occurrenceStart, displayTimeZone, defaultEventMinutes, master } = params;
+  const timeZone = event.timeZone ?? master?.timeZone ?? displayTimeZone;
   const targetTime = occurrenceStart.getTime();
 
   // オーバーライドイベント: 現在の start に一致した場合のみオカレンスとする

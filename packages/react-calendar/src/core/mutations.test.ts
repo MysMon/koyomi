@@ -529,6 +529,62 @@ describe("updateEventIn: scope 'this'（オーバーライド作成）", () => {
   });
 });
 
+describe('findOverrideFor: originalStart を持つオーバーライドは originalStart のみで判定する', () => {
+  // 再現ケース: override-a は 7/1 のオカレンス（originalStart=7/1）を未変更のまま残し、
+  // override-b は本来 7/3 のオカレンス（originalStart=7/3）だったものを 7/1 へ移動済み。
+  // 現在の start が override-b（7/1）と偶然一致しても、originalStart が不一致な override-b は
+  // 対象外とし、originalStart が一致する override-a のみが「7/1 のオカレンスのオーバーライド」
+  // として扱われるべき。配列順は override-b が先（Array.find が先に検査する）。
+  function makeOverrideA(): CalendarEvent {
+    return {
+      id: 'override-a',
+      title: '7/1 のオーバーライド（未変更）',
+      start: new Date('2026-07-01T00:00:00Z'),
+      end: new Date('2026-07-01T01:00:00Z'),
+      recurringEventId: 'master-1',
+      originalStart: new Date('2026-07-01T00:00:00Z'),
+    };
+  }
+  function makeOverrideB(): CalendarEvent {
+    return {
+      id: 'override-b',
+      title: '7/3 のオーバーライド（7/1 へ移動済み）',
+      start: new Date('2026-07-01T00:00:00Z'), // 現在位置が override-a と偶然一致
+      end: new Date('2026-07-01T01:00:00Z'),
+      recurringEventId: 'master-1',
+      originalStart: new Date('2026-07-03T00:00:00Z'),
+    };
+  }
+
+  it('updateEventIn: 7/1 の originalStart に一致する override-a のみが更新され、override-b は変更されない', () => {
+    const events = [makeMaster(), makeOverrideB(), makeOverrideA()]; // override-b が先
+    const result = updateEventIn(
+      events,
+      'master-1',
+      { title: '再変更' },
+      { occurrenceStart: new Date('2026-07-01T00:00:00Z'), scope: 'this' },
+      makeContext(),
+    );
+    expect(result).toHaveLength(3); // 新しいオーバーライドは作られない
+    expect(findById(result, 'override-a').title).toBe('再変更');
+    expect(findById(result, 'override-b')).toEqual(makeOverrideB());
+  });
+
+  it('deleteEventIn: 7/1 の originalStart に一致する override-a のみが除去され、override-b は変更されない', () => {
+    const events = [makeMaster(), makeOverrideB(), makeOverrideA()]; // override-b が先
+    const result = deleteEventIn(
+      events,
+      'master-1',
+      { occurrenceStart: new Date('2026-07-01T00:00:00Z'), scope: 'this' },
+      makeContext(),
+    );
+    expect(result).toHaveLength(2); // override-a のみ除去される
+    expect(result.some((event) => event.id === 'override-a')).toBe(false);
+    expect(findById(result, 'override-b')).toEqual(makeOverrideB());
+    expect(findById(result, 'master-1').exdates).toEqual([new Date('2026-07-01T00:00:00Z')]);
+  });
+});
+
 describe("updateEventIn: scope 'thisAndFollowing'（シリーズ分割）", () => {
   // COUNT=10 の 4 回目（東京 7/4 9:00）で分割する
   const splitPoint = new Date('2026-07-04T00:00:00Z');
@@ -1018,12 +1074,13 @@ describe('deleteEventIn: 繰り返しイベント', () => {
     expect(result).toEqual([makeMaster({ exdates: [new Date('2026-07-03T00:00:00Z')] })]);
   });
 
-  it("マスターの ID + 現在の開始時刻でもオーバーライド済みのオカレンスを 'this' 削除できる", () => {
-    // ov-3 は 7/3 9:00 のオカレンスを 11:00 に移動済み。現在の開始時刻（11:00 = 02:00Z）で指定する
+  it("マスターの ID + 本来の開始時刻（originalStart）でオーバーライド済みのオカレンスを 'this' 削除できる", () => {
+    // ov-3 は 7/3 9:00（originalStart）のオカレンスを 11:00 に移動済み。
+    // 呼び出し規約どおり、occurrenceStart には本来の開始時刻（originalStart）を渡す
     const result = deleteEventIn(
       [makeMaster(), makeOverride()],
       'master-1',
-      { occurrenceStart: new Date('2026-07-03T02:00:00Z'), scope: 'this' },
+      { occurrenceStart: new Date('2026-07-03T00:00:00Z'), scope: 'this' },
       makeContext(),
     );
     expect(result).toEqual([makeMaster({ exdates: [new Date('2026-07-03T00:00:00Z')] })]);
@@ -1108,15 +1165,15 @@ describe('deleteEventIn: 繰り返しイベント', () => {
 });
 
 describe('moveOccurrenceIn', () => {
-  it('オーバーライド済みのオカレンスをマスター ID + 現在の開始時刻で移動すると、オーバーライド固有の長さが維持される', () => {
+  it('オーバーライド済みのオカレンスをマスター ID + 本来の開始時刻（originalStart）で移動すると、オーバーライド固有の長さが維持される', () => {
     // 7/3 のオカレンスは 11:00〜12:30 JST（90 分）に変更済み（マスターの既定は 60 分）
     const override = makeOverride({ end: new Date('2026-07-03T03:30:00Z') });
     const result = moveOccurrenceIn(
       [makeMaster(), override],
       'master-1',
       {
-        // 「対象オカレンスの現在の開始時刻」= オーバーライド後の 11:00 JST
-        occurrenceStart: new Date('2026-07-03T02:00:00Z'),
+        // 呼び出し規約どおり、occurrenceStart には本来の開始時刻（originalStart = 9:00 JST）を渡す
+        occurrenceStart: new Date('2026-07-03T00:00:00Z'),
         newStart: new Date('2026-07-03T05:00:00Z'), // 14:00 JST へ移動
         scope: 'this',
       },
@@ -1236,6 +1293,55 @@ describe('moveOccurrenceIn', () => {
       end: new Date('2026-07-01T02:00:00Z'),
       allDay: false,
     });
+  });
+
+  it('allDay: true への変換で newEnd 省略時、変換前の長さ（26 時間）を引き継がずちょうど 1 日になる', () => {
+    // 26 時間の時間指定イベント（allDay 変換前の実ミリ秒差をそのまま使うと 2 日にまたがってしまう）
+    const timed: CalendarEvent = {
+      id: 'timed-1',
+      title: '長時間イベント',
+      start: new Date('2026-07-01T00:00:00Z'),
+      end: new Date('2026-07-02T02:00:00Z'), // 26 時間後
+    };
+    const result = moveOccurrenceIn(
+      [timed],
+      'timed-1',
+      {
+        occurrenceStart: new Date('2026-07-01T00:00:00Z'),
+        newStart: new Date('2026-07-10T00:00:00Z'),
+        allDay: true,
+      },
+      makeContext(),
+    );
+    const moved = findById(result, 'timed-1');
+    expect(moved.allDay).toBe(true);
+    expect(moved.start).toEqual(new Date('2026-07-10T00:00:00Z'));
+    expect(moved.end).toEqual(new Date('2026-07-11T00:00:00Z')); // ちょうど 1 日後（26 時間ではない）
+  });
+
+  it('allDay: false への変換で newEnd 省略時、変換前の長さ（3 日間）を引き継がず defaultEventMinutes になる', () => {
+    // 3 日間の終日イベント（allDay 変換前の日数×24時間をそのまま使うと 3 日間の時間指定イベントになってしまう）
+    const allDayEvent: CalendarEvent = {
+      id: 'allday-3d',
+      title: '3 日間の終日イベント',
+      start: '2026-07-01',
+      end: '2026-07-04',
+      allDay: true,
+    };
+    const result = moveOccurrenceIn(
+      [allDayEvent],
+      'allday-3d',
+      {
+        occurrenceStart: new Date('2026-06-30T15:00:00Z'), // 東京 7/1 0:00
+        newStart: new Date('2026-07-10T01:00:00Z'),
+        allDay: false,
+      },
+      makeContext({ defaultEventMinutes: 45 }),
+    );
+    const moved = findById(result, 'allday-3d');
+    expect(moved.allDay).toBe(false);
+    expect(moved.start).toEqual(new Date('2026-07-10T01:00:00Z'));
+    expect(moved.end).toEqual(new Date('2026-07-10T01:45:00Z')); // defaultEventMinutes（45 分）。3 日間ではない
   });
 
   it("繰り返しの 'this' 移動ではオーバーライドが生まれ、マスターの長さ（1 時間）が維持される", () => {

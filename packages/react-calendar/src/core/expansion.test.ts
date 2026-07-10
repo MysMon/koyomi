@@ -555,6 +555,37 @@ describe('expandEvents', () => {
       expect(result[0]!.start).toEqual(new Date('2026-07-01T09:00:00Z'));
       expect(result[0]!.originalStart).toEqual(result[0]!.start);
     });
+
+    it('オーバーライドが timeZone を省略した場合、表示 TZ ではなくマスターの timeZone で start/end を解釈する', () => {
+      // マスターは NY 現地時刻 10:00 開始。表示 TZ は東京（マスター・オーバーライドいずれの
+      // timeZone とも異なる）。オーバーライドは timeZone を省略し、NY 14:00 のつもりで
+      // 現地時刻文字列を書く（外部データ同期でマスターの timeZone を継承し忘れたケースを想定）。
+      const master = makeEvent({
+        id: 'master-ny',
+        start: '2026-07-01T10:00:00',
+        end: '2026-07-01T11:00:00',
+        timeZone: NY,
+        rrule: 'FREQ=DAILY;COUNT=5',
+      });
+      const override = makeEvent({
+        id: 'ov-ny',
+        // timeZone を省略（NY 14:00 のつもりの現地時刻文字列）
+        start: '2026-07-03T14:00:00',
+        end: '2026-07-03T15:00:00',
+        recurringEventId: 'master-ny',
+        originalStart: '2026-07-03T10:00:00',
+      });
+      const result = expand(
+        [master, override],
+        { start: '2026-07-01T00:00:00Z', end: '2026-08-01T00:00:00Z' },
+        TOKYO,
+      );
+      const overridden = result.find((occ) => occ.eventId === 'ov-ny');
+      // NY 14:00 EDT（2026 年 7 月は DST 中で UTC-4）= 18:00Z
+      // 表示 TZ（東京）で誤解釈すると 05:00Z（13 時間ずれる）になってしまう
+      expect(overridden?.start).toEqual(new Date('2026-07-03T18:00:00.000Z'));
+      expect(overridden?.end).toEqual(new Date('2026-07-03T19:00:00.000Z'));
+    });
   });
 
   describe('終日イベント', () => {
@@ -949,6 +980,48 @@ describe('resolveOccurrence', () => {
       expect(occ?.originalStart).toEqual(new Date('2026-07-07T15:00:00Z')); // 東京 7/8 0:00
       // 元の日付（7/8）の 0:00 は移動済みなので null
       expect(resolve(allDayOverride, '2026-07-07T15:00:00Z')).toBeNull();
+    });
+
+    it('params.master を渡すと、event.timeZone 省略時にマスターの timeZone へフォールバックして解釈する', () => {
+      // マスターは NY 現地時刻 10:00 開始。オーバーライドは timeZone を省略し、
+      // NY 14:00 のつもりで現地時刻文字列を書く。
+      const master: CalendarEvent = makeEvent({
+        id: 'master-ny',
+        start: '2026-07-01T10:00:00',
+        end: '2026-07-01T11:00:00',
+        timeZone: NY,
+        rrule: 'FREQ=DAILY;COUNT=5',
+      });
+      const overrideNoTz: CalendarEvent = makeEvent({
+        id: 'ov-ny',
+        start: '2026-07-03T14:00:00', // timeZone 省略。NY 14:00 のつもり
+        end: '2026-07-03T15:00:00',
+        recurringEventId: 'master-ny',
+        originalStart: '2026-07-03T10:00:00',
+      });
+
+      // master を渡さない場合は表示 TZ（東京）2 段フォールバックで解釈され、
+      // NY 14:00（18:00Z）ちょうどには一致しない
+      expect(
+        resolveOccurrence({
+          event: overrideNoTz,
+          occurrenceStart: new Date('2026-07-03T18:00:00Z'),
+          displayTimeZone: TOKYO,
+          defaultEventMinutes: 60,
+        }),
+      ).toBeNull();
+
+      // master を渡すと 3 段フォールバックになり、NY 14:00 EDT（18:00Z）で正しく解決する
+      const resolved = resolveOccurrence({
+        event: overrideNoTz,
+        occurrenceStart: new Date('2026-07-03T18:00:00Z'),
+        displayTimeZone: TOKYO,
+        defaultEventMinutes: 60,
+        master,
+      });
+      expect(resolved).not.toBeNull();
+      expect(resolved?.start).toEqual(new Date('2026-07-03T18:00:00Z'));
+      expect(resolved?.end).toEqual(new Date('2026-07-03T19:00:00Z'));
     });
   });
 
