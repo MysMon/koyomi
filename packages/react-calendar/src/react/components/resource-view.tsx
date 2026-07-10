@@ -20,10 +20,9 @@
  * （判断根拠・既知の制限の詳細は `docs/accessibility.md` 参照）。
  */
 
-import type { ReactElement, ReactNode, Ref } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { memo, useRef, useState } from 'react';
 import type {
-  CalendarResource,
   EventOccurrence,
   PositionedOccurrence,
   ResourceColumn,
@@ -33,16 +32,20 @@ import type {
 import { useCalendarContext } from '../context';
 import type { ResourceGridDragHandlers, ResourcePreviewSegment } from '../use-resource-grid-drag';
 import { useResourceGridDrag } from '../use-resource-grid-drag';
-import { formatEventAriaLabel, formatTimeLabel, withEventColorStyle } from './month-view-parts';
-
-/** 1 日の分（24:00 = 1440 分）。 */
-const MINUTES_PER_DAY = 1440;
-
-/** 未割り当てレーンの既定ラベル。 */
-const DEFAULT_UNASSIGNED_LABEL = '未割り当て';
-
-/** 空状態の既定メッセージ。 */
-const DEFAULT_EMPTY_LABEL = 'リソースがありません';
+import { withEventColorStyle } from './month-view-parts';
+import {
+  ariaLabelText,
+  ariaLabelWithResource,
+  DEFAULT_EMPTY_LABEL,
+  DEFAULT_UNASSIGNED_LABEL,
+  defaultTimedContent,
+  MINUTES_PER_DAY,
+  sameEventOccurrence,
+  samePositionedOccurrences,
+  samePreviewSegment,
+  sameResource,
+  toDivRef,
+} from './resource-view-parts';
 
 /** `ResourceView` の props。 */
 export interface ResourceViewProps {
@@ -65,53 +68,6 @@ export interface ResourceViewProps {
 }
 
 /**
- * `Ref<HTMLElement>` を `<div>` にそのまま渡せるコールバック ref に変換する
- * （`month-view-parts.tsx` の同名ヘルパと同じ橋渡し）。
- */
-function toDivRef(ref: Ref<HTMLElement>): (element: HTMLDivElement | null) => void {
-  return (element) => {
-    if (typeof ref === 'function') {
-      ref(element);
-      return;
-    }
-    if (ref !== null) {
-      ref.current = element;
-    }
-  };
-}
-
-/**
- * `ReactNode` のラベルを `aria-label` 属性用の文字列に変換する。
- * `aria-label` は文字列しか受け付けないため、`label` が文字列でない
- * （JSX 等が渡された）場合は `fallback` を使う（`toolbar.tsx` の同名ヘルパと同じ方針）。
- */
-function ariaLabelText(label: ReactNode, fallback: string): string {
-  return typeof label === 'string' ? label : fallback;
-}
-
-/**
- * イベントの aria-label にリソース名を付け足す（例: `'会議、7月10日 10:00〜11:00、会議室A'`）。
- */
-function ariaLabelWithResource(
-  occurrence: EventOccurrence,
-  resourceTitle: string | undefined,
-  timeZone: TimeZoneId,
-  locale: string,
-): string {
-  const base = formatEventAriaLabel(occurrence, timeZone, locale);
-  return resourceTitle === undefined ? base : `${base}、${resourceTitle}`;
-}
-
-/** 時間指定イベントの既定の表示内容（開始時刻 + タイトル）。 */
-function defaultTimedContent(
-  item: PositionedOccurrence,
-  timeZone: TimeZoneId,
-  locale: string,
-): ReactNode {
-  return `${formatTimeLabel(item.occurrence.start, timeZone, locale)} ${item.occurrence.event.title}`;
-}
-
-/**
  * `ResourceColumnBody` / `AllDayItemButton` が実際に必要とするドラッグハンドラだけを
  * 抜き出した型。`previewFor` / `isAllDayPreviewTarget` はここに含めない（{@link ResourceView}
  * 側で解決済みの値を `preview` / `data-koyomi-preview-target` として渡すため）。
@@ -129,6 +85,15 @@ interface ResourceColumnDragHandlers {
  * ここで参照が変わらないラッパーを 1 度だけ作り、呼び出し時に ref 経由で常に最新の
  * ハンドラへ委譲することで、props の同一性を保ったまま最新の挙動を保証する
  * （`time-grid-view.tsx` の `useStableColumnDrag` と同じ設計）。
+ *
+ * `virtual-resource-view.tsx` にもほぼ同じ関数・型があるが、`ResourceView` は
+ * 終日セルの `getAllDayCellProps` を（`AllDayCell` を独立コンポーネント化していないため）
+ * `drag` から直接呼んでおり、`stableDrag` 経由では渡さない。そのため
+ * `ResourceColumnDragHandlers` にはこのフィールドを含めない。仮想化版は終日セルを
+ * `memo` 化した独立コンポーネント（`AllDayCell`）に分けており、その props として
+ * `getAllDayCellProps` を安定参照で渡す必要があるため 1 フィールド多い。
+ * この差は DOM 構造上の理由による意図的なものなので、`resource-view-parts.tsx` へは
+ * 統合していない。
  */
 function useStableResourceDrag(drag: ResourceGridDragHandlers): ResourceColumnDragHandlers {
   const dragRef = useRef(drag);
@@ -142,17 +107,6 @@ function useStableResourceDrag(drag: ResourceGridDragHandlers): ResourceColumnDr
   return stable;
 }
 
-/** `CalendarResource | null` の、表示に影響する内容が等しいかどうかを比較する。 */
-function sameResource(a: CalendarResource | null, b: CalendarResource | null): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a === null || b === null) {
-    return false;
-  }
-  return a.id === b.id && a.title === b.title && a.color === b.color;
-}
-
 /** `TimeSlot` 配列の内容が等しいかどうかを比較する。 */
 function sameSlots(a: readonly TimeSlot[], b: readonly TimeSlot[]): boolean {
   if (a === b) {
@@ -162,75 +116,6 @@ function sameSlots(a: readonly TimeSlot[], b: readonly TimeSlot[]): boolean {
     return false;
   }
   return a.every((slot, index) => slot.minutes === b[index]?.minutes);
-}
-
-/** `PositionedOccurrence` 1 件分の、表示に影響する内容が等しいかどうかを比較する。 */
-function samePositionedOccurrence(a: PositionedOccurrence, b: PositionedOccurrence): boolean {
-  if (a === b) {
-    return true;
-  }
-  return (
-    a.occurrence.key === b.occurrence.key &&
-    a.occurrence.event.title === b.occurrence.event.title &&
-    a.occurrence.event.color === b.occurrence.event.color &&
-    a.occurrence.event.resourceId === b.occurrence.event.resourceId &&
-    a.occurrence.event.editable === b.occurrence.event.editable &&
-    a.occurrence.start.getTime() === b.occurrence.start.getTime() &&
-    a.occurrence.end.getTime() === b.occurrence.end.getTime() &&
-    a.startMinutes === b.startMinutes &&
-    a.endMinutes === b.endMinutes &&
-    a.left === b.left &&
-    a.width === b.width &&
-    a.continuesBefore === b.continuesBefore &&
-    a.continuesAfter === b.continuesAfter
-  );
-}
-
-/** `PositionedOccurrence` 配列の内容が等しいかどうかを比較する。 */
-function samePositionedOccurrences(
-  a: readonly PositionedOccurrence[],
-  b: readonly PositionedOccurrence[],
-): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a.length !== b.length) {
-    return false;
-  }
-  return a.every((item, index) => {
-    const other = b[index];
-    return other !== undefined && samePositionedOccurrence(item, other);
-  });
-}
-
-/** `EventOccurrence` 1 件分の、表示に影響する内容が等しいかどうかを比較する（終日アイテム用）。 */
-function sameEventOccurrence(a: EventOccurrence, b: EventOccurrence): boolean {
-  if (a === b) {
-    return true;
-  }
-  return (
-    a.key === b.key &&
-    a.event.title === b.event.title &&
-    a.event.color === b.event.color &&
-    a.event.resourceId === b.event.resourceId &&
-    a.event.editable === b.event.editable &&
-    a.start.getTime() === b.start.getTime() &&
-    a.end.getTime() === b.end.getTime()
-  );
-}
-
-/** `ResourcePreviewSegment` の内容が等しいかどうかを比較する。 */
-function samePreviewSegment(
-  a: ResourcePreviewSegment | null,
-  b: ResourcePreviewSegment | null,
-): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a === null || b === null) {
-    return false;
-  }
-  return a.kind === b.kind && a.startMinutes === b.startMinutes && a.endMinutes === b.endMinutes;
 }
 
 /**
