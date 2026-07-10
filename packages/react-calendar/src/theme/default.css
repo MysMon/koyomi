@@ -35,6 +35,14 @@
  * 上記に加え、時間グリッドの時刻軸幅をヘッダー・終日行・本体で揃えるための
  * 内部変数として --koyomi-time-axis-width も定義している（必要なら上書き可）。
  *
+ * timeAxisZones（複数タイムゾーン軸）:
+ *   週/日ビューで追加のタイムゾーン軸を指定すると、[data-koyomi="time-axis"] /
+ *   [data-koyomi="timegrid-axis-gutter"] が軸の数だけ並ぶ（各 flex アイテムが
+ *   --koyomi-time-axis-width 幅を持つため、追加分は自動的に横へ積み重なる）。
+ *   各軸には data-koyomi-timezone が付き、CSS からは
+ *   [data-koyomi="time-axis"][data-koyomi-timezone="..."] で個別に、
+ *   :not(:first-of-type) で「主軸以外の追加軸すべて」を指定できる。
+ *
  * ダークモード:
  *   既定では `prefers-color-scheme: dark` に追従する。
  *   [data-koyomi-theme="dark"] / [data-koyomi-theme="light"] を koyomi の
@@ -537,6 +545,11 @@
   color: var(--koyomi-muted);
   font-size: 0.75em;
   text-align: end;
+}
+
+/* 追加軸（timeAxisZones、先頭以外の time-axis）はやや控えめな見た目にする */
+[data-koyomi="time-axis"]:not(:first-of-type) [data-koyomi="time-slot-label"] {
+  font-size: 0.68em;
 }
 
 [data-koyomi="time-slot-label"]:first-child {

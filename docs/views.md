@@ -201,7 +201,7 @@ calendar.today(); // now() が指す日（この例では 2026-07-15）に戻る
 | 型 | `type` | 主なフィールド |
 | --- | --- | --- |
 | `MonthViewModel` | `'month'` | `anchor`（表示対象月の1日）、`weeks`（`MonthWeek[]`、4〜6件）、`weekdays`（曜日の並び） |
-| `TimeGridViewModel` | `'timeGrid'` | `viewType`（`'week' \| 'day'`）、`days`（`TimeGridDay[]`）、`allDaySegments` / `allDayLaneCount`（終日行）、`slots`（時間軸の目盛り）、`nowIndicator`（現在時刻線の位置、対象日がなければ `null`） |
+| `TimeGridViewModel` | `'timeGrid'` | `viewType`（`'week' \| 'day'`）、`days`（`TimeGridDay[]`）、`allDaySegments` / `allDayLaneCount`（終日行）、`slots`（主軸の時間軸の目盛り）、`timeAxes`（主軸＋追加軸の時間軸配列、[複数タイムゾーン軸](#複数タイムゾーン軸timeaxiszones)参照）、`nowIndicator`（現在時刻線の位置、対象日がなければ `null`） |
 | `ListViewModel` | `'list'` | `days`（予定がある日だけの `ListDay[]`）、`isEmpty` |
 | `YearViewModel` | `'year'` | `anchor`（表示対象年の1月1日）、`months`（`YearMonth[]`、12件）、`weekdays`（曜日の並び） |
 | `MultiMonthViewModel` | `'multiMonth'` | `anchor`（先頭月の1日）、`months`（`MultiMonthMonth[]`、`multiMonthCount` 件）、`weekdays`（曜日の並び） |
@@ -278,6 +278,7 @@ function BareMonthGrid() {
 | `weekStartsOn` | `Weekday`（`0`〜`6`、`0` = 日曜） | `0` | 月ビューの週の並び、週ビューの開始曜日、年ビューのミニ月グリッドの週の並び、複数月ビューの各月グリッドの週の並び、ナビゲーションの起点 |
 | `dayMaxEvents` | `number` | `4` | 月ビュー・複数月ビューで 1 日に表示する予定の最大数。超過分は「+N 件」に集約される |
 | `slotMinutes` | `number` | `60` | 週/日ビュー（時間グリッド）の時間軸の目盛り間隔（分） |
+| `timeAxisZones` | `readonly TimeZoneId[]` | `[]` | 週/日ビューの時間軸に並べる追加のタイムゾーン（Google カレンダーのセカンダリタイムゾーン相当）。詳細は [複数タイムゾーン軸](#複数タイムゾーン軸timeaxiszones) を参照 |
 | `listDays` | `number` | `30` | リストビューが表示する日数。`next()`/`prev()` の移動単位にもなる |
 | `multiMonthCount` | `number` | `3` | 複数月ビューが表示する月数。`next()`/`prev()` の移動単位にもなる |
 | `hiddenWeekdays` | `readonly Weekday[]` | `[]` | 月・週・複数月ビューの列から除外する曜日（下記参照）。年・日・リソース・タイムラインビューは無視する |
@@ -395,6 +396,41 @@ function Agenda() {
 ### 独自 UI へ組み込む（useVirtualizer）
 
 `VirtualListView` はプリミティブ `useVirtualizer` の薄いラッパです。完全に独自のマークアップで仮想化したい場合は、`buildListViewModel`（[ビューモデルを直接使う](#ビューモデルを直接使う上級編)）と `useVirtualizer` を直接組み合わせられます。`useVirtualizer` はビューに依存しない汎用の縦方向ウィンドウイングを提供します（詳細は [API リファレンス](./api.md)）。
+
+## 複数タイムゾーン軸（timeAxisZones）
+
+週/日ビュー（時間グリッド）の時間軸に、表示タイムゾーン以外の時間軸を並べて表示できます（Google カレンダーのセカンダリタイムゾーン相当）。`CalendarOptions.timeAxisZones` に IANA タイムゾーン ID の配列を渡すと、その順番で追加の軸が主軸（表示タイムゾーン）の右に並びます。省略時は従来どおり主軸のみです。
+
+```tsx
+import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
+
+function App() {
+  const calendar = useCalendar({
+    initialView: 'week',
+    timeZone: 'Asia/Tokyo',
+    timeAxisZones: ['America/New_York'],
+  });
+
+  return (
+    <CalendarProvider value={calendar}>
+      <TimeGridView />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - 時間軸に「東京の時刻」列と「NY の時刻」列の 2 本が並ぶ
+// - 各軸の DOM には data-koyomi="time-axis" data-koyomi-timezone="<IANA タイムゾーン ID>" が付き、
+//   どのタイムゾーンの軸かを CSS/テストから識別できる
+// - 不正な IANA タイムゾーン ID を含めると Error になる（timeZone と同じ検証規則）
+```
+
+`buildTimeGridViewModel` の結果（`TimeGridViewModel.timeAxes`）は、先頭が主軸（`slots` と同内容）、以降が `timeAxisZones` の指定順の追加軸です。各追加軸のラベルは、表示範囲の最初の日を基準に主軸の現地時刻を維持した絶対時刻を算出し、それを追加軸のタイムゾーンへ変換して求めます。固定オフセットの加算ではなく実際のタイムゾーン変換のため、その日が追加軸側の DST 切替日であれば、切替前後でラベルのオフセットも正しく変わります。
+
+ただし `TimeGridViewModel.timeAxes` は週全体で 1 組だけ（表示範囲の最初の日基準）を共有するため、`viewType: 'week'` で追加軸のタイムゾーンが表示範囲の途中に DST 切替を挟む場合、切替後の日については実際のオフセットとずれます（`TimeGridView` が単一の軸列しか描画しないための制約）。日ごとに正しいオフセットが必要な場合は各日の `TimeGridDay.timeAxes`（その日自身の 0:00 を基準に個別算出）を使ってください。
+
+`timeAxisZones` 未指定時は `timeAxes`（`TimeGridViewModel` / 各 `TimeGridDay` とも）が主軸のみの 1 要素配列になり、既存の `slots` フィールドも含めビューモデルの出力は従来と変わりません。
 
 ## 関連ページ
 

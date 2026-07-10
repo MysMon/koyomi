@@ -87,16 +87,21 @@ div[data-koyomi="month"] (role="grid")
 
 `data-koyomi-days` は表示中の**可視列数**（週=7・日=1 が基本だが、`hiddenWeekdays` で列を隠すと 5 など可変）。
 
+`timeAxisZones`（{@link CalendarOptions.timeAxisZones}）を指定すると、`timegrid-axis-gutter` /
+`time-axis` が軸の数（主軸＋追加軸）だけ並ぶ。各軸には `data-koyomi-timezone` が付き、
+どのタイムゾーンの軸かを識別できる（未指定時はどちらも 1 個ずつで、`data-koyomi-timezone` は
+表示タイムゾーンの値になる。DOM 構造自体は変わらない）。
+
 ```
 div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"]
   div[data-koyomi="timegrid-header"]
-    div[data-koyomi="timegrid-axis-gutter"]          … 左上の空き（時間軸幅の確保）
+    div[data-koyomi="timegrid-axis-gutter"][data-koyomi-timezone] × timeAxes.length … 左上の空き（時間軸幅の確保）
     div[data-koyomi="timegrid-day-header"][data-koyomi-date][data-today?][aria-current="date"?] × days
       … 曜日＋日番号（renderDayHeader で差し替え可）。
         曜日ラベルは span[data-koyomi="timegrid-weekday"]（Intl、month-weekday/year-weekday と同じ流儀）
         日番号は button[data-koyomi="timegrid-day-number"]（aria-label=完全な日付、day ビューへ）
   div[data-koyomi="allday-row"]
-    div[data-koyomi="timegrid-axis-gutter"]
+    div[data-koyomi="timegrid-axis-gutter"][data-koyomi-timezone] × timeAxes.length
     div[data-koyomi="allday-cells"]                  … position: relative の基準
       div[data-koyomi="allday-cell"][data-koyomi-date] × days   … getDayCellProps（allDay 作成用）
       button[data-koyomi="allday-event"] × n         … getSegmentProps。style: insetInlineStart/width %、
@@ -105,8 +110,8 @@ div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"]
            … getSegmentResizeHandleProps（editable: false / continues 側には出力しない）
       div[data-koyomi="day-selection"]?              … allDay プレビュー
   div[data-koyomi="timegrid-body"]
-    div[data-koyomi="time-axis"]
-      div[data-koyomi="time-slot-label"] × slots     … 'HH:mm'
+    div[data-koyomi="time-axis"][data-koyomi-timezone] × timeAxes.length  … 先頭が主軸（表示 TZ）、以降が timeAxisZones の指定順
+      div[data-koyomi="time-slot-label"] × slots     … 'HH:mm'（この軸のタイムゾーンでの現地時刻）
     div[data-koyomi="timegrid-days"]
       div[data-koyomi="timegrid-day"][data-koyomi-date][data-today?] × days
          … useTimeGridDrag.getDayProps を展開。position: relative の基準

@@ -33,6 +33,8 @@ interface HarnessProps {
   sink?: { current: UseCalendarResult | null };
   /** `TimeGridView` へそのまま渡す追加 props（`renderEvent` / `renderDayHeader` など）。 */
   viewProps?: TimeGridViewProps;
+  /** 追加の時間軸タイムゾーン（{@link CalendarOptions.timeAxisZones}）。 */
+  timeAxisZones?: readonly string[];
 }
 
 /** `TimeGridView` を `CalendarProvider` 配下で描画するテスト用ハーネス。 */
@@ -43,6 +45,7 @@ function Harness(props: HarnessProps): ReactElement {
     initialDate: NOW,
     initialView: props.initialView,
     events: props.events ?? EMPTY_EVENTS,
+    ...(props.timeAxisZones !== undefined ? { timeAxisZones: props.timeAxisZones } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -180,6 +183,27 @@ describe('TimeGridView', () => {
 
     const dayColumn = container.querySelector('[data-koyomi="timegrid-day"]');
     expect(dayColumn?.querySelectorAll('[data-koyomi="timegrid-slot"]')).toHaveLength(24);
+  });
+
+  it('timeAxisZones 未指定時は時間軸の列が 1 つだけ描画される（互換維持）', () => {
+    const { container } = render(<Harness initialView="day" />);
+    expect(container.querySelectorAll('[data-koyomi="time-axis"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-koyomi="timegrid-axis-gutter"]')).toHaveLength(2); // header + allday-row
+  });
+
+  it('timeAxisZones を指定すると追加の時間軸列が描画され、data-koyomi-timezone で識別できる', () => {
+    const { container } = render(
+      <Harness initialView="day" timeAxisZones={['America/New_York']} />,
+    );
+    const axes = container.querySelectorAll('[data-koyomi="time-axis"]');
+    expect(axes).toHaveLength(2);
+    expect(axes[0]).toHaveAttribute('data-koyomi-timezone', TOKYO);
+    expect(axes[1]).toHaveAttribute('data-koyomi-timezone', 'America/New_York');
+    // ヘッダー・終日行のガター列も軸数ぶん描画され、幅が揃う
+    expect(container.querySelectorAll('[data-koyomi="timegrid-axis-gutter"]')).toHaveLength(4);
+
+    const nyAxisLabels = axes[1]?.querySelectorAll('[data-koyomi="time-slot-label"]');
+    expect(nyAxisLabels).toHaveLength(24);
   });
 
   it('現在時刻線が今日の列にのみ表示される', () => {
