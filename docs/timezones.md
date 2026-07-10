@@ -239,6 +239,6 @@ console.log(parseDateValue('2026-07-01T10:00', 'Asia/Tokyo', false).toISOString(
 
 - [予定の管理](./events.md)
 - [繰り返し予定](./recurrence.md)
-- [ビュー（月・週・日・リスト）](./views.md)
+- [ビュー（月・週・日・リスト・年・複数月・リソース・タイムライン）](./views.md)
 - [はじめに](./getting-started.md)
 - [API リファレンス](./api.md)

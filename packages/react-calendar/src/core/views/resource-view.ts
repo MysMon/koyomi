@@ -8,8 +8,7 @@
  * ヘルパ（{@link ./time-grid-view} の `buildDayItems` 等）に委譲する。
  *
  * オカレンス → 列の振り分けは `event.resourceId` に基づく 1 パスのバケット分けで行い、
- * 「列ごとに全オカレンスをフィルタ」する走査はしない
- * （詳細は `docs/internal/views-expansion-design.md` §6.2）。
+ * 「列ごとに全オカレンスをフィルタ」する O(列数 × 全件) の走査はしない。
  */
 
 import {

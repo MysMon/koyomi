@@ -811,6 +811,8 @@ console.log(dateKeyInZone(next, 'Asia/Tokyo')); // => '2026-07-03'
 | 関数 | 説明 |
 | --- | --- |
 | `startOfWeekInZone(date, timeZone, weekStartsOn): Date` | その週の開始日 0:00 の絶対時刻を返す |
+| `startOfMonthInZone(date, timeZone): Date` | その月の 1 日 0:00 の絶対時刻を返す |
+| `addMonthsInZone(date, amount, timeZone): Date` | 指定タイムゾーンの現地時刻を維持したまま月数を加算する（加算後に存在しない日は月末にクランプ。複数月ビューのナビゲーションに使用） |
 | `startOfYearInZone(date, timeZone): Date` | その年の 1 月 1 日 0:00 の絶対時刻を返す |
 | `monthGridRange(anchor, timeZone, weekStartsOn): DateRange` | 月ビューのグリッド範囲（前後月の日付を含む、4〜6 週）を返す |
 | `eachDayInRange(range, timeZone): Date[]` | 範囲内の各日の開始時刻（0:00）を列挙する |
@@ -868,7 +870,7 @@ Google カレンダーの編集・削除操作（繰り返しの「この予定�
 | `createEventIn(events, input, context): CreateEventResult` | イベントを追加する。`id` 省略時は `context.generateId()` で採番する |
 | `updateEventIn(events, id, patch, target, context): CalendarEvent[]` | イベントを更新する（繰り返しはスコープに従う） |
 | `deleteEventIn(events, id, target, context): CalendarEvent[]` | イベントを削除する（繰り返しはスコープに従う） |
-| `moveOccurrenceIn(events, id, params, context): CalendarEvent[]` | オカレンスの移動（ドラッグ＆ドロップ）を `updateEventIn` 経由で適用する便利関数 |
+| `moveOccurrenceIn(events, id, params, context): CalendarEvent[]` | オカレンスの移動（ドラッグ＆ドロップ）を `updateEventIn` 経由で適用する便利関数。長さは既定で元のオカレンスの長さを維持するが、`newEnd` を省略しつつ `allDay` が変換前の値から変化する場合（時間指定 ⇔ 終日の変換）は、変換前の長さ（ミリ秒）をそのまま引き継がず、終日化はちょうど 1 日・時間指定化は `defaultEventMinutes` を既定の長さとして使う |
 | `MutationContext`（型） | `{ displayTimeZone: TimeZoneId; defaultEventMinutes: number; generateId: () => EventId }` |
 | `RecurringTarget`（型） | `{ occurrenceStart: Date; scope: RecurringEditScope }` |
 | `CreateEventResult`（型） | `{ events: CalendarEvent[]; created: CalendarEvent }` |
@@ -902,7 +904,7 @@ console.log(result.events.length); // => 1
 | --- | --- |
 | `expandEvents(params): EventOccurrence[]` | イベント集合を指定範囲に展開し、オカレンス一覧を開始時刻順で返す |
 | `occurrenceKey(eventId, start): string` | オカレンスの一意キー（`` `${eventId}@${startのISO文字列}` ``）を組み立てる |
-| `resolveOccurrence(params): EventOccurrence | null` | 単一イベントの、指定したオカレンスの開始時刻におけるオカレンスを解決する |
+| `resolveOccurrence(params): EventOccurrence | null` | 単一イベントの、指定したオカレンスの開始時刻におけるオカレンスを解決する。任意の `params.master`（`event` がオーバーライドの場合の親イベント）を渡すと、`event.timeZone` 省略時の解釈が `event.timeZone ?? master.timeZone ?? displayTimeZone` の 3 段フォールバックになり、`expandEvents` と同じ解釈が保証される（省略時は `event.timeZone ?? displayTimeZone` の 2 段のみで、マスターの `timeZone` へは継承されない） |
 
 ```ts
 import { expandEvents, occurrenceKey, resolveOccurrence } from '@koyomi-cal/react';
@@ -943,6 +945,7 @@ console.log(resolved?.start.getTime() === occurrences[1]!.start.getTime()); // =
 | --- | --- |
 | `snapToInterval(minutes, snap): number` | 分数を指定間隔にスナップする（最近傍への丸め） |
 | `timeAtGridPosition(params): Date` | 時間グリッドの列内の縦位置（0〜1）から日時を計算する |
+| `timeAtTimelineOffset(params): Date` | タイムラインビューの表示分（横位置。範囲先頭からの分、DST を跨いでも現地時刻を維持）から日時を計算する（`timeAtGridPosition` の水平版。`useTimelineDrag` が内部で使用） |
 | `dragPreviewRange(state, pointer, context): DateRange` | 時間グリッドのドラッグ中のポインタ日時からプレビュー範囲を計算する |
 | `dayDragPreviewRange(state, pointerDay, anchorDay, timeZone): DateRange` | 日単位ドラッグ（月ビュー・終日行）のプレビュー範囲を計算する |
 | `shortcutForKey(key, modifiers?)` | キー入力を Google カレンダー準拠のショートカットに解釈する。戻り値は `CalendarShortcut` または `null` |
@@ -1082,7 +1085,7 @@ console.log(formatWeekday(3, 'ja')); // => '水'
 ## 関連ページ
 
 - [はじめに](./getting-started.md)
-- [ビュー（月・週・日・リスト・年・複数月）](./views.md)
+- [ビュー（月・週・日・リスト・年・複数月・リソース・タイムライン）](./views.md)
 - [予定の管理](./events.md)
 - [インタラクション（作成・移動・リサイズ）](./interactions.md)
 - [繰り返し予定](./recurrence.md)

@@ -6,8 +6,7 @@
  * 可視列変換・あふれ計算はすべて {@link buildMonthViewModel} に委譲し、重複実装を持たない。
  * 各月には `segmentRange`（`[その月初, 翌月初)`）を渡すことで
  * 「予定は自分の月のグリッドにのみ描画する」規則を実現する。月境界をまたぐ予定は
- * 月ごとにクランプされ、`continuesBefore` / `continuesAfter` で「←続く / 続く→」を示す
- * （詳細は `docs/internal/views-expansion-design.md` §5.2）。
+ * 月ごとにクランプされ、`continuesBefore` / `continuesAfter` で「←続く / 続く→」を示す。
  */
 
 import { addMonthsInZone, startOfMonthInZone } from '../date-utils';

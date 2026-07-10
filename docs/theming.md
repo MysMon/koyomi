@@ -4,7 +4,7 @@ Koyomi のビルトインコンポーネントはヘッドレスです。ロジ�
 
 ## ヘッドレスの考え方
 
-ビルトインコンポーネント（`Toolbar` / `CalendarView` / `MonthView` / `TimeGridView` / `ListView` / `VirtualListView`）はクラス名を一切生成しません。すべての要素は `data-koyomi="<部位名>"` という属性を持ち、状態は追加の data 属性（`data-today` / `data-outside` / `data-koyomi-dragging` など）で表されます。CSS はこの属性だけをセレクタにして書きます。
+ビルトインコンポーネント（`Toolbar` / `CalendarView` / `MonthView` / `TimeGridView` / `ListView` / `VirtualListView` / `YearView` / `MultiMonthView` / `ResourceView` / `TimelineView`）はクラス名を一切生成しません。すべての要素は `data-koyomi="<部位名>"` という属性を持ち、状態は追加の data 属性（`data-today` / `data-outside` / `data-koyomi-dragging` など）で表されます。CSS はこの属性だけをセレクタにして書きます。
 
 インラインの `style` は、位置決めに必須の数値（%・`calc()`）だけに限定されています。色・境界線・余白などの見た目は inline style に出力されません。唯一の例外は `event.color` を指定したイベント要素で、この場合のみ CSS 変数 `--koyomi-event-color` が inline で設定されます（テーマ側は `var(--koyomi-event-color, 既定色)` で参照します）。
 
@@ -18,7 +18,9 @@ Koyomi のビルトインコンポーネントはヘッドレスです。ロジ�
 import '@koyomi-cal/react/theme.css';
 ```
 
-デフォルトテーマは `[data-koyomi="root"]` 配下すべてに `box-sizing: border-box` を適用し、ボタンのブラウザ既定スタイル（余白・枠線など）をリセットしたうえで、各部位の見た目を組み立てます。フォーカス時のアウトライン（`:focus-visible`）やドラッグ中の半透明表示（`[data-koyomi-dragging="true"]`）もここに含まれます。
+デフォルトテーマは `[data-koyomi="root"]` 配下すべてに `box-sizing: border-box` を適用し、ボタン・見出しのブラウザ既定スタイル（余白・枠線・フォントサイズなど）をリセットしたうえで、各部位の見た目を組み立てます。フォーカス時のアウトライン（`:focus-visible`）やドラッグ中の半透明表示（`[data-koyomi-dragging="true"]`）もここに含まれます。
+
+このリセットのセレクタは `button[data-koyomi]` / `h2[data-koyomi]` / `h3[data-koyomi]` のように、要素型に加えて `data-koyomi` 属性の有無で絞り込まれています。ライブラリが描画する `<button>` / `<h2>` / `<h3>` は必ず `data-koyomi` 属性を持つため、`renderDayCell` / `renderColumnHeader` などのカスタム描画スロットで利用者が差し込む独自の `<button>` や見出し要素（`data-koyomi` 属性を持たない）にはこのリセットが一切波及しません。
 
 ## CSS 変数一覧
 
@@ -41,6 +43,12 @@ import '@koyomi-cal/react/theme.css';
 | `--koyomi-hour-height` | 時間グリッド 1 時間分の高さ | `48px` |
 | `--koyomi-time-axis-width` | 時間グリッドの時刻軸幅（ヘッダー・終日行・本体で揃えるための内部変数） | `56px` |
 | `--koyomi-virtual-list-max-height` | `VirtualListView`（仮想化リスト）のスクロールコンテナの `max-height`。既定は `none`（無制限）で、実際の境界高は利用者が指定する | `none` |
+| `--koyomi-resource-column-width` | リソースビューの列の最小幅（列数が多いと横スクロール） | `160px` |
+| `--koyomi-timeline-day-width` | タイムラインビューの 1 日分のトラック幅 | `720px` |
+| `--koyomi-timeline-lane-height` | タイムラインビューの帯 1 レーンの高さ | `28px` |
+| `--koyomi-timeline-header-width` | タイムラインビューの行見出し列（左端固定列）の幅 | `120px` |
+| `--koyomi-now-color` | 現在時刻線（`now-indicator`）の色。週/日・リソース・タイムラインビュー共通 | `#ea4335` |
+| `--koyomi-timeline-lanes` | タイムライン行の高さ計算に使うレーン数。`--koyomi-event-color` と同様、`TimelineView` が行ごとに inline で自動設定する内部変数で、通常は利用者が直接上書きするものではない | `1`（フォールバック値） |
 
 `--koyomi-month-header-height` / `--koyomi-lane-height` / `--koyomi-hour-height` はコンポーネント側の inline style（`calc()`）からも参照されるため、単なる見た目の変数ではなく実際のレイアウト寸法を決めます。値を変える場合は、対応する CSS（`min-height` など）も一緒に見直すことをおすすめします。
 
@@ -89,7 +97,7 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 
 | 要素 | `data-koyomi` |
 | --- | --- |
-| ルート（`CalendarView`） | `root`（`data-koyomi-view="month\|week\|day\|list"` も付く） |
+| ルート（`CalendarView`） | `root`（`data-koyomi-view="month\|week\|day\|list\|year\|multiMonth\|resource\|timeline"` も付く） |
 | ツールバー本体 | `toolbar` |
 | ツールバーのナビゲーション（今日/前へ/次へ） | `toolbar-nav` |
 | ツールバー内ボタン | `button`（`data-koyomi-action="today\|prev\|next\|view-month\|view-week\|view-day\|view-list"`） |
@@ -135,18 +143,82 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 | イベント行 / 時刻 / 色見本 / タイトル | `list-event` / `list-event-time` / `list-event-swatch` / `list-event-title` |
 | 予定なしの表示 | `list-empty` |
 
+### 年ビュー
+
+| 要素 | `data-koyomi` |
+| --- | --- |
+| 年ビュー本体 | `year` |
+| 月セクション | `year-month`（`data-koyomi-month="YYYY-MM"`） |
+| 月見出し | `year-month-title` |
+| ミニ月グリッド | `year-month-grid` |
+| 曜日ヘッダー行 / 各ラベル | `year-weekdays` / `year-weekday` |
+| 週の行グループ / 各週の行 | `year-weeks` / `year-week` |
+| 日セル（gridcell） | `year-day-cell` |
+| 日番号ボタン | `year-day`（`data-koyomi-date="YYYY-MM-DD"`） |
+| 予定ありマーカー（件数ではなく密度のみ） | `year-day-count` |
+
+### 複数月ビュー
+
+| 要素 | `data-koyomi` |
+| --- | --- |
+| 複数月ビュー本体 | `multimonth` |
+| 月セクション | `multimonth-month`（`data-koyomi-month="YYYY-MM"`） |
+| 月見出し（`<h3>`） | `multimonth-title` |
+| 各月のグリッド以下（曜日ヘッダー・週・日セル・イベント帯・「+N 件」・ドラッグ選択） | 月ビューと共通の部位名を使う（`month` / `month-weekdays` / `month-weekday` / `month-weeks` / `month-week` / `month-days` / `month-day` / `month-day-number` / `month-overflow` / `month-events` / `month-event` / `month-event-resize` / `day-selection`） |
+
+前後月の日付セル（`data-outside`）は非インタラクティブ（`tabindex` なし）なため、複数月ビューでは日番号ボタン自体が描画されません。
+
+### リソースビュー
+
+| 要素 | `data-koyomi` |
+| --- | --- |
+| リソースビュー本体 | `resource`（`data-koyomi-columns="N"`） |
+| 空状態（列が 1 つもない）の表示 | `resource-empty` |
+| 列見出し行 / 各見出しセル | `resource-headers` / `resource-header-cell`（リソースに対応する列のみ `data-koyomi-resource-id`） |
+| 終日イベント行 / セル | `allday-row` / `resource-allday-cell`（`data-koyomi-resource`、終日ドラッグプレビューの対象列は `data-koyomi-preview-target="true"`） |
+| 終日アイテム | `allday-event` |
+| 本体 / 時刻軸ラベル | `resource-body` / `time-slot-label` |
+| リソース列群 / 各列 | `resource-columns` / `resource-column`（`data-koyomi-resource`） |
+| 罫線 | `timegrid-slot` |
+| 時間指定イベント / 内容 | `timegrid-event` / `timegrid-event-content` |
+| 上下端リサイズハンドル | `timegrid-resize`（`data-edge="start\|end"`） |
+| ドラッグ・作成のプレビュー | `timegrid-preview`（`data-kind="create\|move\|resize"`） |
+| 現在時刻線 | `now-indicator` |
+
+`data-koyomi-resource` はドラッグ操作の列識別子（`ResourceColumn.key`。`` `r:${id}` `` または `'unassigned'`）で、`timegrid-day` の `data-koyomi-date` に相当します。実際のリソース ID を指す `data-koyomi-resource-id` とは別の属性です。イベントブロック・リサイズハンドル・現在時刻線・プレビューは週/日ビューと同じ部位名を使い、デフォルトテーマのスタイルを共有します。
+
+### タイムラインビュー
+
+| 要素 | `data-koyomi` |
+| --- | --- |
+| タイムラインビュー本体 | `timeline`（`data-koyomi-days="N"`） |
+| 空状態（行が 1 つもない）の表示 | `timeline-empty` |
+| 本体（横スクロールコンテナ） | `timeline-body` |
+| ヘッダー行 / 左上の隅 / 軸 | `timeline-header-row` / `timeline-corner` / `timeline-axis` |
+| 日ヘッダー行 / 各日ヘッダー | `timeline-day-headers` / `timeline-day-header`（`data-today`） |
+| 時刻目盛りラベル群 / 各ラベル | `timeline-slots` / `timeline-slot-label` |
+| 行グループ（見出し＋帯トラック） | `timeline-row-group` |
+| 行見出し | `timeline-resource-header`（リソースに対応する行のみ `data-koyomi-resource-id`） |
+| 帯トラック | `timeline-row`（`data-koyomi-resource`） |
+| 帯（アイテム） / 内容 | `timeline-item`（`data-koyomi-lane="N"`、終日イベントは `data-all-day`） / `timeline-item-content` |
+| 左右端リサイズハンドル（終日の帯には付かない） | `timeline-resize`（`data-edge="start\|end"`） |
+| ドラッグ・作成のプレビュー | `timeline-preview`（`data-kind="create\|move\|resize"`） |
+| 現在時刻線 | `now-indicator` |
+
 ### 状態を表す data 属性
 
 構造上の `data-koyomi` に加えて、以下の状態属性が値なし（または `'true'`）で付与されます。
 
 | 属性 | 意味 | 付与される要素 |
 | --- | --- | --- |
-| `data-today` | 今日である | `month-day` / `timegrid-day-header` / `timegrid-day` / `list-day` |
-| `data-outside` | 表示中の月に属さない日（前後月の日付） | `month-day` |
-| `data-koyomi-dragging` | ドラッグ移動・リサイズ中のイベント | `month-event` / `allday-event` / `timegrid-event` |
-| `data-continues-before` | イベントの実際の開始がこの週・この日より前にある（「←続く」） | `month-event` / `allday-event` / `timegrid-event` |
-| `data-continues-after` | イベントの実際の終了がこの週・この日より後にある（「続く→」） | `month-event` / `allday-event` / `timegrid-event` |
-| `data-all-day` | 終日イベントのセグメント | `month-event` |
+| `data-today` | 今日である | `month-day` / `timegrid-day-header` / `timegrid-day` / `list-day` / `year-day` / `resource-column` / `timeline-day-header` |
+| `data-outside` | 表示中の月に属さない日（前後月の日付） | `month-day` / `year-day` |
+| `data-has-events` | 予定が 1 件以上ある日（年ビューの密度マーカー表示のトリガー） | `year-day` |
+| `data-koyomi-dragging` | ドラッグ移動・リサイズ中のイベント | `month-event` / `allday-event` / `timegrid-event` / `timeline-item` |
+| `data-continues-before` | イベントの実際の開始がこの週・この日より前にある（「←続く」） | `month-event` / `allday-event` / `timegrid-event` / `timeline-item` |
+| `data-continues-after` | イベントの実際の終了がこの週・この日より後にある（「続く→」） | `month-event` / `allday-event` / `timegrid-event` / `timeline-item` |
+| `data-all-day` | 終日イベントのセグメント | `month-event` / `timeline-item` |
+| `data-koyomi-preview-target` | 終日ドラッグプレビューの対象列（リソースビュー） | `resource-allday-cell` |
 | `aria-pressed` | 選択中のビュー・トグル状態 | ツールバーのビュー切替ボタン |
 
 各コンポーネントが実際に描画する DOM 構造をそのまま検証したい場合は、次のように `render` してから属性を確認できます。
@@ -289,7 +361,7 @@ function App() {
 
 ## 関連ページ
 
-- [ビュー（月・週・日・リスト）](./views.md)
+- [ビュー（月・週・日・リスト・年・複数月・リソース・タイムライン）](./views.md)
 - [予定の管理](./events.md)
 - [インタラクション（作成・移動・リサイズ）](./interactions.md)
 - [はじめに](./getting-started.md)
