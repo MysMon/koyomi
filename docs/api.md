@@ -702,6 +702,8 @@ interface ToolbarLabels {
 
 「今日」「前へ」「次へ」のナビゲーション、期間タイトル、ビュー切替（既定は月・週・日・リスト。`views` prop で年・複数月・リソース・タイムラインビュー等を追加できる opt-in）を提供します。タイトルは現在のビューに応じて `formatMonthTitle` / `formatDayTitle` / `formatRangeTitle` / `formatYearTitle` のいずれかで整形されます（複数月ビューは表示範囲の開始月・終了月をそれぞれ `formatMonthTitle` で整形し、「2026年7月〜2026年9月」のように連結します。同一月なら単一表記。リソースビューは日ビューと同じ `formatDayTitle`。タイムラインビューは `timelineDays: 1` なら日ビューと同じ形式、複数日なら `formatRangeTitle` による範囲形式「2026年7月15日〜7月21日」）。`labels` で全ボタン文言を差し替えられます（i18n 対応）。
 
+`labels` を含む各コンポーネントの `*Label` 系 props を英語文言でまとめて差し替えたい場合は、`enUsLabels` プリセットが使えます（詳細は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照）。
+
 ## 型
 
 ### イベント
@@ -1178,6 +1180,50 @@ console.log(formatMonthTitle(new Date('2026-07-15T01:00:00Z'), 'Asia/Tokyo', 'ja
 console.log(formatYearTitle(new Date('2026-07-15T01:00:00Z'), 'Asia/Tokyo', 'ja')); // => '2026年'
 console.log(formatWeekday(3, 'ja')); // => '水'
 ```
+
+## ロケールプリセット
+
+### `enUsLabels`
+
+すべて英語の文字列リテラル（`overflowLabel` 系のみ関数）で組み立てているため、実際に生成される型は `*Label` props の型（`ReactNode`）そのものではなく、以下のようにリテラル値に基づいた具体的な型になります（`Toolbar` の `labels` や `ListView` の `emptyLabel` 等、対応する props は `ReactNode` を受け取れるので代入は問題なくできます）。この構造は `EnUsLabels` として named export しています。
+
+```ts
+const enUsLabels: EnUsLabels;
+
+type EnUsLabels = {
+  toolbar: {
+    month: string;
+    week: string;
+    day: string;
+    list: string;
+    year: string;
+    multiMonth: string;
+    resource: string;
+    timeline: string;
+    today: string;
+    prev: string;
+    next: string;
+  };
+  list: { allDayLabel: string; emptyLabel: string };
+  month: { overflowLabel: (count: number) => ReactNode };
+  multiMonth: { overflowLabel: (count: number) => ReactNode };
+  resource: { unassignedLabel: string; emptyLabel: string };
+  timeline: { unassignedLabel: string; emptyLabel: string; cornerLabel: string };
+  calendarView: {
+    listAllDayLabel: string;
+    listEmptyLabel: string;
+    monthOverflowLabel: (count: number) => ReactNode;
+    multiMonthOverflowLabel: (count: number) => ReactNode;
+    resourceUnassignedLabel: string;
+    resourceEmptyLabel: string;
+    timelineUnassignedLabel: string;
+    timelineEmptyLabel: string;
+    timelineCornerLabel: string;
+  };
+};
+```
+
+各コンポーネントが持つ `*Label` 系 props（既定値は日本語）を英語化したプリセットです。`toolbar` / `list` / `month` / `multiMonth` / `resource` / `timeline` はそれぞれ同名のビルトインコンポーネント（`VirtualListView` 等の仮想化版も含む）の props にそのままスプレッドできます。`calendarView` だけは `CalendarView` が転送用に持つプレフィックス付き props（`listAllDayLabel` 等）向けの形です。既定値（日本語）自体は変更されないため、渡さない限り既存の見た目は変わりません。使用例は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照してください。
 
 ## 関連ページ
 
