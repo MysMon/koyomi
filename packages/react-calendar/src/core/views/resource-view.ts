@@ -25,18 +25,17 @@ import type {
   ResourceViewModel,
   TimeZoneId,
 } from '../types';
+import { laneKeyForResource, UNASSIGNED_LANE_KEY } from './lane-key';
 import { belongsToAllDayRow, buildDayItems, buildSlots } from './time-grid-view';
 
-/** 未割り当て列のキー（リソース ID との衝突を避けるため `r:` 接頭辞を付けない固定値）。 */
-const UNASSIGNED_KEY = 'unassigned';
+/** 未割り当て列のキー（{@link UNASSIGNED_LANE_KEY} の別名。既存コードの可読性のため）。 */
+const UNASSIGNED_KEY = UNASSIGNED_LANE_KEY;
 
 /**
- * リソース列のキーを組み立てる。
- * 判別子付きの形式にすることで `'unassigned'` という ID のリソースと衝突しない。
+ * リソース列のキーを組み立てる（{@link laneKeyForResource} の別名）。
+ * 形式は core/views/lane-key.ts が encode/decode の対で管理する。
  */
-function resourceColumnKey(resourceId: string): string {
-  return `r:${resourceId}`;
-}
+const resourceColumnKey = laneKeyForResource;
 
 /**
  * 終日アイテムの並び順（開始昇順 → 長い順 → キー辞書順。既存レイアウトと同じハウスルール）。
