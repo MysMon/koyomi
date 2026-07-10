@@ -19,7 +19,10 @@ import type {
 import { CalendarProvider } from '../context';
 import type { CalendarInteractionCallbacks } from '../types';
 import { useCalendar } from '../use-calendar';
+import type { DayDragHandlers } from '../use-day-drag';
 import { MonthView } from './month-view';
+import type { MonthDayDragHandlers } from './month-view-parts';
+import { useStableDayDrag } from './month-view-parts';
 
 /** テストで使う表示タイムゾーン。 */
 const TOKYO = 'Asia/Tokyo';
@@ -532,5 +535,142 @@ describe('MonthView - ドラッグプレビューの選択帯', () => {
       apiRef.current?.setDragPreview(null);
     });
     expect(container.querySelector('[data-koyomi="day-selection"]')).toBeNull();
+  });
+});
+
+/**
+ * テスト用の最小限の `DayDragHandlers` を作る。`getDayCellProps` だけ差し替え可能にし、
+ * 他のメソッドはダミー実装（呼び出されない前提）にする。
+ */
+function makeFakeDayDrag(
+  getDayCellProps: DayDragHandlers['getDayCellProps'] = () => ({
+    ref: () => {},
+    onPointerDown: () => {},
+    onKeyDown: () => {},
+    tabIndex: 0,
+    'data-koyomi-date': 'stub',
+  }),
+): DayDragHandlers {
+  return {
+    getDayCellProps,
+    getSegmentProps: () => ({
+      onPointerDown: () => {},
+      onClick: () => {},
+      onKeyDown: () => {},
+      tabIndex: 0,
+      'data-koyomi-occurrence': 'stub',
+    }),
+    getSegmentResizeHandleProps: () => ({
+      onPointerDown: () => {},
+      onClick: () => {},
+      'data-koyomi-resize-handle': 'start',
+    }),
+    previewRange: null,
+    isDragging: false,
+  };
+}
+
+/** `useStableDayDrag` の戻り値を呼び出し元へ通知するだけのテスト用ハーネス。 */
+function StableDayDragHarness(props: {
+  dayDrag: DayDragHandlers;
+  onStable: (stable: MonthDayDragHandlers) => void;
+}): null {
+  const stable = useStableDayDrag(props.dayDrag);
+  props.onStable(stable);
+  return null;
+}
+
+describe('useStableDayDrag - dayDrag の参照安定化', () => {
+  it('親が再レンダーして dayDrag オブジェクトの参照が変わっても、返すラッパーは同じ参照のままになる', () => {
+    const dayDragA = makeFakeDayDrag();
+    const dayDragB = makeFakeDayDrag();
+    expect(dayDragA).not.toBe(dayDragB); // 前提: useDayDrag は毎レンダー新しいオブジェクトを返す
+
+    const seen: MonthDayDragHandlers[] = [];
+    const onStable = (stable: MonthDayDragHandlers): void => {
+      seen.push(stable);
+    };
+
+    const { rerender } = render(<StableDayDragHarness dayDrag={dayDragA} onStable={onStable} />);
+    rerender(<StableDayDragHarness dayDrag={dayDragB} onStable={onStable} />);
+
+    expect(seen).toHaveLength(2);
+    // ラッパー自体の参照は dayDrag の入力が変わっても同じであり続ける
+    expect(seen[0]).toBe(seen[1]);
+  });
+
+  it('ラッパー経由の呼び出しは常に最新の dayDrag のハンドラへ委譲する（古い dayDrag には委譲しない）', () => {
+    const getDayCellPropsA = vi.fn(() => ({
+      ref: () => {},
+      onPointerDown: () => {},
+      onKeyDown: () => {},
+      tabIndex: 0,
+      'data-koyomi-date': 'A',
+    }));
+    const getDayCellPropsB = vi.fn(() => ({
+      ref: () => {},
+      onPointerDown: () => {},
+      onKeyDown: () => {},
+      tabIndex: 0,
+      'data-koyomi-date': 'B',
+    }));
+    const dayDragA = makeFakeDayDrag(getDayCellPropsA);
+    const dayDragB = makeFakeDayDrag(getDayCellPropsB);
+
+    const stableRef: { current: MonthDayDragHandlers | null } = { current: null };
+    const onStable = (value: MonthDayDragHandlers): void => {
+      stableRef.current = value;
+    };
+
+    const { rerender } = render(<StableDayDragHarness dayDrag={dayDragA} onStable={onStable} />);
+    rerender(<StableDayDragHarness dayDrag={dayDragB} onStable={onStable} />);
+
+    const day = { date: NOW, key: '2026-07-15' };
+    stableRef.current?.getDayCellProps(day);
+
+    expect(getDayCellPropsA).not.toHaveBeenCalled();
+    expect(getDayCellPropsB).toHaveBeenCalledWith(day);
+  });
+});
+
+describe('MonthView - dayDrag 参照安定化による再レンダー抑制', () => {
+  it('drag プレビューが更新されても、交差しない週の MonthWeekRow は再レンダーされない', () => {
+    const calls: string[] = [];
+    const renderDayCell = vi.fn((day: MonthDay, defaultContent: ReactNode) => {
+      calls.push(day.key);
+      return defaultContent;
+    });
+    const apiRef: { current: CalendarApi | null } = { current: null };
+    render(<Harness apiRef={apiRef} renderDayCell={renderDayCell} />);
+
+    const countFor = (key: string): number => calls.filter((k) => k === key).length;
+
+    // 前提: 初回レンダーで両方の週の日セルが少なくとも 1 回描画されている
+    const baselineWeek1 = countFor('2026-07-01'); // 第1週（これからドラッグ対象にする週）
+    const baselineWeek5 = countFor('2026-07-29'); // 第5週（ドラッグと無関係な週）
+    expect(baselineWeek1).toBeGreaterThan(0);
+    expect(baselineWeek5).toBeGreaterThan(0);
+
+    // 第1週（7/1）とだけ交差するドラッグプレビューへ更新する。
+    // useDayDrag の戻り値（dayDrag）は毎レンダー新規オブジェクトになるが、
+    // useStableDayDrag でラップ済みのため、selectionSpan が変わらない週の
+    // MonthWeekRow へは同一参照の props が渡り続けるはず。
+    act(() => {
+      apiRef.current?.setDragPreview({
+        kind: 'create',
+        occurrenceKey: null,
+        range: {
+          start: new Date('2026-06-30T15:00:00Z'), // 2026-07-01 0:00 JST
+          end: new Date('2026-07-01T15:00:00Z'), // 2026-07-02 0:00 JST
+        },
+        allDay: true,
+      });
+    });
+
+    // 第1週は selectionSpan が変化するため再レンダーされ、renderDayCell が再度呼ばれる
+    expect(countFor('2026-07-01')).toBeGreaterThan(baselineWeek1);
+    // 第5週は selectionSpan が null のまま、dayDrag も参照安定であるため
+    // MonthWeekRow の memo が効き、再レンダーされない（renderDayCell も再度呼ばれない）
+    expect(countFor('2026-07-29')).toBe(baselineWeek5);
   });
 });

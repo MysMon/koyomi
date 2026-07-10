@@ -93,6 +93,7 @@ div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"]
     div[data-koyomi="timegrid-axis-gutter"]          … 左上の空き（時間軸幅の確保）
     div[data-koyomi="timegrid-day-header"][data-koyomi-date][data-today?][aria-current="date"?] × days
       … 曜日＋日番号（renderDayHeader で差し替え可）。
+        曜日ラベルは span[data-koyomi="timegrid-weekday"]（Intl、month-weekday/year-weekday と同じ流儀）
         日番号は button[data-koyomi="timegrid-day-number"]（aria-label=完全な日付、day ビューへ）
   div[data-koyomi="allday-row"]
     div[data-koyomi="timegrid-axis-gutter"]

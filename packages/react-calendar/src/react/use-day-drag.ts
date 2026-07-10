@@ -132,8 +132,6 @@ interface DragSession {
    * 単に pointermove が発火しただけ（同じセル内の微小な揺れ）では `true` にしない。
    */
   moved: boolean;
-  /** 直近のポインタ位置から計算したプレビュー範囲。 */
-  lastRange: DateRange;
   /**
    * 時間グリッドへの変換ドラッグ中の確定用範囲。
    *
@@ -466,7 +464,6 @@ export function useDayDrag(params: {
           };
           session.moved = true;
           session.timedConversion = range;
-          session.lastRange = range;
           apiRef.current.setDragPreview({
             kind: 'move',
             occurrenceKey: occurrence.key,
@@ -487,7 +484,6 @@ export function useDayDrag(params: {
       if (pointerDay.getTime() !== anchorDay.getTime()) {
         session.moved = true;
       }
-      session.lastRange = range;
       apiRef.current.setDragPreview({
         kind: toPreviewKind(kind),
         occurrenceKey: occurrence?.key ?? null,
@@ -500,7 +496,21 @@ export function useDayDrag(params: {
       });
     };
 
-    const finish = (): void => {
+    /**
+     * ドラッグ確定処理。`event` には pointerup イベント自身を渡すこと。
+     *
+     * pointermove は高頻度移動時の間引きや coalescing で pointerup 直前の座標を
+     * 反映していないことがあるため、確定範囲は必ずここで `event.clientX/clientY`
+     * から再計算する（`session.lastRange` のような「直前の pointermove 時点の
+     * キャッシュ」には依存しない）。他 3 フック（`use-time-grid-drag.ts` 等）の
+     * `commitSession` と同じ方針。
+     *
+     * 一方、時間グリッドへの変換中か（`session.timedConversion`）は pointermove
+     * 時点の判定を維持する（`use-time-grid-drag.ts` の `allDayConversion` と同じ
+     * 扱い）。pointerup 時点で再判定すると、変換領域の境界ぎりぎりで離した際に
+     * pointermove 中に見えていたプレビューと異なる結果で確定してしまうため。
+     */
+    const finish = (event: PointerEvent): void => {
       const session = sessionRef.current;
       cleanup();
       sessionRef.current = null;
@@ -508,8 +518,10 @@ export function useDayDrag(params: {
       if (session === null) {
         return;
       }
+      const pointerDay = locateDay(event.clientX, event.clientY) ?? anchorDay;
+      const finalRange = computeRange(pointerDay);
       if (kind === 'create') {
-        commitSelection(session.lastRange);
+        commitSelection(finalRange);
         return;
       }
       if (!session.moved || occurrence === null) {
@@ -524,11 +536,11 @@ export function useDayDrag(params: {
         return;
       }
       const action: 'move' | 'resize' = kind === 'move' ? 'move' : 'resize';
-      void commitMove(occurrence, session.lastRange, action).catch(reportError);
+      void commitMove(occurrence, finalRange, action).catch(reportError);
     };
 
-    const handlePointerUp = (): void => {
-      finish();
+    const handlePointerUp = (event: PointerEvent): void => {
+      finish(event);
     };
 
     /** Escape / pointercancel によるキャンセル。コミットせず後始末のみ行う。 */
@@ -573,7 +585,6 @@ export function useDayDrag(params: {
       occurrence,
       anchorDay,
       moved: false,
-      lastRange: computeRange(anchorDay),
       timedConversion: null,
       cleanup,
     };

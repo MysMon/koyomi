@@ -19,8 +19,8 @@
  */
 
 import type { CSSProperties, ReactElement, ReactNode, Ref } from 'react';
-import { memo } from 'react';
-import type { TimelineItem, TimelineRow, TimeZoneId } from '../../core/types';
+import { memo, useRef, useState } from 'react';
+import type { CalendarResource, TimelineItem, TimelineRow, TimeZoneId } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
 import type { TimelineDragHandlers, TimelinePreviewSegment } from '../use-timeline-drag';
@@ -88,6 +88,109 @@ function withLaneCountStyle(laneCount: number): CSSProperties {
 let warnedSlotCount = false;
 
 /**
+ * `TimelineRowGroup` が実際に必要とするドラッグハンドラだけを抜き出した型。
+ * `previewFor` はここに含めない（{@link TimelineView} 側で解決済みの値を `preview` prop
+ * として渡すため）。
+ */
+interface TimelineRowDragHandlers {
+  getRowProps: TimelineDragHandlers['getRowProps'];
+  getItemProps: TimelineDragHandlers['getItemProps'];
+  getResizeHandleProps: TimelineDragHandlers['getResizeHandleProps'];
+}
+
+/**
+ * `useTimelineDrag` の戻り値は毎レンダー新しいオブジェクト（関数含む）になるため、
+ * そのまま `memo` 化した子コンポーネントの props に渡すと再レンダー抑制が効かない。
+ * ここで参照が変わらないラッパーを 1 度だけ作り、呼び出し時に ref 経由で常に最新の
+ * ハンドラへ委譲することで、props の同一性を保ったまま最新の挙動を保証する
+ * （`time-grid-view.tsx` の `useStableColumnDrag` と同じ設計）。
+ */
+function useStableTimelineDrag(drag: TimelineDragHandlers): TimelineRowDragHandlers {
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
+  const [stable] = useState<TimelineRowDragHandlers>(() => ({
+    getRowProps: (row) => dragRef.current.getRowProps(row),
+    getItemProps: (item) => dragRef.current.getItemProps(item),
+    getResizeHandleProps: (item, edge) => dragRef.current.getResizeHandleProps(item, edge),
+  }));
+  return stable;
+}
+
+/** `CalendarResource | null` の、表示に影響する内容が等しいかどうかを比較する。 */
+function sameResource(a: CalendarResource | null, b: CalendarResource | null): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a === null || b === null) {
+    return false;
+  }
+  return a.id === b.id && a.title === b.title && a.color === b.color;
+}
+
+/** `TimelineItem` 1 件分の、表示に影響する内容が等しいかどうかを比較する。 */
+function sameTimelineItem(a: TimelineItem, b: TimelineItem): boolean {
+  if (a === b) {
+    return true;
+  }
+  return (
+    a.occurrence.key === b.occurrence.key &&
+    a.occurrence.event.title === b.occurrence.event.title &&
+    a.occurrence.event.color === b.occurrence.event.color &&
+    a.occurrence.event.resourceId === b.occurrence.event.resourceId &&
+    a.occurrence.event.editable === b.occurrence.event.editable &&
+    a.occurrence.allDay === b.occurrence.allDay &&
+    a.occurrence.start.getTime() === b.occurrence.start.getTime() &&
+    a.occurrence.end.getTime() === b.occurrence.end.getTime() &&
+    a.startMinutes === b.startMinutes &&
+    a.endMinutes === b.endMinutes &&
+    a.lane === b.lane &&
+    a.continuesBefore === b.continuesBefore &&
+    a.continuesAfter === b.continuesAfter
+  );
+}
+
+/** `TimelineItem` 配列の内容が等しいかどうかを比較する。 */
+function sameTimelineItems(a: readonly TimelineItem[], b: readonly TimelineItem[]): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((item, index) => {
+    const other = b[index];
+    return other !== undefined && sameTimelineItem(item, other);
+  });
+}
+
+/** `TimelineRow` の、{@link TimelineRowGroup} の表示に影響する内容が等しいかどうかを比較する。 */
+function sameTimelineRow(a: TimelineRow, b: TimelineRow): boolean {
+  if (a === b) {
+    return true;
+  }
+  return (
+    a.key === b.key &&
+    sameResource(a.resource, b.resource) &&
+    a.laneCount === b.laneCount &&
+    sameTimelineItems(a.items, b.items)
+  );
+}
+
+/** `TimelinePreviewSegment` の内容が等しいかどうかを比較する。 */
+function samePreviewSegment(
+  a: TimelinePreviewSegment | null,
+  b: TimelinePreviewSegment | null,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a === null || b === null) {
+    return false;
+  }
+  return a.kind === b.kind && a.startMinutes === b.startMinutes && a.endMinutes === b.endMinutes;
+}
+
+/**
  * タイムラインビュー（`TimelineView`）を描画する。
  *
  * `useCalendarContext()` からビューモデルを取得し、`viewModel.type !== 'timeline'`
@@ -114,6 +217,9 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
   const { api, state, viewModel, callbacks } = useCalendarContext();
   const calendar = { api, state, viewModel };
   const drag = useTimelineDrag({ calendar, callbacks });
+  // `drag` は毎レンダー新しいオブジェクトになるため、行の memo 化が効くよう、
+  // 参照が変わらないラッパー経由で渡す（詳細は関数コメント参照）。
+  const stableDrag = useStableTimelineDrag(drag);
 
   if (viewModel.type !== 'timeline') {
     return null;
@@ -184,7 +290,7 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
             unassignedLabel={unassignedLabel}
             renderEvent={renderEvent}
             renderRowHeader={renderRowHeader}
-            drag={drag}
+            drag={stableDrag}
             isDragging={drag.isDragging}
             preview={drag.previewFor(row)}
           />
@@ -197,8 +303,8 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
 /** 1 日の分（24:00 = 1440 分）。 */
 const MINUTES_PER_DAY = 1440;
 
-/** タイムラインの 1 行分（行見出し + 帯トラック）。 */
-const TimelineRowGroup = memo(function TimelineRowGroup(props: {
+/** `TimelineRowGroupImpl` の props。 */
+interface TimelineRowGroupProps {
   row: TimelineRow;
   timeZone: TimeZoneId;
   locale: string;
@@ -207,11 +313,14 @@ const TimelineRowGroup = memo(function TimelineRowGroup(props: {
   unassignedLabel: ReactNode;
   renderEvent: ((item: TimelineItem) => ReactNode) | undefined;
   renderRowHeader: ((row: TimelineRow, defaultContent: ReactNode) => ReactNode) | undefined;
-  drag: TimelineDragHandlers;
-  /** ドラッグ操作が進行中か（`data-koyomi-dragging` の更新に必要）。 */
+  drag: TimelineRowDragHandlers;
+  /** ドラッグ操作が進行中か（memo 判定に使う。詳細は {@link TimelineRowGroup} 参照）。 */
   isDragging: boolean;
   preview: TimelinePreviewSegment | null;
-}): ReactElement {
+}
+
+/** タイムラインの 1 行分（行見出し + 帯トラック）。 */
+function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
   const {
     row,
     timeZone,
@@ -312,5 +421,31 @@ const TimelineRowGroup = memo(function TimelineRowGroup(props: {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * {@link TimelineRowGroupImpl} を `memo` でラップしたもの。
+ *
+ * `viewModel` は状態が変わるたびに丸ごと再構築されるため、既定の浅い比較（参照比較）
+ * では `row` が常に「変わった」ことになり意味がない。表示に影響する値だけを比較する
+ * カスタム比較関数を使うことで、ドラッグ中に無関係な行が再レンダーされないようにする
+ * （`isDragging` はドラッグ開始・終了の瞬間だけ変化するので、その際は全行が 1 回だけ
+ * 再評価され、対象アイテムの `data-koyomi-dragging` 表示が正しく更新される。
+ * `time-grid-view.tsx` の `TimeGridDayColumn` と同じ設計）。
+ */
+const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
+  return (
+    sameTimelineRow(prev.row, next.row) &&
+    prev.timeZone === next.timeZone &&
+    prev.locale === next.locale &&
+    prev.totalMinutes === next.totalMinutes &&
+    prev.nowIndicatorMinutes === next.nowIndicatorMinutes &&
+    prev.unassignedLabel === next.unassignedLabel &&
+    prev.renderEvent === next.renderEvent &&
+    prev.renderRowHeader === next.renderRowHeader &&
+    prev.drag === next.drag &&
+    prev.isDragging === next.isDragging &&
+    samePreviewSegment(prev.preview, next.preview)
   );
 });

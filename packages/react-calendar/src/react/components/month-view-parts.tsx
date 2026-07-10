@@ -19,7 +19,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   Ref,
 } from 'react';
-import { memo } from 'react';
+import { memo, useRef, useState } from 'react';
 import { addDaysInZone, startOfDayInZone } from '../../core/timezone';
 import type {
   DateRange,
@@ -30,6 +30,39 @@ import type {
   TimeZoneId,
 } from '../../core/types';
 import type { DayCellProps, DayDragHandlers } from '../use-day-drag';
+
+/**
+ * `MonthWeekRow` / `MonthEventButton` が実際に必要とするドラッグハンドラだけを
+ * 抜き出した型。`previewRange` / `isDragging` はここに含めない（`MonthView` /
+ * `MultiMonthView` 側で解決済みの値を個別の prop（`selectionSpan` 等）として
+ * 渡すため）。
+ */
+export interface MonthDayDragHandlers {
+  getDayCellProps: DayDragHandlers['getDayCellProps'];
+  getSegmentProps: DayDragHandlers['getSegmentProps'];
+  getSegmentResizeHandleProps: DayDragHandlers['getSegmentResizeHandleProps'];
+}
+
+/**
+ * `useDayDrag` の戻り値は毎レンダー新しいオブジェクト（関数含む）になるため、
+ * そのまま `memo` 化した子コンポーネント（`MonthWeekRow` / `MonthEventButton`）の
+ * props に渡すと再レンダー抑制が効かない。ここで参照が変わらないラッパーを
+ * 1 度だけ作り、呼び出し時に ref 経由で常に最新のハンドラへ委譲することで、
+ * props の同一性を保ったまま最新の挙動を保証する
+ * （`time-grid-view.tsx` の `useStableColumnDrag` と同じパターン。`MonthView` と
+ * `MultiMonthView` の両方から使う）。
+ */
+export function useStableDayDrag(dayDrag: DayDragHandlers): MonthDayDragHandlers {
+  const dragRef = useRef(dayDrag);
+  dragRef.current = dayDrag;
+  const [stable] = useState<MonthDayDragHandlers>(() => ({
+    getDayCellProps: (day) => dragRef.current.getDayCellProps(day),
+    getSegmentProps: (segment) => dragRef.current.getSegmentProps(segment),
+    getSegmentResizeHandleProps: (segment, edge) =>
+      dragRef.current.getSegmentResizeHandleProps(segment, edge),
+  }));
+  return stable;
+}
 
 /** `Intl.DateTimeFormat` インスタンスのキャッシュ（`locale|timeZone|種別` をキーにする）。 */
 const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>();
@@ -284,8 +317,12 @@ interface MonthWeekRowProps {
   locale: string;
   /** 選択（ドラッグプレビュー）帯の可視列範囲。交差しなければ `null`。 */
   selectionSpan: WeekSelectionSpan | null;
-  /** {@link DayDragHandlers}。日セル・帯セグメントのドラッグ操作をすべて委譲する。 */
-  dayDrag: DayDragHandlers;
+  /**
+   * 日セル・帯セグメントのドラッグ操作ハンドラ。`useStableDayDrag` で参照を
+   * 安定化させたものを渡すこと（そのまま `useDayDrag` の戻り値を渡すと、
+   * 毎レンダー新規参照になり本コンポーネントの `memo` 化が効かなくなる）。
+   */
+  dayDrag: MonthDayDragHandlers;
   /** イベントセグメントの表示内容のカスタマイズ関数。 */
   renderEvent: ((segment: EventSegment) => ReactNode) | undefined;
   /** 「+N 件」ラベルのカスタマイズ関数。 */
@@ -435,7 +472,7 @@ const MonthEventButton = memo(function MonthEventButton(props: {
   /** この週の可視列数（幅%計算の基準）。 */
   columnCount: number;
   renderEvent: ((segment: EventSegment) => ReactNode) | undefined;
-  dayDrag: DayDragHandlers;
+  dayDrag: MonthDayDragHandlers;
 }): ReactElement {
   const { segment, timeZone, locale, columnCount, renderEvent, dayDrag } = props;
   const occurrence = segment.occurrence;

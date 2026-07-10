@@ -292,6 +292,50 @@ describe('useDayDrag - セルのドラッグによる範囲選択', () => {
     expect(resultRef.current?.previewRange).toBeNull();
   });
 
+  it('最後の pointermove と異なる座標で pointerup した場合、pointerup の座標の日付で確定する', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const onSelectRange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid api={api} callbacks={{ onSelectRange }} resultRef={resultRef} />,
+    );
+    setupCellRects(container);
+
+    const cell710 = container.querySelector('[data-testid="cell-2026-07-10"]');
+    if (!(cell710 instanceof HTMLElement)) {
+      throw new Error('セル要素が見つかりません');
+    }
+
+    act(() => {
+      cell710.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(4), // 7/10
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(6)); // 7/12 相当（プレビューはここまで進む）
+    });
+    expect(resultRef.current?.previewRange?.end.getTime()).toBe(
+      dateFromKey('2026-07-13', TOKYO).getTime(),
+    );
+
+    // 直前の pointermove（7/12）とは異なる座標（7/14）で pointerup する。
+    // pointermove の間引き・coalescing 等で最後の pointermove がこの位置を
+    // 反映しない場合でも、pointerup 自身の座標で確定しなければならない。
+    act(() => {
+      dispatchPointerUp(cellCenterX(8));
+    });
+
+    expect(onSelectRange).toHaveBeenCalledTimes(1);
+    const selection = onSelectRange.mock.calls[0]?.[0];
+    expect(selection?.range.start.getTime()).toBe(dateFromKey('2026-07-10', TOKYO).getTime());
+    expect(selection?.range.end.getTime()).toBe(dateFromKey('2026-07-15', TOKYO).getTime());
+  });
+
   it('非左クリック（button !== 0）ではセル選択もセグメント移動も開始されない', () => {
     const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
     const onSelectRange = vi.fn();
@@ -484,6 +528,59 @@ describe('useDayDrag - セグメントのドラッグによる移動', () => {
     }
     expect(start.getTime()).toBe(dateFromKey('2026-07-10', TOKYO).getTime());
     expect(end.getTime()).toBe(dateFromKey('2026-07-12', TOKYO).getTime());
+  });
+
+  it('最後の pointermove と異なる座標で pointerup した場合、pointerup の座標の日付で確定する（セグメント移動）', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid api={api} segments={[makeSegment(occurrence)]} resultRef={resultRef} />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2), // 7/8
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(4)); // 7/10（+2日、プレビューはここまで進む）
+    });
+    // 直前の pointermove（+2日）とは異なる座標（+3日 = 7/11）で pointerup する
+    act(() => {
+      dispatchPointerUp(cellCenterX(5));
+    });
+
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    const start = updated?.start;
+    const end = updated?.end;
+    if (!(start instanceof Date) || !(end instanceof Date)) {
+      throw new Error('更新後の start/end が Date ではありません');
+    }
+    // 直前の pointermove（+2日 = 7/10）ではなく、pointerup 自身の座標（+3日 = 7/11）で確定する
+    expect(start.getTime()).toBe(dateFromKey('2026-07-11', TOKYO).getTime());
+    expect(end.getTime()).toBe(dateFromKey('2026-07-13', TOKYO).getTime());
   });
 
   it('時間指定イベント（span 1 セグメント）の日移動では現地時刻が維持される', () => {
