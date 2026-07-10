@@ -2,14 +2,15 @@
 
 ヘッドレスな TypeScript/React カレンダーライブラリ **Koyomi（暦）**。
 
-- 📅 **4 つのビュー** — 月・週・日・リスト表示を切り替え可能（`hiddenWeekdays` で週末非表示も）
+- 📅 **8 つのビュー** — 月・週・日・リストに加え、年・複数月・リソース・タイムライン（後者 4 つは opt-in）を切り替え可能（`hiddenWeekdays` で週末非表示も）
 - 🖱️ **Google カレンダー相当の操作** — ドラッグでの予定作成・移動・両端リサイズ、終日 ⇔ 時間指定のドラッグ変換、繰り返し予定の「この予定のみ / これ以降 / すべて」編集、タッチ・オートスクロール対応
-- ⌨️ **キーボード完結** — ショートカット（t/m/w/d/a/j/k/c）に加え、矢印キーでの予定の移動・リサイズ・削除・作成
+- ⌨️ **キーボード完結** — ショートカット（t/m/w/d/a/y/q/r/l/j/k/c）に加え、矢印キーでの予定の移動・リサイズ・削除・作成
 - 🎨 **ヘッドレス設計** — クラス名を持たず、`data-koyomi-*` 属性のみを出力。スタイルは自由に当てられ、デフォルトテーマ（ダークモード・RTL 対応）も同梱。UI 文言はすべて props で差し替え可能
 - 🌏 **マルチタイムゾーン** — 予定ごとのタイムゾーンと表示タイムゾーンの切り替え、DST に完全対応（date-fns v4 + @date-fns/tz）
 - 🔁 **RRULE 完全対応** — RFC 5545 の繰り返しパターンに加え、RDATE / EXDATE 相当（`rdates` / `exdates`）をサポート（rrule）
 - ♿ **アクセシブル** — WAI-ARIA grid ロール、完全な日付の `aria-label`、フォーカスリング、キーボードのみでの全操作
 - 🖥️ **SSR 対応** — Next.js 等のサーバーレンダリングでも例外なく初期描画が可能
+- 📜 **大量の予定に対応** — 可視範囲だけを描画するリストの仮想化（`VirtualListView`、opt-in）
 
 ## インストール
 
@@ -60,7 +61,7 @@ function App() {
 詳細は [リポジトリの docs/](https://github.com/koyomi-cal/koyomi/tree/main/docs) を参照してください。
 
 - [はじめに](https://github.com/koyomi-cal/koyomi/blob/main/docs/getting-started.md)
-- [ビュー（月・週・日・リスト）](https://github.com/koyomi-cal/koyomi/blob/main/docs/views.md)
+- [ビュー（月・週・日・リスト・年・複数月・リソース・タイムライン）](https://github.com/koyomi-cal/koyomi/blob/main/docs/views.md)
 - [予定の管理](https://github.com/koyomi-cal/koyomi/blob/main/docs/events.md)
 - [インタラクション（作成・移動・リサイズ）](https://github.com/koyomi-cal/koyomi/blob/main/docs/interactions.md)
 - [繰り返し予定](https://github.com/koyomi-cal/koyomi/blob/main/docs/recurrence.md)

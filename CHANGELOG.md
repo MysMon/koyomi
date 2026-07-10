@@ -18,9 +18,13 @@
 - `pointercancel` 未処理によりタッチ中断後にドラッグが復帰しない問題を修正
 - リストビューで長さ 0 のオカレンス（リマインダー等）が表示されない問題を修正
 - 値が変わらない設定操作（同じ timeZone・同一イベント配列参照・空パッチ等）で不要な再通知が発生する問題を修正
+- **[重要]** 繰り返しの「この予定のみ」編集・削除（`updateEvent` / `deleteEvent` の `scope: 'this'`、`moveOccurrenceIn` の長さ解決）で、あるオーバーライドの移動先の時刻が別オカレンスの本来の開始時刻（`originalStart`）と偶然一致すると、無関係なオーバーライドを誤って書き換える／削除してしまう問題を修正。`originalStart` を持つオーバーライドは常に `originalStart` の一致でのみ判定し、現在の `start` へのフォールバックは行わないようにした
+- **[重要]** オーバーライドイベントが `timeZone` を省略した場合、展開結果に表示タイムゾーンで誤解釈される問題を修正。展開時の `originalStart` 解釈と同じ「イベント TZ → マスター TZ → 表示 TZ」の 3 段フォールバックを、オーバーライド自身の `start`/`end` の解釈にも適用した。`resolveOccurrence` に任意の `master` パラメータを追加し、同じフォールバックを外部からも利用できるようにした
+- `moveOccurrenceIn` で `newEnd` を省略しつつ `allDay` を変換（時間指定 ⇔ 終日）すると、変換前の実ミリ秒差がそのまま新しい長さに使われ意図せず複数日にまたがることがある問題を修正。終日化はちょうど 1 日、時間指定化は `defaultEventMinutes` を既定の長さとして使うようにした（ドラッグ操作は常に `newEnd` を明示するため、UI 上の挙動への影響はない）
 
 ### 機能
 
+- **年・複数月・リソース・タイムラインビュー**（すべて opt-in）: `YearView`（12 ヶ月分のミニ月グリッド）、`MultiMonthView`（`multiMonthCount` ヶ月分の月グリッドを縦に連結）、`ResourceView`（1 日・列 = リソース）、`TimelineView`（横 = 時間・行 = リソース）を追加。`CalendarResource` 型、`resources` / `unassignedLane` / `multiMonthCount` / `timelineDays` オプション、`getResources` / `setResources` API を追加。低レベルフック `useResourceGridDrag` / `useTimelineDrag` を追加。`Toolbar` / `useCalendarShortcuts` は `views` prop・オプションで対象ビューを opt-in できる（既定は月・週・日・リストのままで、既存利用者の見た目・挙動は不変）。キーボードショートカット `Y`（年）/ `Q`（複数月）/ `R`（リソース）/ `L`（タイムライン）を追加
 - **リストの仮想化**: 可視範囲の日セクションだけを描画する `VirtualListView`（opt-in）と、ビュー非依存の縦方向ウィンドウイングのプリミティブ `useVirtualizer` を追加。大量の予定・長期間表示での DOM 肥大を抑える。高さは利用者 CSS が所有し（`[data-koyomi-virtualized]`）、`role="list"`/`listitem` と件数入り `aria-label` を付与。既定の `ListView`（全件描画）は不変
 - **リサイズ拡張**: 時間グリッドの上端リサイズ（開始時刻）、月ビュー・終日行の帯の左右端リサイズ（開始日・終了日）
 - **終日 ⇔ 時間指定のドラッグ変換**: 週/日ビューで終日行と時間グリッドをまたいでドラッグすると相互に変換
@@ -35,7 +39,9 @@
 - **ドラッグ中のオートスクロール**（時間グリッド）、ドラッグ起点への `touch-action: none`（デフォルトテーマ）
 - **アクセシビリティ**: 月ビューに WAI-ARIA grid ロール、日セルに完全な日付の `aria-label` と `aria-current="date"`、フォーカスリング
 - **RTL 対応**: コンポーネントの位置決めを論理プロパティ（`insetInlineStart`）化、テーマ CSS を論理プロパティで記述
-- **パフォーマンス**: `Intl.DateTimeFormat` のキャッシュ、ビュー行・列・イベントの `memo` 化
+- **パフォーマンス**: `Intl.DateTimeFormat` のキャッシュ、ビュー行・列・イベントの `memo` 化。時間グリッド（`time-grid-layout.ts`）・帯（`band-layout.ts`）のレーン/列割当アルゴリズムを、同一時間帯に多数の予定が重なる場合の計算量 O(n²) からほぼ線形に改善。週ビューの日別振り分け（`time-grid-view.ts`）も二分探索によるスイープに変更し重複走査を削減（出力結果・挙動は変更なし）
+- **公開 API 追加**: `SegmentResizeHandleProps`（`useDayDrag` の帯リサイズハンドル props 型）、`timeAtTimelineOffset`（タイムラインの表示分→日時変換）、`startOfMonthInZone` / `addMonthsInZone`（月単位の日付ユーティリティ）
+- **テーマ**: CSS 変数 `--koyomi-now-color`（現在時刻線の色。既定 `#ea4335`）を追加。週/日ビューの曜日ラベルに `data-koyomi="timegrid-weekday"` を追加（月・年ビューの曜日ラベルと同様のスタイルフック）。ボタン/見出しのブラウザ既定リセットのセレクタを `data-koyomi` 属性を持つ要素に限定し、`renderDayCell` 等でユーザーが差し込む独自の button/見出し要素へ波及しないようにした（見た目・詳細度は変更なし）
 
 ### 変更
 

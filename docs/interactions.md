@@ -366,7 +366,7 @@ function CustomDayRow() {
 
 ## 関連ページ
 
-- [ビュー（月・週・日・リスト・年・複数月）](./views.md)
+- [ビュー（月・週・日・リスト・年・複数月・リソース・タイムライン）](./views.md)
 - [予定の管理](./events.md)
 - [繰り返し予定](./recurrence.md)
 - [タイムゾーン](./timezones.md)

@@ -136,7 +136,7 @@ expandRecurrence({
 パラメータ（`{ occurrenceStart, scope }`）で、繰り返し予定のどの範囲に
 変更・削除を適用するかを指定します。単発イベントでは `target` を省略します。
 
-- `occurrenceStart` — 対象オカレンスの（現在の）開始時刻
+- `occurrenceStart` — 対象オカレンスの**本来の**開始時刻。既にオーバーライド済みのオカレンスの場合は、移動・変更される前の元の開始時刻（`originalStart`）を渡す（オーバーライドで移動済みの現在の開始時刻ではない点に注意）
 - `scope` — `'this'`（この予定のみ）/ `'thisAndFollowing'`（これ以降のすべて）/ `'all'`（すべて）
 
 ### scope: 'this' — この予定のみ
