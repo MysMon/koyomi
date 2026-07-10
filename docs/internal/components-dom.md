@@ -306,6 +306,65 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"]
   内部の予定ボタンが grid の子孫としてアクセシビリティツリーに漏れ出さないようにする。
   操作要素は `<button>` + 完全な `aria-label`。判断根拠・既知の制限の詳細は `docs/accessibility.md` を参照
 
+### 仮想化（VirtualResourceView）— opt-in 時の DOM 拡張
+
+`VirtualResourceView` は上記の非仮想化 DOM を**壊さず拡張**する（`ResourceView` の DOM は不変）。
+列見出しセル（`resource-header-cell`）・終日セル（`resource-allday-cell`）・本文列
+（`resource-column`）の中身自体は共通のため、変わるのは可視列だけを描画する点と、
+スペーサ・pinned 列（フォーカス保持）の追加だけ。
+
+```
+div[data-koyomi="resource"][data-koyomi-virtualized="true"][data-koyomi-columns="<列数>"]
+  div[data-koyomi="resource-grid"] (role="grid")
+    div[data-koyomi="resource-header"] (role="row")
+      div[data-koyomi="timegrid-axis-gutter"] (role="presentation")
+      div[data-koyomi="resource-headers"] (role="presentation")        … position: relative（pinned 列見出しの基準）
+        div[data-koyomi="resource-header-spacer"][data-edge="before"][aria-hidden]  … 左スペーサ（inline: width）
+        div[data-koyomi="resource-header-cell"] × 可視列数                          … 窓内の列見出し
+        div[data-koyomi="resource-header-spacer"][data-edge="after"][aria-hidden]   … 右スペーサ（inline: width）
+        div[data-koyomi="resource-header-cell"][data-koyomi-pinned="true"] × 0〜1   … 窓外のフォーカス保持（inline: left）
+    div[data-koyomi="allday-row"] (role="row")
+      div[data-koyomi="timegrid-axis-gutter"] (role="presentation")
+      div[data-koyomi="resource-allday-cells"] (role="presentation")
+        div[data-koyomi="resource-allday-spacer"][data-edge="before"][aria-hidden]  … 左スペーサ
+        div[data-koyomi="resource-allday-cell"] × 可視列数
+          button[data-koyomi="allday-event"] × n
+        div[data-koyomi="resource-allday-spacer"][data-edge="after"][aria-hidden]   … 右スペーサ
+        div[data-koyomi="resource-allday-cell"][data-koyomi-pinned="true"] × 0〜1   … 窓外のフォーカス保持（inline: left）
+          button[data-koyomi="allday-event"][tabindex="-1"] × n                    … pinned 列はタブ順から外す
+  div[data-koyomi="resource-body"]
+    div[data-koyomi="time-axis"]
+    div[data-koyomi="resource-columns"]
+      div[data-koyomi="resource-columns-spacer"][data-edge="before"][aria-hidden]   … 左スペーサ
+      div[data-koyomi="resource-column"] × 可視列数
+      div[data-koyomi="resource-columns-spacer"][data-edge="after"][aria-hidden]    … 右スペーサ
+      div[data-koyomi="resource-column"][data-koyomi-pinned="true"] × 0〜1          … 窓外のフォーカス保持（inline: left）
+        button[data-koyomi="timegrid-event"][tabindex="-1"] × n                    … pinned 列はタブ順から外す
+  div[data-koyomi="resource-empty"]?
+```
+
+- 列見出し・終日・本文の 3 箇所は同じ列インデックス集合（`useVirtualizer` の `axis: 'horizontal'`
+  1 回分の計算結果）を描画に使い回すため、可視列数・スペーサ幅は 3 箇所で常に一致する
+- スペーサの `data-koyomi` 値は 3 箇所で異なる（`resource-header-spacer` /
+  `resource-allday-spacer` / `resource-columns-spacer`）。同じ値を使い回すと
+  `querySelector` が意図しない箇所（例: 本文用のつもりが見出し行のもの）を拾ってしまうため、
+  行ごとに区別する
+- 各列の inline style は `flex: 0 0 <columnWidth>px` に加え、`min-width: <columnWidth>px` を
+  明示する。テーマ CSS 側は既定 160px（`--koyomi-resource-column-width`）の `min-width` を
+  持つため、`columnWidth` prop がそれと異なる値のとき素の `flex` 指定だけでは負けてしまい、
+  仮想化の座標計算（列幅 × インデックス）と実際の表示幅がずれる。この明示 `min-width` で防ぐ
+- pinned 列（フォーカス保持で窓外に描画される列）は `position: absolute` ＋
+  `data-koyomi-pinned="true"` ＋ inline `left`。列見出し・終日セルは元々操作対象ではないため
+  据え置きだが、**終日イベントボタン（`allday-event`）・時間指定イベントボタン
+  （`timegrid-event`）は pinned 列では `tabIndex={-1}` にする**（画面外の列をタブ順に残さない
+  ため。窓内へ戻ると `tabIndex` は既定値に戻る）
+- 時間軸の余白列（`timegrid-axis-gutter`）の実測幅を `useVirtualizer` の `viewportPadding` に
+  渡し、可視ビューポートから差し引く（スクロールコンテナ内でリソース列より「前」に同居する
+  固定表示列のため）
+- `measure: false`（列幅は `columnWidth` で固定、実測しない）で `useVirtualizer` を使う
+- ルート `[data-koyomi="resource"]` に `data-koyomi-virtualized="true"` が付く（横スクロールで
+  境界幅を確保するのは利用者 CSS の責務。境界幅が無ければ全件描画へ無害に縮退する）
+
 ## タイムラインビュー（TimelineView）
 
 横 = 時間（`timelineDays` 日の連結）、行 = リソース。水平位置は `表示分 / totalMinutes` の
@@ -359,6 +418,44 @@ div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"] (role="grid")
   `role="grid"` を適用し grid/row/columnheader/rowheader/gridcell を完全に構成する（各行が
   「rowheader + gridcell 1 セル」の固定 2 セルで、日単位の離散列を持たないため）。帯自体は
   `<button>` + 完全な `aria-label`。判断根拠の詳細は `docs/accessibility.md` を参照
+
+### 仮想化（VirtualTimelineView）— opt-in 時の DOM 拡張
+
+`VirtualTimelineView` は上記の非仮想化 DOM を**壊さず拡張**する（`TimelineView` の DOM は不変）。
+行（`timeline-row-group`）の中身自体は共通のため、変わるのは可視行だけを描画する点と、
+スペーサ・pinned 行（フォーカス保持）の追加だけ。
+
+```
+div[data-koyomi="timeline"][data-koyomi-virtualized="true"][data-koyomi-days="<表示日数>"] (role="grid")
+  div[data-koyomi="timeline-body"] (role="presentation")
+    div[data-koyomi="timeline-header-row"] (role="row")             … sticky（実測高を viewportPadding に使う）
+      ( … 角セル・日ヘッダー・時刻目盛り。「タイムラインビュー」節と同一 … )
+    div[data-koyomi="timeline-rows"] (role="presentation")          … row/rowgroup 以外の中間ラッパー
+      div[data-koyomi="timeline-row-spacer"][data-edge="before"][aria-hidden]  … 上スペーサ（inline: height）
+      div[data-koyomi="timeline-row-group"] (role="row") × 可視行数           … 窓内の行（中身は非仮想化版と同一）
+      div[data-koyomi="timeline-row-spacer"][data-edge="after"][aria-hidden]   … 下スペーサ（inline: height）
+      div[data-koyomi="timeline-row-group"][data-koyomi-pinned="true"] (role="row") × 0〜1
+                                                                       … 窓外のフォーカス保持（inline: top）
+        button[data-koyomi="timeline-item"][tabindex="-1"] × n        … pinned 行はタブ順から外す
+  div[data-koyomi="timeline-empty"]?
+```
+
+- `timeline-rows` は `role="grid"` の owned elements 規約（row/rowgroup 以外は
+  `role="presentation"` にする、リソースビューの `resource-headers` 等と同じ確立された規約）
+  に従い `role="presentation"` を持つ。これが無いと、`role` を持たない `div` が `grid` の
+  直接の子として扱われ owned elements 規約に反する
+- スペーサ（`timeline-row-spacer`）は `aria-hidden="true"` のため、`role="presentation"` の
+  `timeline-rows` の子として a11y ツリーから完全に除外される
+- inline style として出力するのはスペーサの `height`・pinned の `top` の数値のみ
+  （`VirtualListView` と同カテゴリ）
+- pinned 行（フォーカス保持で窓外に描画される行）は `data-koyomi-pinned="true"` ＋ inline
+  `top`。行見出しは据え置きだが、**帯（`timeline-item`）は pinned 行では `tabIndex={-1}`
+  にする**（画面外の行をタブ順に残さないため。窓内へ戻ると `tabIndex` は既定値に戻る）
+- ヘッダー行（`timeline-header-row`、sticky）の実測高を `useVirtualizer` の
+  `viewportPadding` に渡し、可視ビューポートから差し引く（スクロールコンテナ内で行リストより
+  「前」に同居する固定表示行のため）
+- ルート `[data-koyomi="timeline"]` に `data-koyomi-virtualized="true"` が付く（縦スクロールで
+  境界高を確保するのは利用者 CSS の責務。境界高が無ければ全件描画へ無害に縮退する）
 
 ## CalendarView
 

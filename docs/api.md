@@ -385,7 +385,7 @@ function useExternalDrag<TPayload>(params: {
 function useVirtualizer(options: UseVirtualizerOptions): Virtualizer
 ```
 
-縦方向のリストを仮想化する、ビュー非依存のヘッドレスなプリミティブです。`VirtualListView` が内部で使用します。DOM・スタイルは持たず、コア（`computeWindow` / `startForKey`）の純粋計算に、スクロール位置の購読・高さの実測（`ResizeObserver`）・スクロールアンカリングを結び付けて「描画すべきアイテムと寸法」だけを返します。独自 UI で仮想化したいときに使います。
+縦・横方向のリストを仮想化する、ビュー非依存のヘッドレスなプリミティブです。`VirtualListView` / `VirtualTimelineView`（縦）・`VirtualResourceView`（横）が内部で使用します。DOM・スタイルは持たず、コア（`computeWindow` / `startForKey`）の純粋計算に、スクロール位置の購読・寸法の実測（`ResizeObserver`）・スクロールアンカリングを結び付けて「描画すべきアイテムと寸法」だけを返します。独自 UI で仮想化したいときに使います。
 
 **オプション `UseVirtualizerOptions`**
 
@@ -393,12 +393,14 @@ function useVirtualizer(options: UseVirtualizerOptions): Virtualizer
 | --- | --- | --- |
 | `count` | `number` | アイテム総数 |
 | `getItemKey` | `(index: number) => string` | インデックス → 安定キー（測定キャッシュ・フォーカス保持の基準） |
-| `estimateSize` | `(index: number) => number` | インデックス → 推定高（px）。実測が入るまでの暫定値 |
+| `estimateSize` | `(index: number) => number` | インデックス → 推定高/幅（px）。実測が入るまでの暫定値 |
 | `getScrollElement` | `() => HTMLElement \| null` | スクロールコンテナを返す。戻り値は変わってよい（差し替えに追従） |
 | `overscan?` | `number` | 前後の追加描画数（既定 3） |
 | `pinnedKeys?` | `ReadonlySet<string>` | 窓外でも保持するキー（フォーカス中アイテム等） |
 | `measure?` | `boolean` | `ResizeObserver` で実測するか。`false` で推定固定（既定 `true`） |
 | `enabled` | `boolean` | 仮想化の有効化。SSR・初回は `false`、マウント後 `true`（hydration 不一致回避） |
+| `axis?` | `'vertical' \| 'horizontal'` | ウィンドウイングする軸（既定 `'vertical'`）。`'horizontal'` は `scrollLeft`/`clientWidth` を使う（`VirtualResourceView` の列方向で使用） |
+| `viewportPadding?` | `number` | 可視ビューポートの先頭から差し引く余白（px、既定 0）。スクロールコンテナ内でアイテム列より前に同居する固定表示の見出し（sticky なヘッダー・ガター）の実測寸法を渡す |
 
 **戻り値 `Virtualizer`**
 
@@ -406,12 +408,12 @@ function useVirtualizer(options: UseVirtualizerOptions): Virtualizer
 | --- | --- | --- |
 | `virtualItems` | `readonly VirtualItem[]` | 通常フローに並べる可視窓（overscan 込み） |
 | `pinnedItems` | `readonly VirtualItem[]` | 窓外で保持する pinned（絶対配置。通常 0〜1 件） |
-| `beforeSize` / `afterSize` | `number` | 上下スペーサの高さ（px） |
-| `totalSize` | `number` | 全アイテムの合計高（px） |
+| `beforeSize` / `afterSize` | `number` | 前後スペーサの高さ/幅（px） |
+| `totalSize` | `number` | 全アイテムの合計高/幅（px） |
 | `measureElement` | `(key: string) => (el: HTMLElement \| null) => void` | アイテム DOM の実測登録 ref コールバック |
 | `scrollToIndex` | `(index, opts?) => void` | 指定インデックスを可視域へスクロール |
 
-`VirtualItem` は `{ index, key, start, size, measured }`。高さはライブラリが所有せず、スクロールコンテナの高さは利用者 CSS が決めます（本フックは実測するだけ）。
+`VirtualItem` は `{ index, key, start, size, measured }`。寸法はライブラリが所有せず、スクロールコンテナの寸法は利用者 CSS が決めます（本フックは実測するだけ）。
 
 ## コンポーネント
 
@@ -621,6 +623,52 @@ function TimelineView(props: TimelineViewProps): ReactElement | null
 | `cornerLabel` | `string` | ヘッダー行の角セル（行見出し列の列見出し）の `aria-label`（既定「リソース」） |
 
 水平位置は `表示分 / totalMinutes` の % を inline で出力します（位置決めの数値のみ）。スクロールは単一の横スクロールコンテナ（`timeline-body`）で行い、行見出しはテーマ CSS の `position: sticky` で固定します（スクロール同期の JS は持ちません）。目盛りが 1,000 個を超える構成（`timelineDays × ceil(1440 / slotMinutes)`）では開発ビルドで一度だけ警告します。a11y は週/日ビューの現状に合わせ、帯は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
+
+### `VirtualResourceView`
+
+```ts
+function VirtualResourceView(props: VirtualResourceViewProps): ReactElement | null
+```
+
+`ResourceView` の列（リソース列）を横方向に仮想化した opt-in の別コンポーネントです（`ResourceView` 自体は変更しません）。可視範囲のリソース列だけを描画し、数百列規模の DOM 肥大を抑えます。DOM 構造・ARIA（`role="grid"` / `row` / `columnheader` / `gridcell`）は `ResourceView` と同じです。内部で `useVirtualizer`（`axis: 'horizontal'`）を使用します。`ref` 経由で `VirtualResourceViewHandle` を公開します。
+
+`ResourceView` の props（`renderEvent` / `renderColumnHeader` / `unassignedLabel` / `emptyLabel`）に加えて次を受け付けます。
+
+| プロパティ | シグネチャ | 説明 |
+| --- | --- | --- |
+| `columnWidth` | `number` | 列 1 本分の幅（px、既定 160 = `--koyomi-resource-column-width` の既定値と同じ）。列幅は固定 |
+| `overscan` | `number` | 前後の追加描画列数（既定 3） |
+
+**`VirtualResourceViewHandle`**（`ref` で取得）
+
+| メンバー | シグネチャ | 説明 |
+| --- | --- | --- |
+| `scrollToResource` | `(resourceId: string \| null, options?: { align?: 'auto' \| 'start' \| 'center' }) => void` | 指定リソースの列を可視域へスクロールする（`resourceId: null` は未割り当て列） |
+
+**境界幅は CSS で指定（必須）**。スクロールコンテナはルート `[data-koyomi="resource"][data-koyomi-virtualized]`（横スクロールを担う要素は非仮想化版と同じ）です。境界幅が無いと仮想化は無害に無効化されます（開発ビルドで一度警告）。フォーカス中の列は窓外へスクロールしても列見出し・終日セル・本文列の 3 箇所がまとめて DOM を保持します。詳細は [ビュー: レーンの仮想化](./views.md#レーンの仮想化リソースタイムラインビュー) を参照してください。
+
+### `VirtualTimelineView`
+
+```ts
+function VirtualTimelineView(props: VirtualTimelineViewProps): ReactElement | null
+```
+
+`TimelineView` の行（リソース行）を縦方向に仮想化した opt-in の別コンポーネントです（`TimelineView` 自体は変更しません）。可視範囲のリソース行だけを描画し、数百行規模の DOM 肥大を抑えます。DOM 構造・ARIA（`role="grid"` / `row` / `rowheader` / `gridcell`）は `TimelineView` と同じです。内部で `useVirtualizer` を使用します。`ref` 経由で `VirtualTimelineViewHandle` を公開します。
+
+`TimelineView` の props（`renderEvent` / `renderRowHeader` / `unassignedLabel` / `emptyLabel` / `cornerLabel`）に加えて次を受け付けます。
+
+| プロパティ | シグネチャ | 説明 |
+| --- | --- | --- |
+| `estimateRowHeight` | `number \| ((row: TimelineRow, index: number) => number)` | 行の推定高（既定はレーン数 × 28px）。実測が入るまでの暫定値 |
+| `overscan` | `number` | 前後の追加描画行数（既定 3） |
+
+**`VirtualTimelineViewHandle`**（`ref` で取得）
+
+| メンバー | シグネチャ | 説明 |
+| --- | --- | --- |
+| `scrollToResource` | `(resourceId: string \| null, options?: { align?: 'auto' \| 'start' \| 'center' }) => void` | 指定リソースの行を可視域へスクロールする（`resourceId: null` は未割り当て行） |
+
+**境界高は CSS で指定（必須）**。スクロールコンテナは `[data-koyomi="timeline-body"]`（非仮想化版と同じ、既定テーマは `max-height: 640px`）です。境界高が無いと仮想化は無害に無効化されます（開発ビルドで一度警告）。ヘッダー行（日ヘッダー・時刻目盛り）は sticky でスクロールコンテナの先頭に同居するため、`useVirtualizer` の `viewportPadding` にヘッダーの実測高を渡して可視ビューポートから差し引きます。詳細は [ビュー: レーンの仮想化](./views.md#レーンの仮想化リソースタイムラインビュー) を参照してください。
 
 ### `Toolbar`
 

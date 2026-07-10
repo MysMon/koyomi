@@ -234,4 +234,84 @@ describe('useVirtualizer', () => {
     // null 渡し（アンマウント）で例外にならない
     expect(() => result.current.measureElement('k0')(null)).not.toThrow();
   });
+
+  describe("axis='horizontal'", () => {
+    /** clientWidth を固定した横スクロールコンテナ要素を body に用意する。 */
+    function horizontalScrollElement(clientWidth: number): HTMLDivElement {
+      const element = document.createElement('div');
+      Object.defineProperty(element, 'clientWidth', { configurable: true, value: clientWidth });
+      document.body.appendChild(element);
+      created.push(element);
+      return element;
+    }
+
+    it('scrollLeft/clientWidth を使って可視窓を計算する', () => {
+      const element = horizontalScrollElement(100);
+      const { result } = renderHook(() =>
+        useVirtualizer({ ...baseOptions(element, true), axis: 'horizontal' }),
+      );
+      // 可視 0..4（100px / 20px）＋ overscan 3 → 0..7
+      const indices = result.current.virtualItems.map((item) => item.index);
+      expect(indices[0]).toBe(0);
+      expect(indices.at(-1)).toBe(7);
+    });
+
+    it('横スクロールすると可視窓が移動する', async () => {
+      const element = horizontalScrollElement(100);
+      const { result } = renderHook(() =>
+        useVirtualizer({ ...baseOptions(element, true), axis: 'horizontal' }),
+      );
+
+      await act(async () => {
+        element.scrollLeft = 100;
+        element.dispatchEvent(new Event('scroll'));
+        await nextFrame();
+      });
+
+      const indices = result.current.virtualItems.map((item) => item.index);
+      expect(indices).toContain(5);
+      expect(indices).toContain(9);
+      expect(result.current.beforeSize).toBeGreaterThan(0);
+    });
+
+    it('scrollToIndex は scrollLeft を書き換える（縦軸の scrollTop は変えない）', () => {
+      const element = horizontalScrollElement(100);
+      const { result } = renderHook(() =>
+        useVirtualizer({ ...baseOptions(element, true), axis: 'horizontal' }),
+      );
+
+      act(() => {
+        result.current.scrollToIndex(9, { align: 'start' });
+      });
+
+      expect(element.scrollLeft).toBe(180); // index 9 = 9×20
+      expect(element.scrollTop).toBe(0);
+    });
+  });
+
+  describe('viewportPadding', () => {
+    it('可視ビューポートの先頭から viewportPadding 分を差し引いて窓を計算する', () => {
+      // clientHeight=100・viewportPadding=40 → 実効ビューポートは 60px 相当（可視 0..2 + overscan）
+      const element = scrollElement(100);
+      const { result } = renderHook(() =>
+        useVirtualizer({ ...baseOptions(element, true), viewportPadding: 40, overscan: 0 }),
+      );
+      const indices = result.current.virtualItems.map((item) => item.index);
+      // 60px 分（0..2）だけが可視になる（40px 分の余白を無視しなければ 0..4 になってしまう）
+      expect(indices).toEqual([0, 1, 2]);
+    });
+
+    it('scrollToIndex(align="center") は viewportPadding を差し引いた実効ビューポートを使う', () => {
+      // 実効ビューポート = 100 - 40 = 60px、itemSize 20px
+      const element = scrollElement(100);
+      const { result } = renderHook(() =>
+        useVirtualizer({ ...baseOptions(element, true), viewportPadding: 40 }),
+      );
+      act(() => {
+        result.current.scrollToIndex(9, { align: 'center' });
+      });
+      // start(180) - (60 - 20) / 2 = 180 - 20 = 160
+      expect(element.scrollTop).toBe(160);
+    });
+  });
 });
