@@ -491,6 +491,8 @@ function App() {
 
 週番号は表示タイムゾーン基準で、週内の木曜日を基準に算出します（ISO 8601 の規則どおり、その週の木曜日が属する年・週で数える）。`weekStartsOn`（週開始曜日）の値によらず、同じ 7 日間には常に同じ週番号が付きます。年をまたぐ週（例: 1 月上旬が前年の最終週になる、12 月下旬が翌年の第 1 週になる）も正しく計算されます。
 
+なお、一意なのは「7 日間の週」に対する番号であって、週の区切り方自体は `weekStartsOn` に依存します。そのため同じ日付でも、週の区切りが変われば異なる番号の週の行に表示されることがあります（顕著なのは `weekStartsOn: 4`（木曜始まり）で、月曜始まりの ISO 週と区切りが大きくずれるため、例えば 2026-07-01 は他の週開始曜日では第 27 週の行に入るのに対し、木曜始まりでは第 26 週の行に入ります）。これは月曜週前提の ISO 週番号を任意区切りの週に割り当てることに固有の性質です。
+
 `MonthWeek.weekNumber` / `TimeGridViewModel.weekNumber`（`viewType: 'day'` では常に `null`）としてビューモデルからも参照できます。属性のみを付与するヘッドレスな設計のため、実際に数字を表示するには CSS（`content: attr(data-koyomi-week-number)` 等）や `renderDayCell` 等のカスタム描画スロットを使ってください。`showWeekNumbers` 未指定時（既定）は `weekNumber` が常に `null` で、DOM 属性も出力されません（従来どおりの出力）。
 
 ## 営業時間（businessHours）
@@ -520,6 +522,8 @@ function App() {
 ```
 
 `daysOfWeek` に該当する曜日について、`startTime`〜`endTime`（ともに `'HH:mm'` 形式）を営業時間として扱います（`endTime` は排他的。`startTime` ちょうどは営業時間内、`endTime` ちょうどは営業時間外）。複数件を配列で渡すと OR 判定になるため、曜日ごとに異なる時間帯を指定できます。
+
+ハイライトの判定はスロット単位（各スロットの開始時刻が営業時間内かどうか）で行います。そのため `startTime` / `endTime` が `slotMinutes` の区切りに合っていない場合（例: `slotMinutes: 30` で `startTime: '09:15'`）、ハイライトは次のスロット境界（9:30）から始まります。スロットより細かい粒度の表現が必要な場合は、`TimeGridDay.businessHourSlots` を参照して独自に描画してください。
 
 ```tsx
 businessHours: [

@@ -1832,6 +1832,47 @@ describe('before/after スナップショット（undo 基盤）', () => {
       expect(result.changes).toEqual([]);
     });
 
+    it('exdates が同じ集合で並び順だけ異なるパッチは「無変化」と判定され changes は空になる', () => {
+      const master = makeMaster({
+        exdates: [new Date('2026-07-05T00:00:00Z'), new Date('2026-07-12T00:00:00Z')],
+      });
+      const result = updateEventInWithChanges(
+        [master],
+        'master-1',
+        // 同じ 2 日付を逆順で指定する（exdates は概念上は日付の集合であり、順序に意味はない）
+        { exdates: [new Date('2026-07-12T00:00:00Z'), new Date('2026-07-05T00:00:00Z')] },
+        undefined,
+        makeContext(),
+      );
+      expect(result.changes).toEqual([]);
+    });
+
+    it('rdates が同じ集合で並び順だけ異なるパッチも「無変化」と判定される', () => {
+      const master = makeMaster({
+        rdates: [new Date('2026-07-06T00:00:00Z'), new Date('2026-07-13T00:00:00Z')],
+      });
+      const result = updateEventInWithChanges(
+        [master],
+        'master-1',
+        { rdates: [new Date('2026-07-13T00:00:00Z'), new Date('2026-07-06T00:00:00Z')] },
+        undefined,
+        makeContext(),
+      );
+      expect(result.changes).toEqual([]);
+    });
+
+    it('exdates の集合として実際に異なるパッチは changes に含まれる', () => {
+      const master = makeMaster({ exdates: [new Date('2026-07-05T00:00:00Z')] });
+      const result = updateEventInWithChanges(
+        [master],
+        'master-1',
+        { exdates: [new Date('2026-07-19T00:00:00Z')] },
+        undefined,
+        makeContext(),
+      );
+      expect(result.changes).toHaveLength(1);
+    });
+
     it('実際に値が変わるフィールドが 1 つでもあれば、通常どおり changes に含まれる', () => {
       const master = makeMaster();
       const result = updateEventInWithChanges(

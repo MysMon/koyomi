@@ -40,6 +40,14 @@ export function startOfWeekInZone(date: Date, timeZone: TimeZoneId, weekStartsOn
  * 1 日だけ含まれるため、その木曜日を基準に {@link isoWeekNumberInZone} を呼ぶことで、
  * `weekStartsOn` の値によらず「その週」に対応する ISO 週番号を一意に返す。
  *
+ * 注意: 一意なのは「与えられた 7 日間の週」に対する番号であって、個々の日付が
+ * どの番号の週の行に表示されるかは週の区切り方（`weekStartsOn`）に依存する。
+ * 例えば `weekStartsOn: 4`（木曜始まり）では週窓に含まれる木曜日が月曜始まりの
+ * 場合と 1 週ずれることがあり、同じ日付でも他の `weekStartsOn` と異なる週番号の
+ * 行に見える（例: 2026-07-01 は `weekStartsOn: 4` でのみ第 26 週の行に入る）。
+ * これは月曜週前提の ISO 週番号を任意区切りの週に割り当てることに固有の性質で、
+ * 実装上の不具合ではない。
+ *
  * @param weekStart - 週の開始日（`weekStartsOn` に従う任意の曜日の 0:00。
  *   {@link startOfWeekInZone} の戻り値を渡す想定）
  * @param timeZone - 表示タイムゾーン
