@@ -57,6 +57,8 @@ unsubscribe();
 | `refresh` | `(): void` | 状態を変えずにビューモデルを再構築して通知する（`now()` の再評価。現在時刻線の追従用） |
 | `getEvents` | `(): readonly CalendarEvent[]` | すべてのソースイベントを返す |
 | `setEvents` | `(events: readonly CalendarEvent[]): void` | イベント一覧を置き換える（外部ストア同期用。`onEventsChange` は呼ばれない） |
+| `getResources` | `(): readonly CalendarResource[]` | すべてのリソースを返す（表示順） |
+| `setResources` | `(resources: readonly CalendarResource[]): void` | リソース一覧を置き換える（外部ストア同期用。`events`/`setEvents` と同じ流儀） |
 | `createEvent` | `(input: CalendarEventInput): CalendarEvent` | イベントを作成し、`id` 確定済みのイベントを返す |
 | `updateEvent` | `(id: EventId, patch: CalendarEventPatch, target?: { occurrenceStart: Date; scope: RecurringEditScope }): void` | イベントを更新する。繰り返しは `target` でスコープを指定 |
 | `deleteEvent` | `(id: EventId, target?: { occurrenceStart: Date; scope: RecurringEditScope }): void` | イベントを削除する |
@@ -123,7 +125,7 @@ interface UseCalendarOptions extends CalendarOptions {
 
 カレンダーエンジンを作成し、React の状態として購読するメインフックです。エンジンはマウント時に一度だけ作成され、`useSyncExternalStore` で購読されます。
 
-- `options` は**初期値として一度だけ**使われます（後から変更しても反映されません。動的に変更する場合は `api.updateOptions` / `api.setEvents` / `api.setTimeZone` を使います）。マウント後に異なる `events` 参照を渡し続けた場合、開発ビルドでは一度だけ警告が表示されます。
+- `options` は**初期値として一度だけ**使われます（後から変更しても反映されません。動的に変更する場合は `api.updateOptions` / `api.setEvents` / `api.setResources` / `api.setTimeZone` を使います）。マウント後に異なる `events` / `resources` 参照を渡し続けた場合、開発ビルドではそれぞれ一度だけ警告が表示されます。
 - `onEventsChange` コールバックと `refreshSeconds` だけは常に最新の値が反映されます。
 - 戻り値の `api` は再レンダリングを跨いで安定した参照です（`useEffect` の依存に安全に使えます）。
 - SSR（`renderToString` / Next.js）でも例外なく初期状態を描画できます（`getServerSnapshot` 対応済み）。Next.js App Router では `'use client'` が必要です。
@@ -160,12 +162,14 @@ Google カレンダー準拠のキーボードショートカットを有効に�
 | `M` / `W` / `D` / `A` | 月 / 週 / 日 / リスト表示に切り替え |
 | `Y` | 年表示に切り替え（`views` に `'year'` を含む場合のみ。既定では無効） |
 | `Q` | 複数月表示に切り替え（`views` に `'multiMonth'` を含む場合のみ。既定では無効） |
+| `R` | リソース表示に切り替え（`views` に `'resource'` を含む場合のみ。既定では無効） |
+| `L` | タイムライン表示に切り替え（`views` に `'timeline'` を含む場合のみ。既定では無効） |
 | `T` | 今日へ移動 |
 | `J`, `N` | 次の期間へ |
 | `K`, `P` | 前の期間へ |
 | `C` | `onCreate` を呼ぶ（予定作成 UI の起点） |
 
-`views`（既定 `['month', 'week', 'day', 'list']`）でビュー切替キーの対象ビューを制限します。新ビュー（年 等）のキーは opt-in で、既定では無効です。`Toolbar` の `views` prop（下記）と同じ既定値・同じ opt-in 方針です。
+`views`（既定 `['month', 'week', 'day', 'list']`）でビュー切替キーの対象ビューを制限します。新ビュー（年・複数月・リソース・タイムライン）のキーは opt-in で、既定では無効です。`Toolbar` の `views` prop（下記）と同じ既定値・同じ opt-in 方針です。
 
 ```tsx
 import { CalendarProvider, CalendarView, useCalendar, useCalendarShortcuts } from '@koyomi-cal/react';
@@ -278,6 +282,72 @@ console.log(dayProps['data-koyomi-date']); // => '2026-07-01'
 
 インタラクションのコールバック（`onEventClick` / `onSelectRange` / `onEventChange` / `onEventDelete` / `onError` / `resolveRecurringScope` / `onOverflowClick`）の詳細は [インタラクション](./interactions.md) を参照してください。
 
+### `useResourceGridDrag`
+
+```ts
+function useResourceGridDrag(params: {
+  calendar: UseCalendarResult;
+  callbacks?: CalendarInteractionCallbacks;
+}): ResourceGridDragHandlers
+```
+
+リソースビュー（列 = リソース × 縦 = 時間）のドラッグインタラクション（新規作成・移動・リサイズ・列間のリソース移動）を提供する低レベルフックです。`ResourceView` が内部で使用しています。確定時は時間の変更と `resourceId` の変更を 1 つのパッチに合成し、1 回の `updateEvent` を呼びます。
+
+**戻り値 `ResourceGridDragHandlers`**
+
+| メンバー | シグネチャ | 説明 |
+| --- | --- | --- |
+| `getColumnProps` | `(column: ResourceColumn): ResourceColumnProps` | リソース列要素に付与する props を返す |
+| `getAllDayCellProps` | `(column: ResourceColumn): ResourceAllDayCellProps` | 終日行のセル要素に付与する props を返す |
+| `getEventProps` | `(item: PositionedOccurrence): ResourceEventProps` | 時間指定イベントブロック用の props を返す |
+| `getAllDayItemProps` | `(occurrence: EventOccurrence): ResourceEventProps` | 終日アイテム用の props を返す（列間移動のみ。リサイズなし） |
+| `getResizeHandleProps` | `(item: PositionedOccurrence, edge?: 'start' \| 'end'): ResourceResizeHandleProps` | リサイズハンドル用の props を返す（`edge` 省略時は `'end'`） |
+| `previewFor` | `(column: ResourceColumn): ResourcePreviewSegment \| null` | 指定列の時間指定ドラッグプレビュー区間を返す |
+| `isAllDayPreviewTarget` | `(column: ResourceColumn): boolean` | 指定列が終日プレビューの対象かを返す |
+| `isDragging` | `boolean` | ドラッグ操作が進行中か |
+
+**関連する props 型**
+
+| 型 | フィールド |
+| --- | --- |
+| `ResourceColumnProps` | `ref`, `onPointerDown`, `'data-koyomi-resource'` |
+| `ResourceAllDayCellProps` | `onClick`, `'data-koyomi-resource'` |
+| `ResourceEventProps` | `onPointerDown`, `onClick`, `onKeyDown`, `tabIndex`, `'data-koyomi-occurrence'`, `'data-koyomi-dragging'?` |
+| `ResourceResizeHandleProps` | `onPointerDown`, `onClick`, `'data-koyomi-resize-handle': 'start' \| 'end'` |
+| `ResourcePreviewSegment` | `kind: 'create' | 'move' | 'resize'`, `startMinutes: number`, `endMinutes: number` |
+
+### `useTimelineDrag`
+
+```ts
+function useTimelineDrag(params: {
+  calendar: UseCalendarResult;
+  callbacks?: CalendarInteractionCallbacks;
+}): TimelineDragHandlers
+```
+
+タイムラインビュー（横 = 時間 × 行 = リソース）のドラッグインタラクション（新規作成・移動・リサイズ・行間のリソース移動）を提供する低レベルフックです。`TimelineView` が内部で使用しています。横位置は「表示分」（`timeAtTimelineOffset` の座標系）で扱い、確定時は `useResourceGridDrag` と同じく時間と `resourceId` の変更を 1 回の `updateEvent` に合成します。
+
+**戻り値 `TimelineDragHandlers`**
+
+| メンバー | シグネチャ | 説明 |
+| --- | --- | --- |
+| `getRowProps` | `(row: TimelineRow): TimelineRowProps` | リソース行要素に付与する props を返す |
+| `getItemProps` | `(item: TimelineItem): TimelineItemProps` | 帯（タイムラインアイテム）用の props を返す |
+| `getResizeHandleProps` | `(item: TimelineItem, edge?: 'start' \| 'end'): TimelineResizeHandleProps` | リサイズハンドル用の props を返す（終日の帯には付けない。`edge` 省略時は `'end'`） |
+| `previewFor` | `(row: TimelineRow): TimelinePreviewSegment \| null` | 指定行のドラッグプレビュー区間（表示分）を返す |
+| `isDragging` | `boolean` | ドラッグ操作が進行中か |
+
+**関連する props 型**
+
+| 型 | フィールド |
+| --- | --- |
+| `TimelineRowProps` | `ref`, `onPointerDown`, `'data-koyomi-resource'` |
+| `TimelineItemProps` | `onPointerDown`, `onClick`, `onKeyDown`, `tabIndex`, `'data-koyomi-occurrence'`, `'data-koyomi-dragging'?` |
+| `TimelineResizeHandleProps` | `onPointerDown`, `onClick`, `'data-koyomi-resize-handle': 'start' \| 'end'` |
+| `TimelinePreviewSegment` | `kind: 'create' | 'move' | 'resize'`, `startMinutes: number`, `endMinutes: number` |
+
+リソース/タイムラインの D&D の縦横の軸・合成パッチ・キーボード操作の詳細は [インタラクション: リソースビュー・タイムラインビューのドラッグ操作](./interactions.md#リソースビュータイムラインビューのドラッグ操作) を参照してください。
+
 ### `useVirtualizer`
 
 ```ts
@@ -357,7 +427,7 @@ function App() {
 function CalendarView(props: CalendarViewProps): ReactElement
 ```
 
-現在のビュー（`state.view`）に応じて `MonthView` / `TimeGridView` / `ListView` / `YearView` / `MultiMonthView` を出し分けるスイッチコンポーネントです。ルート要素に `data-koyomi="root"` と `data-koyomi-view` が付きます。
+現在のビュー（`state.view`）に応じて `MonthView` / `TimeGridView` / `ListView` / `YearView` / `MultiMonthView` / `ResourceView` / `TimelineView` を出し分けるスイッチコンポーネントです。ルート要素に `data-koyomi="root"` と `data-koyomi-view` が付きます。
 
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
@@ -378,6 +448,14 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `renderMultiMonthEvent` | `(segment: EventSegment) => ReactNode` | 複数月ビューのセグメントのカスタム描画（`MultiMonthView.renderEvent` へ転送） |
 | `renderMultiMonthDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 複数月ビューの日セルのカスタム描画（`MultiMonthView.renderDayCell` へ転送） |
 | `multiMonthOverflowLabel` | `(count: number) => ReactNode` | 複数月ビューの「+N 件」の文言（`MultiMonthView.overflowLabel` へ転送） |
+| `renderResourceEvent` | `(item: PositionedOccurrence) => ReactNode` | リソースビューのイベントブロックのカスタム描画（`ResourceView.renderEvent` へ転送） |
+| `renderResourceColumnHeader` | `(column: ResourceColumn, defaultContent: ReactNode) => ReactNode` | リソースビューの列見出しのカスタム描画（`ResourceView.renderColumnHeader` へ転送） |
+| `resourceUnassignedLabel` | `ReactNode` | リソースビューの未割り当て列ラベル（既定「未割り当て」。`ResourceView.unassignedLabel` へ転送） |
+| `resourceEmptyLabel` | `ReactNode` | リソースビューの空状態メッセージ（既定「リソースがありません」。`ResourceView.emptyLabel` へ転送） |
+| `renderTimelineEvent` | `(item: TimelineItem) => ReactNode` | タイムラインの帯のカスタム描画（`TimelineView.renderEvent` へ転送） |
+| `renderTimelineRowHeader` | `(row: TimelineRow, defaultContent: ReactNode) => ReactNode` | タイムラインの行見出しのカスタム描画（`TimelineView.renderRowHeader` へ転送） |
+| `timelineUnassignedLabel` | `ReactNode` | タイムラインの未割り当て行ラベル（既定「未割り当て」。`TimelineView.unassignedLabel` へ転送） |
+| `timelineEmptyLabel` | `ReactNode` | タイムラインの空状態メッセージ（既定「リソースがありません」。`TimelineView.emptyLabel` へ転送） |
 
 ### `MonthView`
 
@@ -473,6 +551,40 @@ function MultiMonthView(props: MultiMonthViewProps): ReactElement | null
 
 `MonthView` との違いは、前後月の日付セルに予定を表示しない点だけです。月境界をまたぐ帯は月ごとにクランプされ、`continuesBefore` / `continuesAfter` で「←続く／続く→」を示します（月ビューの複数週セグメントと同じセマンティクス）。前後月の日付セルはクリック・キーボード操作の対象になりません（`tabIndex` なし）。
 
+### `ResourceView`
+
+```ts
+function ResourceView(props: ResourceViewProps): ReactElement | null
+```
+
+リソースビュー（1 日、列 = リソース × 縦 = 時間）を描画します。`viewModel.type !== 'resource'` の場合は `null` を返します。列・イベントのドラッグ操作は `useResourceGridDrag` に委譲しています。
+
+| プロパティ | シグネチャ | 説明 |
+| --- | --- | --- |
+| `renderEvent` | `(item: PositionedOccurrence) => ReactNode` | 時間指定イベントブロックの表示内容。省略時は開始時刻＋タイトル |
+| `renderColumnHeader` | `(column: ResourceColumn, defaultContent: ReactNode) => ReactNode` | 列見出しの内容（`defaultContent` はリソース名、または未割り当て列は `unassignedLabel`）をラップ・置換する |
+| `unassignedLabel` | `ReactNode` | 未割り当て列の見出しラベル（既定「未割り当て」） |
+| `emptyLabel` | `ReactNode` | 空状態（列が 1 つもない）のメッセージ（既定「リソースがありません」） |
+
+イベントブロック・リサイズハンドル・現在時刻線・プレビューは週/日ビューと同じ部位名（`timegrid-event` 等）を使い、デフォルトテーマのスタイルを共有します。a11y は週/日ビューの現状（grid 系 role なし）に合わせ、操作要素は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
+
+### `TimelineView`
+
+```ts
+function TimelineView(props: TimelineViewProps): ReactElement | null
+```
+
+タイムラインビュー（横 = 時間 × 行 = リソース）を描画します。`viewModel.type !== 'timeline'` の場合は `null` を返します。行・帯のドラッグ操作は `useTimelineDrag` に委譲しています。
+
+| プロパティ | シグネチャ | 説明 |
+| --- | --- | --- |
+| `renderEvent` | `(item: TimelineItem) => ReactNode` | 帯（タイムラインアイテム）の表示内容。省略時はタイトルのみ |
+| `renderRowHeader` | `(row: TimelineRow, defaultContent: ReactNode) => ReactNode` | 行見出しの内容（`defaultContent` はリソース名、または未割り当て行は `unassignedLabel`）をラップ・置換する |
+| `unassignedLabel` | `ReactNode` | 未割り当て行の見出しラベル（既定「未割り当て」） |
+| `emptyLabel` | `ReactNode` | 空状態（行が 1 つもない）のメッセージ（既定「リソースがありません」） |
+
+水平位置は `表示分 / totalMinutes` の % を inline で出力します（位置決めの数値のみ）。スクロールは単一の横スクロールコンテナ（`timeline-body`）で行い、行見出しはテーマ CSS の `position: sticky` で固定します（スクロール同期の JS は持ちません）。目盛りが 1,000 個を超える構成（`timelineDays × ceil(1440 / slotMinutes)`）では開発ビルドで一度だけ警告します。a11y は週/日ビューの現状に合わせ、帯は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
+
 ### `Toolbar`
 
 ```ts
@@ -495,13 +607,15 @@ interface ToolbarLabels {
   list?: ReactNode;
   year?: ReactNode;
   multiMonth?: ReactNode;
+  resource?: ReactNode;
+  timeline?: ReactNode;
   today?: ReactNode;
   prev?: ReactNode;
   next?: ReactNode;
 }
 ```
 
-「今日」「前へ」「次へ」のナビゲーション、期間タイトル、ビュー切替（既定は月・週・日・リスト。`views` prop で年ビュー・複数月ビュー等を追加できる opt-in）を提供します。タイトルは現在のビューに応じて `formatMonthTitle` / `formatDayTitle` / `formatRangeTitle` / `formatYearTitle` のいずれかで整形されます（複数月ビューは表示範囲の開始月・終了月をそれぞれ `formatMonthTitle` で整形し、「2026年7月〜2026年9月」のように連結します。同一月なら単一表記）。`labels` で全ボタン文言を差し替えられます（i18n 対応）。
+「今日」「前へ」「次へ」のナビゲーション、期間タイトル、ビュー切替（既定は月・週・日・リスト。`views` prop で年・複数月・リソース・タイムラインビュー等を追加できる opt-in）を提供します。タイトルは現在のビューに応じて `formatMonthTitle` / `formatDayTitle` / `formatRangeTitle` / `formatYearTitle` のいずれかで整形されます（複数月ビューは表示範囲の開始月・終了月をそれぞれ `formatMonthTitle` で整形し、「2026年7月〜2026年9月」のように連結します。同一月なら単一表記。リソースビューは日ビューと同じ `formatDayTitle`。タイムラインビューは `timelineDays: 1` なら日ビューと同じ形式、複数日なら `formatRangeTitle` による範囲形式「2026年7月15日〜7月21日」）。`labels` で全ボタン文言を差し替えられます（i18n 対応）。
 
 ## 型
 
@@ -518,7 +632,8 @@ interface ToolbarLabels {
 | `CalendarEventPatch` | `Omit<CalendarEvent, 'id'>` の各フィールドが省略可能かつ明示的に `\| undefined` を許容する部分更新型（`exactOptionalPropertyTypes: true` でも `{ rrule: undefined }` のようなリテラルをそのまま書ける）。キーが存在し値が `undefined` の場合はそのフィールドを削除するが、必須フィールドだった `title` / `start` は削除されず元の値を維持する |
 | `EventOccurrence` | イベントのオカレンス。下表参照 |
 | `RecurringEditScope` | `'this' | 'thisAndFollowing' | 'all'`。繰り返しの編集・削除の適用範囲 |
-| `DragPreview` | `{ kind: 'create' | 'move' | 'resize'; occurrenceKey: string | null; range: DateRange; allDay: boolean }` |
+| `CalendarResource` | カレンダーのリソース（会議室・設備・担当者など、予定の割当先）。下表参照 |
+| `DragPreview` | `{ kind: 'create' | 'move' | 'resize'; occurrenceKey: string | null; range: DateRange; allDay: boolean; resourceId?: string | null }`。`resourceId` はリソース/タイムラインビューでの操作時のみ設定される（既存ビューでは省略） |
 
 **`CalendarEvent` のフィールド**
 
@@ -539,6 +654,16 @@ interface ToolbarLabels {
 | `location?` | `string` | 場所 |
 | `description?` | `string` | 説明文 |
 | `editable?` | `boolean` | 変更操作（ドラッグ・キーボードの移動/リサイズ/削除）を許可するか（既定 `true`） |
+| `resourceId?` | `string` | 割当先リソースの ID（[予定の管理: リソース](./events.md#リソース)を参照） |
+| `extendedProps?` | `Record<string, unknown>` | 利用者定義の任意データ |
+
+**`CalendarResource` のフィールド**
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `id` | `string` | 一意な ID。重複時は先頭のリソースが優先される（先勝ち） |
+| `title` | `string` | 表示名 |
+| `color?` | `string` | 表示色（CSS の color 値）。リソース/タイムラインビューの列/行見出しと既定色に使用（イベント自身の `color` が優先） |
 | `extendedProps?` | `Record<string, unknown>` | 利用者定義の任意データ |
 
 **`EventOccurrence` のフィールド**
@@ -565,6 +690,7 @@ interface ToolbarLabels {
 | `initialDate?` | `Date` | 現在時刻 |
 | `initialView?` | `CalendarViewType` | `'month'` |
 | `events?` | `readonly CalendarEvent[]` | `[]` |
+| `resources?` | `readonly CalendarResource[]` | `[]` |
 | `timeZone?` | `TimeZoneId` | 実行環境のローカルタイムゾーン |
 | `weekStartsOn?` | `Weekday` | `0`（日曜日） |
 | `dayMaxEvents?` | `number` | `4` |
@@ -574,6 +700,8 @@ interface ToolbarLabels {
 | `defaultEventTitle?` | `string` | `'(タイトルなし)'`（既定作成時のタイトル） |
 | `listDays?` | `number` | `30` |
 | `multiMonthCount?` | `number` | `3` |
+| `timelineDays?` | `number` | `1` |
+| `unassignedLane?` | `'auto' \| 'always'` | `'auto'` |
 | `locale?` | `string` | `'ja'` |
 | `hiddenWeekdays?` | `readonly Weekday[]` | `[]`（非表示にする曜日。7 曜日全指定は無効） |
 | `now?` | `() => Date` | `() => new Date()` |
@@ -581,14 +709,18 @@ interface ToolbarLabels {
 
 `initialDate` / `initialView` は**作成時専用**です（`updateOptions` は型レベルで受け付けません。変更には `goTo` / `setView` を使います）。
 
-`ResolvedCalendarOptions` は既定値適用後の型で、`onEventsChange` を除くすべてのフィールドが必須になったものです（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `multiMonthCount` / `locale` / `hiddenWeekdays` / `now`）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth'` です。
+`resources` は `events` と完全に同型の扱いです（状態の初期値。`ResolvedCalendarOptions` には含まれません）。動的な変更には `getResources` / `setResources`（[予定の管理: リソース](./events.md#リソース)を参照）を使います。
+
+`timelineDays` はタイムラインビューの表示日数、`unassignedLane` はリソース/タイムラインビューの未割り当てレーンの生成規則です（`'auto'` = 該当する予定があるときのみ末尾に生成、`'always'` = 常に生成。詳細は [ビュー](./views.md#年ビューなど新ビューを有効にするopt-in) を参照）。
+
+`ResolvedCalendarOptions` は既定値適用後の型で、`onEventsChange` を除くすべてのフィールドが必須になったものです（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `multiMonthCount` / `timelineDays` / `unassignedLane` / `locale` / `hiddenWeekdays` / `now`）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' | 'resource' | 'timeline'` です。
 
 ### 状態とビューモデル
 
 | 型 | 説明 |
 | --- | --- |
-| `CalendarState` | `{ view; currentDate; timeZone; events; dragPreview; options: ResolvedCalendarOptions }`。`getState()` の戻り値 |
-| `CalendarViewModel` | `MonthViewModel | TimeGridViewModel | ListViewModel | YearViewModel | MultiMonthViewModel`。`getViewModel()` の戻り値 |
+| `CalendarState` | `{ view; currentDate; timeZone; events; resources; dragPreview; options: ResolvedCalendarOptions }`。`getState()` の戻り値 |
+| `CalendarViewModel` | `MonthViewModel | TimeGridViewModel | ListViewModel | YearViewModel | MultiMonthViewModel | ResourceViewModel | TimelineViewModel`。`getViewModel()` の戻り値 |
 | `MonthViewModel` | `{ type: 'month'; anchor: Date; weeks: readonly MonthWeek[]; weekdays: readonly Weekday[] }` |
 | `MonthWeek` | `{ days: readonly MonthDay[]; segments: readonly EventSegment[]; laneCount: number }` |
 | `MonthDay` | `{ date; key; inCurrentMonth; isToday; overflowCount }` |
@@ -604,6 +736,13 @@ interface ToolbarLabels {
 | `YearDay` | `{ date; key; inCurrentMonth; isToday; eventCount }`。前後月の日付（`inCurrentMonth: false`）は常に `eventCount: 0` |
 | `MultiMonthViewModel` | `{ type: 'multiMonth'; anchor: Date; months: readonly MultiMonthMonth[]; weekdays: readonly Weekday[] }` |
 | `MultiMonthMonth` | `{ anchor: Date; key: string; weeks: readonly MonthWeek[] }`。`weeks` は月ビューと同じ `MonthWeek` だが、前後月の日付セルにはセグメントを配置しない |
+| `ResourceViewModel` | `{ type: 'resource'; date: Date; dateKey: string; isToday: boolean; columns: readonly ResourceColumn[]; isEmpty: boolean; slots: readonly TimeSlot[]; nowIndicatorMinutes: number \| null }` |
+| `ResourceColumn` | `{ resource: CalendarResource \| null; key: string; items: readonly PositionedOccurrence[]; allDayItems: readonly EventOccurrence[] }`。`resource: null` は未割り当て列。`key` は `` `r:${id}` `` または `'unassigned'` |
+| `TimelineViewModel` | `{ type: 'timeline'; days: readonly TimelineDay[]; slots: readonly TimelineSlot[]; rows: readonly TimelineRow[]; isEmpty: boolean; totalMinutes: number; nowIndicatorMinutes: number \| null }` |
+| `TimelineDay` | `{ date: Date; key: string; isToday: boolean; weekday: Weekday }` |
+| `TimelineSlot` | `{ minutes: number; dayKey: string; label: string }`。`minutes` は「表示分」（範囲先頭からの分。既存 `TimeSlot` と異なり複数日で 1439 を超えうる） |
+| `TimelineRow` | `{ resource: CalendarResource \| null; key: string; items: readonly TimelineItem[]; laneCount: number }`。`resource: null` は未割り当て行 |
+| `TimelineItem` | `{ occurrence: EventOccurrence; startMinutes: number; endMinutes: number; lane: number; continuesBefore: boolean; continuesAfter: boolean }`。`startMinutes` / `endMinutes` は表示分 |
 
 `nowIndicator` は `{ dayKey: string; minutes: number } | null`（表示範囲内に「今日」がない場合は `null`）です。ビューごとの表示仕様は [ビュー](./views.md) を参照してください。
 
@@ -613,8 +752,8 @@ interface ToolbarLabels {
 | --- | --- | --- |
 | `UseCalendarResult` | `{ api: CalendarApi; state: CalendarState; viewModel: CalendarViewModel }` | `useCalendar` の戻り値 |
 | `CalendarContextValue` | `UseCalendarResult & { callbacks: CalendarInteractionCallbacks }` | `useCalendarContext()` の戻り値 |
-| `RangeSelection` | `{ range: DateRange; allDay: boolean }` | 範囲選択（新規作成操作）の内容 |
-| `EventChange` | `{ occurrence: EventOccurrence; newRange: DateRange; allDay: boolean; scope: RecurringEditScope | null }` | ドラッグ・キーボードによるイベント変更の内容 |
+| `RangeSelection` | `{ range: DateRange; allDay: boolean; resourceId?: string | null }` | 範囲選択（新規作成操作）の内容。`resourceId` はリソース/タイムラインビューでの選択時のみ設定される（`null` は未割り当てレーン） |
+| `EventChange` | `{ occurrence: EventOccurrence; newRange: DateRange; allDay: boolean; scope: RecurringEditScope | null; resourceId?: string | null }` | ドラッグ・キーボードによるイベント変更の内容。`resourceId` はリソース/タイムラインビューでの変更時のみ設定される（`null` は未割り当てへの移動） |
 | `EventDelete` | `{ occurrence: EventOccurrence; scope: RecurringEditScope | null }` | キーボード削除の内容 |
 | `CalendarInteractionCallbacks` | 下表参照 | インタラクションのコールバック集 |
 
@@ -819,6 +958,8 @@ console.log(snapToInterval(37, 15)); // => 30
 console.log(shortcutForKey('w')); // => { type: 'view', view: 'week' }
 console.log(shortcutForKey('y')); // => { type: 'view', view: 'year' }
 console.log(shortcutForKey('q')); // => { type: 'view', view: 'multiMonth' }
+console.log(shortcutForKey('r')); // => { type: 'view', view: 'resource' }
+console.log(shortcutForKey('l')); // => { type: 'view', view: 'timeline' }
 console.log(shortcutForKey('s')); // => null（該当なし）
 ```
 
@@ -833,6 +974,8 @@ console.log(shortcutForKey('s')); // => null（該当なし）
 | `buildListViewModel(params): ListViewModel` | リストビューのビューモデル（日付ごとのオカレンス一覧）を構築する |
 | `buildYearViewModel(params): YearViewModel` | 年ビューのビューモデル（12 ヶ月分のミニ月グリッド・日ごとの予定件数）を構築する。`hiddenWeekdays` は無視する |
 | `buildMultiMonthViewModel(params): MultiMonthViewModel` | 複数月ビューのビューモデル（`multiMonthCount` ヶ月分の月グリッド）を構築する。内部で月ごとに `buildMonthViewModel` を呼び、`segmentRange` を各月本体にクランプすることで前後月の日付セルに予定を出さない |
+| `buildResourceViewModel(params): ResourceViewModel` | リソースビューのビューモデル（列 = リソース、列ごとの時間グリッド配置）を構築する。`hiddenWeekdays` は無視する。`params.resources` / `params.unassignedLane` で未割り当て列の生成規則を制御する |
+| `buildTimelineViewModel(params): TimelineViewModel` | タイムラインビューのビューモデル（`params.timelineDays` 日分の「表示分」座標系、行 = リソース、区間レーン割当）を構築する。`hiddenWeekdays` は無視する |
 
 ```ts
 import { buildMonthViewModel } from '@koyomi-cal/react';
@@ -878,6 +1021,39 @@ const multiMonthModel = buildMultiMonthViewModel({
 console.log(multiMonthModel.type); // => 'multiMonth'
 console.log(multiMonthModel.months.length); // => 3（7月・8月・9月）
 console.log(multiMonthModel.months[0]?.key); // => '2026-07'
+```
+
+```ts
+import { buildResourceViewModel } from '@koyomi-cal/react';
+
+const resourceModel = buildResourceViewModel({
+  currentDate: new Date('2026-07-15T00:00:00+09:00'),
+  timeZone: 'Asia/Tokyo',
+  occurrences: [],
+  resources: [{ id: 'room-a', title: '会議室A' }],
+  unassignedLane: 'auto',
+  slotMinutes: 60,
+  now: new Date('2026-07-15T00:00:00+09:00'),
+});
+console.log(resourceModel.type); // => 'resource'
+console.log(resourceModel.columns[0]?.key); // => 'r:room-a'
+```
+
+```ts
+import { buildTimelineViewModel } from '@koyomi-cal/react';
+
+const timelineModel = buildTimelineViewModel({
+  currentDate: new Date('2026-07-15T00:00:00+09:00'),
+  timeZone: 'Asia/Tokyo',
+  occurrences: [],
+  resources: [{ id: 'crane-1', title: 'クレーン 1 号機' }],
+  unassignedLane: 'auto',
+  timelineDays: 7,
+  slotMinutes: 60,
+  now: new Date('2026-07-15T00:00:00+09:00'),
+});
+console.log(timelineModel.type); // => 'timeline'
+console.log(timelineModel.totalMinutes); // => 10080（7 日 × 1440 分）
 ```
 
 ### 日時ラベル整形（`react/components/format`）

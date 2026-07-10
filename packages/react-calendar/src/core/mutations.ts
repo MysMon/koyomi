@@ -324,6 +324,9 @@ function buildOverride(
   if (master.color !== undefined) {
     base.color = master.color;
   }
+  if (master.resourceId !== undefined) {
+    base.resourceId = master.resourceId;
+  }
   if (master.location !== undefined) {
     base.location = master.location;
   }

@@ -1,8 +1,8 @@
-# ビュー（月・週・日・リスト・年・複数月）
+# ビュー（月・週・日・リスト・年・複数月・リソース・タイムライン）
 
-Koyomi は月・週・日・リスト（スケジュール）・年・複数月の 6 つのビューを切り替えて表示できます。本ページでは各ビューの画面構成、切り替え方法、ナビゲーション、そしてビューモデルを直接使った上級者向けの使い方を説明します。
+Koyomi は月・週・日・リスト（スケジュール）・年・複数月・リソース・タイムラインの 8 つのビューを切り替えて表示できます。本ページでは各ビューの画面構成、切り替え方法、ナビゲーション、そしてビューモデルを直接使った上級者向けの使い方を説明します。
 
-## 6 つのビュー
+## 8 つのビュー
 
 ### 月ビュー（month）
 
@@ -30,15 +30,33 @@ Koyomi は月・週・日・リスト（スケジュール）・年・複数月�
 
 複数月ビューも `Toolbar` のビュー切替ボタン・`useCalendarShortcuts` の `Q` キーとも既定では無効な opt-in のビューです（詳細は次節）。
 
+### リソースビュー（resource）
+
+`ResourceView` が描画します。1 日の時間グリッドを「列 = リソース」で描きます（週/日ビューの「列 = 日」をリソースに置き換えたもの。Google カレンダーの会議室日表示相当）。表示日は常に 1 日固定で、`hiddenWeekdays` は日ビューと同じく無視されます。
+
+構成は週/日ビューに準じます。上部にリソース列見出し行（`resources` の並び順。列見出しにはリソースの `color` が反映されます）、その下に終日行、本体には時間軸と各リソースの時間指定イベント列が並びます。`resourceId` を持たない予定、または `resources` に存在しない ID を指す予定（参照先のない `resourceId`）は「未割り当て」列に表示されます。未割り当て列は既定（`unassignedLane: 'auto'`）では該当する予定があるときだけ末尾に現れ、`unassignedLane: 'always'` を指定すると常に表示されます（詳細は下記の[関連オプション](#関連オプション)）。
+
+インタラクションは `useResourceGridDrag` が提供します。縦方向（時間）は週/日ビューと同じ操作、横方向（リソース）はドラッグで別のリソース列へ移動できます。予定の作成・移動・リサイズが確定すると、時間の変更と `resourceId` の変更が 1 回の更新にまとめて適用されます。キーボードは `↑`/`↓` が時間の移動・`Shift+↑`/`Shift+↓` がリサイズ、**`←`/`→` が隣のリソース列への移動**です（画面上の視覚軸に対応する操作。詳細は [インタラクション](./interactions.md) を参照）。終日 ⇔ 時間指定の変換ドラッグは提供しません。
+
+### タイムラインビュー（timeline）
+
+`TimelineView` が描画します。横 = 時間、行 = リソースの帯表示で、`timelineDays`（既定 `1`）日分を横に連結します（FullCalendar の resourceTimeline 相当）。`hiddenWeekdays` は無視され、常に `timelineDays` 日の連続した並びになります。
+
+構成は、左にリソース行見出し列（`position: sticky` で固定）、右に横スクロールする本体（日ヘッダー・時間目盛り・各リソース行の帯）です。行の考え方はリソースビューと同じで、`resourceId` が対応しない予定は「未割り当て」行に入り、`unassignedLane` オプションで生成規則を制御します。終日イベントはその日の全幅の帯として、時間指定イベントと同じレーン空間に配置されます。
+
+インタラクションは `useTimelineDrag` が提供します。横方向（時間）へのドラッグで移動・リサイズ、縦方向（行）へのドラッグでリソース間の移動ができます。キーボードは `←`/`→` が時間の移動・`Shift+←`/`Shift+→` がリサイズ、**`↑`/`↓` が隣の行への移動**です（リソースビューとは軸が異なりますが、いずれも「画面上でその方向に動く」という同じ原則によるものです）。終日 ⇔ 時間指定の変換ドラッグは提供しません。
+
+リソースビュー・タイムラインビューはいずれも `Toolbar` のビュー切替ボタン・`useCalendarShortcuts` のキー（`R` / `L`）とも既定では無効な opt-in のビューです（詳細は次節）。
+
 いずれのビューも、既定の見た目を使うには `@koyomi-cal/react/theme.css` を読み込みます。DOM 構造や CSS でのカスタマイズ方法は [テーマとスタイリング](./theming.md) を参照してください。
 
 ## ビューの切り替え
 
 ビューは次の 3 通りで切り替えられます。
 
-1. `Toolbar` のビュー切替ボタン（既定は月・週・日・リスト。年ビュー・複数月ビューは `views` prop での opt-in）
+1. `Toolbar` のビュー切替ボタン（既定は月・週・日・リスト。年・複数月・リソース・タイムラインビューは `views` prop での opt-in）
 2. `calendar.api.setView(view)` を直接呼ぶ
-3. `useCalendarShortcuts` によるキーボード操作（既定は `M` / `W` / `D` / `A`。年ビューの `Y`・複数月ビューの `Q` は `views` オプションでの opt-in。詳細は [インタラクション](./interactions.md) を参照）
+3. `useCalendarShortcuts` によるキーボード操作（既定は `M` / `W` / `D` / `A`。年ビューの `Y`・複数月ビューの `Q`・リソースビューの `R`・タイムラインビューの `L` は `views` オプションでの opt-in。詳細は [インタラクション](./interactions.md) を参照）
 
 ```tsx
 import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi-cal/react';
@@ -85,7 +103,7 @@ function App() {
 
 ### 年ビューなど新ビューを有効にする（opt-in）
 
-年ビュー・複数月ビューは既定では `Toolbar` のボタン列にも `useCalendarShortcuts` のキーにも現れません（既存利用者の見た目・挙動を変えないための方針）。有効にしたい場合は、両方に `views` を渡します。
+年・複数月・リソース・タイムラインビューは既定では `Toolbar` のボタン列にも `useCalendarShortcuts` のキーにも現れません（既存利用者の見た目・挙動を変えないための方針）。有効にしたい場合は、両方に `views` を渡します。
 
 ```tsx
 import { CalendarProvider, CalendarView, Toolbar, useCalendar, useCalendarShortcuts } from '@koyomi-cal/react';
@@ -93,21 +111,43 @@ import '@koyomi-cal/react/theme.css';
 
 function App() {
   const calendar = useCalendar({ initialView: 'month' });
-  useCalendarShortcuts({ calendar, views: ['month', 'week', 'day', 'list', 'year', 'multiMonth'] });
+  useCalendarShortcuts({
+    calendar,
+    views: ['month', 'week', 'day', 'list', 'year', 'multiMonth', 'resource', 'timeline'],
+  });
 
   return (
     <CalendarProvider value={calendar}>
-      <Toolbar views={['month', 'week', 'day', 'list', 'year', 'multiMonth']} />
+      <Toolbar views={['month', 'week', 'day', 'list', 'year', 'multiMonth', 'resource', 'timeline']} />
       <CalendarView />
     </CalendarProvider>
   );
 }
 
 // 期待される動作:
-// - Toolbar に「年」「複数月」ボタンが追加され、クリックでそれぞれのビューに切り替わる
-// - Y キーを押すと年ビューに、Q キーを押すと複数月ビューに切り替わる
+// - Toolbar に「年」「複数月」「リソース」「タイムライン」ボタンが追加され、
+//   クリックでそれぞれのビューに切り替わる
+// - Y キーを押すと年ビューに、Q キーを押すと複数月ビューに、
+//   R キーを押すとリソースビューに、L キーを押すとタイムラインビューに切り替わる
 // - views を省略した（または対象のビュー名を含めない）場合、そのビューへの切替キーは効かない
 ```
+
+リソースビュー・タイムラインビューを使う場合は `resources` オプションでリソース一覧も渡します（省略時は空配列で、両ビューとも「未割り当て」レーンのみになります）。
+
+```tsx
+const calendar = useCalendar({
+  initialView: 'resource',
+  resources: [
+    { id: 'room-a', title: '会議室A' },
+    { id: 'room-b', title: '会議室B' },
+  ],
+});
+```
+
+**注意**:
+
+- 「未割り当てへ戻す」D&D（リソース列/行から `resourceId` を外す操作）を運用したい場合は `unassignedLane: 'always'` を指定してください。既定の `'auto'` では、未割り当ての予定が 1 件もない間は未割り当てレーン（＝ドロップ先）自体が存在せず、この操作ができません。
+- `resources` が空かつ未割り当てレーンも生成されない場合（`unassignedLane: 'auto'` で未割り当ての予定も無い場合）、リソース/タイムラインビューは列/行が 1 つもない空状態になります（`emptyLabel` のメッセージを表示）。この状態ではドロップ先のレーンが存在しないため D&D による作成もできません。回避するには `resources` を渡すか `unassignedLane: 'always'` を指定してください。
 
 ## ナビゲーション
 
@@ -127,6 +167,8 @@ function App() {
 | `list` | ±`listDays` 日 |
 | `year` | ±1 年（基準日は年初に正規化される） |
 | `multiMonth` | ±`multiMonthCount` ヶ月（基準日は月初に正規化される） |
+| `resource` | ±1 日（`day` と同一） |
+| `timeline` | ±`timelineDays` 日 |
 
 ```ts
 import { createCalendar } from '@koyomi-cal/react';
@@ -147,13 +189,14 @@ calendar.today(); // now() が指す日（この例では 2026-07-15）に戻る
 // - calendar.getState().currentDate が上記コメントどおりの日付になる
 // - week ビューでは next()/prev() が ±7日、day ビューでは ±1日、
 //   list ビューでは ±listDays 日（既定 30）、year ビューでは ±1 年、
-//   multiMonth ビューでは ±multiMonthCount ヶ月（既定 3）で
+//   multiMonth ビューでは ±multiMonthCount ヶ月（既定 3）、
+//   resource ビューでは ±1 日、timeline ビューでは ±timelineDays 日（既定 1）で
 //   currentDate（および getVisibleRange()）が動く
 ```
 
 ## ビューモデルを直接使う（上級編）
 
-`calendar.api.getViewModel()`（React では `useCalendar()` の戻り値の `viewModel`）は、現在のビューに対応する描画用データを返します。型は `CalendarViewModel = MonthViewModel | TimeGridViewModel | ListViewModel | YearViewModel | MultiMonthViewModel` で、`type` フィールドにより判別できる判別共用体です。
+`calendar.api.getViewModel()`（React では `useCalendar()` の戻り値の `viewModel`）は、現在のビューに対応する描画用データを返します。型は `CalendarViewModel = MonthViewModel | TimeGridViewModel | ListViewModel | YearViewModel | MultiMonthViewModel | ResourceViewModel | TimelineViewModel` で、`type` フィールドにより判別できる判別共用体です。
 
 | 型 | `type` | 主なフィールド |
 | --- | --- | --- |
@@ -162,8 +205,10 @@ calendar.today(); // now() が指す日（この例では 2026-07-15）に戻る
 | `ListViewModel` | `'list'` | `days`（予定がある日だけの `ListDay[]`）、`isEmpty` |
 | `YearViewModel` | `'year'` | `anchor`（表示対象年の1月1日）、`months`（`YearMonth[]`、12件）、`weekdays`（曜日の並び） |
 | `MultiMonthViewModel` | `'multiMonth'` | `anchor`（先頭月の1日）、`months`（`MultiMonthMonth[]`、`multiMonthCount` 件）、`weekdays`（曜日の並び） |
+| `ResourceViewModel` | `'resource'` | `date`（表示日）、`columns`（`ResourceColumn[]`。`resources` の並び順＋末尾に未割り当て列）、`isEmpty`、`slots`（時間軸の目盛り）、`nowIndicatorMinutes` |
+| `TimelineViewModel` | `'timeline'` | `days`（`timelineDays` 日分）、`rows`（`TimelineRow[]`。`resources` の並び順＋末尾に未割り当て行）、`isEmpty`、`slots`（`TimelineSlot[]`）、`totalMinutes`、`nowIndicatorMinutes` |
 
-`MonthWeek.days` は `MonthDay[]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `overflowCount` など）、`TimeGridDay.items` は `PositionedOccurrence[]`（`startMinutes` / `endMinutes` / `left` / `width` など割合ベースの配置情報）を持ちます。`YearMonth.weeks` は `YearDay[][]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `eventCount` を持ち、前後月の日付は `eventCount: 0` に固定）です。`MultiMonthMonth.weeks` は月ビューと同じ `MonthWeek[]` です（前後月の日付セルにはセグメントを配置しない点だけが月ビューと異なります）。詳細なフィールドは各型の TSDoc を参照してください。
+`MonthWeek.days` は `MonthDay[]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `overflowCount` など）、`TimeGridDay.items` は `PositionedOccurrence[]`（`startMinutes` / `endMinutes` / `left` / `width` など割合ベースの配置情報）を持ちます。`YearMonth.weeks` は `YearDay[][]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `eventCount` を持ち、前後月の日付は `eventCount: 0` に固定）です。`MultiMonthMonth.weeks` は月ビューと同じ `MonthWeek[]` です（前後月の日付セルにはセグメントを配置しない点だけが月ビューと異なります）。`ResourceColumn`（`resource` / `key` / `items`（`PositionedOccurrence[]`）/ `allDayItems`）は週/日ビューと同じ配置計算を列ごとに行った結果です。`TimelineRow`（`resource` / `key` / `items`（`TimelineItem[]`）/ `laneCount`）の `TimelineItem` は `startMinutes` / `endMinutes` が「表示分」（範囲先頭からの分。全日を等幅 1440 分として扱う座標系）で表され、`lane` で行内の縦位置を示します。詳細なフィールドは各型の TSDoc を参照してください。
 
 `type` で分岐すれば、ビューごとの情報を型安全に扱えます。
 
@@ -182,6 +227,10 @@ function describeViewModel(viewModel: CalendarViewModel): string {
       return `年ビュー: ${viewModel.months.length} ヶ月`;
     case 'multiMonth':
       return `複数月ビュー: ${viewModel.months.length} ヶ月`;
+    case 'resource':
+      return `リソースビュー: ${viewModel.columns.length} 列`;
+    case 'timeline':
+      return `タイムラインビュー: ${viewModel.rows.length} 行`;
   }
 }
 
@@ -231,7 +280,10 @@ function BareMonthGrid() {
 | `slotMinutes` | `number` | `60` | 週/日ビュー（時間グリッド）の時間軸の目盛り間隔（分） |
 | `listDays` | `number` | `30` | リストビューが表示する日数。`next()`/`prev()` の移動単位にもなる |
 | `multiMonthCount` | `number` | `3` | 複数月ビューが表示する月数。`next()`/`prev()` の移動単位にもなる |
-| `hiddenWeekdays` | `readonly Weekday[]` | `[]` | 月・週・複数月ビューの列から除外する曜日（下記参照）。年ビュー・日ビューは無視する |
+| `hiddenWeekdays` | `readonly Weekday[]` | `[]` | 月・週・複数月ビューの列から除外する曜日（下記参照）。年・日・リソース・タイムラインビューは無視する |
+| `resources` | `readonly CalendarResource[]` | `[]` | リソースビュー・タイムラインビューの列/行になるリソース一覧（表示順）。他ビューには影響しない。詳細は [予定の管理: リソース](./events.md#リソース) を参照 |
+| `timelineDays` | `number` | `1` | タイムラインビューが表示する日数。`next()`/`prev()` の移動単位にもなる |
+| `unassignedLane` | `'auto' \| 'always'` | `'auto'` | リソース/タイムラインビューの未割り当てレーンの生成規則。`'auto'` は該当する予定があるときのみ末尾に生成、`'always'` は常に生成する（「未割り当てへ戻す」D&D を使う場合に必要。詳細は [新ビューを有効にする](#年ビューなど新ビューを有効にするopt-in) を参照） |
 
 ## 週末などの曜日を隠す（hiddenWeekdays）
 
@@ -251,6 +303,9 @@ calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
 // - 日ビューは hiddenWeekdays を無視する（土曜へ goTo すれば表示される）
 // - 年ビューも hiddenWeekdays を無視する（ミニ月グリッドは常に 7 列のまま）
 // - 複数月ビューは月ビューと同じく列が除外される（各月グリッドが月〜金の 5 列になる）
+// - リソースビューも hiddenWeekdays を無視する（日ビューと同じく表示日は 1 日固定）
+// - タイムラインビューも hiddenWeekdays を無視する（比例スケールの歪みを避けるため。
+//   常に timelineDays 日の連続した並びになる）
 // - 「今日」が非表示曜日の場合、現在時刻線（nowIndicator）は表示されない
 ```
 
@@ -276,19 +331,34 @@ calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
 | `MultiMonthView` | `renderEvent`（`renderMultiMonthEvent`） | セグメントの表示内容（既定は `MonthView` と同じ） |
 | `MultiMonthView` | `renderDayCell`（`renderMultiMonthDayCell`） | 日セルに祝日ラベルやバッジ等を差し込み（第 2 引数で既定内容を受け取る。前後月の日付セルはインタラクティブでないため適用されない） |
 | `MultiMonthView` | `overflowLabel`（`multiMonthOverflowLabel`） | 「+N 件」の文言（`(count) => ReactNode`） |
-| `Toolbar` | `labels`（`ToolbarLabels`） | 「月/週/日/リスト/年/複数月/今日」等の全文言 |
-| `Toolbar` | `views`（`readonly CalendarViewType[]`） | ビュー切替ボタンとして表示するビューの一覧・並び順（既定 `['month', 'week', 'day', 'list']`。年ビュー・複数月ビューは opt-in） |
+| `ResourceView` | `renderEvent`（`renderResourceEvent`） | 時間指定イベントブロックの表示内容 |
+| `ResourceView` | `renderColumnHeader`（`renderResourceColumnHeader`） | 列見出しの内容（リソース名、または未割り当て列は `unassignedLabel`）をラップ・置換（第 2 引数で既定内容を受け取る） |
+| `ResourceView` | `unassignedLabel`（`resourceUnassignedLabel`） | 未割り当て列の見出しラベル（既定「未割り当て」） |
+| `ResourceView` | `emptyLabel`（`resourceEmptyLabel`） | 空状態（列が 1 つもない）のメッセージ（既定「リソースがありません」） |
+| `TimelineView` | `renderEvent`（`renderTimelineEvent`） | 帯（タイムラインアイテム）の表示内容 |
+| `TimelineView` | `renderRowHeader`（`renderTimelineRowHeader`） | 行見出しの内容（リソース名、または未割り当て行は `unassignedLabel`）をラップ・置換（第 2 引数で既定内容を受け取る） |
+| `TimelineView` | `unassignedLabel`（`timelineUnassignedLabel`） | 未割り当て行の見出しラベル（既定「未割り当て」） |
+| `TimelineView` | `emptyLabel`（`timelineEmptyLabel`） | 空状態（行が 1 つもない）のメッセージ（既定「リソースがありません」） |
+| `Toolbar` | `labels`（`ToolbarLabels`） | 「月/週/日/リスト/年/複数月/リソース/タイムライン/今日」等の全文言 |
+| `Toolbar` | `views`（`readonly CalendarViewType[]`） | ビュー切替ボタンとして表示するビューの一覧・並び順（既定 `['month', 'week', 'day', 'list']`。年・複数月・リソース・タイムラインビューは opt-in） |
 
 ```tsx
 <Toolbar
-  labels={{ month: 'Month', week: 'Week', day: 'Day', list: 'List', year: 'Year', multiMonth: 'Multi-month', today: 'Today' }}
-  views={['month', 'week', 'day', 'list', 'year', 'multiMonth']}
+  labels={{
+    month: 'Month', week: 'Week', day: 'Day', list: 'List',
+    year: 'Year', multiMonth: 'Multi-month',
+    resource: 'Resources', timeline: 'Timeline',
+    today: 'Today',
+  }}
+  views={['month', 'week', 'day', 'list', 'year', 'multiMonth', 'resource', 'timeline']}
 />
 <CalendarView
   monthOverflowLabel={(count) => `+${count} more`}
   listAllDayLabel="All day"
   listEmptyLabel="No events"
   renderYearDayCell={(day, defaultContent) => (day.isToday ? <strong>{defaultContent}</strong> : defaultContent)}
+  resourceEmptyLabel="No resources"
+  timelineEmptyLabel="No resources"
 />
 ```
 

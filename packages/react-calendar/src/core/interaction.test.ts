@@ -16,6 +16,7 @@ import {
   shortcutForKey,
   snapToInterval,
   timeAtGridPosition,
+  timeAtTimelineOffset,
 } from './interaction';
 import { dateFromKey, getWallClock, parseDateValue } from './timezone';
 import type { CalendarEvent, EventOccurrence, TimeZoneId } from './types';
@@ -734,6 +735,41 @@ describe('shortcutForKey', () => {
     expect(shortcutForKey('q', { altKey: true })).toBeNull();
   });
 
+  it('r がビュー切替（リソース）に対応する', () => {
+    expect(shortcutForKey('r')).toEqual({ type: 'view', view: 'resource' });
+  });
+
+  it('l がビュー切替（タイムライン）に対応する', () => {
+    expect(shortcutForKey('l')).toEqual({ type: 'view', view: 'timeline' });
+  });
+
+  it('R / L（大文字）でも同じ結果になる（大文字小文字非区別）', () => {
+    expect(shortcutForKey('R')).toEqual({ type: 'view', view: 'resource' });
+    expect(shortcutForKey('L')).toEqual({ type: 'view', view: 'timeline' });
+  });
+
+  it('r / l も修飾キー（ctrl / meta / alt）付きは null を返す', () => {
+    expect(shortcutForKey('r', { ctrlKey: true })).toBeNull();
+    expect(shortcutForKey('r', { metaKey: true })).toBeNull();
+    expect(shortcutForKey('r', { altKey: true })).toBeNull();
+    expect(shortcutForKey('l', { ctrlKey: true })).toBeNull();
+    expect(shortcutForKey('l', { metaKey: true })).toBeNull();
+    expect(shortcutForKey('l', { altKey: true })).toBeNull();
+  });
+
+  it('t はリソース/タイムラインビュー追加後も「今日へ移動」のままである（回帰ガード。T が today と衝突するため timeline は L を使う設計上の前提）', () => {
+    expect(shortcutForKey('t')).toEqual({ type: 'today' });
+  });
+
+  it('m / w / d / a / y / q はリソース/タイムラインビュー追加後も既存どおりの解釈のままである（回帰ガード）', () => {
+    expect(shortcutForKey('m')).toEqual({ type: 'view', view: 'month' });
+    expect(shortcutForKey('w')).toEqual({ type: 'view', view: 'week' });
+    expect(shortcutForKey('d')).toEqual({ type: 'view', view: 'day' });
+    expect(shortcutForKey('a')).toEqual({ type: 'view', view: 'list' });
+    expect(shortcutForKey('y')).toEqual({ type: 'view', view: 'year' });
+    expect(shortcutForKey('q')).toEqual({ type: 'view', view: 'multiMonth' });
+  });
+
   it('修飾キーがすべて false なら通常どおり解釈される', () => {
     expect(shortcutForKey('m', { ctrlKey: false, metaKey: false, altKey: false })).toEqual({
       type: 'view',
@@ -746,5 +782,101 @@ describe('shortcutForKey', () => {
     expect(shortcutForKey('Escape')).toBeNull();
     expect(shortcutForKey('1')).toBeNull();
     expect(shortcutForKey('')).toBeNull();
+  });
+});
+
+describe('timeAtTimelineOffset', () => {
+  /** 東京の 3 日分（7/10〜7/12）の表示日リストを作る。 */
+  function tokyoDays(): Date[] {
+    return [
+      at('2026-07-10T00:00', TOKYO),
+      at('2026-07-11T00:00', TOKYO),
+      at('2026-07-12T00:00', TOKYO),
+    ];
+  }
+
+  it('表示分を該当日の現地時刻へ変換する（スナップ込み）', () => {
+    const days = tokyoDays();
+    // 1 日目の 9:07 → snap 15 分で 9:00
+    expect(
+      timeAtTimelineOffset({ days, displayMinutes: 9 * 60 + 7, timeZone: TOKYO, snap: 15 }),
+    ).toEqual(at('2026-07-10T09:00', TOKYO));
+    // 2 日目（1440 + 600 分 = 7/11 10:00）
+    expect(
+      timeAtTimelineOffset({ days, displayMinutes: 1440 + 600, timeZone: TOKYO, snap: 15 }),
+    ).toEqual(at('2026-07-11T10:00', TOKYO));
+  });
+
+  it('既定では排他端（totalMinutes）を返さず、格子上の最大値にクランプされる', () => {
+    const days = tokyoDays();
+    // totalMinutes = 4320。snap 15 の格子上の最大 = 4305（= 7/12 23:45）
+    expect(
+      timeAtTimelineOffset({ days, displayMinutes: 99999, timeZone: TOKYO, snap: 15 }),
+    ).toEqual(at('2026-07-12T23:45', TOKYO));
+    // 負値は 0（1 日目の 0:00）にクランプ
+    expect(timeAtTimelineOffset({ days, displayMinutes: -50, timeZone: TOKYO, snap: 15 })).toEqual(
+      at('2026-07-10T00:00', TOKYO),
+    );
+  });
+
+  it('allowExclusiveEnd: true では上端（totalMinutes ちょうど）を許容する', () => {
+    const days = tokyoDays();
+    // totalMinutes = 4320 → 最終日の翌日 0:00（排他端）
+    expect(
+      timeAtTimelineOffset({
+        days,
+        displayMinutes: 99999,
+        timeZone: TOKYO,
+        snap: 15,
+        allowExclusiveEnd: true,
+      }),
+    ).toEqual(at('2026-07-13T00:00', TOKYO));
+    // 下限は snap 1 単位分（0 にはならない = 長さ 0 のリサイズを作らせない）
+    expect(
+      timeAtTimelineOffset({
+        days,
+        displayMinutes: 0,
+        timeZone: TOKYO,
+        snap: 15,
+        allowExclusiveEnd: true,
+      }),
+    ).toEqual(at('2026-07-10T00:15', TOKYO));
+  });
+
+  it('snap > totalMinutes の退行的な設定でも範囲が逆転しない', () => {
+    const days = [at('2026-07-10T00:00', TOKYO)];
+    // totalMinutes = 1440 < snap 2880。既定用途は 0 に倒れる
+    expect(
+      timeAtTimelineOffset({ days, displayMinutes: 700, timeZone: TOKYO, snap: 2880 }),
+    ).toEqual(at('2026-07-10T00:00', TOKYO));
+    // リサイズ終了端は totalMinutes（排他端）に倒れる
+    expect(
+      timeAtTimelineOffset({
+        days,
+        displayMinutes: 700,
+        timeZone: TOKYO,
+        snap: 2880,
+        allowExclusiveEnd: true,
+      }),
+    ).toEqual(at('2026-07-11T00:00', TOKYO));
+  });
+
+  it('DST 切り替え日でも現地時刻ベースで対応づけられる（America/New_York）', () => {
+    // 2026-03-08 は春の DST（2:00 → 3:00、実時間 23 時間）
+    const days = [at('2026-03-08T00:00', NY), at('2026-03-09T00:00', NY)];
+    // 表示分 600（1 日目の 10:00 現地時刻）
+    expect(timeAtTimelineOffset({ days, displayMinutes: 600, timeZone: NY, snap: 15 })).toEqual(
+      at('2026-03-08T10:00', NY),
+    );
+    // 2 日目の 0 分 = 3/9 0:00
+    expect(timeAtTimelineOffset({ days, displayMinutes: 1440, timeZone: NY, snap: 15 })).toEqual(
+      at('2026-03-09T00:00', NY),
+    );
+  });
+
+  it('表示日が空の場合は例外を投げる', () => {
+    expect(() =>
+      timeAtTimelineOffset({ days: [], displayMinutes: 0, timeZone: TOKYO, snap: 15 }),
+    ).toThrow();
   });
 });

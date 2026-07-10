@@ -76,6 +76,7 @@ export type {
   CalendarEventInput,
   CalendarEventPatch,
   CalendarOptions,
+  CalendarResource,
   CalendarState,
   CalendarViewModel,
   CalendarViewType,
@@ -94,8 +95,15 @@ export type {
   PositionedOccurrence,
   RecurringEditScope,
   ResolvedCalendarOptions,
+  ResourceColumn,
+  ResourceViewModel,
   TimeGridDay,
   TimeGridViewModel,
+  TimelineDay,
+  TimelineItem,
+  TimelineRow,
+  TimelineSlot,
+  TimelineViewModel,
   TimeSlot,
   TimeZoneId,
   Weekday,
@@ -107,7 +115,9 @@ export type {
 export { buildListViewModel } from './core/views/list-view';
 export { buildMonthViewModel } from './core/views/month-view';
 export { buildMultiMonthViewModel } from './core/views/multi-month-view';
+export { buildResourceViewModel } from './core/views/resource-view';
 export { buildTimeGridViewModel } from './core/views/time-grid-view';
+export { buildTimelineViewModel } from './core/views/timeline-view';
 export { buildYearViewModel } from './core/views/year-view';
 export type { VirtualItem } from './core/virtualization';
 // React: ビルトインコンポーネント（ヘッドレス）
@@ -127,7 +137,9 @@ export {
   MultiMonthView,
   type MultiMonthViewProps,
 } from './react/components/multi-month-view';
+export { ResourceView, type ResourceViewProps } from './react/components/resource-view';
 export { TimeGridView, type TimeGridViewProps } from './react/components/time-grid-view';
+export { TimelineView, type TimelineViewProps } from './react/components/timeline-view';
 export { Toolbar, type ToolbarLabels, type ToolbarProps } from './react/components/toolbar';
 export {
   VirtualListView,
@@ -155,6 +167,15 @@ export {
   useDayDrag,
 } from './react/use-day-drag';
 export {
+  type ResourceAllDayCellProps,
+  type ResourceColumnProps,
+  type ResourceEventProps,
+  type ResourceGridDragHandlers,
+  type ResourcePreviewSegment,
+  type ResourceResizeHandleProps,
+  useResourceGridDrag,
+} from './react/use-resource-grid-drag';
+export {
   type TimeGridDayProps,
   type TimeGridDragHandlers,
   type TimeGridEventProps,
@@ -162,6 +183,14 @@ export {
   type TimeGridResizeHandleProps,
   useTimeGridDrag,
 } from './react/use-time-grid-drag';
+export {
+  type TimelineDragHandlers,
+  type TimelineItemProps,
+  type TimelinePreviewSegment,
+  type TimelineResizeHandleProps,
+  type TimelineRowProps,
+  useTimelineDrag,
+} from './react/use-timeline-drag';
 // React: 仮想化（ヘッドレスなプリミティブ）
 export {
   type UseVirtualizerOptions,

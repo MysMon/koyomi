@@ -26,6 +26,7 @@
 | `location` | `string`（省略可） | 場所。 |
 | `description` | `string`（省略可） | 説明文。 |
 | `editable` | `boolean`（省略可） | 変更操作を許可するか。既定は `true`。`false` の場合、表示・クリックは可能だがドラッグ移動・リサイズ・キーボードでの移動/リサイズ/削除はすべて無効になります。 |
+| `resourceId` | `string`（省略可） | 割当先リソースの ID（[リソース](#リソース)を参照）。リソース/タイムラインビューで使用します。 |
 | `extendedProps` | `Record<string, unknown>`（省略可） | 利用者定義の任意データ。ライブラリは内容に関知しません。 |
 
 `rrule` / `exdates` / `rdates` / `recurringEventId` / `originalStart` の詳細な挙動は
@@ -111,6 +112,41 @@ const [occurrence] = calendar.getOccurrences({
 const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
 // occurrence.end.getTime() - occurrence.start.getTime() === twoDaysMs
 ```
+
+## リソース
+
+`CalendarResource` は会議室・設備・担当者など、予定の割当先を表す型です。`CalendarEvent.resourceId` でイベントをリソースに割り当てます。リソース/タイムラインビューで使用します。
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `id` | `string` | 一意な ID。重複する場合は先頭のリソースが優先されます（先勝ち）。 |
+| `title` | `string` | 表示名。 |
+| `color` | `string`（省略可） | 表示色（CSS の color 値）。リソース/タイムラインビューの列/行見出しと、そのビュー内で `event.color` 未指定のイベントの既定色になります（イベント自身の `color` が常に優先。既存ビューの描画には影響しません）。 |
+| `extendedProps` | `Record<string, unknown>`（省略可） | 利用者定義の任意データ。ライブラリは内容に関知しません。 |
+
+表示順は `resources` 配列の並び順です（`order` のような専用フィールドは持ちません）。
+
+`CalendarOptions.resources`（既定 `[]`）はカレンダーが保持するリソース一覧です。`events` と完全に同型の扱いで、**作成時の初期値としてのみ有効**です（マウント後に異なる配列参照を渡しても反映されません。開発ビルドでは一度だけ警告されます）。動的に変更するには `calendar.api.setResources(nextResources)` を使います。
+
+```ts
+import { createCalendar } from '@koyomi-cal/react';
+
+const calendar = createCalendar({
+  timeZone: 'Asia/Tokyo',
+  resources: [
+    { id: 'room-a', title: '会議室A' },
+    { id: 'room-b', title: '会議室B' },
+  ],
+  events: [{ id: '1', title: '定例会議', start: '2026-07-01T10:00', resourceId: 'room-a' }],
+});
+
+console.log(calendar.getResources().map((r) => r.title)); // => ['会議室A', '会議室B']
+
+// resources を動的に置き換える場合は setResources を使う（events の setEvents と同じ流儀）
+calendar.setResources([{ id: 'room-a', title: '会議室A（改称）' }]);
+```
+
+`resourceId` を持たないイベント、または `resources` に存在しない ID を指すイベント（参照先のないリソース ID）は「未割り当て」として扱われます。黙って非表示にはならず、リソース/タイムラインビューでは専用のレーンに表示されます。
 
 ## イベントの CRUD
 

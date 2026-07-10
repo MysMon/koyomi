@@ -20,6 +20,8 @@ const VIEW_BUTTON_DEFS: Record<CalendarViewType, { action: string; defaultLabel:
   list: { action: 'view-list', defaultLabel: 'リスト' },
   year: { action: 'view-year', defaultLabel: '年' },
   multiMonth: { action: 'view-multimonth', defaultLabel: '複数月' },
+  resource: { action: 'view-resource', defaultLabel: 'リソース' },
+  timeline: { action: 'view-timeline', defaultLabel: 'タイムライン' },
 };
 
 /**
@@ -50,6 +52,10 @@ export interface ToolbarLabels {
   year?: ReactNode;
   /** 複数月ビュー切替ボタンの表示文字列。省略時は「複数月」。 */
   multiMonth?: ReactNode;
+  /** リソースビュー切替ボタンの表示文字列。省略時は「リソース」。 */
+  resource?: ReactNode;
+  /** タイムラインビュー切替ボタンの表示文字列。省略時は「タイムライン」。 */
+  timeline?: ReactNode;
   /** 「今日」ボタンの表示文字列（aria-label にも使う）。省略時は「今日」。 */
   today?: ReactNode;
   /**
@@ -118,10 +124,20 @@ export function Toolbar(props: ToolbarProps): ReactElement {
       case 'month':
         return formatMonthTitle(currentDate, timeZone, locale);
       case 'day':
+      case 'resource':
         return formatDayTitle(currentDate, timeZone, locale);
       case 'week':
       case 'list':
         return formatRangeTitle(api.getVisibleRange(), timeZone, locale);
+      case 'timeline': {
+        // 1 日表示なら日ビューと同じ形式、複数日なら範囲形式
+        const range = api.getVisibleRange();
+        const lastInstant = new Date(range.end.getTime() - 1);
+        return formatDayTitle(range.start, timeZone, locale) ===
+          formatDayTitle(lastInstant, timeZone, locale)
+          ? formatDayTitle(currentDate, timeZone, locale)
+          : formatRangeTitle(range, timeZone, locale);
+      }
       case 'year':
         return formatYearTitle(currentDate, timeZone, locale);
       case 'multiMonth': {

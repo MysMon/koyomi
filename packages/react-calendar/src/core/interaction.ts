@@ -90,6 +90,69 @@ export function timeAtGridPosition(params: {
 }
 
 /**
+ * タイムラインの表示分（範囲先頭からの分。全日を等幅 1440 分として扱う座標系）から
+ * 絶対時刻を計算する。
+ *
+ * 表示分は `日インデックス × 1440 + その日の 0:00 からの分` として解釈し、
+ * 該当日の 0:00 への現地時刻の分加算（{@link addMinutesInZone}）で日時化する
+ * （DST の切り替え日でも表示位置と現地時刻の対応が保たれる）。
+ *
+ * 境界仕様は用途別（{@link timeAtGridPosition} が開始時刻用途として 1440 未満に
+ * クランプする規則に準拠）:
+ * - 既定（作成の起点・移動先の開始）: スナップ後、`interval` の倍数のうち
+ *   `totalMinutes` 未満で最大のものを上限、0 を下限にクランプし、**排他端を返さない**
+ *   （開始時刻が範囲の終端ちょうどになる無効な予定を作らせない）
+ * - `allowExclusiveEnd: true`（リサイズの終了端）: `[min(interval, totalMinutes),
+ *   totalMinutes]` にクランプし、上端（排他端）を許容する
+ * - `snap > totalMinutes` の退行的な設定でも上下限は逆転しない
+ *   （既定用途は 0、リサイズ終了端は `totalMinutes` に倒れる）
+ *
+ * @param params.days - 表示日の開始時刻の配列（昇順・1 日以上）
+ * @param params.displayMinutes - 表示分（範囲外はクランプされる）
+ * @param params.timeZone - 表示タイムゾーン
+ * @param params.snap - スナップ間隔（分）
+ * @param params.allowExclusiveEnd - 排他端（`totalMinutes` ちょうど）を許容するか。
+ *   リサイズの終了端でのみ `true`。既定は `false`
+ * @returns 表示分に対応する絶対時刻
+ * @throws `days` が空の場合は `Error`（ビュービルダー/フックは常に 1 日以上を渡す）
+ */
+export function timeAtTimelineOffset(params: {
+  days: readonly Date[];
+  displayMinutes: number;
+  timeZone: TimeZoneId;
+  snap: number;
+  allowExclusiveEnd?: boolean;
+}): Date {
+  const { days, displayMinutes, timeZone, snap, allowExclusiveEnd = false } = params;
+  const firstDay = days[0];
+  if (firstDay === undefined) {
+    throw new Error('タイムラインの表示日が空です（1 日以上必要）');
+  }
+  const interval = normalizeSnap(snap);
+  const totalMinutes = days.length * MINUTES_PER_DAY;
+  const snapped = snapToInterval(displayMinutes, interval);
+
+  let minutes: number;
+  if (allowExclusiveEnd) {
+    // 終了端用途: 下限は 1 スナップ単位分（長さ 0 のリサイズを作らせない）、
+    // 上限は排他端（totalMinutes）まで許容。min により snap > totalMinutes でも逆転しない
+    const lowerBound = Math.min(interval, totalMinutes);
+    minutes = Math.min(Math.max(snapped, lowerBound), totalMinutes);
+  } else {
+    // 開始用途: 上限は「interval の倍数のうち totalMinutes 未満で最大のもの」。
+    // Math.max(0, …) により snap > totalMinutes でも 0 に倒れて逆転しない
+    const maxOnGrid = Math.max(0, Math.floor((totalMinutes - 1) / interval) * interval);
+    minutes = Math.min(Math.max(snapped, 0), maxOnGrid);
+  }
+
+  // 表示分 → 日インデックスと日内の分。排他端（minutes === totalMinutes）は
+  // 最終日の 1440 分（翌日 0:00）として解決する
+  const dayIndex = Math.min(Math.floor(minutes / MINUTES_PER_DAY), days.length - 1);
+  const day = days[dayIndex] ?? firstDay;
+  return addMinutesInZone(day, minutes - dayIndex * MINUTES_PER_DAY, timeZone);
+}
+
+/**
  * 時間グリッドのドラッグ操作の種類。
  *
  * - `create` — 空き領域のドラッグによる新規作成
@@ -283,7 +346,10 @@ export function dayDragPreviewRange(
  * キーボードショートカットの操作種別。Google カレンダーのショートカットに準拠する。
  */
 export type CalendarShortcut =
-  | { type: 'view'; view: 'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' }
+  | {
+      type: 'view';
+      view: 'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' | 'resource' | 'timeline';
+    }
   | { type: 'today' }
   | { type: 'next' }
   | { type: 'prev' }
@@ -294,6 +360,8 @@ export type CalendarShortcut =
  *
  * - `M` → 月、`W` → 週、`D` → 日、`A` → リスト（スケジュール）、`Y` → 年
  * - `Q` → 複数月（既定 3 ヶ月 = 四半期（quarter）の連想）
+ * - `R` → リソース、`L` → タイムライン（timeline の頭文字 `T` は「今日」と
+ *   衝突するため、語中の L（time**l**ine）を使う）
  * - `T` → 今日
  * - `J` / `N` → 次の期間、`K` / `P` → 前の期間
  * - `C` → 予定作成
@@ -327,6 +395,10 @@ export function shortcutForKey(
       return { type: 'view', view: 'year' };
     case 'q':
       return { type: 'view', view: 'multiMonth' };
+    case 'r':
+      return { type: 'view', view: 'resource' };
+    case 'l':
+      return { type: 'view', view: 'timeline' };
     case 't':
       return { type: 'today' };
     case 'j':

@@ -53,8 +53,11 @@ const ALL_DAY_ROW_MIN_DURATION_MS = 24 * 60 * 60 * 1000;
  * @param occurrence - 判定するオカレンス
  * @param timeZone - 表示タイムゾーン
  * @returns 終日行に入れるべきなら `true`
+ *
+ * @remarks リソースビュー（`resource-view.ts`）も同じ振り分け規則を使うため
+ * モジュール間で共有する（`index.ts` からは公開しない）。
  */
-function belongsToAllDayRow(occurrence: EventOccurrence, timeZone: TimeZoneId): boolean {
+export function belongsToAllDayRow(occurrence: EventOccurrence, timeZone: TimeZoneId): boolean {
   if (occurrence.allDay) {
     return true;
   }
@@ -237,8 +240,11 @@ function compareGridEntries(a: GridEntry, b: GridEntry): number {
  * @param params.dayEnd - 翌日の 0:00（絶対時刻、排他）
  * @param params.timeZone - 表示タイムゾーン
  * @returns 表示順（開始分昇順 → 長い方が先 → key）に並んだ配置済みオカレンス
+ *
+ * @remarks リソースビュー（`resource-view.ts`）も「列ごとに 1 日分を配置する」
+ * 同じ計算を使うためモジュール間で共有する（`index.ts` からは公開しない）。
  */
-function buildDayItems(
+export function buildDayItems(
   occurrences: readonly EventOccurrence[],
   params: { dayStart: Date; dayEnd: Date; timeZone: TimeZoneId },
 ): PositionedOccurrence[] {
@@ -318,8 +324,11 @@ function buildDayItems(
  * ラベルは {@link formatSlotLabel}（`'HH:mm'` 形式）で付ける。
  *
  * @param slotMinutes - 目盛り間隔（分）。0 以下・非有限の場合は空配列を返す
+ *
+ * @remarks リソースビュー（`resource-view.ts`）も同じ目盛りを使うため
+ * モジュール間で共有する（`index.ts` からは公開しない）。
  */
-function buildSlots(slotMinutes: number): TimeSlot[] {
+export function buildSlots(slotMinutes: number): TimeSlot[] {
   const slots: TimeSlot[] = [];
   // 不正な間隔（0 以下・非有限）では無限ループになるため空配列で防御する
   if (!Number.isFinite(slotMinutes) || slotMinutes <= 0) {

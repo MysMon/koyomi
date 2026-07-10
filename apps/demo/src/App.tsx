@@ -10,6 +10,7 @@
 
 import type {
   CalendarInteractionCallbacks,
+  CalendarViewType,
   EventChange,
   EventDelete,
   EventOccurrence,
@@ -28,7 +29,19 @@ import {
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EventDialog, type EventDialogMode } from './EventDialog';
 import { type ScopeAction, ScopeDialog } from './ScopeDialog';
-import { sampleEvents } from './sample-events';
+import { sampleEvents, sampleResources } from './sample-events';
+
+/** ツールバー・ショートカットで有効にするビュー（全 8 ビュー）。 */
+const ALL_VIEWS: readonly CalendarViewType[] = [
+  'month',
+  'week',
+  'day',
+  'list',
+  'year',
+  'multiMonth',
+  'resource',
+  'timeline',
+];
 
 /** ヘッダーの表示タイムゾーン切替の選択肢。 */
 const TIME_ZONE_OPTIONS: readonly { value: TimeZoneId; label: string }[] = [
@@ -84,7 +97,10 @@ export function App(): ReactElement {
     initialView: 'month',
     locale: 'ja',
     events: sampleEvents,
+    resources: sampleResources,
     timeZone: 'Asia/Tokyo',
+    // タイムラインビューは 3 日分を表示する
+    timelineDays: 3,
     // 現在時刻線・「今日」判定を 1 分ごとに追従させる
     refreshSeconds: 60,
   });
@@ -185,6 +201,7 @@ export function App(): ReactElement {
 
   useCalendarShortcuts({
     calendar,
+    views: ALL_VIEWS,
     onCreate: () => {
       const start = state.options.now();
       const end = new Date(start.getTime() + 60 * 60 * 1000);
@@ -256,7 +273,7 @@ export function App(): ReactElement {
 
       <main className="demo-main">
         <CalendarProvider value={calendar} callbacks={callbacks}>
-          <Toolbar />
+          <Toolbar views={ALL_VIEWS} />
           <CalendarView />
         </CalendarProvider>
       </main>
@@ -276,8 +293,8 @@ export function App(): ReactElement {
         )}
         <p className="demo-log-hint">
           キーボード操作: 予定にフォーカスして矢印キーで移動（Shift+矢印でリサイズ、 Delete
-          で削除）、日セルで Enter で作成。ショートカット: t=今日 / m・w・d・a=ビュー切替 /
-          j・k=前後の期間 / c=作成
+          で削除）、日セルで Enter で作成。ショートカット: t=今日 /
+          m・w・d・a・y・q・r・l=ビュー切替 / j・k=前後の期間 / c=作成
         </p>
       </section>
 

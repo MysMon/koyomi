@@ -344,7 +344,7 @@ describe('rangesOverlap', () => {
 });
 
 describe('visibleRangeFor', () => {
-  const options = { weekStartsOn: 0, listDays: 30, multiMonthCount: 3 } as const;
+  const options = { weekStartsOn: 0, listDays: 30, multiMonthCount: 3, timelineDays: 1 } as const;
   const current = new Date('2026-07-01T01:00:00Z'); // 7/1(水) 10:00 JST
 
   it('month: monthGridRange と一致する', () => {
@@ -366,6 +366,7 @@ describe('visibleRangeFor', () => {
       weekStartsOn: 1,
       listDays: 30,
       multiMonthCount: 3,
+      timelineDays: 1,
     });
     expect(range.start.toISOString()).toBe('2026-06-28T15:00:00.000Z'); // 6/29(月) 0:00 JST
     expect(range.end.toISOString()).toBe('2026-07-05T15:00:00.000Z'); // 7/6(月) 0:00 JST
@@ -398,6 +399,7 @@ describe('visibleRangeFor', () => {
       weekStartsOn: 0,
       listDays: 7,
       multiMonthCount: 3,
+      timelineDays: 1,
     });
     expect(range.start.toISOString()).toBe('2026-03-05T05:00:00.000Z');
     expect(range.end.toISOString()).toBe('2026-03-12T04:00:00.000Z'); // 3/12 0:00 EDT
@@ -413,11 +415,13 @@ describe('visibleRangeFor', () => {
       weekStartsOn: 0,
       listDays: 30,
       multiMonthCount: 3,
+      timelineDays: 1,
     });
     const week2 = visibleRangeFor('week', week2Anchor, SANTIAGO, {
       weekStartsOn: 0,
       listDays: 30,
       multiMonthCount: 3,
+      timelineDays: 1,
     });
     expect(week1.start.toISOString()).toBe('2026-09-06T04:00:00.000Z'); // 9/6 1:00（繰り上げ）
     expect(week1.end.getTime()).toBe(week2.start.getTime());
@@ -439,6 +443,7 @@ describe('visibleRangeFor', () => {
       weekStartsOn: 0,
       listDays: 7,
       multiMonthCount: 3,
+      timelineDays: 1,
     });
     expect(range.start.toISOString()).toBe('2026-09-06T04:00:00.000Z'); // 9/6 1:00（繰り上げ）
     expect(range.end.toISOString()).toBe('2026-09-13T03:00:00.000Z'); // 9/13 0:00
@@ -471,6 +476,7 @@ describe('visibleRangeFor', () => {
       weekStartsOn: 0,
       listDays: 30,
       multiMonthCount: 3,
+      timelineDays: 1,
     });
     expect(range.start.toISOString()).toBe('2026-06-30T15:00:00.000Z'); // 7/1 0:00 JST
     expect(range.end.toISOString()).toBe('2026-09-30T15:00:00.000Z'); // 10/1 0:00 JST
@@ -482,6 +488,7 @@ describe('visibleRangeFor', () => {
       weekStartsOn: 0,
       listDays: 30,
       multiMonthCount: 1,
+      timelineDays: 1,
     });
     expect(range.start.toISOString()).toBe('2026-06-30T15:00:00.000Z'); // 7/1 0:00 JST
     expect(range.end.toISOString()).toBe('2026-07-31T15:00:00.000Z'); // 8/1 0:00 JST
@@ -494,14 +501,43 @@ describe('visibleRangeFor', () => {
       weekStartsOn: 0,
       listDays: 30,
       multiMonthCount: 3,
+      timelineDays: 1,
     });
     expect(range.start.toISOString()).toBe('2026-06-30T15:00:00.000Z'); // 7/1 0:00 JST（7/31 ではない）
     expect(range.end.toISOString()).toBe('2026-09-30T15:00:00.000Z'); // 10/1 0:00 JST
   });
+
+  it('resource: day と同一の範囲（基準日の 1 日）になる', () => {
+    const range = visibleRangeFor('resource', current, TOKYO, options);
+    const dayRange = visibleRangeFor('day', current, TOKYO, options);
+    expect(range.start.getTime()).toBe(dayRange.start.getTime());
+    expect(range.end.getTime()).toBe(dayRange.end.getTime());
+    expect(range.start.toISOString()).toBe('2026-06-30T15:00:00.000Z');
+    expect(range.end.toISOString()).toBe('2026-07-01T15:00:00.000Z');
+  });
+
+  it('timeline: 既定（timelineDays=1）では day と同一の範囲になる', () => {
+    const range = visibleRangeFor('timeline', current, TOKYO, options);
+    expect(range.start.toISOString()).toBe('2026-06-30T15:00:00.000Z'); // 7/1 0:00 JST
+    expect(range.end.toISOString()).toBe('2026-07-01T15:00:00.000Z'); // 7/2 0:00 JST
+    expect(eachDayInRange(range, TOKYO)).toHaveLength(1);
+  });
+
+  it('timeline: timelineDays の値を反映する（基準日の 0:00 から timelineDays 日間）', () => {
+    const range = visibleRangeFor('timeline', current, TOKYO, {
+      weekStartsOn: 0,
+      listDays: 30,
+      multiMonthCount: 3,
+      timelineDays: 7,
+    });
+    expect(range.start.toISOString()).toBe('2026-06-30T15:00:00.000Z'); // 7/1 0:00 JST
+    expect(range.end.toISOString()).toBe('2026-07-07T15:00:00.000Z'); // 7/8 0:00 JST
+    expect(eachDayInRange(range, TOKYO)).toHaveLength(7);
+  });
 });
 
 describe('navigateDate', () => {
-  const options = { listDays: 30, multiMonthCount: 3 };
+  const options = { listDays: 30, multiMonthCount: 3, timelineDays: 1 };
   const current = new Date('2026-07-15T01:00:00Z'); // 7/15 10:00 JST
 
   it('month: +1 は翌月の月初 0:00 に正規化される', () => {
@@ -568,7 +604,11 @@ describe('navigateDate', () => {
   it('list: listDays の値を反映する', () => {
     const start = new Date('2026-07-01T01:00:00Z');
     expect(
-      navigateDate('list', start, 1, TOKYO, { listDays: 7, multiMonthCount: 3 }).toISOString(),
+      navigateDate('list', start, 1, TOKYO, {
+        listDays: 7,
+        multiMonthCount: 3,
+        timelineDays: 1,
+      }).toISOString(),
     ).toBe('2026-07-08T01:00:00.000Z');
   });
 
@@ -599,6 +639,7 @@ describe('navigateDate', () => {
       navigateDate('multiMonth', current, 1, TOKYO, {
         listDays: 30,
         multiMonthCount: 3,
+        timelineDays: 1,
       }).toISOString(),
     ).toBe('2026-09-30T15:00:00.000Z'); // 7/15 + 3ヶ月 → 10/1 0:00 JST
   });
@@ -608,6 +649,7 @@ describe('navigateDate', () => {
       navigateDate('multiMonth', current, -1, TOKYO, {
         listDays: 30,
         multiMonthCount: 3,
+        timelineDays: 1,
       }).toISOString(),
     ).toBe('2026-03-31T15:00:00.000Z'); // 7/15 - 3ヶ月 → 4/1 0:00 JST
   });
@@ -617,6 +659,7 @@ describe('navigateDate', () => {
       navigateDate('multiMonth', current, 1, TOKYO, {
         listDays: 30,
         multiMonthCount: 1,
+        timelineDays: 1,
       }).toISOString(),
     ).toBe('2026-07-31T15:00:00.000Z'); // 7/15 + 1ヶ月 → 8/1 0:00 JST
   });
@@ -627,7 +670,43 @@ describe('navigateDate', () => {
       navigateDate('multiMonth', jan31, 1, TOKYO, {
         listDays: 30,
         multiMonthCount: 1,
+        timelineDays: 1,
       }).toISOString(),
     ).toBe('2026-01-31T15:00:00.000Z'); // 2/1 0:00 JST
+  });
+
+  it('resource: ±1 日移動する（day と同一）', () => {
+    expect(navigateDate('resource', current, 1, TOKYO, options).toISOString()).toBe(
+      '2026-07-16T01:00:00.000Z',
+    );
+    expect(navigateDate('resource', current, -1, TOKYO, options).toISOString()).toBe(
+      '2026-07-14T01:00:00.000Z',
+    );
+  });
+
+  it('timeline: 既定（timelineDays=1）では ±1 日移動する（day と同一）', () => {
+    expect(navigateDate('timeline', current, 1, TOKYO, options).toISOString()).toBe(
+      '2026-07-16T01:00:00.000Z',
+    );
+    expect(navigateDate('timeline', current, -1, TOKYO, options).toISOString()).toBe(
+      '2026-07-14T01:00:00.000Z',
+    );
+  });
+
+  it('timeline: timelineDays の値を反映する（±timelineDays 日移動する）', () => {
+    expect(
+      navigateDate('timeline', current, 1, TOKYO, {
+        listDays: 30,
+        multiMonthCount: 3,
+        timelineDays: 7,
+      }).toISOString(),
+    ).toBe('2026-07-22T01:00:00.000Z'); // 7/15 + 7日
+    expect(
+      navigateDate('timeline', current, -1, TOKYO, {
+        listDays: 30,
+        multiMonthCount: 3,
+        timelineDays: 7,
+      }).toISOString(),
+    ).toBe('2026-07-08T01:00:00.000Z'); // 7/15 - 7日
   });
 });

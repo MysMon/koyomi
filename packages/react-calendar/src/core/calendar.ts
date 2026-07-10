@@ -21,6 +21,7 @@ import type {
   CalendarEventInput,
   CalendarEventPatch,
   CalendarOptions,
+  CalendarResource,
   CalendarState,
   CalendarViewModel,
   CalendarViewType,
@@ -35,7 +36,9 @@ import type {
 import { buildListViewModel } from './views/list-view';
 import { buildMonthViewModel } from './views/month-view';
 import { buildMultiMonthViewModel } from './views/multi-month-view';
+import { buildResourceViewModel } from './views/resource-view';
 import { buildTimeGridViewModel } from './views/time-grid-view';
+import { buildTimelineViewModel } from './views/timeline-view';
 import { buildYearViewModel } from './views/year-view';
 
 /** 解決済みオプションの既定値。 */
@@ -48,6 +51,8 @@ const DEFAULT_OPTIONS: Omit<ResolvedCalendarOptions, 'now'> = {
   defaultEventTitle: '(タイトルなし)',
   listDays: 30,
   multiMonthCount: 3,
+  timelineDays: 1,
+  unassignedLane: 'auto',
   locale: 'ja',
   hiddenWeekdays: [],
 };
@@ -98,6 +103,8 @@ function resolveOptions(
     defaultEventTitle: options?.defaultEventTitle ?? current.defaultEventTitle,
     listDays: normalizePositiveInt(options?.listDays ?? current.listDays, 1),
     multiMonthCount: normalizePositiveInt(options?.multiMonthCount ?? current.multiMonthCount, 1),
+    timelineDays: normalizePositiveInt(options?.timelineDays ?? current.timelineDays, 1),
+    unassignedLane: options?.unassignedLane ?? current.unassignedLane,
     locale: options?.locale ?? current.locale,
     hiddenWeekdays:
       options?.hiddenWeekdays !== undefined
@@ -121,6 +128,8 @@ function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOpt
     a.defaultEventTitle === b.defaultEventTitle &&
     a.listDays === b.listDays &&
     a.multiMonthCount === b.multiMonthCount &&
+    a.timelineDays === b.timelineDays &&
+    a.unassignedLane === b.unassignedLane &&
     a.locale === b.locale &&
     a.now === b.now &&
     a.hiddenWeekdays.length === b.hiddenWeekdays.length &&
@@ -181,6 +190,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
   let currentDate: Date = options?.initialDate ?? resolvedOptions.now();
   let timeZone: TimeZoneId = options?.timeZone ?? getLocalTimeZone();
   let events: readonly CalendarEvent[] = options?.events ?? [];
+  let resources: readonly CalendarResource[] = options?.resources ?? [];
   let dragPreview: DragPreview | null = null;
   let onEventsChange = options?.onEventsChange;
 
@@ -241,6 +251,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       weekStartsOn: resolvedOptions.weekStartsOn,
       listDays: resolvedOptions.listDays,
       multiMonthCount: resolvedOptions.multiMonthCount,
+      timelineDays: resolvedOptions.timelineDays,
     });
   }
 
@@ -306,6 +317,27 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           multiMonthCount: resolvedOptions.multiMonthCount,
           now,
         });
+      case 'resource':
+        return buildResourceViewModel({
+          currentDate,
+          timeZone,
+          occurrences,
+          resources,
+          unassignedLane: resolvedOptions.unassignedLane,
+          slotMinutes: resolvedOptions.slotMinutes,
+          now,
+        });
+      case 'timeline':
+        return buildTimelineViewModel({
+          currentDate,
+          timeZone,
+          occurrences,
+          resources,
+          unassignedLane: resolvedOptions.unassignedLane,
+          timelineDays: resolvedOptions.timelineDays,
+          slotMinutes: resolvedOptions.slotMinutes,
+          now,
+        });
     }
   }
 
@@ -317,6 +349,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           currentDate,
           timeZone,
           events,
+          resources,
           dragPreview,
           options: resolvedOptions,
         };
@@ -345,6 +378,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       currentDate = navigateDate(view, currentDate, 1, timeZone, {
         listDays: resolvedOptions.listDays,
         multiMonthCount: resolvedOptions.multiMonthCount,
+        timelineDays: resolvedOptions.timelineDays,
       });
       commit(true);
     },
@@ -353,6 +387,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       currentDate = navigateDate(view, currentDate, -1, timeZone, {
         listDays: resolvedOptions.listDays,
         multiMonthCount: resolvedOptions.multiMonthCount,
+        timelineDays: resolvedOptions.timelineDays,
       });
       commit(true);
     },
@@ -391,6 +426,10 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
         events = patch.events;
         changed = true;
       }
+      if (patch.resources !== undefined && patch.resources !== resources) {
+        resources = patch.resources;
+        changed = true;
+      }
       if (patch.onEventsChange !== undefined) {
         // コールバックの差し替えは state スナップショットに影響しないため通知しない
         onEventsChange = patch.onEventsChange;
@@ -423,6 +462,23 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       }
       // 外部同期の入口なので onEventsChange は呼ばない（呼び出しの循環防止）
       events = next;
+      commit(true);
+    },
+
+    // --- リソース ---
+
+    getResources(): readonly CalendarResource[] {
+      return resources;
+    },
+
+    setResources(next: readonly CalendarResource[]): void {
+      if (next === resources) {
+        return;
+      }
+      // ID 重複の除外などの正規化は行わない（events と同じ扱い）。
+      // 重複 ID はビュービルダーが先勝ちで決定論的に処理し、
+      // 開発ビルドの警告は React 層の責務とする
+      resources = next;
       commit(true);
     },
 

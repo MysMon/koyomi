@@ -564,8 +564,10 @@ export interface ResourceViewModel {
   イベント自身の `color` が優先。
 - a11y: **時間グリッドの現状に合わせる**。現行 `time-grid-view.tsx` は grid 系 role を
   持たない（`role=` 該当ゼロ。ARIA grid を持つのは月ビューのみ）ため、リソースビューも
-  role なし + 操作要素は `<button>` + 完全な `aria-label`（日時 + リソース名）+
-  `aria-current="date"` の構成とする。週/日・リソース/タイムラインをまとめた ARIA grid 化は
+  role なし + 操作要素は `<button>` + 完全な `aria-label`（日時 + リソース名）の構成とする。
+  `aria-current="date"` は付与しない（週/日ビューでは「日付へ移動する日番号ボタン」に
+  付くが、リソースビューは単一日固定で相当する操作要素が存在しない。「今日」は
+  `data-today` 属性で表現する）。週/日・リソース/タイムラインをまとめた ARIA grid 化は
   既存ビューの改修を伴うため別提案（§14）。
 - キーボード: ↑↓ = `snapMinutes` 分の移動、Shift+↑↓ = リサイズ（時間グリッドと同じ）、
   **←→ = 隣のリソース列への移動**。原則 7（キーは視覚軸に従う）による割当で、
@@ -784,9 +786,9 @@ timeAtTimelineOffset(params: {
   右に横スクロールコンテナ（`data-koyomi="timeline-body"`）。日ヘッダー
   （`timeline-day-header`）+ 時間目盛り（`timeline-slots`）+ 行（`timeline-row`）。
   帯は `data-koyomi="timeline-item"` の `<button>`、水平位置は
-  `left: ${startMinutes / totalMinutes * 100}%` / `width: %` の inline 数値のみ
-  （`totalMinutes > 0` は §7.2 で保証）。レーンは `data-koyomi-lane` 属性 +
-  テーマ CSS で縦位置を決める。
+  `insetInlineStart: ${startMinutes / totalMinutes * 100}%` / `width: %` の inline 数値のみ
+  （RTL 対応の論理プロパティ。既存ビューと同じ規約。`totalMinutes > 0` は §7.2 で保証）。
+  レーンは `data-koyomi-lane` 属性 + テーマ CSS で縦位置を決める。
 - スクロールは**単一の横スクロールコンテナ**に行見出し列を `position: sticky` で固定する
   （二重スクロール同期の JS を持たない。構造 CSS はデフォルトテーマの
   `[data-koyomi="timeline-body"]` 等に置く既存規約どおり）。

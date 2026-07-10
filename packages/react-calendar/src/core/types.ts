@@ -15,8 +15,18 @@
  * - `list` — リスト表示（予定を日付ごとに列挙）
  * - `year` — 年表示（12 ヶ月分のミニ月グリッド）
  * - `multiMonth` — 複数月表示（連続する N ヶ月の月グリッドを縦に並べる）
+ * - `resource` — リソース表示（1 日、列 = リソース × 縦 = 時間）
+ * - `timeline` — タイムライン表示（横 = 時間 × 行 = リソース）
  */
-export type CalendarViewType = 'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth';
+export type CalendarViewType =
+  | 'month'
+  | 'week'
+  | 'day'
+  | 'list'
+  | 'year'
+  | 'multiMonth'
+  | 'resource'
+  | 'timeline';
 
 /**
  * IANA タイムゾーン ID。
@@ -27,6 +37,27 @@ export type TimeZoneId = string;
 
 /** イベントを一意に識別する ID。 */
 export type EventId = string;
+
+/**
+ * カレンダーのリソース（会議室・設備・担当者など、予定の割当先）。
+ *
+ * リソースビュー・タイムラインビューの列/行になる。表示順は
+ * {@link CalendarOptions.resources} 配列の並び順（`order` フィールドは持たない）。
+ */
+export interface CalendarResource {
+  /** 一意な ID。重複する場合は先頭のリソースが優先される（先勝ち）。 */
+  id: string;
+  /** 表示名。 */
+  title: string;
+  /**
+   * 表示色（CSS の color 値）。リソース/タイムラインビューの列/行見出しと、
+   * そのビュー内で `event.color` 未指定のイベントの既定色になる
+   * （イベント自身の `color` が常に優先。既存ビューの描画には影響しない）。
+   */
+  color?: string;
+  /** 利用者定義の任意データ。ライブラリは内容に関知しない。 */
+  extendedProps?: Record<string, unknown>;
+}
 
 /** 曜日番号。0 = 日曜日、1 = 月曜日、…、6 = 土曜日。 */
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
@@ -108,6 +139,12 @@ export interface CalendarEvent {
   originalStart?: Date | string;
   /** 表示色。デフォルトテーマでは背景色として使用される（CSS の color 値）。 */
   color?: string;
+  /**
+   * 割当先のリソース ID（{@link CalendarResource.id}）。
+   * 省略時は「未割り当て」として扱われる（リソース/タイムラインビューの
+   * 未割り当てレーンに表示される）。他のビューの表示には影響しない。
+   */
+  resourceId?: string;
   /** 場所。 */
   location?: string;
   /** 説明文。 */
@@ -397,13 +434,130 @@ export interface MultiMonthViewModel {
   weekdays: readonly Weekday[];
 }
 
+/** リソースビューの 1 列分（1 リソース）。 */
+export interface ResourceColumn {
+  /** 対応するリソース。未割り当てレーンは `null`。 */
+  resource: CalendarResource | null;
+  /**
+   * 列を一意に識別するキー。リソース列は `` `r:${resource.id}` ``、
+   * 未割り当て列は `'unassigned'`（判別子付きの形式にすることで、
+   * `'unassigned'` という ID のリソースと衝突しない）。
+   */
+  key: string;
+  /** この列に配置された時間指定イベント（週/日ビューと同じ配置計算）。 */
+  items: readonly PositionedOccurrence[];
+  /**
+   * この列の終日イベント（開始昇順 → 長い順 → キー辞書順。レーン = 配列順に縦積み）。
+   * 列 = 1 日のため帯の水平スパンは常に 1 で、レーン割当は単純な縦積みでよい。
+   */
+  allDayItems: readonly EventOccurrence[];
+}
+
+/** リソースビューのビューモデル。 */
+export interface ResourceViewModel {
+  type: 'resource';
+  /** 表示日の開始時刻（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
+  date: Date;
+  /** 表示日の `'YYYY-MM-DD'` キー。 */
+  dateKey: string;
+  /** 表示日が今日かどうか。 */
+  isToday: boolean;
+  /**
+   * リソース列（{@link CalendarOptions.resources} の並び順。
+   * {@link CalendarOptions.unassignedLane} の規則で末尾に未割り当て列が付くことがある）。
+   */
+  columns: readonly ResourceColumn[];
+  /** 列が 1 つもないか（リソース未設定かつ未割り当て列も生成されない場合）。 */
+  isEmpty: boolean;
+  /** 時間軸の目盛り（{@link CalendarOptions.slotMinutes} 間隔）。 */
+  slots: readonly TimeSlot[];
+  /** 現在時刻線の位置（その日の 0:00 からの分）。表示日が今日でなければ `null`。 */
+  nowIndicatorMinutes: number | null;
+}
+
+/** タイムラインの時間軸の目盛り 1 つ分。 */
+export interface TimelineSlot {
+  /**
+   * 表示分（範囲先頭からの分。全日を等幅 1440 分として扱う座標系）。
+   * 既存の {@link TimeSlot} は「その日の 0:00 からの分」という日内前提の型のため、
+   * 複数日を連結するタイムラインでは別型として定義する。
+   */
+  minutes: number;
+  /** 属する表示日の `'YYYY-MM-DD'` キー。 */
+  dayKey: string;
+  /** 表示ラベル（日内の時刻。例: `'09:00'`）。 */
+  label: string;
+}
+
+/** タイムラインに配置された帯。 */
+export interface TimelineItem {
+  /** 対応するオカレンス。 */
+  occurrence: EventOccurrence;
+  /** 表示開始（表示分。範囲外から続く場合はクランプ済み）。 */
+  startMinutes: number;
+  /** 表示終了（表示分、排他。範囲外へ続く場合はクランプ済み）。 */
+  endMinutes: number;
+  /** 縦方向のレーン番号（行内 0 起点）。同じレーンの帯同士は重ならない。 */
+  lane: number;
+  /** オカレンスが表示範囲より前から続いているか。 */
+  continuesBefore: boolean;
+  /** オカレンスが表示範囲より後に続くか。 */
+  continuesAfter: boolean;
+}
+
+/** タイムラインの 1 日分（日ヘッダー用）。 */
+export interface TimelineDay {
+  /** その日の開始時刻（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
+  date: Date;
+  /** 表示タイムゾーンにおける `'YYYY-MM-DD'` 形式のキー。 */
+  key: string;
+  /** 今日かどうか（表示タイムゾーン基準）。 */
+  isToday: boolean;
+  /** 曜日（表示タイムゾーン基準）。 */
+  weekday: Weekday;
+}
+
+/** タイムラインの 1 行分（1 リソース）。 */
+export interface TimelineRow {
+  /** 対応するリソース。未割り当て行は `null`。 */
+  resource: CalendarResource | null;
+  /** 行キー（{@link ResourceColumn.key} と同じ `r:${id}` / `'unassigned'` 形式）。 */
+  key: string;
+  /** この行の帯（終日・時間指定の区別なく同じレーン空間に配置。表示分の開始昇順）。 */
+  items: readonly TimelineItem[];
+  /** この行のレーン数（0 件なら 0）。 */
+  laneCount: number;
+}
+
+/** タイムラインビューのビューモデル。 */
+export interface TimelineViewModel {
+  type: 'timeline';
+  /** 表示日（{@link CalendarOptions.timelineDays} 日の連続並び。`hiddenWeekdays` は適用しない）。 */
+  days: readonly TimelineDay[];
+  /** 時間軸の目盛り（全表示日分を連結）。 */
+  slots: readonly TimelineSlot[];
+  /**
+   * 行（{@link CalendarOptions.resources} の並び順。
+   * {@link CalendarOptions.unassignedLane} の規則で末尾に未割り当て行が付くことがある）。
+   */
+  rows: readonly TimelineRow[];
+  /** 行が 1 つもないか（リソース未設定かつ未割り当て行も生成されない場合）。 */
+  isEmpty: boolean;
+  /** 表示分の総量（`days.length × 1440`。常に正）。横幅スケールの分母。 */
+  totalMinutes: number;
+  /** 現在時刻線の位置（表示分）。表示範囲に「今」がなければ `null`。 */
+  nowIndicatorMinutes: number | null;
+}
+
 /** 現在のビューに対応するビューモデル。 */
 export type CalendarViewModel =
   | MonthViewModel
   | TimeGridViewModel
   | ListViewModel
   | YearViewModel
-  | MultiMonthViewModel;
+  | MultiMonthViewModel
+  | ResourceViewModel
+  | TimelineViewModel;
 
 // ---------------------------------------------------------------------------
 // カレンダーの状態とオプション
@@ -424,6 +578,11 @@ export interface DragPreview {
   range: DateRange;
   /** 終日（帯）としてのプレビューか。 */
   allDay: boolean;
+  /**
+   * プレビューの描画先レーンのリソース ID。リソース/タイムラインビューでの
+   * 操作時のみ設定される（`null` は未割り当てレーン）。既存ビューでは常に省略。
+   */
+  resourceId?: string | null;
 }
 
 /** カレンダーの内部状態のスナップショット。 */
@@ -436,6 +595,8 @@ export interface CalendarState {
   timeZone: TimeZoneId;
   /** すべてのソースイベント。 */
   events: readonly CalendarEvent[];
+  /** すべてのリソース（表示順）。 */
+  resources: readonly CalendarResource[];
   /** ドラッグ操作のプレビュー。操作中でなければ `null`。 */
   dragPreview: DragPreview | null;
   /** 解決済みのオプション（既定値適用後）。 */
@@ -460,6 +621,12 @@ export interface CalendarOptions {
   initialView?: CalendarViewType;
   /** 初期イベント。 */
   events?: readonly CalendarEvent[];
+  /**
+   * 初期リソース（会議室・担当者など、予定の割当先）。既定は `[]`。
+   * `events` と同様に状態の初期値であり、作成後の変更には
+   * {@link CalendarApi.setResources} を使う。
+   */
+  resources?: readonly CalendarResource[];
   /**
    * 表示タイムゾーン。既定は実行環境のローカルタイムゾーン。
    * {@link CalendarApi.setTimeZone} で後から変更できる。
@@ -489,6 +656,21 @@ export interface CalendarOptions {
    * 月ビューの代替にはならない（月ビューは前後月の日付にも帯を描く）。
    */
   multiMonthCount?: number;
+  /**
+   * タイムラインビューが表示する日数。既定は `1`。
+   * `next()` / `prev()` の移動単位にもなる。
+   */
+  timelineDays?: number;
+  /**
+   * リソース/タイムラインビューの未割り当てレーン（`resourceId` を持たない予定の
+   * 表示先）の生成規則。既定は `'auto'`。
+   *
+   * - `'auto'` — 対象範囲に該当オカレンスがある場合のみ末尾に生成する
+   * - `'always'` — 常に生成する。「予定をリソースから外して未割り当てへ戻す」
+   *   D&D を運用する場合はこちらを使う（`'auto'` では未割り当てオカレンスが
+   *   1 件もないときドロップ先が存在しない）
+   */
+  unassignedLane?: 'auto' | 'always';
   /** 曜日・時刻ラベルのロケール。既定は `'ja'`。 */
   locale?: string;
   /**
@@ -527,6 +709,10 @@ export interface ResolvedCalendarOptions {
   listDays: number;
   /** 複数月ビューが表示する月数。 */
   multiMonthCount: number;
+  /** タイムラインビューが表示する日数。 */
+  timelineDays: number;
+  /** 未割り当てレーンの生成規則。 */
+  unassignedLane: 'auto' | 'always';
   /** ロケール。 */
   locale: string;
   /** 非表示にする曜日。 */
@@ -598,6 +784,13 @@ export interface CalendarApi {
   getEvents(): readonly CalendarEvent[];
   /** イベント一覧を置き換える（外部ストアとの同期用）。 */
   setEvents(events: readonly CalendarEvent[]): void;
+
+  // --- リソース ---
+
+  /** すべてのリソースを返す（表示順）。 */
+  getResources(): readonly CalendarResource[];
+  /** リソース一覧を置き換える（外部ストアとの同期用）。 */
+  setResources(resources: readonly CalendarResource[]): void;
   /**
    * イベントを作成する。
    * @returns 作成されたイベント（`id` 確定済み）

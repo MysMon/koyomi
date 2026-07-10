@@ -146,17 +146,24 @@ export function rangesOverlap(a: DateRange, b: DateRange): boolean {
  *   ミニ月グリッドの前後月の日付は含まない）
  * - `multiMonth` — 基準日を含む月の月初 0:00 から `multiMonthCount` ヶ月後の
  *   月初 0:00 まで（各月グリッドの前後月の日付は含まない）
+ * - `resource` — 基準日の 1 日（`day` と同一）
+ * - `timeline` — 基準日の 0:00 から `timelineDays` 日間
  *
  * @param view - ビュー種別
  * @param currentDate - 基準日
  * @param timeZone - タイムゾーン
- * @param options - 週開始曜日・リスト日数・複数月ビューの月数
+ * @param options - 週開始曜日・リスト日数・複数月ビューの月数・タイムラインの日数
  */
 export function visibleRangeFor(
   view: CalendarViewType,
   currentDate: Date,
   timeZone: TimeZoneId,
-  options: { weekStartsOn: Weekday; listDays: number; multiMonthCount: number },
+  options: {
+    weekStartsOn: Weekday;
+    listDays: number;
+    multiMonthCount: number;
+    timelineDays: number;
+  },
 ): DateRange {
   // addDaysInZone は加算前の現地時刻を維持するため、start が深夜 0:00 の
   // 存在しないゾーン（例: America/Santiago）の切替日で繰り上げられた時刻
@@ -171,9 +178,15 @@ export function visibleRangeFor(
       const end = startOfDayInZone(addDaysInZone(start, 7, timeZone), timeZone);
       return { start, end };
     }
-    case 'day': {
+    case 'day':
+    case 'resource': {
       const start = startOfDayInZone(currentDate, timeZone);
       const end = startOfDayInZone(addDaysInZone(start, 1, timeZone), timeZone);
+      return { start, end };
+    }
+    case 'timeline': {
+      const start = startOfDayInZone(currentDate, timeZone);
+      const end = startOfDayInZone(addDaysInZone(start, options.timelineDays, timeZone), timeZone);
       return { start, end };
     }
     case 'list': {
@@ -208,19 +221,21 @@ export function visibleRangeFor(
  * - `list` — ±`listDays` 日
  * - `year` — ±1 年（日は年初に正規化）
  * - `multiMonth` — ±`multiMonthCount` ヶ月（日は月初に正規化）
+ * - `resource` — ±1 日
+ * - `timeline` — ±`timelineDays` 日
  *
  * @param view - ビュー種別
  * @param currentDate - 現在の基準日
  * @param direction - `1`（次へ）または `-1`（前へ）
  * @param timeZone - タイムゾーン
- * @param options - リスト日数・複数月ビューの月数
+ * @param options - リスト日数・複数月ビューの月数・タイムラインの日数
  */
 export function navigateDate(
   view: CalendarViewType,
   currentDate: Date,
   direction: 1 | -1,
   timeZone: TimeZoneId,
-  options: { listDays: number; multiMonthCount: number },
+  options: { listDays: number; multiMonthCount: number; timelineDays: number },
 ): Date {
   switch (view) {
     case 'month':
@@ -241,5 +256,9 @@ export function navigateDate(
         addMonthsInZone(currentDate, options.multiMonthCount * direction, timeZone),
         timeZone,
       );
+    case 'resource':
+      return addDaysInZone(currentDate, direction, timeZone);
+    case 'timeline':
+      return addDaysInZone(currentDate, options.timelineDays * direction, timeZone);
   }
 }

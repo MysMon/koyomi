@@ -287,6 +287,7 @@ function samePositionedOccurrence(a: PositionedOccurrence, b: PositionedOccurren
     a.occurrence.key === b.occurrence.key &&
     a.occurrence.event.title === b.occurrence.event.title &&
     a.occurrence.event.color === b.occurrence.event.color &&
+    a.occurrence.event.resourceId === b.occurrence.event.resourceId &&
     a.occurrence.event.editable === b.occurrence.event.editable &&
     a.occurrence.start.getTime() === b.occurrence.start.getTime() &&
     a.occurrence.end.getTime() === b.occurrence.end.getTime() &&

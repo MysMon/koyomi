@@ -147,6 +147,18 @@ describe('applyPatch', () => {
     expect(event).toEqual(eventBefore);
     expect(patch).toEqual(patchBefore);
   });
+
+  it('resourceId は他のフィールドと同様にキーが存在し値が undefined なら削除される', () => {
+    const event = makeMaster({ resourceId: 'room-1' });
+    const result = applyPatch(event, undefinedPatch('resourceId'));
+    expect(Object.hasOwn(result, 'resourceId')).toBe(false);
+  });
+
+  it('resourceId は patch の値で変更される', () => {
+    const event = makeMaster({ resourceId: 'room-1' });
+    const result = applyPatch(event, { resourceId: 'room-2' });
+    expect(result.resourceId).toBe('room-2');
+  });
 });
 
 describe('createEventIn', () => {
@@ -343,6 +355,42 @@ describe("updateEventIn: scope 'this'（オーバーライド作成）", () => {
     expect(Object.hasOwn(override, 'exdates')).toBe(false);
   });
 
+  it('マスターに resourceId があればオーバーライドに継承する', () => {
+    const result = updateEventIn(
+      [makeMaster({ resourceId: 'room-1' })],
+      'master-1',
+      { title: '臨時' },
+      { occurrenceStart, scope: 'this' },
+      makeContext(),
+    );
+    const override = findById(result, 'gen-1');
+    expect(override.resourceId).toBe('room-1');
+  });
+
+  it('マスターに resourceId が無ければオーバーライドにも resourceId を持たせない', () => {
+    const result = updateEventIn(
+      [makeMaster()],
+      'master-1',
+      { title: '臨時' },
+      { occurrenceStart, scope: 'this' },
+      makeContext(),
+    );
+    const override = findById(result, 'gen-1');
+    expect(Object.hasOwn(override, 'resourceId')).toBe(false);
+  });
+
+  it('patch.resourceId 指定時はマスターの resourceId より優先される', () => {
+    const result = updateEventIn(
+      [makeMaster({ resourceId: 'room-1' })],
+      'master-1',
+      { resourceId: 'room-2' },
+      { occurrenceStart, scope: 'this' },
+      makeContext(),
+    );
+    const override = findById(result, 'gen-1');
+    expect(override.resourceId).toBe('room-2');
+  });
+
   it('patch.start / patch.end 指定時はそちらが優先される', () => {
     const result = updateEventIn(
       [makeMaster()],
@@ -509,6 +557,18 @@ describe("updateEventIn: scope 'thisAndFollowing'（シリーズ分割）", () =
         rrule: 'FREQ=DAILY;COUNT=7',
       }),
     );
+  });
+
+  it('新シリーズはマスターの resourceId を継承する（{ ...master } スプレッドによる自動継承）', () => {
+    const result = updateEventIn(
+      [makeMaster({ resourceId: 'room-1' })],
+      'master-1',
+      {},
+      { occurrenceStart: splitPoint, scope: 'thisAndFollowing' },
+      makeContext(),
+    );
+    expect(findById(result, 'master-1').resourceId).toBe('room-1');
+    expect(findById(result, 'gen-1').resourceId).toBe('room-1');
   });
 
   it('分割後のオカレンス集合は旧 3 回・新 7 回で、元のオカレンスの日時を保つ', () => {

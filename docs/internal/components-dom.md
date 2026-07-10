@@ -19,7 +19,7 @@
 ## ルート / ツールバー
 
 ```
-div[data-koyomi="root"][data-koyomi-view="month|week|day|list|year|multiMonth"]
+div[data-koyomi="root"][data-koyomi-view="month|week|day|list|year|multiMonth|resource|timeline"]
 ```
 
 Toolbar（`CalendarProvider` 配下で使用）:
@@ -38,13 +38,16 @@ div[data-koyomi="toolbar"]
     button[data-koyomi="button"][data-koyomi-action="view-list"][aria-pressed]
     button[data-koyomi="button"][data-koyomi-action="view-year"][aria-pressed]?  … ToolbarProps.views に 'year' を含めた場合のみ
     button[data-koyomi="button"][data-koyomi-action="view-multimonth"][aria-pressed]?  … ToolbarProps.views に 'multiMonth' を含めた場合のみ
+    button[data-koyomi="button"][data-koyomi-action="view-resource"][aria-pressed]?  … ToolbarProps.views に 'resource' を含めた場合のみ
+    button[data-koyomi="button"][data-koyomi-action="view-timeline"][aria-pressed]?  … ToolbarProps.views に 'timeline' を含めた場合のみ
 ```
 
 タイトルの書式は `Intl.DateTimeFormat(locale, { timeZone, ... })`:
 月 = 年+月、週 = 開始日〜終了日、日 = 年月日（曜日付き）、リスト = 開始日〜終了日、年 = 年のみ、
-複数月 = 表示範囲の開始月・終了月をそれぞれ月の書式で整形して連結（例:「2026年7月〜2026年9月」。同一月なら単一表記）。
+複数月 = 表示範囲の開始月・終了月をそれぞれ月の書式で整形して連結（例:「2026年7月〜2026年9月」。同一月なら単一表記）、
+リソース = 日と同じ書式、タイムライン = `timelineDays: 1` なら日と同じ書式・複数日なら開始日〜終了日の範囲書式。
 
-`toolbar-views` 配下のボタンは既定で月/週/日/リストの 4 つ（`ToolbarProps.views` 省略時）。並び順・表示対象はすべて `views` に従い、新ビュー（`view-year` / `view-multimonth` 等）は明示的に含めない限り現れない（opt-in。既存利用者の既定の見た目は不変）。
+`toolbar-views` 配下のボタンは既定で月/週/日/リストの 4 つ（`ToolbarProps.views` 省略時）。並び順・表示対象はすべて `views` に従い、新ビュー（`view-year` / `view-multimonth` / `view-resource` / `view-timeline` 等）は明示的に含めない限り現れない（opt-in。既存利用者の既定の見た目は不変）。
 
 ## 月ビュー（MonthView）
 
@@ -217,19 +220,118 @@ div[data-koyomi="multimonth"]
 - D&D（`useDayDrag`）は `MultiMonthView` 全体で単一インスタンス。前後月セルを登録しないため、
   日付キーは全月共通で一意になり、月境界をまたぐドラッグ（例: 7/31 → 8/2）も解決できる
 
+## リソースビュー（ResourceView）
+
+1 日固定、列 = リソース。イベントブロック・リサイズハンドル・現在時刻線・プレビューは
+週/日ビュー（`timegrid-event` / `timegrid-resize` / `now-indicator` / `timegrid-preview`）と
+**同じ部位名**を使い、デフォルトテーマのスタイルを共有する（列ごとに `layoutTimeGridItems` を
+実行した結果を、週/日ビューの日列と同じ描画で表示するだけのため）。
+
+```
+div[data-koyomi="resource"][data-koyomi-columns="<列数>"]
+  div[data-koyomi="resource-header"]
+    div[data-koyomi="timegrid-axis-gutter"]                … 左上の空き（時間軸幅の確保）
+    div[data-koyomi="resource-headers"]
+      div[data-koyomi="resource-header-cell"][data-koyomi-resource-id]? × columns
+         … リソース名（renderColumnHeader で差し替え可）。未割り当て列は data-koyomi-resource-id なし。
+           style: --koyomi-event-color（resource.color 指定時のみ）
+  div[data-koyomi="allday-row"]
+    div[data-koyomi="timegrid-axis-gutter"]
+    div[data-koyomi="resource-allday-cells"]                … position: relative の基準
+      div[data-koyomi="resource-allday-cell"][data-koyomi-resource][data-koyomi-preview-target?] × columns
+         … getAllDayCellProps（クリックで当日 1 日分の終日イベント作成）
+        button[data-koyomi="allday-event"] × n             … getAllDayItemProps（列間移動のみ）
+           style: --koyomi-event-color（event.color ?? resource.color）
+  div[data-koyomi="resource-body"]
+    div[data-koyomi="time-axis"]
+      div[data-koyomi="time-slot-label"] × slots           … 'HH:mm'
+    div[data-koyomi="resource-columns"]
+      div[data-koyomi="resource-column"][data-koyomi-resource][data-today?] × columns
+         … getColumnProps を展開。position: relative の基準
+        div[data-koyomi="timegrid-slot"] × slots           … 罫線。style: top %
+        button[data-koyomi="timegrid-event"] × n           … getEventProps を展開
+           [data-continues-before?][data-continues-after?][data-koyomi-dragging?]
+           style: top/height/left/width すべて %
+          div[data-koyomi="timegrid-event-content"]        … 内容既定: 開始時刻＋タイトル
+          div[data-koyomi="timegrid-resize"][data-edge="start"]?
+             … getResizeHandleProps(item, 'start')（editable: false / continuesBefore には出力しない）
+          div[data-koyomi="timegrid-resize"][data-edge="end"]?
+             … getResizeHandleProps(item, 'end')（editable: false / continuesAfter には出力しない）
+        div[data-koyomi="timegrid-preview"][data-kind="create|move|resize"]? (aria-hidden)
+           … previewFor(column) のその列に該当する区間。style: top/height %
+        div[data-koyomi="now-indicator"]? (aria-hidden)    … style: top %（表示日が今日の列のみ）
+  div[data-koyomi="resource-empty"]?                        … isEmpty のとき emptyLabel（既定「リソースがありません」）
+```
+
+- `isEmpty` の場合は `div[data-koyomi="resource"]` の直下に `resource-empty` のみを描画する（上記の内部構造は出力しない）
+- イベントの aria-label は「タイトル、開始〜終了、リソース名」（週/日ビューの aria-label にリソース名を付け足した形。未割り当て列はリソース名部分を省略）
+- a11y は週/日ビューの現状（grid 系 role なし）に合わせ、role なし + 操作要素は `<button>`
+
+## タイムラインビュー（TimelineView）
+
+横 = 時間（`timelineDays` 日の連結）、行 = リソース。水平位置は `表示分 / totalMinutes` の
+% を inline で出力する（位置決めの数値のみ）。スクロールは単一の横スクロールコンテナ
+（`timeline-body`）で行い、行見出し（`timeline-resource-header`）はテーマ CSS の
+`position: sticky` で固定する（二重スクロール同期の JS は持たない）。
+
+```
+div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"]
+  div[data-koyomi="timeline-body"]                          … 横スクロールコンテナ
+    div[data-koyomi="timeline-header-row"]
+      div[data-koyomi="timeline-corner"]                    … 左上の空き（行見出し幅の確保）
+      div[data-koyomi="timeline-axis"]
+        div[data-koyomi="timeline-day-headers"]
+          div[data-koyomi="timeline-day-header"][data-today?] × days
+             … 日付見出し（formatDayHeader）。style: width %（1440 / totalMinutes）
+        div[data-koyomi="timeline-slots"]
+          div[data-koyomi="timeline-slot-label"] × slots    … 日内時刻（TimelineSlot.label）。
+                                                                style: insetInlineStart %
+    div[data-koyomi="timeline-row-group"] × rows
+      div[data-koyomi="timeline-resource-header"][data-koyomi-resource-id]?
+         … リソース名（renderRowHeader で差し替え可）。未割り当て行は data-koyomi-resource-id なし。
+           style: --koyomi-event-color（resource.color 指定時のみ）。position: sticky（テーマ側）
+      div[data-koyomi="timeline-row"][data-koyomi-resource] × rows
+         … getRowProps を展開。position: relative の基準。style: --koyomi-timeline-lanes（行のレーン数）
+        button[data-koyomi="timeline-item"] × n             … getItemProps を展開
+           [data-koyomi-lane][data-all-day?][data-continues-before?][data-continues-after?][data-koyomi-dragging?]
+           style: insetInlineStart/width は %（表示分 / totalMinutes）、
+                  top は calc(lane × var(--koyomi-timeline-lane-height, 28px))
+          div[data-koyomi="timeline-item-content"]          … 内容既定: タイトルのみ
+          div[data-koyomi="timeline-resize"][data-edge="start"]?
+             … getResizeHandleProps(item, 'start')（editable: false / 終日 / continuesBefore には出力しない）
+          div[data-koyomi="timeline-resize"][data-edge="end"]?
+             … getResizeHandleProps(item, 'end')（editable: false / 終日 / continuesAfter には出力しない）
+        div[data-koyomi="timeline-preview"][data-kind="create|move|resize"]? (aria-hidden)
+           … previewFor(row) のその行に該当する区間。style: insetInlineStart/width %
+        div[data-koyomi="now-indicator"][data-orientation="vertical"]? (aria-hidden)
+           … style: insetInlineStart %（表示範囲内に「今」がある場合のみ）
+  div[data-koyomi="timeline-empty"]?                         … isEmpty のとき emptyLabel（既定「リソースがありません」）
+```
+
+- `isEmpty` の場合は `div[data-koyomi="timeline"]` の直下に `timeline-empty` のみを描画する
+- イベントの aria-label は「タイトル、開始〜終了、リソース名」（未割り当て行はリソース名部分を省略）
+- 目盛り（`timeline-slot-label`）の総数が `SLOT_COUNT_WARNING_THRESHOLD`（1,000）を超える場合、
+  開発ビルドで一度だけ `console.warn` する（`timelineDays × ceil(1440 / slotMinutes)` が大きい構成）
+- `now-indicator` は週/日ビュー・リソースビューと同じ部位名だが、こちらは縦線
+  （`data-orientation="vertical"`）として描画される点が異なる
+- a11y は週/日ビューの現状（grid 系 role なし）に合わせ、role なし + 操作要素は `<button>`
+
 ## CalendarView
 
-`state.view` に応じて `MonthView` / `TimeGridView` / `ListView` / `YearView` / `MultiMonthView` を
-出し分けるだけのスイッチ。props はビュー名を接頭辞にした名前で各ビューへ転送する
-（`renderMonthEvent` / `renderMonthDayCell` / `monthOverflowLabel` / `renderTimeGridEvent` /
-`renderTimeGridDayHeader` / `renderListEvent` / `listAllDayLabel` / `listEmptyLabel` /
-`renderListDayHeader` / `renderYearMonthHeader` / `renderYearDayCell` / `renderMultiMonthEvent` /
-`renderMultiMonthDayCell` / `multiMonthOverflowLabel`）。`virtualizeList` を渡すと list ビューは
+`state.view` に応じて `MonthView` / `TimeGridView` / `ListView` / `YearView` / `MultiMonthView` /
+`ResourceView` / `TimelineView` を出し分けるだけのスイッチ。props はビュー名を接頭辞にした名前で
+各ビューへ転送する（`renderMonthEvent` / `renderMonthDayCell` / `monthOverflowLabel` /
+`renderTimeGridEvent` / `renderTimeGridDayHeader` / `renderListEvent` / `listAllDayLabel` /
+`listEmptyLabel` / `renderListDayHeader` / `renderYearMonthHeader` / `renderYearDayCell` /
+`renderMultiMonthEvent` / `renderMultiMonthDayCell` / `multiMonthOverflowLabel` /
+`renderResourceEvent` / `renderResourceColumnHeader` / `resourceUnassignedLabel` /
+`resourceEmptyLabel` / `renderTimelineEvent` / `renderTimelineRowHeader` /
+`timelineUnassignedLabel` / `timelineEmptyLabel`）。`virtualizeList` を渡すと list ビューは
 `ListView` の代わりに `VirtualListView` で描画され、`listEstimateDayHeight` / `listOverscan` が
 そちらへ転送される。
 
 ## Toolbar の文言
 
-`ToolbarProps.labels`（`ToolbarLabels`）で「今日 / ‹ / › / 月 / 週 / 日 / リスト / 年 / 複数月」の
-全文言を差し替えられる。prev/next の表示アイコン（‹/›）は固定で、`labels` の値が
-文字列の場合のみ aria-label に反映する。
+`ToolbarProps.labels`（`ToolbarLabels`）で「今日 / ‹ / › / 月 / 週 / 日 / リスト / 年 / 複数月 /
+リソース / タイムライン」の全文言を差し替えられる。prev/next の表示アイコン（‹/›）は固定で、
+`labels` の値が文字列の場合のみ aria-label に反映する。
