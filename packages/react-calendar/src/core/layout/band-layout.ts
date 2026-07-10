@@ -115,28 +115,64 @@ export function layoutBandItems(
     .map((item, index) => ({ item, index }))
     .sort((a, b) => compareBandItems(a.item, b.item));
 
-  /** 各レーンが専有している列区間 `[start, end)` のリスト。 */
-  const lanes: { start: number; end: number }[][] = [];
+  // 各レーンの列占有状況を、実列座標へのオフセット付き真偽値配列で保持する。
+  //
+  // 元の実装はレーンごとに区間リスト `{ start, end }[]` を持ち、新規アイテムを
+  // 置けるか毎回 `lanes[i].some(...)` で列内の全区間と逐一比較していた。
+  // time-grid-layout.ts の列割当と違い、ここでの処理順（sortStart 昇順など
+  // 時刻ベース）とレーン内の列区間は無関係な軸なので（同じレーンに時刻順で
+  // 追加されても列位置が単調に伸びるとは限らない）、「直近の終端 1 個だけ
+  // 追跡する」簡略化はできない。一方 `columnCount`（週の日数など）は実務上
+  // 高々 7 程度に頭打ちであるため、区間リストの代わりに列ごとの占有フラグを
+  // 直接引けば、レーン内アイテム数 n に依存せず O(columnCount) で衝突判定できる。
+  //
+  // startCol/span は columnCount の範囲に収まらない値（防御的な呼び出し）も
+  // 許容するため、実データの最小開始列・最大終了列からオフセットを求めて
+  // 配列の添字にする（columnCount 自体は overflowByCol のサイズにのみ使う）。
+  let minCol = 0;
+  let maxCol = 0;
+  for (const item of items) {
+    minCol = Math.min(minCol, item.startCol);
+    maxCol = Math.max(maxCol, item.startCol + item.span);
+  }
+  const occupancyWidth = maxCol - minCol;
+
+  const laneOccupied: boolean[][] = [];
   let laneCount = 0;
 
   for (const { item, index } of ordered) {
     const start = item.startCol;
     const end = item.startCol + item.span;
+    const occStart = start - minCol;
+    const occEnd = end - minCol;
 
     // 既存アイテムと重ならない最小のレーンを探す（見つからなければ新規レーン）
-    let lane = lanes.length;
-    for (let i = 0; i < lanes.length; i += 1) {
-      // noUncheckedIndexedAccess のため undefined を考慮する（i < lanes.length なので実際には存在する）
-      const conflicts = lanes[i]?.some((interval) => interval.start < end && start < interval.end);
-      if (conflicts !== true) {
+    let lane = laneOccupied.length;
+    for (let i = 0; i < laneOccupied.length; i += 1) {
+      const occupied = laneOccupied[i];
+      let conflicts = false;
+      if (occupied !== undefined) {
+        for (let col = occStart; col < occEnd; col += 1) {
+          if (occupied[col] === true) {
+            conflicts = true;
+            break;
+          }
+        }
+      }
+      if (!conflicts) {
         lane = i;
         break;
       }
     }
 
-    const intervals = lanes[lane] ?? [];
-    intervals.push({ start, end });
-    lanes[lane] = intervals;
+    let occupied = laneOccupied[lane];
+    if (occupied === undefined) {
+      occupied = new Array(occupancyWidth).fill(false);
+      laneOccupied[lane] = occupied;
+    }
+    for (let col = occStart; col < occEnd; col += 1) {
+      occupied[col] = true;
+    }
 
     const hidden = maxLanes !== undefined && lane >= maxLanes;
     if (hidden) {

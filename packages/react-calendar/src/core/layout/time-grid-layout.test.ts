@@ -172,6 +172,31 @@ describe('layoutTimeGridItems', () => {
       ]);
       expect(placementOf(result, 'a').width).toBeCloseTo(1 / 2);
     });
+
+    it('右隣の列に隙間なく連続する複数アイテムがある場合、後方（3 件目）との衝突も検出して拡張されない', () => {
+      // 列 0: z(9:00-9:11), e(9:11-9:20、z と境界で接し同じ列を再利用)
+      // 列 1: l(9:00-9:05), m(9:05-9:10), n(9:10-9:15)（隙間なく 3 件連続）
+      // e は列 1 の手前 2 件（l, m）とは重ならないが、3 件目の n（9:10-9:15）と
+      // 重なるため拡張されない。列内の「最後に置かれた 1 件」だけでなく、
+      // 走査済みの範囲全体を正しく考慮できているかを検証する境界ケース。
+      const result = layoutTimeGridItems(
+        [
+          item('z', t(9), t(9, 11)),
+          item('l', t(9), t(9, 5)),
+          item('m', t(9, 5), t(9, 10)),
+          item('n', t(9, 10), t(9, 15)),
+          item('e', t(9, 11), t(9, 20)),
+        ],
+        { minSlotMinutes: 0 },
+      );
+      expect(placementOf(result, 'z').left).toBeCloseTo(0);
+      expect(placementOf(result, 'z').width).toBeCloseTo(1 / 2);
+      expect(placementOf(result, 'e').left).toBeCloseTo(0);
+      expect(placementOf(result, 'e').width).toBeCloseTo(1 / 2);
+      expect(placementOf(result, 'l').left).toBeCloseTo(1 / 2);
+      expect(placementOf(result, 'm').left).toBeCloseTo(1 / 2);
+      expect(placementOf(result, 'n').left).toBeCloseTo(1 / 2);
+    });
   });
 
   describe('minSlotMinutes（重なり判定上の最小長さ）', () => {

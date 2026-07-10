@@ -708,5 +708,31 @@ describe('buildTimeGridViewModel', () => {
         expect(day.items).toHaveLength(0);
       }
     });
+
+    it('非表示曜日へ日跨ぎする時間指定イベントは、隣接する可視日にのみ現れる（元列単位のバケット分け境界）', () => {
+      // 月(6/29) 22:00 〜 火(6/30) 02:00 で、火曜(2) を非表示にする。
+      // 振り分けは非表示曜日を含む「元の」全列を単位に行うため、火曜が
+      // 挟まっていても月曜には continuesAfter 付きで正しく現れ、
+      // 火曜の先の水曜(7/1) まで誤って漏れ出さないことを確認する。
+      const occ = occurrence({
+        id: 'late-monday',
+        start: at('2026-06-29T22:00', TOKYO),
+        end: at('2026-06-30T02:00', TOKYO),
+      });
+      const model = build({ occurrences: [occ], hiddenWeekdays: [2] });
+      expect(model.days.some((d) => d.key === '2026-06-30')).toBe(false);
+
+      const monday = dayByKey(model, '2026-06-29');
+      expect(monday.items).toHaveLength(1);
+      expect(monday.items[0]).toMatchObject({
+        startMinutes: 1320,
+        endMinutes: 1440,
+        continuesBefore: false,
+        continuesAfter: true,
+      });
+
+      const wednesday = dayByKey(model, '2026-07-01');
+      expect(wednesday.items).toHaveLength(0);
+    });
   });
 });
