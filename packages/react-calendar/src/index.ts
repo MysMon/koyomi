@@ -167,6 +167,8 @@ export {
 export { YearView, type YearViewProps } from './react/components/year-view';
 // React: コンテキスト
 export { CalendarProvider, type CalendarProviderProps, useCalendarContext } from './react/context';
+// React: ロケールプリセット
+export { type EnUsLabels, enUsLabels } from './react/locales/en-us';
 // React: 型
 export type {
   CalendarContextValue,

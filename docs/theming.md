@@ -359,6 +359,56 @@ function App() {
 }
 ```
 
+## 英語ロケール（既定文言の英語化）
+
+ビルトインコンポーネントの `*Label` 系 props（`Toolbar` の `labels` や `allDayLabel` / `unassignedLabel` / `overflowLabel` / `cornerLabel` / `emptyLabel` など）は、省略すると日本語の既定文言（「今日」「終日」「未割り当て」等）を表示します。これらをまとめて英語に差し替えるプリセット `enUsLabels` を提供しています。
+
+`enUsLabels` はコンポーネント単位のグループに分かれていて、対応する props にそのままスプレッドできます。`calendarView` だけは `CalendarView` が各ビューへの転送用に持つプレフィックス付き props（`listAllDayLabel` 等）向けの形です。
+
+```tsx
+import {
+  CalendarProvider,
+  CalendarView,
+  enUsLabels,
+  ListView,
+  MonthView,
+  MultiMonthView,
+  ResourceView,
+  TimelineView,
+  Toolbar,
+  useCalendar,
+} from '@koyomi-cal/react';
+
+function App() {
+  const calendar = useCalendar();
+  return (
+    <CalendarProvider value={calendar}>
+      <Toolbar labels={enUsLabels.toolbar} />
+      {/* 個々のビューコンポーネントを直接使う場合 */}
+      <ListView {...enUsLabels.list} />
+      <MonthView {...enUsLabels.month} />
+      <MultiMonthView {...enUsLabels.multiMonth} />
+      <ResourceView {...enUsLabels.resource} />
+      <TimelineView {...enUsLabels.timeline} />
+      {/* CalendarView でビューを出し分ける場合はプレフィックス付き props をまとめて渡す */}
+      <CalendarView {...enUsLabels.calendarView} />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - Toolbar の「今日」ボタンや各ビュー切替ボタンの表示文字列が
+//   "Today" / "Month" / "Week" / ... になる
+//   （「前へ」「次へ」ボタンは表示アイコン ‹ / › 自体は変わらず、
+//   aria-label のみ "Previous" / "Next" になる）
+// - リストビューの終日ラベルが "All day"、空状態が "No events" になる
+// - 月/複数月ビューの「+N 件」が "+N more" になる
+// - リソース/タイムラインビューの未割り当てラベルが "Unassigned"、
+//   空状態が "No resources"、タイムラインの角セルの aria-label が "Resources" になる
+```
+
+日本語の既定値自体は変更されないため、`enUsLabels` を渡さない既存のコードの見た目・挙動は変わりません（後方互換）。日本語・英語以外のロケールが必要な場合は、同じ形のオブジェクトを自前で用意して同様にスプレッドしてください。
+
 ## 関連ページ
 
 - [ビュー（月・週・日・リスト・年・複数月・リソース・タイムライン）](./views.md)
