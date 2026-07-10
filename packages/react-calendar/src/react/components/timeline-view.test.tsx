@@ -449,3 +449,61 @@ describe('TimelineView - ドラッグプレビュー', () => {
     expect(rows[0]?.querySelector('[data-koyomi="timeline-preview"]')).toBeNull();
   });
 });
+
+describe('TimelineView - ARIA', () => {
+  it('role="grid" の中でヘッダー行・各リソース行が row/columnheader/rowheader/gridcell を構成する', () => {
+    const { container } = render(<Harness resources={[CRANE_1, CRANE_2]} />);
+
+    expect(container.querySelector('[data-koyomi="timeline"]')).toHaveAttribute('role', 'grid');
+    // grid → row の間に挟まるスクロールコンテナは role="presentation" で
+    // 所有関係を透過させる（required owned elements 違反を避ける）
+    expect(container.querySelector('[data-koyomi="timeline-body"]')).toHaveAttribute(
+      'role',
+      'presentation',
+    );
+    expect(container.querySelector('[data-koyomi="timeline-header-row"]')).toHaveAttribute(
+      'role',
+      'row',
+    );
+    // 角セルは本文行の rowheader 列に対応する見出し。presentation で隠すと
+    // ヘッダー行と本文行で公開される列数がずれる（本文=rowheader+gridcell の 2 列、
+    // ヘッダー=時間軸のみの 1 列）ため、空でも columnheader として公開する
+    const corner = container.querySelector('[data-koyomi="timeline-corner"]');
+    expect(corner).toHaveAttribute('role', 'columnheader');
+    expect(corner).toHaveAttribute('aria-label', 'リソース');
+    expect(container.querySelector('[data-koyomi="timeline-axis"]')).toHaveAttribute(
+      'role',
+      'columnheader',
+    );
+
+    const rowGroups = container.querySelectorAll('[data-koyomi="timeline-row-group"]');
+    expect(rowGroups).toHaveLength(2);
+    for (const rowGroup of rowGroups) {
+      expect(rowGroup).toHaveAttribute('role', 'row');
+      expect(rowGroup.querySelector('[data-koyomi="timeline-resource-header"]')).toHaveAttribute(
+        'role',
+        'rowheader',
+      );
+      expect(rowGroup.querySelector('[data-koyomi="timeline-row"]')).toHaveAttribute(
+        'role',
+        'gridcell',
+      );
+    }
+  });
+
+  it('今日の日ヘッダーに aria-current="date" が付く', () => {
+    const { container } = render(<Harness resources={[CRANE_1]} timelineDays={3} />);
+    const todayHeader = container.querySelector(
+      '[data-koyomi="timeline-day-header"][data-today="true"]',
+    );
+    expect(todayHeader).toHaveAttribute('aria-current', 'date');
+
+    const otherHeaders = container.querySelectorAll(
+      '[data-koyomi="timeline-day-header"]:not([data-today])',
+    );
+    expect(otherHeaders.length).toBeGreaterThan(0);
+    for (const header of otherHeaders) {
+      expect(header).not.toHaveAttribute('aria-current');
+    }
+  });
+});

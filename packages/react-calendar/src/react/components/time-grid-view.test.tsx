@@ -485,3 +485,178 @@ describe('TimeGridView', () => {
     expect(style.height).toContain('8.33');
   });
 });
+
+describe('TimeGridView - ARIA', () => {
+  it('日ヘッダー行・終日行は role="grid" の中で row/columnheader/gridcell を構成する', () => {
+    const { container } = render(<Harness initialView="week" />);
+
+    // 日ヘッダー行・終日行だけをまとめた専用ラッパー（timegrid-grid）に role="grid" が付く
+    expect(container.querySelector('[data-koyomi="timegrid"]')).not.toHaveAttribute('role');
+    expect(container.querySelector('[data-koyomi="timegrid-grid"]')).toHaveAttribute(
+      'role',
+      'grid',
+    );
+    expect(container.querySelector('[data-koyomi="timegrid-header"]')).toHaveAttribute(
+      'role',
+      'row',
+    );
+    expect(
+      container.querySelectorAll('[data-koyomi="timegrid-day-header"][role="columnheader"]'),
+    ).toHaveLength(7);
+    expect(container.querySelector('[data-koyomi="allday-row"]')).toHaveAttribute('role', 'row');
+    expect(container.querySelectorAll('[data-koyomi="allday-cell"][role="gridcell"]')).toHaveLength(
+      7,
+    );
+
+    // 時間軸ガター（複数タイムゾーン用の余白列）は grid のセルではないため presentation
+    const gutters = container.querySelectorAll('[data-koyomi="timegrid-axis-gutter"]');
+    expect(gutters.length).toBeGreaterThan(0);
+    for (const gutter of gutters) {
+      expect(gutter).toHaveAttribute('role', 'presentation');
+    }
+
+    // grid → row → gridcell の間に挟まるレイアウト用ラッパーは role="presentation" で
+    // 所有関係を透過させる（required owned elements 違反を避ける）
+    expect(container.querySelector('[data-koyomi="timegrid-allday"]')).toHaveAttribute(
+      'role',
+      'presentation',
+    );
+    expect(container.querySelector('[data-koyomi="allday-cells"]')).toHaveAttribute(
+      'role',
+      'presentation',
+    );
+
+    // 本文（時間軸 + 日列）は連続的な時間位置決めで離散セルに対応しないため grid 化せず、
+    // role="grid" の owned elements（row/rowgroup）違反を避けるため timegrid-grid の
+    // 外側（兄弟要素）に置かれる。role は付かない
+    expect(container.querySelector('[data-koyomi="timegrid-body"]')).not.toHaveAttribute('role');
+  });
+
+  it('role="grid" の要素は本文の予定ボタンを子孫に含まない（WAI-ARIA grid パターンの owned elements 違反を避ける）', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+    ];
+    const { container } = render(<Harness initialView="week" events={events} />);
+
+    const grid = container.querySelector('[role="grid"]');
+    expect(grid).not.toBeNull();
+    // role="grid" の直接・間接の子孫として row/rowgroup 以外の要素（予定ボタン）が
+    // 現れてはいけない（role="presentation" は自身の役割を消すだけで、内部の
+    // <button> はアクセシビリティツリー上 grid の子孫として露出してしまうため）
+    expect(grid?.querySelector('[data-koyomi="timegrid-event"]')).toBeNull();
+    // 本文コンテナ自体も role="grid" の外側（子孫ではない）に置く
+    expect(grid?.querySelector('[data-koyomi="timegrid-body"]')).toBeNull();
+  });
+
+  it('終日イベントの帯（allday-event）は開始日の gridcell（allday-cell）の子孫として描画される', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '合宿', start: '2026-07-15', end: '2026-07-17', allDay: true },
+    ];
+    const { container } = render(<Harness initialView="week" events={events} />);
+
+    // 帯ボタンは複数日にまたがっても DOM 上は開始日の gridcell が所有する
+    // （grid の子孫の focusable は必ず gridcell/columnheader に属するという
+    // WAI-ARIA grid パターンの owned elements 要件を満たすため。視覚上のスパンは
+    // allday-cells を基準にした絶対配置で実現する）
+    const segment = container.querySelector('[data-koyomi="allday-event"]');
+    expect(segment).not.toBeNull();
+    const owningCell = segment?.closest('[data-koyomi="allday-cell"]');
+    expect(owningCell).not.toBeNull();
+    expect(owningCell).toHaveAttribute('role', 'gridcell');
+    expect(owningCell).toHaveAttribute('data-koyomi-date', '2026-07-15');
+
+    // role="grid" の子孫のフォーカス可能要素はすべて gridcell / columnheader に属する
+    const grid = container.querySelector('[role="grid"]');
+    expect(grid).not.toBeNull();
+    const focusables = grid?.querySelectorAll('button, [tabindex]') ?? [];
+    expect(focusables.length).toBeGreaterThan(0);
+    for (const focusable of focusables) {
+      expect(focusable.closest('[role="gridcell"], [role="columnheader"]')).not.toBeNull();
+    }
+
+    // 範囲選択プレビュー用のレイヤーは focusable を含まないため aria-hidden で
+    // アクセシビリティツリーごと除外する（grid の owned elements に現れない）
+    const selectionLayer = container.querySelector('[data-koyomi="allday-events"]');
+    expect(selectionLayer).toHaveAttribute('aria-hidden', 'true');
+    expect(selectionLayer?.querySelector('[data-koyomi="allday-event"]')).toBeNull();
+  });
+
+  it('終日イベントのボタンで Enter を押してもセル（gridcell）の範囲選択は発火しない', () => {
+    // 帯ボタンが gridcell の子になったため、ボタンで処理したキー操作がセルの
+    // onKeyDown（Enter/Space = その日 1 日分の範囲選択）へバブルしないことを保証する
+    const onSelectRange = vi.fn();
+    const onEventClick = vi.fn();
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '合宿', start: '2026-07-15', end: '2026-07-17', allDay: true },
+    ];
+    const { container } = render(
+      <Harness initialView="week" events={events} callbacks={{ onSelectRange, onEventClick }} />,
+    );
+
+    const segment = container.querySelector('[data-koyomi="allday-event"]');
+    expect(segment).toBeInstanceOf(HTMLElement);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('終日イベントのボタンが見つかりません');
+    }
+    fireEvent.keyDown(segment, { key: 'Enter' });
+
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+    expect(onSelectRange).not.toHaveBeenCalled();
+  });
+
+  it('editable: false の終日イベント上の pointerdown はセルの作成ドラッグを開始しない', () => {
+    // 帯ボタンが gridcell の子になったため、ボタン側で処理しない pointerdown
+    // （editable: false）もセルの onPointerDown（作成ドラッグ）へバブルしないことを保証する
+    const onSelectRange = vi.fn();
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '祝日',
+        start: '2026-07-15',
+        end: '2026-07-16',
+        allDay: true,
+        editable: false,
+      },
+    ];
+    const { container } = render(
+      <Harness initialView="week" events={events} callbacks={{ onSelectRange }} />,
+    );
+
+    const segment = container.querySelector('[data-koyomi="allday-event"]');
+    expect(segment).toBeInstanceOf(HTMLElement);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('終日イベントのボタンが見つかりません');
+    }
+    act(() => {
+      segment.dispatchEvent(new MouseEvent('pointerdown', { button: 0, bubbles: true }));
+    });
+    act(() => {
+      document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+    });
+
+    expect(onSelectRange).not.toHaveBeenCalled();
+  });
+
+  it('終日セルの aria-label はその日の完全な日付になる', () => {
+    const { container } = render(<Harness initialView="week" />);
+    const cell = container.querySelector(
+      '[data-koyomi="allday-cell"][data-koyomi-date="2026-07-15"]',
+    );
+    expect(cell).toHaveAttribute('aria-label', '2026年7月15日');
+  });
+
+  it('今日の日ヘッダーに role="columnheader" と aria-current="date" が両方付く', () => {
+    const { container } = render(<Harness initialView="week" />);
+    const todayHeader = container.querySelector(
+      '[data-koyomi="timegrid-day-header"][data-koyomi-date="2026-07-15"]',
+    );
+    expect(todayHeader).toHaveAttribute('role', 'columnheader');
+    expect(todayHeader).toHaveAttribute('aria-current', 'date');
+
+    const otherHeader = container.querySelector(
+      '[data-koyomi="timegrid-day-header"][data-koyomi-date="2026-07-14"]',
+    );
+    expect(otherHeader).toHaveAttribute('role', 'columnheader');
+    expect(otherHeader).not.toHaveAttribute('aria-current');
+  });
+});

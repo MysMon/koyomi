@@ -628,10 +628,14 @@ export function useDayDrag(params: {
 
     const base: SegmentProps = {
       onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+        // 予定ボタン上の pointerdown は、editable: false や副ボタンで移動を開始しない
+        // 場合でも祖先へ伝播させない。帯ボタンは日セル（gridcell）の子として描画される
+        // ため、伝播するとセル側の作成ドラッグ（getDayCellProps.onPointerDown）が
+        // 誤って始まってしまう
+        event.stopPropagation();
         if (event.button !== 0 || occurrence.event.editable === false) {
           return;
         }
-        event.stopPropagation();
         event.preventDefault();
         const anchorDay =
           locateDay(event.clientX, event.clientY) ??
@@ -646,12 +650,18 @@ export function useDayDrag(params: {
         callbacksRef.current?.onEventClick?.(occurrence, event.nativeEvent);
       },
       onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
+        // ボタンが処理するキーは祖先へ伝播させない。帯ボタンは日セル（gridcell）の
+        // 子として描画されるため、伝播するとセル側の Enter/Space（1 日分の範囲選択）が
+        // 二重に発火してしまう。未処理のキーは素通しする（useCalendarShortcuts の
+        // document リスナーを妨げないため、無条件の stopPropagation にはしない）
         if (event.key === 'Enter' || event.key === ' ') {
+          event.stopPropagation();
           event.preventDefault();
           event.currentTarget.click();
           return;
         }
         if (event.key === 'Delete' || event.key === 'Backspace') {
+          event.stopPropagation();
           event.preventDefault();
           void commitDelete(occurrence).catch(reportError);
           return;
@@ -661,6 +671,7 @@ export function useDayDrag(params: {
         }
         switch (event.key) {
           case 'ArrowLeft': {
+            event.stopPropagation();
             event.preventDefault();
             if (event.shiftKey) {
               const end = addDaysInZone(occurrence.end, -1, timeZoneRef.current);
@@ -675,6 +686,7 @@ export function useDayDrag(params: {
             return;
           }
           case 'ArrowRight': {
+            event.stopPropagation();
             event.preventDefault();
             if (event.shiftKey) {
               const end = addDaysInZone(occurrence.end, 1, timeZoneRef.current);
@@ -687,11 +699,13 @@ export function useDayDrag(params: {
             return;
           }
           case 'ArrowUp': {
+            event.stopPropagation();
             event.preventDefault();
             void commitMove(occurrence, shiftedRange(occurrence, -7), 'move').catch(reportError);
             return;
           }
           case 'ArrowDown': {
+            event.stopPropagation();
             event.preventDefault();
             void commitMove(occurrence, shiftedRange(occurrence, 7), 'move').catch(reportError);
             return;

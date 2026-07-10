@@ -508,6 +508,7 @@ function App() {
 - [ビュー（月・週・日・リスト・年・複数月・リソース・タイムライン）](./views.md)
 - [予定の管理](./events.md)
 - [繰り返し予定](./recurrence.md)
+- [アクセシビリティ](./accessibility.md)
 - [タイムゾーン](./timezones.md)
 - [テーマとスタイリング](./theming.md)
 - [API リファレンス](./api.md)

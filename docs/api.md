@@ -489,6 +489,7 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `renderTimelineRowHeader` | `(row: TimelineRow, defaultContent: ReactNode) => ReactNode` | タイムラインの行見出しのカスタム描画（`TimelineView.renderRowHeader` へ転送） |
 | `timelineUnassignedLabel` | `ReactNode` | タイムラインの未割り当て行ラベル（既定「未割り当て」。`TimelineView.unassignedLabel` へ転送） |
 | `timelineEmptyLabel` | `ReactNode` | タイムラインの空状態メッセージ（既定「リソースがありません」。`TimelineView.emptyLabel` へ転送） |
+| `timelineCornerLabel` | `string` | タイムラインのヘッダー行の角セルの `aria-label`（既定「リソース」。`TimelineView.cornerLabel` へ転送） |
 
 ### `MonthView`
 
@@ -617,6 +618,7 @@ function TimelineView(props: TimelineViewProps): ReactElement | null
 | `renderRowHeader` | `(row: TimelineRow, defaultContent: ReactNode) => ReactNode` | 行見出しの内容（`defaultContent` はリソース名、または未割り当て行は `unassignedLabel`）をラップ・置換する |
 | `unassignedLabel` | `ReactNode` | 未割り当て行の見出しラベル（既定「未割り当て」） |
 | `emptyLabel` | `ReactNode` | 空状態（行が 1 つもない）のメッセージ（既定「リソースがありません」） |
+| `cornerLabel` | `string` | ヘッダー行の角セル（行見出し列の列見出し）の `aria-label`（既定「リソース」） |
 
 水平位置は `表示分 / totalMinutes` の % を inline で出力します（位置決めの数値のみ）。スクロールは単一の横スクロールコンテナ（`timeline-body`）で行い、行見出しはテーマ CSS の `position: sticky` で固定します（スクロール同期の JS は持ちません）。目盛りが 1,000 個を超える構成（`timelineDays × ceil(1440 / slotMinutes)`）では開発ビルドで一度だけ警告します。a11y は週/日ビューの現状に合わせ、帯は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
 
@@ -1128,5 +1130,6 @@ console.log(formatWeekday(3, 'ja')); // => '水'
 - [予定の管理](./events.md)
 - [インタラクション（作成・移動・リサイズ）](./interactions.md)
 - [繰り返し予定](./recurrence.md)
+- [アクセシビリティ](./accessibility.md)
 - [タイムゾーン](./timezones.md)
 - [テーマとスタイリング](./theming.md)

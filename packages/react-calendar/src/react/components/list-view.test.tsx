@@ -92,6 +92,19 @@ describe('ListView', () => {
     expect(tomorrowSection?.hasAttribute('data-today')).toBe(false);
   });
 
+  it('今日の section には aria-current="date" が付く（他の月/週/日ビューと同様）', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '本日の予定', start: '2026-07-15T10:00:00', end: '2026-07-15T11:00:00' },
+      { id: 'e2', title: '明日の予定', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const { container } = render(<TestListView events={events} />);
+
+    const todaySection = container.querySelector('[data-koyomi-date="2026-07-15"]');
+    const tomorrowSection = container.querySelector('[data-koyomi-date="2026-07-16"]');
+    expect(todaySection).toHaveAttribute('aria-current', 'date');
+    expect(tomorrowSection).not.toHaveAttribute('aria-current');
+  });
+
   it('予定が 1 件もない場合は list-empty を表示する', () => {
     const { container } = render(<TestListView events={[]} />);
 

@@ -387,6 +387,16 @@
   flex-direction: column;
 }
 
+/* timegrid-grid / resource-grid は role="grid" の owned elements（row/rowgroup）
+   だけをまとめる薄いラッパー（a11y 上の理由で本文の外側に分離されている。
+   詳細は docs/accessibility.md 参照）。見た目は元の見出し行・終日行の縦積みと
+   変わらないよう、そのままフレックス列として振る舞わせる */
+[data-koyomi="timegrid-grid"],
+[data-koyomi="resource-grid"] {
+  display: flex;
+  flex-direction: column;
+}
+
 [data-koyomi="timegrid-header"],
 [data-koyomi="resource-header"] {
   display: flex;
@@ -492,6 +502,25 @@
   box-shadow: inset 0 0 0 2px var(--koyomi-accent);
 }
 
+/* allday-row（role="row"）と、その外側に置く範囲選択プレビューのレイヤーをまとめる
+   ラッパー。レイヤーの絶対配置（top/bottom）の基準にする */
+[data-koyomi="timegrid-allday"] {
+  position: relative;
+}
+
+/* 範囲選択プレビューのレイヤー（aria-hidden）。終日イベントの帯自体は開始日の
+   allday-cell（gridcell）の子として描画され、このレイヤーには含まれない。
+   allday-cells と同じ列位置に重ねるため、gutter 分の幅（inline style の
+   insetInlineStart。timeAxes.length に応じた calc）だけ左端を差し引く。
+   素通しにしてクリックを下の allday-cell へ透過させる */
+[data-koyomi="allday-events"] {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  inset-inline-end: 0;
+  pointer-events: none;
+}
+
 [data-koyomi="allday-event"] {
   position: absolute;
   overflow: hidden;
@@ -505,6 +534,7 @@
   font-size: 0.8em;
   white-space: nowrap;
   text-overflow: ellipsis;
+  pointer-events: auto;
   /* ドラッグ移動をタッチのスクロールに奪われないようにする */
   touch-action: none;
 }
@@ -969,10 +999,17 @@
   overflow-x: auto;
 }
 
-/* 各行の中身は列の最小幅の合計まで伸ばし、ルートのスクロール幅に反映させる */
-[data-koyomi="resource"] > [data-koyomi="resource-header"],
-[data-koyomi="resource"] > [data-koyomi="allday-row"],
+/* 各行の中身は列の最小幅の合計まで伸ばし、ルートのスクロール幅に反映させる。
+   resource-header / allday-row は a11y 用のラッパー（resource-grid、role="grid"）の
+   内側に移動したため、ルート直下（resource-grid・resource-body）とラッパー直下
+   （resource-header・allday-row）の 2 段階で指定する */
+[data-koyomi="resource"] > [data-koyomi="resource-grid"],
 [data-koyomi="resource"] > [data-koyomi="resource-body"] {
+  min-width: max-content;
+}
+
+[data-koyomi="resource-grid"] > [data-koyomi="resource-header"],
+[data-koyomi="resource-grid"] > [data-koyomi="allday-row"] {
   min-width: max-content;
 }
 
