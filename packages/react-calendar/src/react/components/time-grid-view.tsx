@@ -27,6 +27,7 @@ import type { CSSProperties, ReactElement, ReactNode, Ref } from 'react';
 import { memo, useCallback, useRef, useState } from 'react';
 import { addDaysInZone, startOfDayInZone } from '../../core/timezone';
 import type {
+  BusinessHourSlot,
   DateRange,
   EventOccurrence,
   EventSegment,
@@ -334,6 +335,27 @@ function samePositionedOccurrences(
   });
 }
 
+/** `BusinessHourSlot` 配列の内容が等しいかどうかを比較する。 */
+function sameBusinessHourSlots(
+  a: readonly BusinessHourSlot[],
+  b: readonly BusinessHourSlot[],
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((slot, index) => {
+    const other = b[index];
+    return (
+      other !== undefined &&
+      slot.minutes === other.minutes &&
+      slot.isBusinessHours === other.isBusinessHours
+    );
+  });
+}
+
 /** `TimeGridDay` の、表示に影響する内容が等しいかどうかを比較する。 */
 function sameTimeGridDay(a: TimeGridDay, b: TimeGridDay): boolean {
   if (a === b) {
@@ -344,7 +366,8 @@ function sameTimeGridDay(a: TimeGridDay, b: TimeGridDay): boolean {
     a.isToday === b.isToday &&
     a.weekday === b.weekday &&
     a.date.getTime() === b.date.getTime() &&
-    samePositionedOccurrences(a.items, b.items)
+    samePositionedOccurrences(a.items, b.items) &&
+    sameBusinessHourSlots(a.businessHourSlots, b.businessHourSlots)
   );
 }
 
@@ -401,7 +424,8 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
     return null;
   }
 
-  const { days, allDaySegments, allDayLaneCount, slots, timeAxes, nowIndicator } = viewModel;
+  const { days, allDaySegments, allDayLaneCount, slots, timeAxes, nowIndicator, weekNumber } =
+    viewModel;
   const { timeZone, options } = state;
   const { locale } = options;
   const columnCount = days.length;
@@ -416,7 +440,11 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
       <div data-koyomi="timegrid-grid" role="grid">
         {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA row */}
         {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない（フォーカスは各 columnheader/gridcell が担う） */}
-        <div data-koyomi="timegrid-header" role="row">
+        <div
+          data-koyomi="timegrid-header"
+          role="row"
+          {...(weekNumber !== null ? { 'data-koyomi-week-number': String(weekNumber) } : {})}
+        >
           {timeAxes.map((axis, index) => (
             <div
               // biome-ignore lint/suspicious/noArrayIndexKey: timeAxes は options 由来の固定順の配列（並べ替わらない）
@@ -676,13 +704,28 @@ function TimeGridDayColumnImpl(props: {
       data-koyomi="timegrid-day"
       data-today={day.isToday ? 'true' : undefined}
     >
-      {slots.map((slot) => (
-        <div
-          key={slot.minutes}
-          data-koyomi="timegrid-slot"
-          style={{ top: `${(slot.minutes / MINUTES_PER_DAY) * 100}%` }}
-        />
-      ))}
+      {slots.map((slot, index) => {
+        // isBusinessHours なスロットのみ、次のスロット（無ければ 24:00）までの
+        // 高さを追加で持たせて背景を敷けるようにする。既定（businessHours 未指定）では
+        // 従来どおり top のみの罫線用スタイルのまま（DOM 出力を完全一致させるため）
+        const isBusinessHours = day.businessHourSlots[index]?.isBusinessHours ?? false;
+        const nextMinutes = slots[index + 1]?.minutes ?? MINUTES_PER_DAY;
+        return (
+          <div
+            key={slot.minutes}
+            data-koyomi="timegrid-slot"
+            data-koyomi-business-hours={isBusinessHours ? 'true' : undefined}
+            style={
+              isBusinessHours
+                ? {
+                    top: `${(slot.minutes / MINUTES_PER_DAY) * 100}%`,
+                    height: `${((nextMinutes - slot.minutes) / MINUTES_PER_DAY) * 100}%`,
+                  }
+                : { top: `${(slot.minutes / MINUTES_PER_DAY) * 100}%` }
+            }
+          />
+        );
+      })}
       {day.items.map((item) => (
         <TimeGridEventButton
           key={item.occurrence.key}

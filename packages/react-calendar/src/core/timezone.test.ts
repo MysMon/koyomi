@@ -18,10 +18,12 @@ import {
   fromWallClock,
   getLocalTimeZone,
   getWallClock,
+  isoWeekNumberInZone,
   isSameDayInZone,
   isValidTimeZone,
   minutesOfDayInZone,
   parseDateValue,
+  parseTimeOfDay,
   startOfDayInZone,
   weekdayInZone,
 } from './timezone';
@@ -588,6 +590,52 @@ describe('parseDateValue', () => {
       expect(() => parseDateValue('2026-07-01 10:00', TOKYO, false)).toThrow(Error);
       expect(() => parseDateValue('2026-13-01T10:00:00Z', TOKYO, false)).toThrow(Error);
     });
+  });
+});
+
+describe('isoWeekNumberInZone', () => {
+  it('1月初週: 2026-01-01（木曜）は 2026 年第 1 週', () => {
+    // 2026-01-01 は木曜日（date-utils.test.ts の「2026-02-01 は日曜」と整合）
+    expect(isoWeekNumberInZone(new Date('2026-01-01T00:00:00Z'), UTC)).toBe(1);
+  });
+
+  it('12月末週: 2024-12-31（火曜）は翌年（2025 年）第 1 週に属する', () => {
+    expect(isoWeekNumberInZone(new Date('2024-12-31T00:00:00Z'), UTC)).toBe(1);
+  });
+
+  it('1月初週の逆パターン: 2023-01-01（日曜）は前年（2022 年）第 52 週に属する', () => {
+    expect(isoWeekNumberInZone(new Date('2023-01-01T00:30:00Z'), UTC)).toBe(52);
+  });
+
+  it('タイムゾーンによって週番号が変わる（同一時点でも現地日付が異なれば ISO 週も異なる）', () => {
+    const instant = new Date('2023-01-01T23:30:00Z');
+    // UTC では 2023-01-01（日曜）で 2022 年第 52 週
+    expect(isoWeekNumberInZone(instant, UTC)).toBe(52);
+    // 東京では 2023-01-02（月曜）で 2023 年第 1 週
+    expect(isoWeekNumberInZone(instant, TOKYO)).toBe(1);
+  });
+
+  it('通常週（年をまたがない）の週番号', () => {
+    // 2026-07-01（水）を含む週の木曜日は 2026-07-02
+    expect(isoWeekNumberInZone(new Date('2026-07-01T15:00:00Z'), UTC)).toBe(27);
+  });
+});
+
+describe('parseTimeOfDay', () => {
+  it("'09:00' は 540 分になる", () => {
+    expect(parseTimeOfDay('09:00')).toBe(540);
+  });
+
+  it('境界値: 00:00 と 23:59', () => {
+    expect(parseTimeOfDay('00:00')).toBe(0);
+    expect(parseTimeOfDay('23:59')).toBe(1439);
+  });
+
+  it('不正な形式は Error になる', () => {
+    expect(() => parseTimeOfDay('9:00')).toThrow();
+    expect(() => parseTimeOfDay('24:00')).toThrow();
+    expect(() => parseTimeOfDay('12:60')).toThrow();
+    expect(() => parseTimeOfDay('not-a-time')).toThrow();
   });
 });
 

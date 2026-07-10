@@ -39,6 +39,7 @@ function Harness(props: {
   callbacks?: CalendarInteractionCallbacks;
   dayMaxEvents?: number;
   hiddenWeekdays?: readonly Weekday[];
+  showWeekNumbers?: boolean;
   renderEvent?: (segment: EventSegment) => ReactElement;
   overflowLabel?: (count: number) => ReactNode;
   renderDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
@@ -59,6 +60,7 @@ function Harness(props: {
     // 未指定時はキー自体を省く
     ...(props.dayMaxEvents !== undefined ? { dayMaxEvents: props.dayMaxEvents } : {}),
     ...(props.hiddenWeekdays !== undefined ? { hiddenWeekdays: props.hiddenWeekdays } : {}),
+    ...(props.showWeekNumbers !== undefined ? { showWeekNumbers: props.showWeekNumbers } : {}),
   });
   if (props.apiRef !== undefined) {
     props.apiRef.current = calendar.api;
@@ -656,6 +658,25 @@ describe('MonthView - 可視列（hiddenWeekdays）', () => {
     // 7/8（水）は日・土を除いた可視列で 3 番目（月=0, 火=1, 水=2）、可視列数は 5
     expect(segment.style.insetInlineStart).toBe(`${(2 / 5) * 100}%`);
     expect(segment.style.width).toBe(`${(1 / 5) * 100}%`);
+  });
+});
+
+describe('MonthView - showWeekNumbers（週番号）', () => {
+  it('省略時（既定 false）は data-koyomi-week-number 属性が付かない', () => {
+    const { container } = render(<Harness />);
+    expect(container.querySelectorAll('[data-koyomi-week-number]')).toHaveLength(0);
+  });
+
+  it('true にすると各週行に data-koyomi-week-number 属性が付く（2026-07 は第27〜31週）', () => {
+    const { container } = render(<Harness showWeekNumbers />);
+    const weeks = container.querySelectorAll('[data-koyomi="month-week"]');
+    expect(Array.from(weeks).map((week) => week.getAttribute('data-koyomi-week-number'))).toEqual([
+      '27',
+      '28',
+      '29',
+      '30',
+      '31',
+    ]);
   });
 });
 

@@ -500,6 +500,43 @@ describe('buildMonthViewModel', () => {
     });
   });
 
+  describe('showWeekNumbers（週番号）', () => {
+    it('省略時（既定 false）はすべての週で weekNumber が null になる', () => {
+      const vm = build();
+      expect(vm.weeks.every((week) => week.weekNumber === null)).toBe(true);
+    });
+
+    it('true にすると各週に ISO 8601 週番号が入る（2026-07 は第 27〜31 週）', () => {
+      const vm = build({ showWeekNumbers: true });
+      expect(vm.weeks.map((week) => week.weekNumber)).toEqual([27, 28, 29, 30, 31]);
+    });
+
+    it('年またぎの月（2025-12）: 最終週（12/28〜1/3）は翌年の第 1 週になる', () => {
+      const vm = build({
+        currentDate: at(TOKYO, 2025, 12, 15),
+        now: at(TOKYO, 2025, 12, 15, 12, 0),
+        showWeekNumbers: true,
+      });
+      const lastWeek = vm.weeks[vm.weeks.length - 1];
+      expect(lastWeek?.days[0]?.key).toBe('2025-12-28');
+      expect(lastWeek?.weekNumber).toBe(1);
+    });
+
+    it('週開始曜日（weekStartsOn）が異なっても、同じ週なら同じ週番号になる', () => {
+      const bySunday = build({ showWeekNumbers: true, weekStartsOn: 0 });
+      const byMonday = build({ showWeekNumbers: true, weekStartsOn: 1 });
+      // 2026-07-01(水) を含む週はどちらの並びでも第 27 週
+      const sundayWeek = bySunday.weeks.find((week) =>
+        week.days.some((day) => day.key === '2026-07-01'),
+      );
+      const mondayWeek = byMonday.weeks.find((week) =>
+        week.days.some((day) => day.key === '2026-07-01'),
+      );
+      expect(sundayWeek?.weekNumber).toBe(27);
+      expect(mondayWeek?.weekNumber).toBe(27);
+    });
+  });
+
   describe('segmentRange（複数月ビュー向けの範囲限定・省略時は挙動不変）', () => {
     // 既定パラメータのグリッドは 2026-06-28〜2026-08-01（35 日）。
     // segmentRange = [2026-07-01, 2026-08-01) を「7 月本体」として使う

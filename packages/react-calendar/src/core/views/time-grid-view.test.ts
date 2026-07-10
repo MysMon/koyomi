@@ -605,6 +605,82 @@ describe('buildTimeGridViewModel', () => {
     });
   });
 
+  describe('showWeekNumbers（週番号）', () => {
+    it('省略時（既定 false）は viewType: week でも weekNumber が null になる', () => {
+      const model = build();
+      expect(model.weekNumber).toBeNull();
+    });
+
+    it("viewType: 'week' で true にすると ISO 8601 週番号が入る（2026-07-01 を含む週は第 27 週）", () => {
+      const model = build({ showWeekNumbers: true });
+      expect(model.weekNumber).toBe(27);
+    });
+
+    it("viewType: 'day' では true でも weekNumber は null のまま", () => {
+      const model = build({ viewType: 'day', showWeekNumbers: true });
+      expect(model.weekNumber).toBeNull();
+    });
+
+    it('年またぎの週: 2025-12-28（日）始まりの週は 2026 年第 1 週になる', () => {
+      const model = build({
+        currentDate: at('2025-12-30T00:00', TOKYO),
+        showWeekNumbers: true,
+      });
+      expect(model.days[0]?.key).toBe('2025-12-28');
+      expect(model.weekNumber).toBe(1);
+    });
+  });
+
+  describe('businessHours（営業時間）', () => {
+    it('省略時（既定 []）はすべてのスロットが isBusinessHours: false になる', () => {
+      const model = build({ slotMinutes: 60 });
+      for (const day of model.days) {
+        expect(day.businessHourSlots).toHaveLength(model.slots.length);
+        expect(day.businessHourSlots.every((slot) => slot.isBusinessHours === false)).toBe(true);
+      }
+    });
+
+    it('境界時刻: startTime ちょうどは営業時間内、endTime ちょうどは営業時間外', () => {
+      // 2026-07-01 は水曜（weekday: 3）
+      const model = build({
+        slotMinutes: 60,
+        businessHours: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '17:00' }],
+      });
+      const wednesday = dayByKey(model, '2026-07-01');
+      const at9 = wednesday.businessHourSlots.find((slot) => slot.minutes === 540);
+      const at17 = wednesday.businessHourSlots.find((slot) => slot.minutes === 1020);
+      const at8 = wednesday.businessHourSlots.find((slot) => slot.minutes === 480);
+      expect(at9?.isBusinessHours).toBe(true);
+      expect(at17?.isBusinessHours).toBe(false);
+      expect(at8?.isBusinessHours).toBe(false);
+    });
+
+    it('daysOfWeek に含まれない曜日は終日 isBusinessHours: false になる', () => {
+      // この週（2026-06-28〜2026-07-04）の日曜は 2026-06-28。平日 [1..5] のみを営業日にする
+      const model = build({
+        slotMinutes: 60,
+        businessHours: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '17:00' }],
+      });
+      const sunday = dayByKey(model, '2026-06-28');
+      expect(sunday.businessHourSlots.every((slot) => slot.isBusinessHours === false)).toBe(true);
+    });
+
+    it('複数ルールを OR で判定する（曜日ごとに異なる時間帯）', () => {
+      const model = build({
+        slotMinutes: 60,
+        businessHours: [
+          { daysOfWeek: [6], startTime: '10:00', endTime: '13:00' }, // 土曜だけ午前のみ
+          { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' },
+        ],
+      });
+      const saturday = dayByKey(model, '2026-07-04');
+      const at10 = saturday.businessHourSlots.find((slot) => slot.minutes === 600);
+      const at9 = saturday.businessHourSlots.find((slot) => slot.minutes === 540);
+      expect(at10?.isBusinessHours).toBe(true);
+      expect(at9?.isBusinessHours).toBe(false);
+    });
+  });
+
   describe('nowIndicator（現在時刻線）', () => {
     it('now が表示範囲内なら該当日のキーと分を返す', () => {
       const model = build({ now: at('2026-07-01T10:30', TOKYO) });

@@ -108,6 +108,30 @@ describe('createCalendar', () => {
         createCalendar({ timeZone: 'Asia/Tokyo', timeAxisZones: ['Invalid/Zone'] }),
       ).toThrow();
     });
+
+    it('showWeekNumbers / businessHours は省略時にそれぞれ false / 空配列になる', () => {
+      const calendar = makeCalendar();
+      expect(calendar.getState().options.showWeekNumbers).toBe(false);
+      expect(calendar.getState().options.businessHours).toEqual([]);
+    });
+
+    it('businessHours の startTime が endTime 以降だと Error になる', () => {
+      expect(() =>
+        createCalendar({
+          timeZone: 'Asia/Tokyo',
+          businessHours: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '17:00', endTime: '09:00' }],
+        }),
+      ).toThrow();
+    });
+
+    it("businessHours の時刻が 'HH:mm' 形式でないと Error になる", () => {
+      expect(() =>
+        createCalendar({
+          timeZone: 'Asia/Tokyo',
+          businessHours: [{ daysOfWeek: [1], startTime: '9:00', endTime: '17:00' }],
+        }),
+      ).toThrow();
+    });
   });
 
   describe('購読と状態スナップショット', () => {
@@ -287,6 +311,26 @@ describe('createCalendar', () => {
       expect(calendar.getResources()).toEqual([]);
       expect(listener).not.toHaveBeenCalled();
     });
+
+    it('updateOptions は不正な businessHours を含むパッチ全体を原子的に拒否する（他フィールドも巻き戻る）', () => {
+      const calendar = makeCalendar({ events: [MEETING] });
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+      const before = calendar.getState();
+
+      expect(() =>
+        calendar.updateOptions({
+          timeZone: 'America/New_York',
+          events: [],
+          businessHours: [{ daysOfWeek: [1], startTime: '17:00', endTime: '09:00' }],
+        }),
+      ).toThrow();
+
+      expect(calendar.getState()).toBe(before);
+      expect(calendar.getState().timeZone).toBe('Asia/Tokyo');
+      expect(calendar.getEvents()).toEqual([MEETING]);
+      expect(listener).not.toHaveBeenCalled();
+    });
   });
 
   describe('イベント CRUD', () => {
@@ -438,6 +482,57 @@ describe('createCalendar', () => {
       const vmAfter = calendar.getViewModel();
       if (vmAfter.type !== 'timeGrid') throw new Error('unreachable');
       expect(vmAfter.timeAxes).toHaveLength(1);
+    });
+
+    it('showWeekNumbers 省略時は月・週ビューとも weekNumber が null（従来どおりの出力）', () => {
+      const calendar = makeCalendar({ initialView: 'month' });
+      const monthVm = calendar.getViewModel();
+      if (monthVm.type !== 'month') throw new Error('unreachable');
+      expect(monthVm.weeks.every((week) => week.weekNumber === null)).toBe(true);
+
+      calendar.setView('week');
+      const weekVm = calendar.getViewModel();
+      if (weekVm.type !== 'timeGrid') throw new Error('unreachable');
+      expect(weekVm.weekNumber).toBeNull();
+    });
+
+    it('showWeekNumbers: true にすると月・週ビューの weekNumber に値が入る', () => {
+      const calendar = makeCalendar({ initialView: 'month', showWeekNumbers: true });
+      const monthVm = calendar.getViewModel();
+      if (monthVm.type !== 'month') throw new Error('unreachable');
+      expect(monthVm.weeks.some((week) => week.weekNumber !== null)).toBe(true);
+
+      calendar.setView('week');
+      const weekVm = calendar.getViewModel();
+      if (weekVm.type !== 'timeGrid') throw new Error('unreachable');
+      expect(weekVm.weekNumber).not.toBeNull();
+    });
+
+    it('businessHours 省略時は週/日ビューの businessHourSlots がすべて false（従来どおりの出力）', () => {
+      const calendar = makeCalendar({ initialView: 'week' });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'timeGrid') throw new Error('unreachable');
+      expect(
+        vm.days.every((day) => day.businessHourSlots.every((slot) => !slot.isBusinessHours)),
+      ).toBe(true);
+    });
+
+    it('businessHours を指定すると該当スロットの isBusinessHours が true になる', () => {
+      const calendar = makeCalendar({
+        initialView: 'day',
+        businessHours: [
+          { daysOfWeek: [0, 1, 2, 3, 4, 5, 6], startTime: '09:00', endTime: '17:00' },
+        ],
+      });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'timeGrid') throw new Error('unreachable');
+      const day = vm.days[0];
+      expect(day?.businessHourSlots.find((slot) => slot.minutes === 540)?.isBusinessHours).toBe(
+        true,
+      );
+      expect(day?.businessHourSlots.find((slot) => slot.minutes === 480)?.isBusinessHours).toBe(
+        false,
+      );
     });
 
     it("setView('year') 後は年ビューのビューモデル（12 ヶ月分）を返す", () => {

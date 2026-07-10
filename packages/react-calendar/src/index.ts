@@ -12,6 +12,7 @@ export { createCalendar } from './core/calendar';
 export {
   addMonthsInZone,
   eachDayInRange,
+  isoWeekNumberOfWeek,
   monthGridRange,
   navigateDate,
   rangesOverlap,
@@ -64,16 +65,20 @@ export {
   fromWallClock,
   getLocalTimeZone,
   getWallClock,
+  isoWeekNumberInZone,
   isSameDayInZone,
   isValidTimeZone,
   minutesOfDayInZone,
   parseDateValue,
+  parseTimeOfDay,
   startOfDayInZone,
   type WallClockParts,
   weekdayInZone,
 } from './core/timezone';
 // コア型定義
 export type {
+  BusinessHourSlot,
+  BusinessHoursRule,
   CalendarApi,
   CalendarEvent,
   CalendarEventInput,

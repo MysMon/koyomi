@@ -7,7 +7,12 @@
  * 帯（span 1 のセグメント）として扱い、見た目の描き分けはコンポーネント側で行う。
  */
 
-import { eachDayInRange, monthGridRange, startOfMonthInZone } from '../date-utils';
+import {
+  eachDayInRange,
+  isoWeekNumberOfWeek,
+  monthGridRange,
+  startOfMonthInZone,
+} from '../date-utils';
 import type { BandItemInput } from '../layout/band-layout';
 import { layoutBandItems } from '../layout/band-layout';
 import { dateKeyInZone, getWallClock, isSameDayInZone, weekdayInZone } from '../timezone';
@@ -84,6 +89,8 @@ function daySpanOf(occurrence: EventOccurrence, timeZone: TimeZoneId): Occurrenc
  * @param params.dayMaxEvents - 1 日に表示する最大イベント数
  * @param params.now - 現在時刻（`isToday` 判定に使用）
  * @param params.hiddenWeekdays - 非表示にする曜日。省略時は `[]`（すべて表示）
+ * @param params.showWeekNumbers - 週行に ISO 8601 週番号（`MonthWeek.weekNumber`）を
+ *   算出するか。省略時は `false`（`weekNumber` は常に `null`）
  * @param params.segmentRange - セグメント生成・あふれ計上を限定する日時範囲（`end` 排他）。
  *   複数月ビューが「予定は自分の月のグリッドにのみ描画する」規則を実現するために
  *   `[月初, 翌月初)` を渡す。範囲外へはみ出す帯はこの範囲の日にクランプされ、
@@ -99,6 +106,7 @@ export function buildMonthViewModel(params: {
   dayMaxEvents: number;
   now: Date;
   hiddenWeekdays?: readonly Weekday[];
+  showWeekNumbers?: boolean;
   segmentRange?: DateRange;
 }): MonthViewModel {
   const {
@@ -109,6 +117,7 @@ export function buildMonthViewModel(params: {
     dayMaxEvents,
     now,
     hiddenWeekdays = [],
+    showWeekNumbers = false,
     segmentRange,
   } = params;
 
@@ -204,6 +213,13 @@ export function buildMonthViewModel(params: {
     const weekEndIndex = weekStartIndex + 6;
     const weekFirstKey = gridKeys[weekStartIndex] ?? '';
     const weekLastKey = gridKeys[weekEndIndex] ?? '';
+    // 週内の木曜日を基準に ISO 週番号を求める（weekStartsOn の値によらない。
+    // 詳細は isoWeekNumberOfWeek を参照）。showWeekNumbers が false（既定）なら常に null
+    const weekStartDate = gridDays[weekStartIndex];
+    const weekNumber =
+      showWeekNumbers && weekStartDate !== undefined
+        ? isoWeekNumberOfWeek(weekStartDate, timeZone)
+        : null;
 
     // この週と重なるオカレンスを帯レイアウトの入力に変換する
     const items: BandItemInput[] = [];
@@ -294,7 +310,7 @@ export function buildMonthViewModel(params: {
       };
     });
 
-    weeks.push({ days, segments, laneCount: layout.laneCount });
+    weeks.push({ days, segments, laneCount: layout.laneCount, weekNumber });
   }
 
   return { type: 'month', anchor, weeks, weekdays };

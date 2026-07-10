@@ -7,7 +7,7 @@
 import { act, fireEvent, render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import type { CalendarEvent, CalendarViewType } from '../../core/types';
+import type { BusinessHoursRule, CalendarEvent, CalendarViewType } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
@@ -35,6 +35,10 @@ interface HarnessProps {
   viewProps?: TimeGridViewProps;
   /** 追加の時間軸タイムゾーン（{@link CalendarOptions.timeAxisZones}）。 */
   timeAxisZones?: readonly string[];
+  /** 週番号表示（{@link CalendarOptions.showWeekNumbers}）。 */
+  showWeekNumbers?: boolean;
+  /** 営業時間の指定（{@link CalendarOptions.businessHours}）。 */
+  businessHours?: readonly BusinessHoursRule[];
 }
 
 /** `TimeGridView` を `CalendarProvider` 配下で描画するテスト用ハーネス。 */
@@ -46,6 +50,8 @@ function Harness(props: HarnessProps): ReactElement {
     initialView: props.initialView,
     events: props.events ?? EMPTY_EVENTS,
     ...(props.timeAxisZones !== undefined ? { timeAxisZones: props.timeAxisZones } : {}),
+    ...(props.showWeekNumbers !== undefined ? { showWeekNumbers: props.showWeekNumbers } : {}),
+    ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -483,6 +489,51 @@ describe('TimeGridView', () => {
     // 10:00 = 600分 → 600/1440*100 ≈ 41.66...%、12:00 = 720分 → 高さ 120/1440*100 ≈ 8.33...%
     expect(style.top).toContain('41.66');
     expect(style.height).toContain('8.33');
+  });
+});
+
+describe('TimeGridView - showWeekNumbers（週番号）', () => {
+  it('省略時（既定 false）は data-koyomi-week-number 属性が付かない', () => {
+    const { container } = render(<Harness initialView="week" />);
+    expect(container.querySelector('[data-koyomi="timegrid-header"]')).not.toHaveAttribute(
+      'data-koyomi-week-number',
+    );
+  });
+
+  it('true にすると週ビューのヘッダー行に data-koyomi-week-number 属性が付く（2026-07-15 を含む週は第29週）', () => {
+    const { container } = render(<Harness initialView="week" showWeekNumbers />);
+    expect(container.querySelector('[data-koyomi="timegrid-header"]')).toHaveAttribute(
+      'data-koyomi-week-number',
+      '29',
+    );
+  });
+
+  it('day ビューでは true でも data-koyomi-week-number 属性が付かない', () => {
+    const { container } = render(<Harness initialView="day" showWeekNumbers />);
+    expect(container.querySelector('[data-koyomi="timegrid-header"]')).not.toHaveAttribute(
+      'data-koyomi-week-number',
+    );
+  });
+});
+
+describe('TimeGridView - businessHours（営業時間）', () => {
+  it('省略時（既定 []）は data-koyomi-business-hours 属性が付かない', () => {
+    const { container } = render(<Harness initialView="day" />);
+    expect(container.querySelectorAll('[data-koyomi-business-hours]')).toHaveLength(0);
+  });
+
+  it('指定した時間帯のスロットにのみ data-koyomi-business-hours 属性が付く（2026-07-15 は水曜）', () => {
+    const businessHours: BusinessHoursRule[] = [
+      { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '17:00' },
+    ];
+    const { container } = render(<Harness initialView="day" businessHours={businessHours} />);
+    const dayColumn = container.querySelector('[data-koyomi="timegrid-day"]');
+    expect(dayColumn).not.toBeNull();
+    const slots = dayColumn?.querySelectorAll('[data-koyomi="timegrid-slot"]') ?? [];
+    // slotMinutes 既定 60 分: インデックス 9 = 9:00、17 = 17:00
+    expect(slots[9]).toHaveAttribute('data-koyomi-business-hours', 'true');
+    expect(slots[17]).not.toHaveAttribute('data-koyomi-business-hours');
+    expect(slots[8]).not.toHaveAttribute('data-koyomi-business-hours');
   });
 });
 

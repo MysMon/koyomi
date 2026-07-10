@@ -790,6 +790,8 @@ interface ToolbarLabels {
 | `unassignedLane?` | `'auto' \| 'always'` | `'auto'` |
 | `locale?` | `string` | `'ja'` |
 | `hiddenWeekdays?` | `readonly Weekday[]` | `[]`（非表示にする曜日。7 曜日全指定は無効） |
+| `showWeekNumbers?` | `boolean` | `false`（月・週ビューに ISO 8601 週番号を表示するか。詳細は [ビュー: 週番号](./views.md#週番号showweeknumbers) を参照） |
+| `businessHours?` | `readonly BusinessHoursRule[]` | `[]`（週/日ビューの営業時間の指定。詳細は [ビュー: 営業時間](./views.md#営業時間businesshours) を参照） |
 | `now?` | `() => Date` | `() => new Date()` |
 | `onEventsChange?` | `(events: readonly CalendarEvent[]) => void` | なし |
 
@@ -799,7 +801,9 @@ interface ToolbarLabels {
 
 `timelineDays` はタイムラインビューの表示日数、`unassignedLane` はリソース/タイムラインビューの未割り当てレーンの生成規則です（`'auto'` = 該当する予定があるときのみ末尾に生成、`'always'` = 常に生成。詳細は [ビュー](./views.md#年ビューなど新ビューを有効にするopt-in) を参照）。
 
-`ResolvedCalendarOptions` は既定値適用後の型で、`onEventsChange` を除くすべてのフィールドが必須になったものです（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `timeAxisZones` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `multiMonthCount` / `timelineDays` / `unassignedLane` / `locale` / `hiddenWeekdays` / `now`）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' | 'resource' | 'timeline'` です。
+`ResolvedCalendarOptions` は既定値適用後の型で、`onEventsChange` を除くすべてのフィールドが必須になったものです（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `timeAxisZones` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `multiMonthCount` / `timelineDays` / `unassignedLane` / `locale` / `hiddenWeekdays` / `showWeekNumbers` / `businessHours` / `now`）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' | 'resource' | 'timeline'` です。
+
+`BusinessHoursRule` は `{ daysOfWeek: readonly Weekday[]; startTime: string; endTime: string }`（`startTime` / `endTime` は `'HH:mm'` 形式。`startTime` が `endTime` 以降、または形式が不正だと `Error`）です。
 
 ### 状態とビューモデル
 
@@ -808,11 +812,12 @@ interface ToolbarLabels {
 | `CalendarState` | `{ view; currentDate; timeZone; events; resources; dragPreview; options: ResolvedCalendarOptions }`。`getState()` の戻り値 |
 | `CalendarViewModel` | `MonthViewModel | TimeGridViewModel | ListViewModel | YearViewModel | MultiMonthViewModel | ResourceViewModel | TimelineViewModel`。`getViewModel()` の戻り値 |
 | `MonthViewModel` | `{ type: 'month'; anchor: Date; weeks: readonly MonthWeek[]; weekdays: readonly Weekday[] }` |
-| `MonthWeek` | `{ days: readonly MonthDay[]; segments: readonly EventSegment[]; laneCount: number }` |
+| `MonthWeek` | `{ days: readonly MonthDay[]; segments: readonly EventSegment[]; laneCount: number; weekNumber: number \| null }`。`weekNumber` は `showWeekNumbers: true` のときだけ ISO 8601 週番号が入る（既定 `null`） |
 | `MonthDay` | `{ date; key; inCurrentMonth; isToday; overflowCount }` |
 | `EventSegment` | `{ occurrence; startCol; span; lane; continuesBefore; continuesAfter; hidden }`。月ビュー・終日行・複数月ビューの帯セグメント |
-| `TimeGridViewModel` | `{ type: 'timeGrid'; viewType: 'week' | 'day'; days; allDaySegments; allDayLaneCount; slots; timeAxes: readonly TimeAxis[]; nowIndicator }` |
-| `TimeGridDay` | `{ date; key; isToday; weekday; items: readonly PositionedOccurrence[]; timeAxes: readonly TimeAxis[] }`。`timeAxes` はこの日自身の 0:00 基準（`TimeGridViewModel.timeAxes` は週全体で共有する表示範囲最初の日基準。両者の違いは [タイムゾーン: 複数 TZ 軸](./timezones.md#複数タイムゾーン軸secondary-time-zone)を参照） |
+| `TimeGridViewModel` | `{ type: 'timeGrid'; viewType: 'week' | 'day'; days; allDaySegments; allDayLaneCount; slots; timeAxes: readonly TimeAxis[]; nowIndicator; weekNumber: number \| null }`。`weekNumber` は `viewType: 'week'` かつ `showWeekNumbers: true` のときだけ ISO 8601 週番号が入る（それ以外は `null`） |
+| `TimeGridDay` | `{ date; key; isToday; weekday; items: readonly PositionedOccurrence[]; timeAxes: readonly TimeAxis[]; businessHourSlots: readonly BusinessHourSlot[] }`。`timeAxes` はこの日自身の 0:00 基準（`TimeGridViewModel.timeAxes` は週全体で共有する表示範囲最初の日基準。両者の違いは [タイムゾーン: 複数 TZ 軸](./timezones.md#複数タイムゾーン軸secondary-time-zone)を参照）。`businessHourSlots` は `slots` と同じ並びの営業時間内フラグ（`businessHours` 未指定時はすべて `false`） |
+| `BusinessHourSlot` | `{ minutes: number; isBusinessHours: boolean }`。`minutes` は `TimeSlot.minutes` と同じ並び |
 | `TimeSlot` | `{ minutes: number; label: string }` |
 | `TimeAxis` | `{ timeZone: TimeZoneId; slots: readonly TimeSlot[] }`。時間グリッドの時間軸 1 本分。`timeAxes` は先頭が主軸（表示 TZ、`slots` と同内容）、以降が `timeAxisZones` の指定順の追加軸（[タイムゾーン: 複数 TZ 軸](./timezones.md#複数タイムゾーン軸secondary-time-zone)を参照） |
 | `PositionedOccurrence` | `{ occurrence; startMinutes; endMinutes; left; width; continuesBefore; continuesAfter }`。時間グリッドに配置されたオカレンス（割合・分単位） |
@@ -880,6 +885,8 @@ interface ToolbarLabels {
 | `weekdayInZone(date, timeZone): Weekday` | 指定タイムゾーンにおける曜日を返す |
 | `parseDateValue(value, timeZone, allDay): Date` | `CalendarEvent` の `start`/`end` 値を絶対時刻に解釈する |
 | `formatSlotLabel(minutes: number): string` | 分数を `'HH:mm'` 形式のラベルにする |
+| `isoWeekNumberInZone(date, timeZone): number` | 指定タイムゾーンにおける ISO 8601 週番号を返す |
+| `parseTimeOfDay(time: string): number` | `'HH:mm'` 形式の時刻文字列をその日の 0:00 からの分に変換する（`formatSlotLabel` の逆変換） |
 | `WallClockParts`（型） | `{ year; month; day; hours?; minutes?; seconds?; milliseconds? }` |
 
 ```ts
@@ -900,6 +907,7 @@ console.log(dateKeyInZone(next, 'Asia/Tokyo')); // => '2026-07-03'
 | 関数 | 説明 |
 | --- | --- |
 | `startOfWeekInZone(date, timeZone, weekStartsOn): Date` | その週の開始日 0:00 の絶対時刻を返す |
+| `isoWeekNumberOfWeek(weekStart, timeZone): number` | 週開始曜日（`weekStartsOn`）に依存しない ISO 8601 週番号を返す（週内の木曜日を基準に算出） |
 | `startOfMonthInZone(date, timeZone): Date` | その月の 1 日 0:00 の絶対時刻を返す |
 | `addMonthsInZone(date, amount, timeZone): Date` | 指定タイムゾーンの現地時刻を維持したまま月数を加算する（加算後に存在しない日は月末にクランプ。複数月ビューのナビゲーションに使用） |
 | `startOfYearInZone(date, timeZone): Date` | その年の 1 月 1 日 0:00 の絶対時刻を返す |
@@ -1061,8 +1069,8 @@ console.log(shortcutForKey('s')); // => null（該当なし）
 
 | 関数 | 説明 |
 | --- | --- |
-| `buildMonthViewModel(params): MonthViewModel` | 月ビューのビューモデル（週・日・帯セグメント）を構築する。`hiddenWeekdays` で列を除外できる。`params.segmentRange`（省略可）でセグメント生成と「+N 件」の計上を指定範囲の日に限定できる（複数月ビューが月ごとにクランプするための引数。省略時は従来どおりグリッド全域が対象で、単体の月ビューの挙動は不変） |
-| `buildTimeGridViewModel(params): TimeGridViewModel` | 週/日ビューのビューモデル（終日行・時間グリッド配置）を構築する。`hiddenWeekdays` 対応 |
+| `buildMonthViewModel(params): MonthViewModel` | 月ビューのビューモデル（週・日・帯セグメント）を構築する。`hiddenWeekdays` で列を除外できる。`params.showWeekNumbers`（省略時 `false`）で各週の `weekNumber` を算出する。`params.segmentRange`（省略可）でセグメント生成と「+N 件」の計上を指定範囲の日に限定できる（複数月ビューが月ごとにクランプするための引数。省略時は従来どおりグリッド全域が対象で、単体の月ビューの挙動は不変） |
+| `buildTimeGridViewModel(params): TimeGridViewModel` | 週/日ビューのビューモデル（終日行・時間グリッド配置）を構築する。`hiddenWeekdays` 対応。`params.showWeekNumbers`（省略時 `false`）で `viewType: 'week'` のときの `weekNumber` を算出し、`params.businessHours`（省略時 `[]`）で各日の `businessHourSlots` を算出する |
 | `buildListViewModel(params): ListViewModel` | リストビューのビューモデル（日付ごとのオカレンス一覧）を構築する |
 | `buildYearViewModel(params): YearViewModel` | 年ビューのビューモデル（12 ヶ月分のミニ月グリッド・日ごとの予定件数）を構築する。`hiddenWeekdays` は無視する |
 | `buildMultiMonthViewModel(params): MultiMonthViewModel` | 複数月ビューのビューモデル（`multiMonthCount` ヶ月分の月グリッド）を構築する。内部で月ごとに `buildMonthViewModel` を呼び、`segmentRange` を各月本体にクランプすることで前後月の日付セルに予定を出さない |
