@@ -671,11 +671,18 @@ export function useResourceGridDrag(params: {
     );
   }
 
-  /** クリック（ドラッグに至らなかった場合）で `onEventClick` を呼ぶ。 */
+  /**
+   * クリック（ドラッグに至らなかった場合）で `onEventClick` を呼ぶ。
+   *
+   * 伝播は常に止める。止めないと終日アイテムのクリックが親の終日セル
+   * （{@link getAllDayCellProps} の作成クリック）まで伝わり、既存の予定を
+   * クリックしただけで新しい終日イベントが作成されてしまう。
+   */
   function handleEventClick(
     occurrence: EventOccurrence,
     event: ReactMouseEvent<HTMLElement>,
   ): void {
+    event.stopPropagation();
     if (suppressNextClickRef.current) {
       suppressNextClickRef.current = false;
       return;

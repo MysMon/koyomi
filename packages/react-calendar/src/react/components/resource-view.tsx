@@ -169,12 +169,18 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
               {...drag.getAllDayCellProps(column)}
               data-koyomi="resource-allday-cell"
               data-koyomi-preview-target={drag.isAllDayPreviewTarget(column) ? 'true' : undefined}
+              // 終日アイテムはレーン（配列順）で縦積みするため、レーン数分の高さを確保する
+              // （週/日ビューの allday-cells の minHeight と同じ方式）
+              style={{
+                minHeight: `calc(${Math.max(2, column.allDayItems.length)} * var(--koyomi-lane-height, 24px))`,
+              }}
             >
-              {column.allDayItems.map((occurrence) => (
+              {column.allDayItems.map((occurrence, lane) => (
                 <AllDayItemButton
                   key={occurrence.key}
                   occurrence={occurrence}
                   column={column}
+                  lane={lane}
                   timeZone={timeZone}
                   locale={locale}
                   drag={drag}
@@ -219,19 +225,26 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
 const AllDayItemButton = memo(function AllDayItemButton(props: {
   occurrence: EventOccurrence;
   column: ResourceColumn;
+  /** 縦方向のレーン番号（`allDayItems` の配列順。同列内で重ならないよう縦積みする）。 */
+  lane: number;
   timeZone: TimeZoneId;
   locale: string;
   drag: ResourceGridDragHandlers;
   /** ドラッグ操作が進行中か（`data-koyomi-dragging` の更新に必要）。 */
   isDragging: boolean;
 }): ReactElement {
-  const { occurrence, column, timeZone, locale, drag } = props;
+  const { occurrence, column, lane, timeZone, locale, drag } = props;
+  const style = withEventColorStyle(
+    // 週/日ビューの終日セグメントと同じレーン縦積みの位置決め
+    { top: `calc(${lane} * var(--koyomi-lane-height, 24px))` },
+    occurrence.event.color ?? column.resource?.color,
+  );
   return (
     <button
       type="button"
       {...drag.getAllDayItemProps(occurrence)}
       data-koyomi="allday-event"
-      style={withEventColorStyle({}, occurrence.event.color ?? column.resource?.color)}
+      style={style}
       aria-label={ariaLabelWithResource(occurrence, column.resource?.title, timeZone, locale)}
     >
       {occurrence.event.title}

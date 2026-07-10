@@ -314,3 +314,59 @@ describe('ResourceView - 終日アイテム', () => {
     expect(alldayEvent?.getAttribute('aria-label')).toBe('休暇、7月15日、会議室A');
   });
 });
+
+describe('ResourceView - Codex レビュー回帰（終日アイテム）', () => {
+  /** 同じ列に終日アイテムを 2 件持つフィクスチャ。 */
+  const TWO_ALLDAY_EVENTS: readonly CalendarEvent[] = [
+    {
+      id: 'ad-1',
+      title: '終日1',
+      start: '2026-07-15',
+      end: '2026-07-16',
+      allDay: true,
+      resourceId: 'room-a',
+    },
+    {
+      id: 'ad-2',
+      title: '終日2',
+      start: '2026-07-15',
+      end: '2026-07-16',
+      allDay: true,
+      resourceId: 'room-a',
+    },
+  ];
+
+  it('同じ列の複数の終日アイテムはレーン（配列順）の top で縦積みされる', () => {
+    const { container } = render(<Harness resources={[ROOM_A]} events={TWO_ALLDAY_EVENTS} />);
+    const items = container.querySelectorAll('[data-koyomi="allday-event"]');
+    expect(items).toHaveLength(2);
+    const tops = Array.from(items).map((item) =>
+      item instanceof HTMLElement ? item.style.top : '',
+    );
+    expect(tops[0]).toBe('calc(0 * var(--koyomi-lane-height, 24px))');
+    expect(tops[1]).toBe('calc(1 * var(--koyomi-lane-height, 24px))');
+  });
+
+  it('終日セルはレーン数分の minHeight を確保する（2 レーン未満は 2 レーン分）', () => {
+    const { container } = render(<Harness resources={[ROOM_A]} events={TWO_ALLDAY_EVENTS} />);
+    const cell = container.querySelector('[data-koyomi="resource-allday-cell"]');
+    expect(cell instanceof HTMLElement ? cell.style.minHeight : '').toBe(
+      'calc(2 * var(--koyomi-lane-height, 24px))',
+    );
+  });
+
+  it('終日アイテムのクリックは親セルへ伝播せず、新しいイベントを作成しない', () => {
+    const { container } = render(
+      <Harness resources={[ROOM_A]} events={[TWO_ALLDAY_EVENTS[0] as CalendarEvent]} />,
+    );
+    const item = container.querySelector('[data-koyomi="allday-event"]');
+    expect(item).not.toBeNull();
+    if (!(item instanceof HTMLElement)) {
+      throw new Error('終日アイテムが見つかりません');
+    }
+    // クリックが resource-allday-cell の作成ハンドラへ伝播すると予定が 2 件になる
+    item.click();
+    const items = container.querySelectorAll('[data-koyomi="allday-event"]');
+    expect(items).toHaveLength(1);
+  });
+});
