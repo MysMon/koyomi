@@ -348,6 +348,37 @@ function useTimelineDrag(params: {
 
 リソース/タイムラインの D&D の縦横の軸・合成パッチ・キーボード操作の詳細は [インタラクション: リソースビュー・タイムラインビューのドラッグ操作](./interactions.md#リソースビュータイムラインビューのドラッグ操作) を参照してください。
 
+### `useExternalDrag`
+
+```ts
+function useExternalDrag<TPayload>(params: {
+  calendar: UseCalendarResult;
+  containerRef: RefObject<HTMLElement | null>;
+  onExternalDrop: (info: ExternalDropInfo<TPayload>) => void;
+  onError?: (error: unknown) => void;
+}): ExternalDragHandlers<TPayload>
+```
+
+カレンダー外部の DOM 要素からのドラッグを受け入れるフックです（FullCalendar の `Draggable` 相当）。対応ビュー（月・週/日の時間グリッド＋終日行・リソース・タイムライン）が描画されている前提で、ポインタ直下の（`containerRef` の内側にある）カレンダー要素から日時・（リソース/タイムラインビューでは）リソース ID を解決し、既存のプレビュー機構（`api.setDragPreview`）で表示します。イベントの作成自体は行わず、ドロップ確定時に `onExternalDrop` を呼ぶだけです（ヘッドレス原則）。`callbacks`（`CalendarInteractionCallbacks`）は使わず、`onExternalDrop` / `onError` を直接パラメータとして受け取ります（`payload` の型はドラッグ元ごとに異なりうるため）。
+
+`containerRef` は、そのカレンダーインスタンス（`CalendarProvider` とビューコンポーネント）を描画している DOM のルート要素への ref です。ドロップ先のヒットテストはこの要素の内側に限定されるため、ページ上に同じビュー種別のカレンダーが複数存在しても、ドラッグ元とは別のカレンダーの DOM 上へのドロップを誤って受理しません。`current` が `null` の間（マウント前など）はキャンセル扱いになります。
+
+**戻り値 `ExternalDragHandlers<TPayload>`**
+
+| メンバー | シグネチャ | 説明 |
+| --- | --- | --- |
+| `getDraggableProps` | `(payload: TPayload): ExternalDraggableProps` | 外部要素に付与する props を返す。`payload` はドロップ確定時に `ExternalDropInfo.payload` として渡される |
+| `isDragging` | `boolean` | 外部ドラッグが進行中か |
+
+**関連する型**
+
+| 型 | フィールド |
+| --- | --- |
+| `ExternalDraggableProps` | `onPointerDown` |
+| `ExternalDropInfo<TPayload>` | `range: DateRange`, `allDay: boolean`, `resourceId?: string \| null`, `payload: TPayload` |
+
+外部要素は `data-koyomi-*` 属性フックの対象外（デフォルトテーマは適用されない）で、タッチ対応には自前で `touch-action: none` の指定が必要です。詳細・キャンセル挙動・使用例は [インタラクション: 外部ドラッグ受け入れ](./interactions.md#外部ドラッグ受け入れカレンダー外からのドラッグ) を参照してください。
+
 ### `useVirtualizer`
 
 ```ts

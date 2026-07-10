@@ -431,6 +431,78 @@ function CustomDayRow() {
 
 いずれの `get*Props` も、対象の要素（`<div>` や `<button>` など）にそのままスプレッドして使います。`ref` はコールバック形式で、要素の矩形（`getBoundingClientRect`）からポインタ位置に対応する日時を計算するための内部レジストリに登録されます。
 
+## 外部ドラッグ受け入れ（カレンダー外からのドラッグ）
+
+サイドバーの予定テンプレートなど、カレンダーの**外側**にある DOM 要素からのドラッグでカレンダー上に予定を作成したい場合は `useExternalDrag` を使います（FullCalendar の `Draggable` に相当するヘッドレス機構）。
+
+`useExternalDrag({ calendar, containerRef, onExternalDrop })` は次を返します。
+
+- `getDraggableProps(payload)` — 外部要素にスプレッドする props（`onPointerDown`）を返す。`payload` にはドロップ確定時に受け取りたい任意のデータ（予定テンプレートの内容など）を渡す
+- `isDragging` — 外部ドラッグが進行中か
+
+`containerRef` には、そのカレンダーインスタンス（`CalendarProvider` とビューコンポーネント）を描画している DOM のルート要素への ref（`useRef` の戻り値）を渡します。ドロップ先のヒットテストはこの要素の内側に限定されるため、ページ上に同じビュー種別のカレンダーが複数存在しても、ドラッグ元とは別のカレンダーの DOM 上へのドロップを誤って受理することはありません。
+
+ドラッグ中は、対応ビュー（月・週/日の時間グリッド＋終日行・リソース・タイムライン）が実際に描画されている前提で、ポインタ直下の（`containerRef` の内側にある）カレンダー要素から日時（・リソース/タイムラインビューではリソース ID）を解決し、既存のプレビュー機構（各ビューの通常のドラッグ操作と同じハイライト表示）でカレンダー上に表示します。リスト・年・複数月ビューには対応しません（ドロップ先が解決できずキャンセル扱いになります）。
+
+ドロップが確定すると `onExternalDrop` が呼ばれます。**イベントの作成自体は行いません**（ヘッドレス原則）。`calendar.api.createEvent` を呼ぶかどうかはコールバック内でアプリ側が決めます。
+
+```tsx
+import { useRef } from 'react';
+import { CalendarProvider, TimeGridView, useCalendar, useExternalDrag } from '@koyomi-cal/react';
+import type { ExternalDropInfo } from '@koyomi-cal/react';
+
+interface EventTemplate {
+  title: string;
+}
+
+function App() {
+  const calendar = useCalendar({ initialView: 'week' });
+  // このカレンダーインスタンスの DOM ルート（ページ上に複数カレンダーがあっても
+  // ドロップ先のヒットテストがこの要素の内側に限定される）。
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  function handleExternalDrop(info: ExternalDropInfo<EventTemplate>) {
+    calendar.api.createEvent({
+      title: info.payload.title,
+      start: info.range.start,
+      end: info.range.end,
+      allDay: info.allDay,
+      // リソース/タイムラインビューへのドロップでは info.resourceId も渡せる
+    });
+  }
+
+  const externalDrag = useExternalDrag<EventTemplate>({
+    calendar,
+    containerRef,
+    onExternalDrop: handleExternalDrop,
+  });
+
+  return (
+    <div>
+      <div {...externalDrag.getDraggableProps({ title: '外部の予定' })}>外部の予定</div>
+      <div ref={containerRef}>
+        <CalendarProvider value={calendar}>
+          <TimeGridView />
+        </CalendarProvider>
+      </div>
+    </div>
+  );
+}
+
+// 期待される動作:
+// - 「外部の予定」を週ビューの 10:00 付近へドラッグ＆ドロップすると、
+//   handleExternalDrop({ range: { start: 10:00, end: 10:00 + defaultEventMinutes }, allDay: false,
+//   payload: { title: '外部の予定' } }) が呼ばれる
+// - ドラッグ中はドロップ予定位置に既存のドラッグ操作と同じプレビューが表示される
+// - Escape キー・pointercancel（タッチ操作の割り込み等）で中断した場合、
+//   対応ビュー外・カレンダー外でドロップした場合、および他カレンダーの
+//   containerRef の外側でドロップした場合は onExternalDrop が呼ばれない
+```
+
+- `ExternalDropInfo`（`onExternalDrop` の引数） — `range`（`DateRange`）・`allDay`・`resourceId?`（リソース/タイムラインビューへのドロップ時のみ、`null` は未割り当てレーン）・`payload`（`getDraggableProps` に渡した値）
+- 外部要素自体は `containerRef` の外に置いて構いません（サイドバーとカレンダーが別要素であるケースを想定）。カレンダーの `data-koyomi-*` 属性フックの対象外（デフォルトテーマは適用されません）。タッチ操作でドラッグをスクロールに奪われないよう、外部要素には自前で `touch-action: none` を設定してください（[テーマとスタイリング](./theming.md) 参照）
+- `onError` を渡すと、`onExternalDrop` が投げた例外をハンドリングできます（省略時は `console.error` に出力）
+
 ## 関連ページ
 
 - [ビュー（月・週・日・リスト・年・複数月・リソース・タイムライン）](./views.md)
