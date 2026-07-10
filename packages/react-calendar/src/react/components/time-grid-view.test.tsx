@@ -566,11 +566,11 @@ describe('TimeGridView - ARIA', () => {
       expect(gutter).toHaveAttribute('role', 'presentation');
     }
 
-    // grid → row → gridcell の間に挟まるレイアウト用ラッパーは role="presentation" で
-    // 所有関係を透過させる（required owned elements 違反を避ける）
-    expect(container.querySelector('[data-koyomi="timegrid-allday"]')).toHaveAttribute(
-      'role',
-      'presentation',
+    // row → gridcell の間に挟まるレイアウト用ラッパーは role="presentation" で
+    // 所有関係を透過させる（required owned elements 違反を避ける）。
+    // allday-row 自体は timegrid-grid の直接の子（余計なラッパーを挟まない）
+    expect(container.querySelector('[data-koyomi="allday-row"]')?.parentElement).toBe(
+      container.querySelector('[data-koyomi="timegrid-grid"]'),
     );
     expect(container.querySelector('[data-koyomi="allday-cells"]')).toHaveAttribute(
       'role',
@@ -625,11 +625,10 @@ describe('TimeGridView - ARIA', () => {
       expect(focusable.closest('[role="gridcell"], [role="columnheader"]')).not.toBeNull();
     }
 
-    // 範囲選択プレビュー用のレイヤーは focusable を含まないため aria-hidden で
-    // アクセシビリティツリーごと除外する（grid の owned elements に現れない）
-    const selectionLayer = container.querySelector('[data-koyomi="allday-events"]');
-    expect(selectionLayer).toHaveAttribute('aria-hidden', 'true');
-    expect(selectionLayer?.querySelector('[data-koyomi="allday-event"]')).toBeNull();
+    // 旧方式の帯レイヤー（allday-events）は存在しない。範囲選択プレビュー
+    // （day-selection、aria-hidden）は allday-cells 直下に置かれ、% オフセットが
+    // テーマ変数に依存せず常に列位置と一致する
+    expect(container.querySelector('[data-koyomi="allday-events"]')).toBeNull();
   });
 
   it('終日イベントのボタンで Enter を押してもセル（gridcell）の範囲選択は発火しない', () => {
@@ -657,7 +656,7 @@ describe('TimeGridView - ARIA', () => {
 
   it('editable: false の終日イベント上の pointerdown はセルの作成ドラッグを開始しない', () => {
     // 帯ボタンが gridcell の子になったため、ボタン側で処理しない pointerdown
-    // （editable: false）もセルの onPointerDown（作成ドラッグ）へバブルしないことを保証する
+    // （editable: false）もセルの onPointerDown（作成ドラッグ）を誤発火させないことを保証する
     const onSelectRange = vi.fn();
     const events: CalendarEvent[] = [
       {
@@ -685,6 +684,41 @@ describe('TimeGridView - ARIA', () => {
       document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
     });
 
+    expect(onSelectRange).not.toHaveBeenCalled();
+  });
+
+  it('予定ボタン上の pointerdown / keydown はカレンダー外側の祖先には従来どおり伝播する', () => {
+    // 二重発火の抑止は「セル側がイベントの由来を確認して無視する」方式で行い、ボタン側で
+    // stopPropagation しない。外側のラッパーの pointerdown でポップオーバーを閉じる等の
+    // 利用側リスナーに届かなくなる回帰を防ぐ（editable: false でも同様）
+    const onSelectRange = vi.fn();
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '祝日',
+        start: '2026-07-15',
+        end: '2026-07-16',
+        allDay: true,
+        editable: false,
+      },
+    ];
+    const { container } = render(
+      <Harness initialView="week" events={events} callbacks={{ onSelectRange }} />,
+    );
+
+    const outerPointerDown = vi.fn();
+    container.addEventListener('pointerdown', outerPointerDown);
+
+    const segment = container.querySelector('[data-koyomi="allday-event"]');
+    expect(segment).toBeInstanceOf(HTMLElement);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('終日イベントのボタンが見つかりません');
+    }
+    act(() => {
+      segment.dispatchEvent(new MouseEvent('pointerdown', { button: 0, bubbles: true }));
+    });
+
+    expect(outerPointerDown).toHaveBeenCalledTimes(1);
     expect(onSelectRange).not.toHaveBeenCalled();
   });
 

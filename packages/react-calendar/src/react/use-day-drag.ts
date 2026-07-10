@@ -599,6 +599,21 @@ export function useDayDrag(params: {
     };
   }
 
+  /**
+   * セルへバブルしてきたイベントが、セル内にネストされた予定ボタン
+   * （`data-koyomi-occurrence` 属性を持つ要素）由来かどうかを判定する。
+   *
+   * 帯ボタンは ARIA 上の所有関係の要請で開始日の gridcell の子として描画される。
+   * ボタン側で stopPropagation する方式はカレンダー外側の祖先（ポップオーバーを
+   * 閉じる等の利用側リスナー）にも届かなくなるため、伝播は止めずにセル側で
+   * イベントの由来を確認して無視する。
+   */
+  function originatesFromSegment(event: { target: EventTarget }): boolean {
+    return (
+      event.target instanceof Element && event.target.closest('[data-koyomi-occurrence]') !== null
+    );
+  }
+
   function getDayCellProps(day: { date: Date; key: string }): DayCellProps {
     return {
       ref: (element: HTMLElement | null) => {
@@ -609,6 +624,13 @@ export function useDayDrag(params: {
         }
       },
       onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+        // 帯ボタン（データ属性 data-koyomi-occurrence）はセルの子として描画されるため、
+        // ボタン由来の pointerdown がここへバブルしてくる。ボタン側で伝播を止める方式は
+        // カレンダー外側の祖先（ポップオーバーを閉じる等の利用側リスナー）にも届かなく
+        // なるため採らず、セル側でイベントの由来を確認して無視する
+        if (originatesFromSegment(event)) {
+          return;
+        }
         if (event.button !== 0) {
           return;
         }
@@ -616,6 +638,11 @@ export function useDayDrag(params: {
         beginDrag('create', null, day.date);
       },
       onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
+        // pointerdown と同じ理由で、帯ボタン由来のキー操作（Enter/Space 等）を
+        // セルの範囲選択として二重処理しない
+        if (originatesFromSegment(event)) {
+          return;
+        }
         if (event.key !== 'Enter' && event.key !== ' ') {
           return;
         }
@@ -637,14 +664,13 @@ export function useDayDrag(params: {
 
     const base: SegmentProps = {
       onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
-        // 予定ボタン上の pointerdown は、editable: false や副ボタンで移動を開始しない
-        // 場合でも祖先へ伝播させない。帯ボタンは日セル（gridcell）の子として描画される
-        // ため、伝播するとセル側の作成ドラッグ（getDayCellProps.onPointerDown）が
-        // 誤って始まってしまう
-        event.stopPropagation();
+        // editable: false や副ボタンでは何もせず、伝播も止めない（外側の祖先の
+        // 利用側リスナーへ従来どおり届ける）。セルの作成ドラッグとの二重処理は
+        // getDayCellProps 側が由来（data-koyomi-occurrence）を確認して防ぐ
         if (event.button !== 0 || occurrence.event.editable === false) {
           return;
         }
+        event.stopPropagation();
         event.preventDefault();
         const anchorDay =
           locateDay(event.clientX, event.clientY) ??
@@ -659,18 +685,15 @@ export function useDayDrag(params: {
         callbacksRef.current?.onEventClick?.(occurrence, event.nativeEvent);
       },
       onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
-        // ボタンが処理するキーは祖先へ伝播させない。帯ボタンは日セル（gridcell）の
-        // 子として描画されるため、伝播するとセル側の Enter/Space（1 日分の範囲選択）が
-        // 二重に発火してしまう。未処理のキーは素通しする（useCalendarShortcuts の
-        // document リスナーを妨げないため、無条件の stopPropagation にはしない）
+        // 伝播は止めない（外側の祖先の利用側リスナーへ従来どおり届ける）。セルの
+        // Enter/Space（範囲選択）との二重発火は getDayCellProps 側がイベントの
+        // 由来（data-koyomi-occurrence）を確認して防ぐ
         if (event.key === 'Enter' || event.key === ' ') {
-          event.stopPropagation();
           event.preventDefault();
           event.currentTarget.click();
           return;
         }
         if (event.key === 'Delete' || event.key === 'Backspace') {
-          event.stopPropagation();
           event.preventDefault();
           void commitDelete(occurrence).catch(reportError);
           return;
@@ -680,7 +703,6 @@ export function useDayDrag(params: {
         }
         switch (event.key) {
           case 'ArrowLeft': {
-            event.stopPropagation();
             event.preventDefault();
             if (event.shiftKey) {
               const end = addDaysInZone(occurrence.end, -1, timeZoneRef.current);
@@ -695,7 +717,6 @@ export function useDayDrag(params: {
             return;
           }
           case 'ArrowRight': {
-            event.stopPropagation();
             event.preventDefault();
             if (event.shiftKey) {
               const end = addDaysInZone(occurrence.end, 1, timeZoneRef.current);
@@ -708,13 +729,11 @@ export function useDayDrag(params: {
             return;
           }
           case 'ArrowUp': {
-            event.stopPropagation();
             event.preventDefault();
             void commitMove(occurrence, shiftedRange(occurrence, -7), 'move').catch(reportError);
             return;
           }
           case 'ArrowDown': {
-            event.stopPropagation();
             event.preventDefault();
             void commitMove(occurrence, shiftedRange(occurrence, 7), 'move').catch(reportError);
             return;

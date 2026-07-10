@@ -19,8 +19,9 @@
  * 消えず内部の focusable なボタンが grid の子孫として露出したままになるため不可）。
  * ボタンの positioned ancestor はセルではなく `allday-cells`（position: relative）
  * なので、視覚上の列スパンはセルの所有関係と無関係に絶対配置で実現できる。
- * 範囲選択プレビューのレイヤー（`allday-events`）は focusable を含まないため
- * aria-hidden で除外する（判断根拠・既知の制限の詳細は `docs/accessibility.md` 参照）。
+ * 範囲選択プレビュー（`day-selection`）も `allday-cells` 直下に置き、% オフセットが
+ * テーマ変数に依存せず列位置と一致する不変条件を保つ（focusable を含まないため
+ * aria-hidden で除外。判断根拠・既知の制限の詳細は `docs/accessibility.md` 参照）。
  */
 
 import type { CSSProperties, ReactElement, ReactNode, Ref } from 'react';
@@ -487,73 +488,60 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
           })}
         </div>
 
-        {/* 終日行（row）と、範囲選択プレビューのレイヤーをまとめるラッパー。
-            grid と row の間に挟まるレイアウト用要素なので role="presentation" で
-            所有関係を透過させる（grid の required owned elements 違反を避ける） */}
-        <div data-koyomi="timegrid-allday" role="presentation">
-          {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA row */}
-          {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない（フォーカスは各 gridcell が担う） */}
-          <div data-koyomi="allday-row" role="row">
-            {timeAxes.map((axis, index) => (
-              <div
-                // biome-ignore lint/suspicious/noArrayIndexKey: 上記ヘッダー行の gutter と同じ理由（固定順の配列）
-                key={`${index}-${axis.timeZone}`}
-                data-koyomi="timegrid-axis-gutter"
-                data-koyomi-timezone={axis.timeZone}
-                role="presentation"
-              />
-            ))}
+        {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA row */}
+        {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない（フォーカスは各 gridcell が担う） */}
+        <div data-koyomi="allday-row" role="row">
+          {timeAxes.map((axis, index) => (
             <div
-              data-koyomi="allday-cells"
+              // biome-ignore lint/suspicious/noArrayIndexKey: 上記ヘッダー行の gutter と同じ理由（固定順の配列）
+              key={`${index}-${axis.timeZone}`}
+              data-koyomi="timegrid-axis-gutter"
+              data-koyomi-timezone={axis.timeZone}
               role="presentation"
-              style={{ minHeight: `calc(${allDayLaneCount} * var(--koyomi-lane-height, 24px))` }}
-            >
-              {days.map((day, col) => {
-                const { ref, ...cellProps } = dayDrag.getDayCellProps(day);
-                return (
-                  // biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA gridcell
-                  // biome-ignore lint/a11y/useFocusableInteractive: tabIndex は cellProps（useDayDrag.getDayCellProps）のスプレッド経由で付与済み。静的解析ではスプレッド元を検出できないための誤検知
-                  <div
-                    key={day.key}
-                    {...cellProps}
-                    ref={toDivRef(ref)}
-                    data-koyomi="allday-cell"
-                    role="gridcell"
-                    aria-label={formatFullDateLabel(day.date, timeZone, locale)}
-                  >
-                    {/* 帯セグメントは複数日にまたがり得るが、DOM 上は開始日の gridcell が
+            />
+          ))}
+          <div
+            data-koyomi="allday-cells"
+            role="presentation"
+            style={{ minHeight: `calc(${allDayLaneCount} * var(--koyomi-lane-height, 24px))` }}
+          >
+            {days.map((day, col) => {
+              const { ref, ...cellProps } = dayDrag.getDayCellProps(day);
+              return (
+                // biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA gridcell
+                // biome-ignore lint/a11y/useFocusableInteractive: tabIndex は cellProps（useDayDrag.getDayCellProps）のスプレッド経由で付与済み。静的解析ではスプレッド元を検出できないための誤検知
+                <div
+                  key={day.key}
+                  {...cellProps}
+                  ref={toDivRef(ref)}
+                  data-koyomi="allday-cell"
+                  role="gridcell"
+                  aria-label={formatFullDateLabel(day.date, timeZone, locale)}
+                >
+                  {/* 帯セグメントは複数日にまたがり得るが、DOM 上は開始日の gridcell が
                         所有する（grid の子孫の focusable を row/gridcell の所有関係の外に
                         置かないため）。ボタンは absolute 配置で、positioned ancestor は
                         セルではなく allday-cells（position: relative）なので、列をまたぐ
                         視覚上のスパンと座標計算はレイヤー方式と変わらない */}
-                    {allDaySegments
-                      .filter((segment) => segment.startCol === col)
-                      .map((segment) => (
-                        <AllDaySegmentButton
-                          key={segment.occurrence.key}
-                          segment={segment}
-                          columnCount={columnCount}
-                          timeZone={timeZone}
-                          locale={locale}
-                          dayDrag={dayDrag}
-                        />
-                      ))}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          {/* 範囲選択プレビュー専用のレイヤー。focusable を含まないため aria-hidden で
-              アクセシビリティツリーごと除外し、role="grid" の owned elements
-              （row/rowgroup のみ）に現れないようにする（詳細は docs/accessibility.md 参照）。
-              帯セグメントのボタン自体は開始日の gridcell（allday-cell）が所有する。
-              gutter 分の余白は timeAxes.length 個分の幅を calc で差し引いて確保し、
-              allday-cells と同じ列位置に % で重なるようにする */}
-          <div
-            data-koyomi="allday-events"
-            aria-hidden="true"
-            style={{ insetInlineStart: `calc(${timeAxes.length} * var(--koyomi-time-axis-width))` }}
-          >
+                  {allDaySegments
+                    .filter((segment) => segment.startCol === col)
+                    .map((segment) => (
+                      <AllDaySegmentButton
+                        key={segment.occurrence.key}
+                        segment={segment}
+                        columnCount={columnCount}
+                        timeZone={timeZone}
+                        locale={locale}
+                        dayDrag={dayDrag}
+                      />
+                    ))}
+                </div>
+              );
+            })}
+            {/* 範囲選択プレビュー。allday-cells（position: relative）直下に置くことで、
+                  % オフセットがテーマ変数（ガター幅）に依存せず常に列位置と一致する。
+                  focusable を含まないため aria-hidden でアクセシビリティツリーから除外
+                  され、grid の owned elements にも現れない */}
             {alldaySelectionSpan !== null && (
               <div
                 data-koyomi="day-selection"

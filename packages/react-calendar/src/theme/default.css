@@ -507,25 +507,6 @@
   box-shadow: inset 0 0 0 2px var(--koyomi-accent);
 }
 
-/* allday-row（role="row"）と、その外側に置く範囲選択プレビューのレイヤーをまとめる
-   ラッパー。レイヤーの絶対配置（top/bottom）の基準にする */
-[data-koyomi="timegrid-allday"] {
-  position: relative;
-}
-
-/* 範囲選択プレビューのレイヤー（aria-hidden）。終日イベントの帯自体は開始日の
-   allday-cell（gridcell）の子として描画され、このレイヤーには含まれない。
-   allday-cells と同じ列位置に重ねるため、gutter 分の幅（inline style の
-   insetInlineStart。timeAxes.length に応じた calc）だけ左端を差し引く。
-   素通しにしてクリックを下の allday-cell へ透過させる */
-[data-koyomi="allday-events"] {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  inset-inline-end: 0;
-  pointer-events: none;
-}
-
 [data-koyomi="allday-event"] {
   position: absolute;
   overflow: hidden;
