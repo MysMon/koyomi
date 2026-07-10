@@ -210,6 +210,15 @@ describe('VirtualTimelineView', () => {
     const pinned = container.querySelector('[data-koyomi-pinned="true"]');
     expect(pinned?.getAttribute('data-koyomi-row-key')).toBe('r:r0');
 
+    // 位置決めに必須のスタイルは inline で出力する（ヘッドレス原則）。テーマ CSS を
+    // 読み込まない利用者でも、pinned 行が通常フローに割り込んで行の重複表示や
+    // 高さ跳ねを起こさないよう、position: absolute を inline に持つ（VirtualResourceView と同じ）
+    if (!(pinned instanceof HTMLElement)) {
+      throw new Error('pinned 行が見つかりません');
+    }
+    expect(pinned.style.position).toBe('absolute');
+    expect(pinned.style.top).not.toBe('');
+
     const pinnedItem = pinned?.querySelector('[data-koyomi="timeline-item"]');
     if (!(pinnedItem instanceof HTMLElement)) {
       throw new Error('pinned 行の timeline-item が見つかりません');

@@ -408,13 +408,9 @@ export function buildTimeAxes(params: {
 }): readonly TimeAxis[] {
   const { rangeStart, timeZone, slots, timeAxisZones } = params;
 
-  const primaryAxis: TimeAxis = {
-    timeZone,
-    // 主軸は slots と同内容（参照ではなく内容のコピー。呼び出し側の slots と
-    // 独立させても実害はないが、TimeAxis.slots の型はここでも TimeSlot なので
-    // そのまま流用できる）
-    slots: slots.map((slot) => ({ minutes: slot.minutes, label: slot.label })),
-  };
+  // 主軸は slots と同内容なので参照をそのまま共有する（readonly のため複製不要。
+  // ビューモデル再構築のたびに全スロットを複製する無駄を避ける）
+  const primaryAxis: TimeAxis = { timeZone, slots };
 
   const extraAxes: TimeAxis[] = timeAxisZones.map((zone) => ({
     timeZone: zone,
@@ -616,6 +612,15 @@ export function buildTimeGridViewModel(params: {
   // days（timeAxes を含む）より前に計算する必要がある
   const slots = buildSlots(slotMinutes);
 
+  // 週で共有する時間軸（rangeStart 基準）。追加軸がなければ日別の差
+  // （DST 対応の日別算出）は生じないため、全日でこの配列を共有し、
+  // 日ごとの無駄なアロケーションを避ける
+  const sharedTimeAxes = buildTimeAxes({ rangeStart, timeZone, slots, timeAxisZones });
+  // businessHours 未指定時は曜日によらず全スロット false になるため、
+  // 1 本だけ生成して全日で共有する
+  const sharedBusinessHourSlots =
+    businessHours.length === 0 ? buildBusinessHourSlots(slots, 0, businessHours) : null;
+
   const days: TimeGridDay[] = visibleDayIndices.map((index) => {
     const dayStart = dayStarts[index];
     if (dayStart === undefined) {
@@ -634,17 +639,19 @@ export function buildTimeGridViewModel(params: {
         dayEnd: dayEnds[index] ?? rangeEnd,
         timeZone,
       }),
-      // 週で共有する model.timeAxes（rangeStart 基準）とは異なり、この日自身の 0:00 を
-      // 基準に算出する。追加軸のタイムゾーンで週の途中に DST 切替があっても、
-      // 切替後の日は正しいオフセットになる（TimeGridDay.timeAxes の TSDoc を参照）
-      timeAxes: buildTimeAxes({ rangeStart: dayStart, timeZone, slots, timeAxisZones }),
+      // 追加軸がある場合のみ、この日自身の 0:00 を基準に日別算出する。追加軸の
+      // タイムゾーンで週の途中に DST 切替があっても、切替後の日は正しいオフセットに
+      // なる（TimeGridDay.timeAxes の TSDoc を参照）。追加軸がなければ日別の差は
+      // 生じないため、週共有の配列を使う
+      timeAxes:
+        timeAxisZones.length === 0
+          ? sharedTimeAxes
+          : buildTimeAxes({ rangeStart: dayStart, timeZone, slots, timeAxisZones }),
       // この日の曜日を基準に営業時間内フラグを付与する。businessHours 未指定時は
-      // buildBusinessHourSlots が全スロット isBusinessHours: false を返す
-      businessHourSlots: buildBusinessHourSlots(
-        slots,
-        weekdayInZone(dayStart, timeZone),
-        businessHours,
-      ),
+      // 全スロット false の共有配列を使う
+      businessHourSlots:
+        sharedBusinessHourSlots ??
+        buildBusinessHourSlots(slots, weekdayInZone(dayStart, timeZone), businessHours),
     };
   });
 
@@ -668,7 +675,7 @@ export function buildTimeGridViewModel(params: {
     allDaySegments,
     allDayLaneCount,
     slots,
-    timeAxes: buildTimeAxes({ rangeStart, timeZone, slots, timeAxisZones }),
+    timeAxes: sharedTimeAxes,
     nowIndicator,
     weekNumber,
   };
