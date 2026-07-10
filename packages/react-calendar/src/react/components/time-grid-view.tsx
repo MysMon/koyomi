@@ -400,7 +400,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
         {days.map((day) => {
           const defaultDayHeaderContent = (
             <>
-              <span>{formatWeekday(day.weekday, locale)}</span>
+              <span data-koyomi="timegrid-weekday">{formatWeekday(day.weekday, locale)}</span>
               <button
                 type="button"
                 data-koyomi="timegrid-day-number"

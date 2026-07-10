@@ -80,6 +80,19 @@ describe('TimeGridView', () => {
     expect(dayContainer.querySelectorAll('[data-koyomi="timegrid-day-header"]')).toHaveLength(1);
   });
 
+  it('日ヘッダー内の曜日ラベルに data-koyomi="timegrid-weekday" が付く（MonthView/YearView と同じ流儀）', () => {
+    const { container } = render(<Harness initialView="week" />);
+    const weekdayLabels = container.querySelectorAll('[data-koyomi="timegrid-weekday"]');
+    expect(weekdayLabels).toHaveLength(7);
+
+    // 2026-07-15（水）の列には曜日ラベルとして「水」を含むテキストが入る
+    const todayHeader = container.querySelector(
+      '[data-koyomi="timegrid-day-header"][data-koyomi-date="2026-07-15"]',
+    );
+    const todayWeekdayLabel = todayHeader?.querySelector('[data-koyomi="timegrid-weekday"]');
+    expect(todayWeekdayLabel?.textContent).toContain('水');
+  });
+
   it('終日イベントの aria-label は日付範囲のみで、時刻や排他終了日の余分な 1 日を含まない', () => {
     const events: CalendarEvent[] = [
       // 7/15〜7/16 の 2 日間（end 排他で 7/17 0:00）

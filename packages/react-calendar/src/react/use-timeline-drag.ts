@@ -39,8 +39,14 @@ import type {
   TimelineItem,
   TimelineRow,
 } from '../core/types';
+import {
+  attachDragSessionListeners,
+  autoScrollVelocity,
+  createAutoScrollLoop,
+  laneResourceIdOf,
+  resolveScopeForRecurring,
+} from './drag-common';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
-import { autoScrollVelocity } from './use-time-grid-drag';
 
 /** 1 日の分（24:00 = 1440 分）。 */
 const MINUTES_PER_DAY = 1440;
@@ -147,24 +153,6 @@ function fractionXFromClientX(rect: DOMRect, clientX: number): number {
     return 0;
   }
   return (clientX - rect.left) / rect.width;
-}
-
-/**
- * オカレンスの現在のレーンのリソース ID（未割り当ては `null`）を返す。
- *
- * `resources` に存在しない ID（参照先のない resourceId）はビュービルダーが
- * 未割り当て行へ合流させるため、ここでも `null` に正規化する
- * （{@link ./use-resource-grid-drag} と同じ理由）。
- */
-function laneResourceIdOf(
-  occurrence: EventOccurrence,
-  resources: readonly { id: string }[],
-): string | null {
-  const resourceId = occurrence.event.resourceId;
-  if (resourceId === undefined) {
-    return null;
-  }
-  return resources.some((resource) => resource.id === resourceId) ? resourceId : null;
 }
 
 /**
@@ -393,15 +381,6 @@ export function useTimelineDrag(params: {
     });
   }
 
-  /** 繰り返しオカレンスのスコープを解決する（単発は呼び出し元で `null` 固定）。 */
-  async function resolveScopeForRecurring(
-    occurrence: EventOccurrence,
-    action: 'move' | 'resize' | 'delete' | 'update',
-  ): Promise<RecurringEditScope | null> {
-    const resolveRecurringScope = paramsRef.current.callbacks?.resolveRecurringScope;
-    return resolveRecurringScope ? resolveRecurringScope(occurrence, action) : 'this';
-  }
-
   /** 移動・リサイズドラッグの確定処理。移動がなかった場合は何もしない。 */
   async function commitMoveOrResize(session: DragSession, nativeEvent: MouseEvent): Promise<void> {
     try {
@@ -429,7 +408,11 @@ export function useTimelineDrag(params: {
         session.mode === 'move' || session.mode === 'allday-move' ? 'move' : 'resize';
       let recurringScope: RecurringEditScope | null = null;
       if (occurrence.isRecurring) {
-        const resolved = await resolveScopeForRecurring(occurrence, action);
+        const resolved = await resolveScopeForRecurring(
+          paramsRef.current.callbacks,
+          occurrence,
+          action,
+        );
         if (resolved === null) {
           return;
         }
@@ -487,52 +470,20 @@ export function useTimelineDrag(params: {
         : { start: occurrence.start, end: occurrence.end };
 
     // 横方向のオートスクロール（コンテナは timeline-body）
-    let scrollContainer: Element | null = null;
-    let scrollVelocity = 0;
-    let scrollFrameId: number | null = null;
-
-    const scrollStep = (): void => {
-      if (scrollContainer === null || scrollVelocity === 0) {
-        scrollFrameId = null;
-        return;
-      }
-      scrollContainer.scrollLeft += scrollVelocity;
-      scrollFrameId = requestAnimationFrame(scrollStep);
-    };
-
-    const stopAutoScroll = (): void => {
-      if (scrollFrameId !== null) {
-        cancelAnimationFrame(scrollFrameId);
-        scrollFrameId = null;
-      }
-      scrollContainer = null;
-      scrollVelocity = 0;
-    };
+    const autoScroll = createAutoScrollLoop('horizontal');
 
     const updateAutoScroll = (clientX: number, clientY: number): void => {
       const row = findRowForClientY(clientY);
       const container = row?.element.closest('[data-koyomi="timeline-body"]') ?? null;
       if (container === null) {
-        stopAutoScroll();
+        autoScroll.stop();
         return;
       }
       const rect = container.getBoundingClientRect();
-      scrollContainer = container;
-      scrollVelocity = autoScrollVelocity({
-        edgeStart: rect.left,
-        edgeEnd: rect.right,
-        pointer: clientX,
-      });
-      if (scrollVelocity === 0) {
-        if (scrollFrameId !== null) {
-          cancelAnimationFrame(scrollFrameId);
-          scrollFrameId = null;
-        }
-        return;
-      }
-      if (scrollFrameId === null) {
-        scrollFrameId = requestAnimationFrame(scrollStep);
-      }
+      autoScroll.update(
+        container,
+        autoScrollVelocity({ edgeStart: rect.left, edgeEnd: rect.right, pointer: clientX }),
+      );
     };
 
     const session: DragSession = {
@@ -545,11 +496,8 @@ export function useTimelineDrag(params: {
       baselineRange,
       hasMoved: false,
       cleanup: () => {
-        document.removeEventListener('pointermove', handlePointerMove);
-        document.removeEventListener('pointerup', handlePointerUp);
-        document.removeEventListener('pointercancel', handlePointerCancel);
-        document.removeEventListener('keydown', handleKeyDown);
-        stopAutoScroll();
+        detachListeners();
+        autoScroll.stop();
       },
     };
 
@@ -619,10 +567,12 @@ export function useTimelineDrag(params: {
       cancelSession();
     };
 
-    document.addEventListener('pointermove', handlePointerMove);
-    document.addEventListener('pointerup', handlePointerUp);
-    document.addEventListener('pointercancel', handlePointerCancel);
-    document.addEventListener('keydown', handleKeyDown);
+    const detachListeners = attachDragSessionListeners({
+      pointermove: handlePointerMove,
+      pointerup: handlePointerUp,
+      pointercancel: handlePointerCancel,
+      keydown: handleKeyDown,
+    });
 
     dragSessionRef.current = session;
     setIsDragging(true);
@@ -712,7 +662,7 @@ export function useTimelineDrag(params: {
       paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope: null });
       return;
     }
-    const scope = await resolveScopeForRecurring(occurrence, 'delete');
+    const scope = await resolveScopeForRecurring(paramsRef.current.callbacks, occurrence, 'delete');
     if (scope === null) {
       return;
     }
@@ -752,7 +702,11 @@ export function useTimelineDrag(params: {
   ): Promise<void> {
     let recurringScope: RecurringEditScope | null = null;
     if (occurrence.isRecurring) {
-      const resolved = await resolveScopeForRecurring(occurrence, action);
+      const resolved = await resolveScopeForRecurring(
+        paramsRef.current.callbacks,
+        occurrence,
+        action,
+      );
       if (resolved === null) {
         return;
       }

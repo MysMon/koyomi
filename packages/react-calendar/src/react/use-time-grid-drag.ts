@@ -44,6 +44,12 @@ import type {
   TimeGridDay,
   TimeZoneId,
 } from '../core/types';
+import {
+  attachDragSessionListeners,
+  autoScrollVelocity,
+  createAutoScrollLoop,
+  resolveScopeForRecurring,
+} from './drag-common';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 
 /** 日列要素に付与する props。 */
@@ -246,50 +252,6 @@ function calendarDaySpan(range: DateRange, timeZone: TimeZoneId): number {
   const endUtcMs = dateFromKey(endKey, 'UTC').getTime();
   const diffDays = Math.round((endUtcMs - startUtcMs) / MS_PER_DAY);
   return Math.max(1, diffDays + 1);
-}
-
-/**
- * ドラッグ中のポインタ位置からオートスクロールの速度を計算する。
- *
- * `pointer` がスクロールコンテナの上端（`edgeStart`）から `threshold` 未満の
- * 距離にあれば負（上スクロール）、下端（`edgeEnd`）から `threshold` 未満の距離に
- * あれば正（下スクロール）の速度を返す。端に近いほど速く、最大でも `maxSpeed` を
- * 超えない。それ以外の範囲では `0`（スクロールしない）。
- *
- * @param params.edgeStart - スクロールコンテナの上端の座標（px）
- * @param params.edgeEnd - スクロールコンテナの下端の座標（px）
- * @param params.pointer - 現在のポインタの縦位置（px、`edgeStart` と同じ座標系）
- * @param params.threshold - 端からオートスクロールが始まる距離（px）。既定は `24`
- * @param params.maxSpeed - 最大スクロール速度（px/フレーム相当）。既定は `16`
- * @returns スクロール速度（負 = 上スクロール、正 = 下スクロール、`0` = 停止）
- * @example
- * ```ts
- * autoScrollVelocity({ edgeStart: 0, edgeEnd: 600, pointer: 0 }); // => -16（上端で最大速度）
- * autoScrollVelocity({ edgeStart: 0, edgeEnd: 600, pointer: 300 }); // => 0（中央では停止）
- * ```
- */
-export function autoScrollVelocity(params: {
-  edgeStart: number;
-  edgeEnd: number;
-  pointer: number;
-  threshold?: number;
-  maxSpeed?: number;
-}): number {
-  const { edgeStart, edgeEnd, pointer, threshold = 24, maxSpeed = 16 } = params;
-  if (threshold <= 0) {
-    return 0;
-  }
-  const topBoundary = edgeStart + threshold;
-  if (pointer < topBoundary) {
-    const depth = Math.min(topBoundary - pointer, threshold);
-    return -(depth / threshold) * maxSpeed;
-  }
-  const bottomBoundary = edgeEnd - threshold;
-  if (pointer > bottomBoundary) {
-    const depth = Math.min(pointer - bottomBoundary, threshold);
-    return (depth / threshold) * maxSpeed;
-  }
-  return 0;
 }
 
 /**
@@ -562,21 +524,6 @@ export function useTimeGridDrag(params: {
   }
 
   /**
-   * 繰り返しオカレンスのスコープを解決する。呼び出し元は `occurrence.isRecurring` が
-   * `true` の場合にのみ呼ぶこと（単発オカレンスは呼び出し元で `null` 固定とし、
-   * この関数を経由しない＝ `await` を発生させない）。
-   *
-   * @returns 解決されたスコープ。キャンセルされた場合は `null`
-   */
-  async function resolveScopeForRecurring(
-    occurrence: EventOccurrence,
-    action: 'move' | 'resize' | 'delete' | 'update',
-  ): Promise<RecurringEditScope | null> {
-    const resolveRecurringScope = paramsRef.current.callbacks?.resolveRecurringScope;
-    return resolveRecurringScope ? resolveRecurringScope(occurrence, action) : 'this';
-  }
-
-  /**
    * 移動・リサイズドラッグの確定処理。移動がなかった場合は何もしない（クリックは onClick に任せる）。
    *
    * `session.allDayConversion` が非 `null`（'move' セッション中にポインタが終日行の
@@ -609,7 +556,11 @@ export function useTimeGridDrag(params: {
         const conversionRange = session.allDayConversion;
         let conversionScope: RecurringEditScope | null = null;
         if (occurrence.isRecurring) {
-          const resolved = await resolveScopeForRecurring(occurrence, 'move');
+          const resolved = await resolveScopeForRecurring(
+            paramsRef.current.callbacks,
+            occurrence,
+            'move',
+          );
           if (resolved === null) {
             return;
           }
@@ -625,7 +576,11 @@ export function useTimeGridDrag(params: {
       const action: 'move' | 'resize' = session.mode === 'move' ? 'move' : 'resize';
       let recurringScope: RecurringEditScope | null = null;
       if (occurrence.isRecurring) {
-        const resolved = await resolveScopeForRecurring(occurrence, action);
+        const resolved = await resolveScopeForRecurring(
+          paramsRef.current.callbacks,
+          occurrence,
+          action,
+        );
         if (resolved === null) {
           return;
         }
@@ -664,55 +619,23 @@ export function useTimeGridDrag(params: {
       snap: state.options.snapMinutes,
     });
 
-    // オートスクロール用の状態。セッションごとに独立させるため startSession の
+    // オートスクロール用のループ。セッションごとに独立させるため startSession の
     // クロージャ内に閉じ込める（同時に有効なドラッグセッションは 1 つだけなので安全）。
-    let scrollContainer: Element | null = null;
-    let scrollVelocity = 0;
-    let scrollFrameId: number | null = null;
-
-    const scrollStep = (): void => {
-      if (scrollContainer === null || scrollVelocity === 0) {
-        scrollFrameId = null;
-        return;
-      }
-      scrollContainer.scrollTop += scrollVelocity;
-      scrollFrameId = requestAnimationFrame(scrollStep);
-    };
-
-    const stopAutoScroll = (): void => {
-      if (scrollFrameId !== null) {
-        cancelAnimationFrame(scrollFrameId);
-        scrollFrameId = null;
-      }
-      scrollContainer = null;
-      scrollVelocity = 0;
-    };
+    const autoScroll = createAutoScrollLoop('vertical');
 
     /** ポインタ位置からオートスクロールの要否・速度を求め、必要なら rAF ループを開始する。 */
     const updateAutoScroll = (clientX: number, clientY: number): void => {
       const column = findColumnForClientX(clientX);
       const container = column?.element.closest('[data-koyomi="timegrid-body"]') ?? null;
       if (container === null) {
-        stopAutoScroll();
+        autoScroll.stop();
         return;
       }
       const rect = container.getBoundingClientRect();
-      scrollContainer = container;
-      scrollVelocity = autoScrollVelocity({
-        edgeStart: rect.top,
-        edgeEnd: rect.bottom,
-        pointer: clientY,
-      });
-      if (scrollVelocity === 0) {
-        if (scrollFrameId !== null) {
-          cancelAnimationFrame(scrollFrameId);
-          scrollFrameId = null;
-        }
-        return;
-      }
-      if (scrollFrameId === null) {
-        scrollFrameId = requestAnimationFrame(scrollStep);
-      }
+      autoScroll.update(
+        container,
+        autoScrollVelocity({ edgeStart: rect.top, edgeEnd: rect.bottom, pointer: clientY }),
+      );
     };
 
     const session: DragSession = {
@@ -723,11 +646,8 @@ export function useTimeGridDrag(params: {
       hasMoved: false,
       allDayConversion: null,
       cleanup: () => {
-        document.removeEventListener('pointermove', handlePointerMove);
-        document.removeEventListener('pointerup', handlePointerUp);
-        document.removeEventListener('pointercancel', handlePointerCancel);
-        document.removeEventListener('keydown', handleKeyDown);
-        stopAutoScroll();
+        detachListeners();
+        autoScroll.stop();
       },
     };
 
@@ -752,7 +672,7 @@ export function useTimeGridDrag(params: {
         const column = findColumnForClientX(clientX);
         if (column !== null) {
           // 終日行の上ではグリッド本体のオートスクロールは不要。
-          stopAutoScroll();
+          autoScroll.stop();
           const { state } = paramsRef.current.calendar;
           const occurrence = session.occurrence;
           const dayCount = calendarDaySpan(
@@ -816,10 +736,12 @@ export function useTimeGridDrag(params: {
       cancelSession();
     };
 
-    document.addEventListener('pointermove', handlePointerMove);
-    document.addEventListener('pointerup', handlePointerUp);
-    document.addEventListener('pointercancel', handlePointerCancel);
-    document.addEventListener('keydown', handleKeyDown);
+    const detachListeners = attachDragSessionListeners({
+      pointermove: handlePointerMove,
+      pointerup: handlePointerUp,
+      pointercancel: handlePointerCancel,
+      keydown: handleKeyDown,
+    });
 
     dragSessionRef.current = session;
     setIsDragging(true);
@@ -920,7 +842,7 @@ export function useTimeGridDrag(params: {
       paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope: null });
       return;
     }
-    const scope = await resolveScopeForRecurring(occurrence, 'delete');
+    const scope = await resolveScopeForRecurring(paramsRef.current.callbacks, occurrence, 'delete');
     if (scope === null) {
       return;
     }
@@ -942,7 +864,11 @@ export function useTimeGridDrag(params: {
   ): Promise<void> {
     let recurringScope: RecurringEditScope | null = null;
     if (occurrence.isRecurring) {
-      const resolved = await resolveScopeForRecurring(occurrence, action);
+      const resolved = await resolveScopeForRecurring(
+        paramsRef.current.callbacks,
+        occurrence,
+        action,
+      );
       if (resolved === null) {
         return;
       }

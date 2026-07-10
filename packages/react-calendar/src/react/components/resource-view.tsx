@@ -14,8 +14,9 @@
  */
 
 import type { ReactElement, ReactNode, Ref } from 'react';
-import { memo } from 'react';
+import { memo, useRef, useState } from 'react';
 import type {
+  CalendarResource,
   EventOccurrence,
   PositionedOccurrence,
   ResourceColumn,
@@ -95,6 +96,128 @@ function defaultTimedContent(
 }
 
 /**
+ * `ResourceColumnBody` / `AllDayItemButton` が実際に必要とするドラッグハンドラだけを
+ * 抜き出した型。`previewFor` / `isAllDayPreviewTarget` はここに含めない（{@link ResourceView}
+ * 側で解決済みの値を `preview` / `data-koyomi-preview-target` として渡すため）。
+ */
+interface ResourceColumnDragHandlers {
+  getColumnProps: ResourceGridDragHandlers['getColumnProps'];
+  getEventProps: ResourceGridDragHandlers['getEventProps'];
+  getResizeHandleProps: ResourceGridDragHandlers['getResizeHandleProps'];
+  getAllDayItemProps: ResourceGridDragHandlers['getAllDayItemProps'];
+}
+
+/**
+ * `useResourceGridDrag` の戻り値は毎レンダー新しいオブジェクト（関数含む）になるため、
+ * そのまま `memo` 化した子コンポーネントの props に渡すと再レンダー抑制が効かない。
+ * ここで参照が変わらないラッパーを 1 度だけ作り、呼び出し時に ref 経由で常に最新の
+ * ハンドラへ委譲することで、props の同一性を保ったまま最新の挙動を保証する
+ * （`time-grid-view.tsx` の `useStableColumnDrag` と同じ設計）。
+ */
+function useStableResourceDrag(drag: ResourceGridDragHandlers): ResourceColumnDragHandlers {
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
+  const [stable] = useState<ResourceColumnDragHandlers>(() => ({
+    getColumnProps: (column) => dragRef.current.getColumnProps(column),
+    getEventProps: (item) => dragRef.current.getEventProps(item),
+    getResizeHandleProps: (item, edge) => dragRef.current.getResizeHandleProps(item, edge),
+    getAllDayItemProps: (occurrence) => dragRef.current.getAllDayItemProps(occurrence),
+  }));
+  return stable;
+}
+
+/** `CalendarResource | null` の、表示に影響する内容が等しいかどうかを比較する。 */
+function sameResource(a: CalendarResource | null, b: CalendarResource | null): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a === null || b === null) {
+    return false;
+  }
+  return a.id === b.id && a.title === b.title && a.color === b.color;
+}
+
+/** `TimeSlot` 配列の内容が等しいかどうかを比較する。 */
+function sameSlots(a: readonly TimeSlot[], b: readonly TimeSlot[]): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((slot, index) => slot.minutes === b[index]?.minutes);
+}
+
+/** `PositionedOccurrence` 1 件分の、表示に影響する内容が等しいかどうかを比較する。 */
+function samePositionedOccurrence(a: PositionedOccurrence, b: PositionedOccurrence): boolean {
+  if (a === b) {
+    return true;
+  }
+  return (
+    a.occurrence.key === b.occurrence.key &&
+    a.occurrence.event.title === b.occurrence.event.title &&
+    a.occurrence.event.color === b.occurrence.event.color &&
+    a.occurrence.event.resourceId === b.occurrence.event.resourceId &&
+    a.occurrence.event.editable === b.occurrence.event.editable &&
+    a.occurrence.start.getTime() === b.occurrence.start.getTime() &&
+    a.occurrence.end.getTime() === b.occurrence.end.getTime() &&
+    a.startMinutes === b.startMinutes &&
+    a.endMinutes === b.endMinutes &&
+    a.left === b.left &&
+    a.width === b.width &&
+    a.continuesBefore === b.continuesBefore &&
+    a.continuesAfter === b.continuesAfter
+  );
+}
+
+/** `PositionedOccurrence` 配列の内容が等しいかどうかを比較する。 */
+function samePositionedOccurrences(
+  a: readonly PositionedOccurrence[],
+  b: readonly PositionedOccurrence[],
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((item, index) => {
+    const other = b[index];
+    return other !== undefined && samePositionedOccurrence(item, other);
+  });
+}
+
+/** `EventOccurrence` 1 件分の、表示に影響する内容が等しいかどうかを比較する（終日アイテム用）。 */
+function sameEventOccurrence(a: EventOccurrence, b: EventOccurrence): boolean {
+  if (a === b) {
+    return true;
+  }
+  return (
+    a.key === b.key &&
+    a.event.title === b.event.title &&
+    a.event.color === b.event.color &&
+    a.event.resourceId === b.event.resourceId &&
+    a.event.editable === b.event.editable &&
+    a.start.getTime() === b.start.getTime() &&
+    a.end.getTime() === b.end.getTime()
+  );
+}
+
+/** `ResourcePreviewSegment` の内容が等しいかどうかを比較する。 */
+function samePreviewSegment(
+  a: ResourcePreviewSegment | null,
+  b: ResourcePreviewSegment | null,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a === null || b === null) {
+    return false;
+  }
+  return a.kind === b.kind && a.startMinutes === b.startMinutes && a.endMinutes === b.endMinutes;
+}
+
+/**
  * リソースビュー（`ResourceView`）を描画する。
  *
  * `useCalendarContext()` からビューモデルを取得し、`viewModel.type !== 'resource'`
@@ -121,6 +244,9 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
   const { api, state, viewModel, callbacks } = useCalendarContext();
   const calendar = { api, state, viewModel };
   const drag = useResourceGridDrag({ calendar, callbacks });
+  // `drag` は毎レンダー新しいオブジェクトになるため、列・終日アイテムの
+  // memo 化が効くよう、参照が変わらないラッパー経由で渡す（詳細は関数コメント参照）。
+  const stableDrag = useStableResourceDrag(drag);
 
   if (viewModel.type !== 'resource') {
     return null;
@@ -183,7 +309,7 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
                   lane={lane}
                   timeZone={timeZone}
                   locale={locale}
-                  drag={drag}
+                  drag={stableDrag}
                   isDragging={drag.isDragging}
                 />
               ))}
@@ -210,7 +336,7 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
               isToday={isToday}
               nowIndicatorMinutes={nowIndicatorMinutes}
               renderEvent={renderEvent}
-              drag={drag}
+              drag={stableDrag}
               isDragging={drag.isDragging}
               preview={drag.previewFor(column)}
             />
@@ -221,18 +347,21 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
   );
 }
 
-/** リソースビューの終日アイテム 1 件分のボタン（列間移動のみ）。 */
-const AllDayItemButton = memo(function AllDayItemButton(props: {
+/** `AllDayItemButtonImpl` の props。 */
+interface AllDayItemButtonProps {
   occurrence: EventOccurrence;
   column: ResourceColumn;
   /** 縦方向のレーン番号（`allDayItems` の配列順。同列内で重ならないよう縦積みする）。 */
   lane: number;
   timeZone: TimeZoneId;
   locale: string;
-  drag: ResourceGridDragHandlers;
-  /** ドラッグ操作が進行中か（`data-koyomi-dragging` の更新に必要）。 */
+  drag: ResourceColumnDragHandlers;
+  /** ドラッグ操作が進行中か（memo 判定に使う。詳細は {@link AllDayItemButton} 参照）。 */
   isDragging: boolean;
-}): ReactElement {
+}
+
+/** リソースビューの終日アイテム 1 件分のボタン（列間移動のみ）。 */
+function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
   const { occurrence, column, lane, timeZone, locale, drag } = props;
   const style = withEventColorStyle(
     // 週/日ビューの終日セグメントと同じ位置決め。列 = 1 日のため水平スパンは
@@ -255,10 +384,31 @@ const AllDayItemButton = memo(function AllDayItemButton(props: {
       {occurrence.event.title}
     </button>
   );
+}
+
+/**
+ * {@link AllDayItemButtonImpl} を `memo` でラップしたもの。
+ *
+ * `column`（`ResourceColumn`）は `viewModel` 再構築のたびに新しい参照になるため、
+ * 表示に影響する値（`occurrence` / リソースの id・title・color）だけを比較する
+ * カスタム比較関数を使う。`isDragging` はドラッグ開始・終了の瞬間だけ変化する値で、
+ * 変化時には全終日アイテムを再評価させ、`data-koyomi-dragging` を正しく反映させる
+ * （`time-grid-view.tsx` の `TimeGridEventButton` と同じ設計）。
+ */
+const AllDayItemButton = memo(AllDayItemButtonImpl, (prev, next) => {
+  return (
+    sameEventOccurrence(prev.occurrence, next.occurrence) &&
+    sameResource(prev.column.resource, next.column.resource) &&
+    prev.lane === next.lane &&
+    prev.timeZone === next.timeZone &&
+    prev.locale === next.locale &&
+    prev.drag === next.drag &&
+    prev.isDragging === next.isDragging
+  );
 });
 
-/** リソースビューの 1 列分（目盛り線・イベント・プレビュー・現在時刻線）。 */
-const ResourceColumnBody = memo(function ResourceColumnBody(props: {
+/** `ResourceColumnBodyImpl` の props。 */
+interface ResourceColumnBodyProps {
   column: ResourceColumn;
   slots: readonly TimeSlot[];
   timeZone: TimeZoneId;
@@ -266,11 +416,14 @@ const ResourceColumnBody = memo(function ResourceColumnBody(props: {
   isToday: boolean;
   nowIndicatorMinutes: number | null;
   renderEvent: ((item: PositionedOccurrence) => ReactNode) | undefined;
-  drag: ResourceGridDragHandlers;
-  /** ドラッグ操作が進行中か（`data-koyomi-dragging` の更新に必要）。 */
+  drag: ResourceColumnDragHandlers;
+  /** ドラッグ操作が進行中か（memo 判定に使う。詳細は {@link ResourceColumnBody} 参照）。 */
   isDragging: boolean;
   preview: ResourcePreviewSegment | null;
-}): ReactElement {
+}
+
+/** リソースビューの 1 列分（目盛り線・イベント・プレビュー・現在時刻線）。 */
+function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
   const {
     column,
     slots,
@@ -365,5 +518,42 @@ const ResourceColumnBody = memo(function ResourceColumnBody(props: {
         />
       )}
     </div>
+  );
+}
+
+/** `ResourceColumn` の、{@link ResourceColumnBodyImpl} の表示に影響する内容が等しいかどうかを比較する。 */
+function sameResourceColumnForBody(a: ResourceColumn, b: ResourceColumn): boolean {
+  if (a === b) {
+    return true;
+  }
+  return (
+    a.key === b.key &&
+    sameResource(a.resource, b.resource) &&
+    samePositionedOccurrences(a.items, b.items)
+  );
+}
+
+/**
+ * {@link ResourceColumnBodyImpl} を `memo` でラップしたもの。
+ *
+ * `viewModel` は状態が変わるたびに丸ごと再構築されるため、既定の浅い比較（参照比較）
+ * では `column` / `slots` が常に「変わった」ことになり意味がない。表示に影響する値だけを
+ * 比較するカスタム比較関数を使うことで、ドラッグ中に無関係な列が再レンダーされない
+ * ようにする（`isDragging` はドラッグ開始・終了の瞬間だけ変化するので、その際は
+ * 全列が 1 回だけ再評価され、対象イベントの `data-koyomi-dragging` 表示が正しく更新される。
+ * `time-grid-view.tsx` の `TimeGridDayColumn` と同じ設計）。
+ */
+const ResourceColumnBody = memo(ResourceColumnBodyImpl, (prev, next) => {
+  return (
+    sameResourceColumnForBody(prev.column, next.column) &&
+    sameSlots(prev.slots, next.slots) &&
+    prev.timeZone === next.timeZone &&
+    prev.locale === next.locale &&
+    prev.isToday === next.isToday &&
+    prev.nowIndicatorMinutes === next.nowIndicatorMinutes &&
+    prev.renderEvent === next.renderEvent &&
+    prev.drag === next.drag &&
+    prev.isDragging === next.isDragging &&
+    samePreviewSegment(prev.preview, next.preview)
   );
 });

@@ -11,6 +11,7 @@ import { fireEvent, render, renderHook } from '@testing-library/react';
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createCalendar } from '../core/calendar';
+import type { CalendarViewType } from '../core/types';
 import type { UseCalendarResult } from './types';
 import { useCalendarShortcuts } from './use-calendar-shortcuts';
 
@@ -407,6 +408,59 @@ describe('useCalendarShortcuts', () => {
     pressKey('w');
 
     expect(setViewSpy).not.toHaveBeenCalled();
+  });
+
+  it('onCreate / views の参照が変わっても keydown リスナーは再登録されない', () => {
+    const calendar = makeCalendar();
+    const addSpy = vi.spyOn(document, 'addEventListener');
+    const removeSpy = vi.spyOn(document, 'removeEventListener');
+
+    const { rerender } = renderHook(
+      (props: { onCreate: () => void; views: readonly CalendarViewType[] }) =>
+        useCalendarShortcuts({ calendar, onCreate: props.onCreate, views: props.views }),
+      {
+        initialProps: {
+          onCreate: () => {},
+          views: ['month', 'week', 'day', 'list'] as readonly CalendarViewType[],
+        },
+      },
+    );
+
+    const keydownAddCallsBefore = addSpy.mock.calls.filter(([type]) => type === 'keydown').length;
+    expect(keydownAddCallsBefore).toBe(1);
+
+    // onCreate・views をそれぞれ新しい参照（インラインで書いた場合の典型例）に差し替えて再レンダー
+    rerender({
+      onCreate: () => {},
+      views: ['month', 'week', 'day', 'list'] as readonly CalendarViewType[],
+    });
+
+    const keydownAddCallsAfter = addSpy.mock.calls.filter(([type]) => type === 'keydown').length;
+    const keydownRemoveCallsAfter = removeSpy.mock.calls.filter(
+      ([type]) => type === 'keydown',
+    ).length;
+
+    // 依存が [api, enabled] のみになっていれば、参照が変わっても再登録は起きない
+    expect(keydownAddCallsAfter).toBe(1);
+    expect(keydownRemoveCallsAfter).toBe(0);
+  });
+
+  it('onCreate の参照が変わっても、再登録なしで常に最新のクロージャが呼ばれる', () => {
+    const calendar = makeCalendar();
+    const firstOnCreate = vi.fn();
+    const secondOnCreate = vi.fn();
+
+    const { rerender } = renderHook(
+      (props: { onCreate: () => void }) =>
+        useCalendarShortcuts({ calendar, onCreate: props.onCreate }),
+      { initialProps: { onCreate: firstOnCreate } },
+    );
+
+    rerender({ onCreate: secondOnCreate });
+    pressKey('c');
+
+    expect(firstOnCreate).not.toHaveBeenCalled();
+    expect(secondOnCreate).toHaveBeenCalledTimes(1);
   });
 
   it('コンポーネントツリー内での使用でも動作する（React コンポーネント経由）', () => {

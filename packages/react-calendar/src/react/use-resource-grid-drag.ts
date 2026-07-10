@@ -14,9 +14,9 @@
  * 週/日ビューの {@link ./use-time-grid-drag} と同じプロップゲッターパターンだが、
  * 列レジストリは「1 日 = 1 列」ではなく「1 リソース = 1 列」
  * （`Map<columnKey, { element, resourceId }>`）で持つ。確定時は時間の変更と
- * `resourceId` の変更を 1 つのパッチに合成して 1 回の `updateEvent` にする
- * （詳細は `docs/internal/views-expansion-design.md` §6.4）。
- * allDay⇔時間指定の越境変換は提供しない（同 §8.3）。
+ * `resourceId` の変更を 1 つのパッチに合成して 1 回の `updateEvent` にする。
+ * allDay⇔時間指定の越境変換は提供しない（越境変換は週/日ビュー限定の方針。
+ * 将来提供する場合も別設計とする）。
  */
 
 import type {
@@ -42,8 +42,14 @@ import type {
   ResourceColumn,
   TimeZoneId,
 } from '../core/types';
+import {
+  attachDragSessionListeners,
+  autoScrollVelocity,
+  createAutoScrollLoop,
+  laneResourceIdOf,
+  resolveScopeForRecurring,
+} from './drag-common';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
-import { autoScrollVelocity } from './use-time-grid-drag';
 
 /** リソース列要素に付与する props。 */
 export interface ResourceColumnProps {
@@ -168,25 +174,6 @@ function fractionYFromClientY(rect: DOMRect, clientY: number): number {
     return 0;
   }
   return (clientY - rect.top) / rect.height;
-}
-
-/**
- * オカレンスの現在のレーンのリソース ID（未割り当ては `null`）を返す。
- *
- * `resources` に存在しない ID（参照先のない resourceId）はビュービルダーが
- * 未割り当てレーンへ合流させるため、ここでも `null` に正規化する。
- * 正規化しないと、キーボードの列移動が現在レーン（未割り当て）を見つけられず、
- * 変更検出も表示上のレーンと食い違う。
- */
-function laneResourceIdOf(
-  occurrence: EventOccurrence,
-  resources: readonly { id: string }[],
-): string | null {
-  const resourceId = occurrence.event.resourceId;
-  if (resourceId === undefined) {
-    return null;
-  }
-  return resources.some((resource) => resource.id === resourceId) ? resourceId : null;
 }
 
 /**
@@ -378,15 +365,6 @@ export function useResourceGridDrag(params: {
     });
   }
 
-  /** 繰り返しオカレンスのスコープを解決する（単発は呼び出し元で `null` 固定）。 */
-  async function resolveScopeForRecurring(
-    occurrence: EventOccurrence,
-    action: 'move' | 'resize' | 'delete' | 'update',
-  ): Promise<RecurringEditScope | null> {
-    const resolveRecurringScope = paramsRef.current.callbacks?.resolveRecurringScope;
-    return resolveRecurringScope ? resolveRecurringScope(occurrence, action) : 'this';
-  }
-
   /**
    * 移動・リサイズ・列間移動ドラッグの確定処理。移動がなかった場合は何もしない
    * （クリックは onClick に任せる）。`finally` で必ずプレビューを消す。
@@ -409,7 +387,11 @@ export function useResourceGridDrag(params: {
         }
         let scope: RecurringEditScope | null = null;
         if (occurrence.isRecurring) {
-          const resolved = await resolveScopeForRecurring(occurrence, 'move');
+          const resolved = await resolveScopeForRecurring(
+            paramsRef.current.callbacks,
+            occurrence,
+            'move',
+          );
           if (resolved === null) {
             return;
           }
@@ -426,7 +408,11 @@ export function useResourceGridDrag(params: {
       const action: 'move' | 'resize' = session.mode === 'move' ? 'move' : 'resize';
       let recurringScope: RecurringEditScope | null = null;
       if (occurrence.isRecurring) {
-        const resolved = await resolveScopeForRecurring(occurrence, action);
+        const resolved = await resolveScopeForRecurring(
+          paramsRef.current.callbacks,
+          occurrence,
+          action,
+        );
         if (resolved === null) {
           return;
         }
@@ -477,27 +463,7 @@ export function useResourceGridDrag(params: {
         : { start: occurrence.start, end: occurrence.end };
 
     // 縦方向のオートスクロール（時間グリッドと同じ仕組み。コンテナは resource-body）
-    let scrollContainer: Element | null = null;
-    let scrollVelocity = 0;
-    let scrollFrameId: number | null = null;
-
-    const scrollStep = (): void => {
-      if (scrollContainer === null || scrollVelocity === 0) {
-        scrollFrameId = null;
-        return;
-      }
-      scrollContainer.scrollTop += scrollVelocity;
-      scrollFrameId = requestAnimationFrame(scrollStep);
-    };
-
-    const stopAutoScroll = (): void => {
-      if (scrollFrameId !== null) {
-        cancelAnimationFrame(scrollFrameId);
-        scrollFrameId = null;
-      }
-      scrollContainer = null;
-      scrollVelocity = 0;
-    };
+    const autoScroll = createAutoScrollLoop('vertical');
 
     const updateAutoScroll = (clientX: number, clientY: number): void => {
       if (mode === 'allday-move') {
@@ -507,26 +473,14 @@ export function useResourceGridDrag(params: {
       const column = findColumnForClientX(clientX);
       const container = column?.element.closest('[data-koyomi="resource-body"]') ?? null;
       if (container === null) {
-        stopAutoScroll();
+        autoScroll.stop();
         return;
       }
       const rect = container.getBoundingClientRect();
-      scrollContainer = container;
-      scrollVelocity = autoScrollVelocity({
-        edgeStart: rect.top,
-        edgeEnd: rect.bottom,
-        pointer: clientY,
-      });
-      if (scrollVelocity === 0) {
-        if (scrollFrameId !== null) {
-          cancelAnimationFrame(scrollFrameId);
-          scrollFrameId = null;
-        }
-        return;
-      }
-      if (scrollFrameId === null) {
-        scrollFrameId = requestAnimationFrame(scrollStep);
-      }
+      autoScroll.update(
+        container,
+        autoScrollVelocity({ edgeStart: rect.top, edgeEnd: rect.bottom, pointer: clientY }),
+      );
     };
 
     const session: DragSession = {
@@ -538,11 +492,8 @@ export function useResourceGridDrag(params: {
       baselineRange,
       hasMoved: false,
       cleanup: () => {
-        document.removeEventListener('pointermove', handlePointerMove);
-        document.removeEventListener('pointerup', handlePointerUp);
-        document.removeEventListener('pointercancel', handlePointerCancel);
-        document.removeEventListener('keydown', handleKeyDown);
-        stopAutoScroll();
+        detachListeners();
+        autoScroll.stop();
       },
     };
 
@@ -621,10 +572,12 @@ export function useResourceGridDrag(params: {
       cancelSession();
     };
 
-    document.addEventListener('pointermove', handlePointerMove);
-    document.addEventListener('pointerup', handlePointerUp);
-    document.addEventListener('pointercancel', handlePointerCancel);
-    document.addEventListener('keydown', handleKeyDown);
+    const detachListeners = attachDragSessionListeners({
+      pointermove: handlePointerMove,
+      pointerup: handlePointerUp,
+      pointercancel: handlePointerCancel,
+      keydown: handleKeyDown,
+    });
 
     dragSessionRef.current = session;
     setIsDragging(true);
@@ -719,7 +672,7 @@ export function useResourceGridDrag(params: {
       paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope: null });
       return;
     }
-    const scope = await resolveScopeForRecurring(occurrence, 'delete');
+    const scope = await resolveScopeForRecurring(paramsRef.current.callbacks, occurrence, 'delete');
     if (scope === null) {
       return;
     }
@@ -760,7 +713,11 @@ export function useResourceGridDrag(params: {
   ): Promise<void> {
     let recurringScope: RecurringEditScope | null = null;
     if (occurrence.isRecurring) {
-      const resolved = await resolveScopeForRecurring(occurrence, action);
+      const resolved = await resolveScopeForRecurring(
+        paramsRef.current.callbacks,
+        occurrence,
+        action,
+      );
       if (resolved === null) {
         return;
       }

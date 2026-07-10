@@ -22,9 +22,10 @@ import type {
   RecurringEditScope,
   TimeGridDay,
 } from '../core/types';
+import { autoScrollVelocity } from './drag-common';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 import type { TimeGridDragHandlers } from './use-time-grid-drag';
-import { autoScrollVelocity, useTimeGridDrag } from './use-time-grid-drag';
+import { useTimeGridDrag } from './use-time-grid-drag';
 
 // jsdom はこの環境で document.elementFromPoint を実装していない（typeof が 'undefined'）。
 // vi.spyOn は既存の関数にしかスパイできないため、既定実装（常に null＝領域外）を

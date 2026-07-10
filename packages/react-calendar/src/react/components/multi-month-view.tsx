@@ -11,8 +11,7 @@
  * 前後月の日付セルは非インタラクティブにする（`interactiveOutsideDays: false`）。
  * 同じ日付が隣接する月グリッドの前後月セルとして二重に現れても、どちらか一方
  * （その月自身のグリッド）でのみ `getDayCellProps` を呼ぶことで、日付キーの
- * 二重登録・二重フォーカス対象化を防ぐ（詳細は
- * `docs/internal/views-expansion-design.md` §5.3）。
+ * 二重登録・二重フォーカス対象化を防ぐ。
  *
  * `useDayDrag` はコンポーネント全体で 1 インスタンスにする。全月の（前後月を
  * 除く）日セルが単一のセルレジストリに登録されるため、日付キーは全月グリッド
@@ -31,10 +30,15 @@ import type {
   TimeZoneId,
 } from '../../core/types';
 import { useCalendarContext } from '../context';
-import type { DayDragHandlers } from '../use-day-drag';
 import { useDayDrag } from '../use-day-drag';
 import { formatMonthTitle } from './format';
-import { computeWeekSelectionSpan, formatWeekdayLabel, MonthWeekRow } from './month-view-parts';
+import type { MonthDayDragHandlers } from './month-view-parts';
+import {
+  computeWeekSelectionSpan,
+  formatWeekdayLabel,
+  MonthWeekRow,
+  useStableDayDrag,
+} from './month-view-parts';
 
 /** `MultiMonthView` の props。 */
 export interface MultiMonthViewProps {
@@ -87,6 +91,11 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
   const calendar = { api, state, viewModel };
   // コンポーネント全体で 1 インスタンス（モジュール冒頭の TSDoc を参照）。
   const dayDrag = useDayDrag({ calendar, callbacks });
+  // dayDrag は毎レンダー新しいオブジェクトになるため、MonthWeekRow（memo化済み）への
+  // 再レンダー抑制が効くよう、参照が変わらないラッパー経由で渡す（詳細は
+  // `month-view-parts.tsx` の useStableDayDrag のコメントを参照。全月で共有する
+  // 単一インスタンスなので、ラッパーも 1 つだけ作れば足りる）。
+  const stableDayDrag = useStableDayDrag(dayDrag);
 
   /** 指定日の day ビューへ切り替える。 */
   const goToDay = useCallback(
@@ -128,7 +137,7 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
           timeZone={timeZone}
           locale={locale}
           previewRange={previewRange}
-          dayDrag={dayDrag}
+          dayDrag={stableDayDrag}
           renderEvent={renderEvent}
           overflowLabel={overflowLabel}
           renderDayCell={renderDayCell}
@@ -155,8 +164,11 @@ function MultiMonthMonthSection(props: {
   locale: string;
   /** ドラッグプレビューの日範囲（操作中でなければ `null`）。 */
   previewRange: DateRange | null;
-  /** {@link DayDragHandlers}（`MultiMonthView` 全体で共有する単一インスタンス）。 */
-  dayDrag: DayDragHandlers;
+  /**
+   * 日セル・帯セグメントのドラッグ操作ハンドラ（`MultiMonthView` 全体で共有する
+   * 単一インスタンスを `useStableDayDrag` で参照安定化させたもの）。
+   */
+  dayDrag: MonthDayDragHandlers;
   /** イベントセグメントの表示内容のカスタマイズ関数。 */
   renderEvent: ((segment: EventSegment) => ReactNode) | undefined;
   /** 「+N 件」ラベルのカスタマイズ関数。 */

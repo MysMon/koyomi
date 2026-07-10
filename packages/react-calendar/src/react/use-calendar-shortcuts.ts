@@ -12,7 +12,7 @@
  * 入力欄（input / textarea / select / contentEditable）にフォーカスがある間は無効。
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { shortcutForKey } from '../core/interaction';
 import type { CalendarViewType } from '../core/types';
 import type { UseCalendarResult } from './types';
@@ -84,6 +84,15 @@ export function useCalendarShortcuts(params: {
   const { calendar, enabled = true, onCreate, views } = params;
   const { api } = calendar;
 
+  // onCreate / views はホスト側で毎レンダー新規参照になりがち（JSDoc の例もインライン
+  // 関数）なため、ref 経由で最新値を参照し、エフェクトの依存には含めない
+  // （use-calendar.ts の onEventsChangeRef と同じパターン）。これにより、これらの
+  // 参照が変わるだけでは document の keydown リスナーが再登録されない。
+  const onCreateRef = useRef(onCreate);
+  onCreateRef.current = onCreate;
+  const viewsRef = useRef(views);
+  viewsRef.current = views;
+
   useEffect(() => {
     if (!enabled) {
       return undefined;
@@ -103,7 +112,10 @@ export function useCalendarShortcuts(params: {
       }
       // 対象外ビューへの切替キーは「ショートカットなし」として扱う
       // （preventDefault もしない。既定では新ビューのキーが無効になる）
-      if (shortcut.type === 'view' && !(views ?? DEFAULT_SHORTCUT_VIEWS).includes(shortcut.view)) {
+      if (
+        shortcut.type === 'view' &&
+        !(viewsRef.current ?? DEFAULT_SHORTCUT_VIEWS).includes(shortcut.view)
+      ) {
         return;
       }
       event.preventDefault();
@@ -121,7 +133,7 @@ export function useCalendarShortcuts(params: {
           api.prev();
           break;
         case 'create':
-          onCreate?.();
+          onCreateRef.current?.();
           break;
       }
     }
@@ -130,5 +142,5 @@ export function useCalendarShortcuts(params: {
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [api, enabled, onCreate, views]);
+  }, [api, enabled]);
 }

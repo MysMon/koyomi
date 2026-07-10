@@ -16,7 +16,12 @@ import { useCallback } from 'react';
 import type { EventOccurrence, EventSegment, MonthDay } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { useDayDrag } from '../use-day-drag';
-import { computeWeekSelectionSpan, formatWeekdayLabel, MonthWeekRow } from './month-view-parts';
+import {
+  computeWeekSelectionSpan,
+  formatWeekdayLabel,
+  MonthWeekRow,
+  useStableDayDrag,
+} from './month-view-parts';
 
 /** `MonthView` の props。 */
 export interface MonthViewProps {
@@ -69,6 +74,10 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
   const { api, state, viewModel, callbacks } = useCalendarContext();
   const calendar = { api, state, viewModel };
   const dayDrag = useDayDrag({ calendar, callbacks });
+  // dayDrag は毎レンダー新しいオブジェクトになるため、MonthWeekRow（memo化済み）への
+  // 再レンダー抑制が効くよう、参照が変わらないラッパー経由で渡す（詳細は
+  // useStableDayDrag のコメントを参照）。
+  const stableDayDrag = useStableDayDrag(dayDrag);
 
   /** 指定日の day ビューへ切り替える。 */
   const goToDay = useCallback(
@@ -104,7 +113,12 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
 
   // ドラッグプレビューとの交差判定は週ごとに一度だけここで行い、交差しない週には
   // 常に同じ `null` を渡す。これにより MonthWeekRow（memo化済み）は、無関係な週を
-  // 「selectionSpan が変わっていない」として再レンダーせずに済む
+  // 「selectionSpan が変わっていない」として再レンダーせずに済む。
+  // ただし、この最適化が実際に効くのは dayDrag も参照安定である場合に限る
+  // （`dayDrag` prop が毎レンダー新規参照だと、selectionSpan が同じでも memo の
+  // 浅い比較が常に不一致になり無関係な週まで再レンダーされてしまう）。そのため
+  // 下記では `useDayDrag` の生の戻り値ではなく `stableDayDrag`（`useStableDayDrag`
+  // でラップ済み）を渡す。
   const weeksWithSelection = weeks.map((week) => ({
     week,
     selectionSpan:
@@ -134,7 +148,7 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
             timeZone={timeZone}
             locale={locale}
             selectionSpan={selectionSpan}
-            dayDrag={dayDrag}
+            dayDrag={stableDayDrag}
             renderEvent={renderEvent}
             overflowLabel={overflowLabel}
             renderDayCell={renderDayCell}
