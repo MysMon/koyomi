@@ -28,7 +28,7 @@ import {
 } from '@koyomi-cal/react';
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EventDialog, type EventDialogMode } from './EventDialog';
-import { type ScopeAction, ScopeDialog } from './ScopeDialog';
+import { type ScopeAction, ScopeDialog, type ScopeRequest } from './ScopeDialog';
 import { sampleEvents, sampleResources } from './sample-events';
 
 /** ツールバー・ショートカットで有効にするビュー（全 8 ビュー）。 */
@@ -67,12 +67,6 @@ interface LogEntry {
   id: string;
   /** 表示テキスト。 */
   text: string;
-}
-
-/** 繰り返し予定のスコープ選択待ちの要求。 */
-interface ScopeRequest {
-  occurrence: EventOccurrence;
-  action: ScopeAction;
 }
 
 /**
