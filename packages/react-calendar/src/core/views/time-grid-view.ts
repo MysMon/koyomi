@@ -341,6 +341,29 @@ export function buildSlots(slotMinutes: number): TimeSlot[] {
 }
 
 /**
+ * 昇順ソート済み配列 `sorted` に対し、`sorted[i] > value` を満たす最小の添字 `i` を返す。
+ * すべて `value` 以下なら配列長を返す（二分探索、O(log n)）。
+ *
+ * @remarks `list-view.ts` の同名ヘルパーと同じ実装（オカレンスを日ごとの
+ * 境界へ 1 パスで振り分けるためのスイープに使う）。モジュールをまたいだ
+ * 依存を増やさないためここでも個別に定義する。
+ */
+function lowerBoundGreaterThan(sorted: readonly number[], value: number): number {
+  let low = 0;
+  let high = sorted.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    const midValue = sorted[mid];
+    if (midValue !== undefined && midValue > value) {
+      high = mid;
+    } else {
+      low = mid + 1;
+    }
+  }
+  return low;
+}
+
+/**
  * 週/日ビューのビューモデルを構築する。
  *
  * 振り分けルール（Google カレンダーと同じ帯方式）:
@@ -448,6 +471,48 @@ export function buildTimeGridViewModel(params: {
     },
   );
 
+  // 各元列（非表示曜日を含む全 dayCount 列）の次の日の 0:00（排他端）。
+  // 最終列は範囲終端と一致する。可視列側の buildDayItems 呼び出しと
+  // 下のバケット分けの両方で使うため 1 度だけ計算する
+  const dayEnds: Date[] = dayStarts.map((_, index) => dayStarts[index + 1] ?? rangeEnd);
+
+  // timedOccurrences を元列（全 dayCount 列）ごとのバケットへ 1 パスで振り分ける。
+  // 可視列ごとに timedOccurrences 全体を buildDayItems へ渡すと（週ビューで
+  // 最大 7 回）同じオカレンス集合を毎回フルスキャンすることになるため、
+  // list-view.ts の lowerBoundGreaterThan によるスイープと同じ方式で、
+  // 各日の [dayStart, dayEnd) 境界に対して二分探索 + 前方走査を行い、
+  // buildDayItems が内部で行うのと同じ重なり判定規則（zero 長は開始時点の
+  // 属する日のみ、それ以外は end 排他の区間交差）で事前に振り分けておく
+  const dayStartTimes = dayStarts.map((dayStart) => dayStart.getTime());
+  const dayEndTimes = dayEnds.map((dayEnd) => dayEnd.getTime());
+  const timedByOrigDay: EventOccurrence[][] = dayStarts.map(() => []);
+  for (const occurrence of timedOccurrences) {
+    const startMs = occurrence.start.getTime();
+    const endMs = occurrence.end.getTime();
+    // 「dayEnd > 開始」を満たす最初の日（それ以前の日は開始までに終わっている）
+    const firstIndex = lowerBoundGreaterThan(dayEndTimes, startMs);
+    if (firstIndex >= dayStarts.length) {
+      continue;
+    }
+    if (endMs <= startMs) {
+      // 長さ 0（以下）のオカレンスは開始時点が属する日 1 つにだけ割り当てる
+      // （buildDayItems 内の単日扱いと同じ規則）
+      const dayStartTime = dayStartTimes[firstIndex];
+      if (dayStartTime !== undefined && startMs >= dayStartTime) {
+        timedByOrigDay[firstIndex]?.push(occurrence);
+      }
+      continue;
+    }
+    // 通常のオカレンス: dayStart < 終了 を満たす日へ順に割り当てる（end 排他の交差）
+    for (let index = firstIndex; index < dayStarts.length; index += 1) {
+      const dayStartTime = dayStartTimes[index];
+      if (dayStartTime === undefined || dayStartTime >= endMs) {
+        break;
+      }
+      timedByOrigDay[index]?.push(occurrence);
+    }
+  }
+
   const days: TimeGridDay[] = visibleDayIndices.map((index) => {
     const dayStart = dayStarts[index];
     if (dayStart === undefined) {
@@ -459,11 +524,11 @@ export function buildTimeGridViewModel(params: {
       key: dayKeys[index] ?? dateKeyInZone(dayStart, timeZone),
       isToday: isSameDayInZone(dayStart, now, timeZone),
       weekday: weekdayInZone(dayStart, timeZone),
-      items: buildDayItems(timedOccurrences, {
+      items: buildDayItems(timedByOrigDay[index] ?? [], {
         dayStart,
         // 次の日の 0:00（非表示曜日で間引く前の、暦上連続する翌日の境界）。
         // 最終日の翌日 0:00 は範囲終端と一致する
-        dayEnd: dayStarts[index + 1] ?? rangeEnd,
+        dayEnd: dayEnds[index] ?? rangeEnd,
         timeZone,
       }),
     };

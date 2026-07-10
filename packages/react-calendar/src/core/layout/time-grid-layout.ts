@@ -49,21 +49,6 @@ interface LayoutEntry {
 }
 
 /**
- * 2 つのエントリが重なり判定上衝突するかを返す。
- *
- * `[start, effectiveEnd)` の排他比較で判定する。実効区間が空
- * （`minSlotMinutes: 0` かつ長さ 0 以下）のエントリは何とも重ならない。
- */
-function overlaps(a: LayoutEntry, b: LayoutEntry): boolean {
-  return (
-    a.item.startMinutes < a.effectiveEnd &&
-    b.item.startMinutes < b.effectiveEnd &&
-    a.item.startMinutes < b.effectiveEnd &&
-    b.item.startMinutes < a.effectiveEnd
-  );
-}
-
-/**
  * 時間が重なるイベント群を横並びに配置する。
  *
  * アルゴリズム（Google カレンダー方式）:
@@ -153,26 +138,108 @@ export function layoutTimeGridItems(
 
   for (const cluster of clusters) {
     // 3. クラスタ内で「重ならない最小の列」に割り当てる
+    //
+    // 元の実装は「列内の全アイテムのうち 1 つでも重なれば NG」という判定を
+    // 列内の全アイテムと逐一比較して行っていたが、cluster は開始分昇順に
+    // 処理されるため次の不変条件が成り立つ:
+    //   ある列に置かれた実効長が正のアイテムどうしは、追加された順に
+    //   effectiveEnd が非減少になる（新規アイテムは、既存の全アイテムの
+    //   effectiveEnd 以上の開始分でなければその列に入れないため）。
+    // したがって「列内の全アイテムと比較」は「列に置かれた最大の
+    // effectiveEnd（columnEnds）と比較」に単純化できる。
+    // （`Math.max` で更新するのは、実効長が 0 以下＝誰とも重ならない
+    // アイテムが列の途中に挟まっても最大値を後退させないための保険）
+    //
+    // ただし実効長が 0 以下（`minSlotMinutes: 0` かつ長さ 0 以下）の
+    // アイテムは定義上誰とも重ならないため、このアイテムに限っては列 0 に
+    // 無条件で割り当てる（columnEnds との比較をすると誤って別の列に
+    // 弾かれ得るため特別扱いする）。
     const columns: LayoutEntry[][] = [];
+    const columnEnds: number[] = [];
     for (const entry of cluster) {
-      let column = columns.find((placed) => placed.every((other) => !overlaps(other, entry)));
-      if (column === undefined) {
-        column = [];
-        columns.push(column);
+      let columnIndex: number;
+      if (entry.item.startMinutes >= entry.effectiveEnd) {
+        if (columns.length === 0) {
+          columns.push([]);
+          columnEnds.push(Number.NEGATIVE_INFINITY);
+        }
+        columnIndex = 0;
+      } else {
+        columnIndex = columnEnds.findIndex((end) => entry.item.startMinutes >= end);
+        if (columnIndex === -1) {
+          columnIndex = columns.length;
+          columns.push([]);
+          columnEnds.push(Number.NEGATIVE_INFINITY);
+        }
       }
-      entry.column = columns.indexOf(column);
+      const column = columns[columnIndex];
+      // noUncheckedIndexedAccess 対応のガード（columnIndex は必ず範囲内）
+      if (column === undefined) {
+        continue;
+      }
+      entry.column = columnIndex;
       column.push(entry);
+      columnEnds[columnIndex] = Math.max(
+        columnEnds[columnIndex] ?? Number.NEGATIVE_INFINITY,
+        entry.effectiveEnd,
+      );
     }
 
     // 4. 幅 1/n・左端 列番号/n を基本とし、
     // 5. 右隣に衝突がない限り次に衝突する列の手前まで拡張する
+    //
+    // 元の実装は右隣の列に対して「列内のいずれかのアイテムと重なるか」を
+    // 列内の全アイテムを毎回舐めて判定していた。この幅拡張フェーズは列の
+    // 確定後に行うため、対象の列には（クラスタ内で見て）entry より後に開始する
+    // アイテムも含まれ得て、3. の columnEnds のような「直近の終了分」だけの
+    // 追跡では足りない（同じ列内に手前の隙間があるケースを誤って塞いでしまう）。
+    // そこで列ごとに実効長が正のアイテムだけを取り出した配列（挿入順=開始分
+    // 昇順のまま）を用意し、cluster を開始分昇順に処理する性質を利用して
+    // 「その列で entry.startMinutes 以下の開始分を持つアイテムを消費し尽くす
+    // ポインタ」と「消費済みアイテムの effectiveEnd の最大値」を列ごとに
+    // 1 個ずつ保持する（実効長 0 以下のアイテムは誰とも重ならないため
+    // 判定対象から除外してよい）。
+    // これにより「entry より前に開始した重なり」は保持した最大値との比較、
+    // 「entry より後に開始する最初のアイテムとの重なり」は次の未消費アイテム
+    // 1 件との比較で判定でき、列内の総当たりが不要になる。
     const columnCount = columns.length;
+    const positiveColumns: LayoutEntry[][] = columns.map((column) =>
+      column.filter((entry) => entry.item.startMinutes < entry.effectiveEnd),
+    );
+    const consumedUpTo: number[] = new Array(columnCount).fill(0);
+    const consumedMaxEnd: number[] = new Array(columnCount).fill(Number.NEGATIVE_INFINITY);
+
     for (const entry of cluster) {
+      if (entry.item.startMinutes >= entry.effectiveEnd) {
+        // 実効長 0 以下のアイテムは誰とも重ならないため無条件に最終列まで広がる
+        entry.left = entry.column / columnCount;
+        entry.width = (columnCount - entry.column) / columnCount;
+        continue;
+      }
+
       let endColumn = entry.column + 1;
       while (endColumn < columnCount) {
-        const rightColumn = columns[endColumn];
-        // noUncheckedIndexedAccess 対応のガード（範囲内なので実際には常に存在する）
-        if (rightColumn === undefined || rightColumn.some((other) => overlaps(other, entry))) {
+        const positives = positiveColumns[endColumn];
+        if (positives === undefined) {
+          break;
+        }
+        let ptr = consumedUpTo[endColumn] ?? 0;
+        let maxEnd = consumedMaxEnd[endColumn] ?? Number.NEGATIVE_INFINITY;
+        while (ptr < positives.length) {
+          const candidate = positives[ptr];
+          if (candidate === undefined || candidate.item.startMinutes > entry.item.startMinutes) {
+            break;
+          }
+          maxEnd = Math.max(maxEnd, candidate.effectiveEnd);
+          ptr += 1;
+        }
+        consumedUpTo[endColumn] = ptr;
+        consumedMaxEnd[endColumn] = maxEnd;
+
+        const blockedByEarlier = maxEnd > entry.item.startMinutes;
+        const next = positives[ptr];
+        const blockedByLater = next !== undefined && next.item.startMinutes < entry.effectiveEnd;
+        if (blockedByEarlier || blockedByLater) {
           break;
         }
         endColumn += 1;
