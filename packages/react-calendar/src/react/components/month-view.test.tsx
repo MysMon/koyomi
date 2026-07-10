@@ -616,10 +616,10 @@ describe('MonthView - ARIA', () => {
     expect(container.querySelectorAll('[data-koyomi="month-day"][role="gridcell"]')).toHaveLength(
       35,
     );
-    expect(container.querySelector('[data-koyomi="month-events"]')).toHaveAttribute(
-      'role',
-      'presentation',
-    );
+    // rowgroup → row の間に挟まる週ラッパーは role="presentation" で所有関係を透過させる
+    for (const week of container.querySelectorAll('[data-koyomi="month-week"]')) {
+      expect(week).toHaveAttribute('role', 'presentation');
+    }
 
     const todayCell = container.querySelector('[data-koyomi-date="2026-07-15"]');
     expect(todayCell).toHaveAttribute('aria-label', '2026年7月15日');
@@ -632,6 +632,53 @@ describe('MonthView - ARIA', () => {
     // 前月の日付も完全な日付として読み上げられる（特別扱い不要）
     const outsideCell = container.querySelector('[data-koyomi-date="2026-06-28"]');
     expect(outsideCell).toHaveAttribute('aria-label', '2026年6月28日');
+  });
+
+  it('イベントの帯（month-event）は開始日の gridcell（month-day）の子孫として描画される', () => {
+    // 週/日ビューの終日帯と同じ方針: 複数日にまたがる帯も DOM 上は開始日の gridcell が
+    // 所有する（grid の子孫の focusable を row/gridcell の所有関係の外に置かないため。
+    // 旧方式の role="presentation" レイヤーはレイヤー自身の意味論しか消えず、内部の
+    // ボタンが grid の子孫として露出したままになる）。視覚上の列スパンは positioned
+    // ancestor が month-week（position: relative）のため従来どおり
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '合宿', start: '2026-07-15', end: '2026-07-17', allDay: true },
+    ];
+    const { container } = render(<Harness events={events} />);
+
+    const segment = container.querySelector('[data-koyomi="month-event"]');
+    expect(segment).not.toBeNull();
+    const owningCell = segment?.closest('[data-koyomi="month-day"]');
+    expect(owningCell).not.toBeNull();
+    expect(owningCell).toHaveAttribute('role', 'gridcell');
+    expect(owningCell).toHaveAttribute('data-koyomi-date', '2026-07-15');
+
+    // 旧方式の帯レイヤー（month-events）は存在しない
+    expect(container.querySelector('[data-koyomi="month-events"]')).toBeNull();
+
+    // role="grid" の子孫のフォーカス可能要素はすべて gridcell / columnheader に属する
+    const grid = container.querySelector('[role="grid"]');
+    expect(grid).not.toBeNull();
+    const focusables = grid?.querySelectorAll('button, [tabindex]') ?? [];
+    expect(focusables.length).toBeGreaterThan(0);
+    for (const focusable of focusables) {
+      expect(focusable.closest('[role="gridcell"], [role="columnheader"]')).not.toBeNull();
+    }
+  });
+
+  it('週をまたぐイベントは各週のセグメントがそれぞれの週の開始列の gridcell に属する', () => {
+    // 7/11(土)〜7/13(月) は第2週（〜7/11）と第3週（7/12〜）に分割される
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '長期', start: '2026-07-11', end: '2026-07-14', allDay: true },
+    ];
+    const { container } = render(<Harness events={events} />);
+
+    const segments = Array.from(container.querySelectorAll('[data-koyomi="month-event"]'));
+    expect(segments).toHaveLength(2);
+    const owners = segments.map((segment) =>
+      segment.closest('[data-koyomi="month-day"]')?.getAttribute('data-koyomi-date'),
+    );
+    // 第2週のセグメントは 7/11 のセル、第3週のセグメントは週の先頭 7/12 のセルが所有する
+    expect(owners.sort()).toEqual(['2026-07-11', '2026-07-12']);
   });
 });
 

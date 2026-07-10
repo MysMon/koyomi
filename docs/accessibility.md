@@ -13,7 +13,7 @@ Koyomi の各ビューが実装している WAI-ARIA パターン、キーボー
 
 ### 月ビュー（MonthView）・複数月ビュー（MultiMonthView）
 
-`role="grid"` の中に、曜日見出し行（`row` + `columnheader` × 7）と週の行（`rowgroup` の中に `row` × 4〜6、各 `row` の中に日セル `gridcell`）が入る、教科書どおりの grid パターンです。イベントの帯（セグメント）は複数日にまたがり得るため特定の 1 セルには属せず、`gridcell` の**外側**に `role="presentation"` の兄弟レイヤーとして重ねて描画します（帯自体は `<button>` + 完全な `aria-label` で読み上げ可能。この方式が grid 構造として不完全である点は[既知の制限](#既知の制限)を参照）。複数月ビューは月ビューと同一の DOM 実装（`month-view-parts.tsx`）を共有するため、ARIA も完全に同一です。
+`role="grid"` の中に、曜日見出し行（`row` + `columnheader` × 7）と週の行（`rowgroup` の中に `row` × 4〜6、各 `row` の中に日セル `gridcell`）が入る、教科書どおりの grid パターンです。週ごとのレイアウト用ラッパー（`month-week`）は `rowgroup` と `row` の間に挟まるため `role="presentation"` で所有関係を透過させます。イベントの帯（セグメント）は複数日にまたがり得ますが、DOM 上は**開始日の日セル（`gridcell`）の子**として所有させます（週/日ビューの終日の帯と同じ方針。帯は `<button>` + 完全な `aria-label` で読み上げ可能で、視覚上の列スパンは positioned ancestor が `month-week` のため所有セルと無関係に絶対配置で実現されます）。複数月ビューは月ビューと同一の DOM 実装（`month-view-parts.tsx`）を共有するため、ARIA も完全に同一です。
 
 ### 年ビュー（YearView）
 
@@ -70,7 +70,6 @@ Koyomi の各ビューが実装している WAI-ARIA パターン、キーボー
 - **リソースビューの終日セルはクリック専用で、キーボードでの直接作成には未対応です。** 週/日ビュー・月ビューの日セル（`allday-cell` / `month-day`）は `tabIndex={0}` + Enter/Space で終日予定を作成できますが、リソースビューの終日セル（`resource-allday-cell`）は現状クリックのみです（既存の実装上の制限で、今回の ARIA 整備の対象外）
 - **「+N 件」ポップオーバーは自前実装が前提です。** ヘッドレスの方針上、開閉状態の `aria-expanded` 等は `overflowButtonProps` で利用側が付与する必要があります。詳細は [インタラクション: 「+N 件」のポップオーバーを自前で組む](./interactions.md#n-件のポップオーバーを自前で組む) を参照してください
 - **色だけに依存した情報伝達はありません。** イベントの色（`event.color` / `resource.color`）は視覚的な区別のためのみに使い、色分けの内容（タイトル・時刻・リソース名等）は常に `aria-label` のテキストとしても提供します
-- **月・複数月ビューの帯レイヤー（`month-events`）には grid 子孫の focusable が残ります。** 週/日ビューの終日の帯は開始日の `gridcell` が所有する構造へ整理済みですが、月ビューの帯は現在も `role="presentation"` の兄弟レイヤーに置かれており、内部の帯ボタンが grid の子孫として row/gridcell の所有関係の外に露出します（`role="presentation"` はレイヤー自身の意味論しか消しません）。帯ボタン自体は完全な `aria-label` を持つため読み上げは可能ですが、厳密な grid 構造としては不完全であり、週/日ビューと同じ「開始日のセルが所有する」構造への移行を今後の課題とします
 
 ## テスト
 
