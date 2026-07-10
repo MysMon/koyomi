@@ -57,8 +57,9 @@ div[data-koyomi="month"] (role="grid")
     div[data-koyomi="month-weekday"] (role="columnheader") × 可視列数
                                                       … 曜日ラベル（Intl、週開始順、hiddenWeekdays 除外後）
   div[data-koyomi="month-weeks"] (role="rowgroup")
-    div[data-koyomi="month-week"][data-koyomi-week-number="<週番号>"]? × 4..6
+    div[data-koyomi="month-week"][data-koyomi-week-number="<週番号>"]? (role="presentation") × 4..6
                                                      … position: relative の基準（テーマ側）。
+                                                       rowgroup→row 間の透過ラッパ。
                                                        data-koyomi-week-number は
                                                        showWeekNumbers: true のときのみ付く
       div[data-koyomi="month-days"] (role="row")
@@ -66,22 +67,24 @@ div[data-koyomi="month"] (role="grid")
            (role="gridcell", tabIndex=0, aria-label=完全な日付, aria-current="date"?)
            [data-today?][data-outside?] × 可視列数    … useDayDrag.getDayCellProps を展開
                                                        （Enter/Space でその日 1 日分の範囲選択）
-          … 内容は renderDayCell で差し替え可能（既定は以下）
+          … 内容は renderDayCell で差し替え可能（既定は以下。イベントの帯は差し替え対象外）
           button[data-koyomi="month-day-number"]     … クリックでその日の day ビューへ
           button[data-koyomi="month-overflow"]?      … 「+N 件」（overflowCount > 0 のとき、
                                                         文言は overflowLabel で差し替え可。
                                                         Enter/Space でも onClick 相当が発火。
                                                         overflowButtonProps で
                                                         aria-haspopup/aria-expanded 等を追加可）
-      div[data-koyomi="month-events"] (aria-hidden への配慮は role="presentation")
-        button[data-koyomi="month-event"] × n        … useDayDrag.getSegmentProps を展開
-           [data-all-day?][data-continues-before?][data-continues-after?][data-koyomi-dragging?]
-           style: insetInlineStart/width は %（可視列数基準）、top は
-                  calc(var(--koyomi-month-header-height, 24px)
-                  + lane × var(--koyomi-lane-height, 24px))
-           内容既定: 時間指定は開始時刻＋タイトル、終日はタイトル
-          span[data-koyomi="month-event-resize"][data-edge="start|end"]?
-             … getSegmentResizeHandleProps。editable: false / continues 側には出力しない
+          button[data-koyomi="month-event"] × n      … useDayDrag.getSegmentProps を展開。
+               その週のセグメントのうち開始列がこのセルのものを DOM 上このセルが所有する
+               （positioned ancestor は month-week のため、複数列スパンの座標は列レイヤー
+               方式と同じ。month-day の overflow: hidden にもクリップされない）
+             [data-all-day?][data-continues-before?][data-continues-after?][data-koyomi-dragging?]
+             style: insetInlineStart/width は %（可視列数基準）、top は
+                    calc(var(--koyomi-month-header-height, 24px)
+                    + lane × var(--koyomi-lane-height, 24px))
+             内容既定: 時間指定は開始時刻＋タイトル、終日はタイトル
+            span[data-koyomi="month-event-resize"][data-edge="start|end"]?
+               … getSegmentResizeHandleProps。editable: false / continues 側には出力しない
       div[data-koyomi="day-selection"]? (aria-hidden)  … ドラッグ選択・プレビューのハイライト
            style: insetInlineStart/width %（その週と previewRange の交差から計算）
 ```

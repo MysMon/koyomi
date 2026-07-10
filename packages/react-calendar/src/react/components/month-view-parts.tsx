@@ -430,8 +430,12 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
   }
 
   return (
+    // rowgroup（month-weeks）と row（month-days）の間に挟まるレイアウト用ラッパー。
+    // role="presentation" で所有関係を透過させる（grid の required owned elements
+    // 違反を避ける。帯・選択ハイライトの絶対配置の基準でもある）
     <div
       data-koyomi="month-week"
+      role="presentation"
       {...(week.weekNumber !== null ? { 'data-koyomi-week-number': String(week.weekNumber) } : {})}
     >
       {/* biome-ignore lint/a11y/useSemanticElements: 月ビューの DOM 仕様が定める div ベースの ARIA row（<table> は不採用、MonthView 側の理由と同じ） */}
@@ -486,25 +490,29 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
               {...(!day.inCurrentMonth ? OUTSIDE_CELL_ATTRS : {})}
             >
               {renderDayCell ? renderDayCell(day, defaultContent) : defaultContent}
+              {/* イベントの帯は複数日にまたがり得るが、DOM 上は開始日の gridcell が
+                  所有する（grid の子孫の focusable を row/gridcell の所有関係の外に
+                  置かないため。週/日ビューの終日帯と同じ方針）。ボタンは絶対配置で、
+                  positioned ancestor はセルではなく month-week（position: relative）
+                  なので、列をまたぐ視覚上のスパンと座標計算は旧レイヤー方式と変わらず、
+                  month-day の overflow: hidden にもクリップされない（containing block
+                  の外側にある static 祖先の overflow は絶対配置に適用されない） */}
+              {visibleSegments
+                .filter((segment) => segment.startCol === dayCol)
+                .map((segment) => (
+                  <MonthEventButton
+                    key={segment.occurrence.key}
+                    segment={segment}
+                    timeZone={timeZone}
+                    locale={locale}
+                    columnCount={columnCount}
+                    renderEvent={renderEvent}
+                    dayDrag={dayDrag}
+                  />
+                ))}
             </div>
           );
         })}
-      </div>
-      {/* イベント帯はセグメント（ボタン）自体が意味を持つため row/gridcell 構造には含めず、
-          role="presentation" で除外する（aria-hidden にすると内部の focusable なボタンが
-          支援技術から見えなくなってしまうため使わない） */}
-      <div data-koyomi="month-events" role="presentation">
-        {visibleSegments.map((segment) => (
-          <MonthEventButton
-            key={segment.occurrence.key}
-            segment={segment}
-            timeZone={timeZone}
-            locale={locale}
-            columnCount={columnCount}
-            renderEvent={renderEvent}
-            dayDrag={dayDrag}
-          />
-        ))}
       </div>
       {selectionSpan !== null && (
         <div
