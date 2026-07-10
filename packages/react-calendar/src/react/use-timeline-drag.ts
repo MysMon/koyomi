@@ -149,9 +149,22 @@ function fractionXFromClientX(rect: DOMRect, clientX: number): number {
   return (clientX - rect.left) / rect.width;
 }
 
-/** オカレンスの現在のリソース ID（未割り当ては `null`）を返す。 */
-function resourceIdOf(occurrence: EventOccurrence): string | null {
-  return occurrence.event.resourceId ?? null;
+/**
+ * オカレンスの現在のレーンのリソース ID（未割り当ては `null`）を返す。
+ *
+ * `resources` に存在しない ID（参照先のない resourceId）はビュービルダーが
+ * 未割り当て行へ合流させるため、ここでも `null` に正規化する
+ * （{@link ./use-resource-grid-drag} と同じ理由）。
+ */
+function laneResourceIdOf(
+  occurrence: EventOccurrence,
+  resources: readonly { id: string }[],
+): string | null {
+  const resourceId = occurrence.event.resourceId;
+  if (resourceId === undefined) {
+    return null;
+  }
+  return resources.some((resource) => resource.id === resourceId) ? resourceId : null;
 }
 
 /**
@@ -206,6 +219,11 @@ export function useTimelineDrag(params: {
   function displayDays(): readonly Date[] {
     const { viewModel } = paramsRef.current.calendar;
     return viewModel.type === 'timeline' ? viewModel.days.map((day) => day.date) : [];
+  }
+
+  /** オカレンスの現在のレーンのリソース ID（{@link laneResourceIdOf}）。 */
+  function occurrenceLaneId(occurrence: EventOccurrence): string | null {
+    return laneResourceIdOf(occurrence, paramsRef.current.calendar.state.resources);
   }
 
   /** clientY を含む行（なければ中心距離が最も近い行）を探す。 */
@@ -355,7 +373,7 @@ export function useTimelineDrag(params: {
       patch.start = range.start;
       patch.end = range.end;
     }
-    if (resourceId !== resourceIdOf(occurrence)) {
+    if (resourceId !== occurrenceLaneId(occurrence)) {
       // 未割り当てへの移動は「キーが存在し値が undefined = フィールド削除」のパッチセマンティクス
       patch.resourceId = resourceId ?? undefined;
     }
@@ -646,7 +664,7 @@ export function useTimelineDrag(params: {
       occurrence,
       anchor,
       anchorDay,
-      resourceIdOf(occurrence),
+      occurrenceLaneId(occurrence),
     );
   }
 
@@ -671,7 +689,7 @@ export function useTimelineDrag(params: {
       occurrence,
       anchor,
       startOfDayInZone(occurrence.start, state.timeZone),
-      resourceIdOf(occurrence),
+      occurrenceLaneId(occurrence),
     );
   }
 
@@ -770,8 +788,11 @@ export function useTimelineDrag(params: {
       if (occurrence.event.editable === false) {
         return;
       }
-      const target = adjacentResourceId(resourceIdOf(occurrence), event.key === 'ArrowUp' ? -1 : 1);
-      if (target === undefined || target === resourceIdOf(occurrence)) {
+      const target = adjacentResourceId(
+        occurrenceLaneId(occurrence),
+        event.key === 'ArrowUp' ? -1 : 1,
+      );
+      if (target === undefined || target === occurrenceLaneId(occurrence)) {
         return;
       }
       void commitKeyboardChange(occurrence, 'move', null, target).catch(reportError);
@@ -818,7 +839,7 @@ export function useTimelineDrag(params: {
     ) {
       return;
     }
-    void commitKeyboardChange(occurrence, action, range, resourceIdOf(occurrence)).catch(
+    void commitKeyboardChange(occurrence, action, range, occurrenceLaneId(occurrence)).catch(
       reportError,
     );
   }

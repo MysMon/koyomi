@@ -572,3 +572,31 @@ describe('useResourceGridDrag - Escape キャンセル', () => {
     });
   });
 });
+
+describe('useResourceGridDrag - 参照先のない resourceId の正規化（Codex 再レビュー回帰）', () => {
+  it('参照先のないリソース ID を持つ予定は未割り当てレーン扱いになり、←キーで隣のリソース列へ移動できる', () => {
+    // resources に存在しない 'ghost' を持つ予定 → 未割り当て列（末尾）に表示される。
+    // 現在レーン = 未割り当て（null）と正規化されていれば、← で左隣（room-b）へ移動できる
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [
+        {
+          id: 'orphan-1',
+          title: '会議',
+          start: `${DAY}T10:00`,
+          end: `${DAY}T11:00`,
+          resourceId: 'ghost',
+        },
+      ],
+    });
+    const eventButton = container.querySelector('[data-koyomi="timegrid-event"]');
+    expect(eventButton).toBeInstanceOf(HTMLElement);
+    if (!(eventButton instanceof HTMLElement)) {
+      throw new Error('イベントが見つかりません');
+    }
+    fireEvent.keyDown(eventButton, { key: 'ArrowLeft' });
+    // 単発イベントのキーボード変更は同期的に完結するため、直接検証できる
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]?.resourceId).toBe('room-b');
+  });
+});
