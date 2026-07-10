@@ -1,15 +1,17 @@
 /**
  * @packageDocumentation
- * `useVirtualizer` — 縦方向ウィンドウイング（仮想化）のヘッドレスなプリミティブ。
+ * `useVirtualizer` — 縦・横方向ウィンドウイング（仮想化）のヘッドレスなプリミティブ。
  *
  * コア（{@link computeWindow} / {@link startForKey}）の純粋計算に、スクロール位置の購読・
- * ビューポート高とアイテム高の実測（ResizeObserver）・スクロールアンカリングといった
- * DOM 副作用を結び付ける。ビューには依存しないため、リストビューに限らず縦に長い任意の
- * リストへ適用できる。スタイルや DOM 構造は一切持たず、描画すべきアイテムと寸法だけを返す。
+ * ビューポート寸法とアイテム寸法の実測（ResizeObserver）・スクロールアンカリングといった
+ * DOM 副作用を結び付ける。ビューには依存しないため、リストビューの縦方向（日セクション）に
+ * 限らず、リソースビューの横方向（列）・タイムラインビューの縦方向（行）にも適用できる
+ * （`axis` オプションで軸を選ぶ）。スタイルや DOM 構造は一切持たず、描画すべきアイテムと
+ * 寸法だけを返す。
  *
- * 高さはライブラリが所有しない。スクロールコンテナの高さは利用者の CSS が決め、本フックは
- * その高さを ResizeObserver で実測して窓計算に用いる（境界高が無ければ全件が可視となり、
- * 実質的に仮想化なしの全件描画へ無害に縮退する）。
+ * 寸法（高さ/幅）はライブラリが所有しない。スクロールコンテナの寸法は利用者の CSS が決め、
+ * 本フックはその寸法を ResizeObserver で実測して窓計算に用いる（境界寸法が無ければ全件が
+ * 可視となり、実質的に仮想化なしの全件描画へ無害に縮退する）。
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -40,13 +42,32 @@ export interface UseVirtualizerOptions {
   overscan?: number;
   /** 窓外でも描画へ含めたいキー（フォーカス保持アイテム等。通常 0〜1 件）。 */
   pinnedKeys?: ReadonlySet<string>;
-  /** アイテム高を ResizeObserver で実測するか。`false` なら推定固定。既定 `true`。 */
+  /** アイテム高（幅）を ResizeObserver で実測するか。`false` なら推定固定。既定 `true`。 */
   measure?: boolean;
   /**
    * 仮想化を有効にするか。`false` の間は全件を返す（SSR・初回クライアント render では
    * `false` にし、マウント後に `true` へ切り替えることで hydration 不一致を避ける）。
    */
   enabled: boolean;
+  /**
+   * ウィンドウイングする軸。`'vertical'`（既定）はスクロールコンテナの `scrollTop` /
+   * `clientHeight` を、`'horizontal'` は `scrollLeft` / `clientWidth` を用いる
+   * （リソースビューのように列を横方向に並べる場合に使う）。
+   */
+  axis?: 'vertical' | 'horizontal';
+  /**
+   * 可視ビューポートの先頭から差し引く余白（px）。既定 0。
+   *
+   * スクロールコンテナ内に、ウィンドウイング対象のアイテム列より前に
+   * 固定表示の見出し（`position: sticky` の行見出し・列見出しガター等）が同居する場合、
+   * その見出しは常にビューポートの先頭を占有し続けるため、実際にアイテムを表示できる
+   * 領域は `ビューポート寸法 - viewportPadding` になる。この値を渡すと、窓計算・
+   * `scrollToIndex` の両方でその分を差し引いた実効ビューポートを使う
+   * （見出し自体の位置決めはコンポーネント側が別途行う。本フックはスクロール位置の
+   * 座標系そのものはずらさない＝アイテムの `start` は見出しを含まないアイテム列内の
+   * 相対位置のままなので、見出し分のオフセットは呼び出し側が描画時に加味する）。
+   */
+  viewportPadding?: number;
 }
 
 /**
@@ -78,16 +99,41 @@ interface ScrollMetrics {
 /** `measure=false`（推定固定）時に実測マップの代わりに使う空マップ。 */
 const EMPTY_MEASURED: ReadonlyMap<string, number> = new Map();
 
-/** ResizeObserver のエントリから高さ（px）を取り出す。 */
-function heightFromEntry(entry: ResizeObserverEntry): number {
+/** ResizeObserver のエントリから軸方向の寸法（px、縦なら高さ・横なら幅）を取り出す。 */
+function sizeFromEntry(entry: ResizeObserverEntry, axis: 'vertical' | 'horizontal'): number {
   const borderBox = entry.borderBoxSize;
   if (borderBox !== undefined && borderBox.length > 0) {
     const first = borderBox[0];
     if (first !== undefined) {
-      return first.blockSize;
+      return axis === 'horizontal' ? first.inlineSize : first.blockSize;
     }
   }
-  return entry.contentRect.height;
+  return axis === 'horizontal' ? entry.contentRect.width : entry.contentRect.height;
+}
+
+/** スクロール要素から軸方向の「現在サイズ（offsetWidth/offsetHeight）」を取り出す。 */
+function offsetSizeOf(element: HTMLElement, axis: 'vertical' | 'horizontal'): number {
+  return axis === 'horizontal' ? element.offsetWidth : element.offsetHeight;
+}
+
+/** スクロール要素から軸方向の { スクロール位置, ビューポート寸法 } を読み取る。 */
+function readScrollMetrics(element: HTMLElement, axis: 'vertical' | 'horizontal'): ScrollMetrics {
+  return axis === 'horizontal'
+    ? { scrollOffset: element.scrollLeft, viewportSize: element.clientWidth }
+    : { scrollOffset: element.scrollTop, viewportSize: element.clientHeight };
+}
+
+/** スクロール要素の軸方向のスクロール位置を書き換える。 */
+function writeScrollOffset(
+  element: HTMLElement,
+  axis: 'vertical' | 'horizontal',
+  value: number,
+): void {
+  if (axis === 'horizontal') {
+    element.scrollLeft = value;
+  } else {
+    element.scrollTop = value;
+  }
 }
 
 /**
@@ -120,6 +166,8 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
     pinnedKeys,
     measure = true,
     enabled,
+    axis = 'vertical',
+    viewportPadding = 0,
   } = options;
 
   // getScrollElement は毎レンダー変わり得るため、購読の再登録を避けて ref に保持する。
@@ -160,6 +208,9 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
   const measureEnabled = measure && enabled;
   const measureEnabledRef = useRef(measureEnabled);
   measureEnabledRef.current = measureEnabled;
+  // axis はレンダーごとに変わり得る前提はないが、他の * Ref と同じ流儀で stale closure を避ける。
+  const axisRef = useRef(axis);
+  axisRef.current = axis;
 
   const ensureItemObserver = useCallback((): ResizeObserver | null => {
     if (!measureEnabledRef.current || typeof ResizeObserver === 'undefined') {
@@ -177,9 +228,9 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
           if (key === undefined) {
             continue;
           }
-          const height = heightFromEntry(entry);
-          if (height > 0 && measuredRef.current.get(key) !== height) {
-            measuredRef.current.set(key, height);
+          const size = sizeFromEntry(entry, axisRef.current);
+          if (size > 0 && measuredRef.current.get(key) !== size) {
+            measuredRef.current.set(key, size);
             changed = true;
           }
         }
@@ -212,9 +263,9 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
       }
       observer.observe(element);
       // ResizeObserver の初回コールバックを待たずに一度だけ即時測定する。
-      const height = element.offsetHeight;
-      if (height > 0 && measuredRef.current.get(key) !== height) {
-        measuredRef.current.set(key, height);
+      const size = offsetSizeOf(element, axisRef.current);
+      if (size > 0 && measuredRef.current.get(key) !== size) {
+        measuredRef.current.set(key, size);
         scheduleMeasureFlush();
       }
     },
@@ -257,9 +308,9 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
     let changed = false;
     for (const [key, element] of elementByKeyRef.current) {
       observer.observe(element);
-      const height = element.offsetHeight;
-      if (height > 0 && measuredRef.current.get(key) !== height) {
-        measuredRef.current.set(key, height);
+      const size = offsetSizeOf(element, axisRef.current);
+      if (size > 0 && measuredRef.current.get(key) !== size) {
+        measuredRef.current.set(key, size);
         changed = true;
       }
     }
@@ -317,7 +368,7 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
     }
     const element = scrollElement;
     const sync = (): void => {
-      setMetrics({ scrollOffset: element.scrollTop, viewportSize: element.clientHeight });
+      setMetrics(readScrollMetrics(element, axis));
     };
     let frame: number | null = null;
     const onScroll = (): void => {
@@ -337,20 +388,20 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
         cancelAnimationFrame(frame);
       }
     };
-  }, [enabled, scrollElement]);
+  }, [enabled, scrollElement, axis]);
 
-  // ビューポート高の追跡（ResizeObserver）。
+  // ビューポート寸法の追跡（ResizeObserver）。
   useEffect(() => {
     if (!enabled || scrollElement === null || typeof ResizeObserver === 'undefined') {
       return;
     }
     const element = scrollElement;
     const observer = new ResizeObserver(() => {
-      setMetrics({ scrollOffset: element.scrollTop, viewportSize: element.clientHeight });
+      setMetrics(readScrollMetrics(element, axis));
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [enabled, scrollElement]);
+  }, [enabled, scrollElement, axis]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: measureVersion は measuredRef.current（ref）の変化を再計算へ反映するための意図的なトリガー
   const result: WindowResult = useMemo(() => {
@@ -374,7 +425,9 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
       estimateSize,
       measured,
       scrollOffset: metrics.scrollOffset,
-      viewportSize: metrics.viewportSize,
+      // viewportPadding 分（同居する固定見出し等が常時占有する領域）を差し引いた
+      // 実効ビューポートを使う（0 未満にはクランプする）。
+      viewportSize: Math.max(0, metrics.viewportSize - viewportPadding),
       ...(overscan !== undefined ? { overscan } : {}),
       ...(pinnedKeys !== undefined ? { pinnedKeys } : {}),
     });
@@ -387,6 +440,7 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
     estimateSize,
     metrics.scrollOffset,
     metrics.viewportSize,
+    viewportPadding,
     overscan,
     pinnedKeys,
     measureVersion,
@@ -430,8 +484,9 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
       return;
     }
     const target = newStart + anchor.overshoot;
-    if (Math.abs(element.scrollTop - target) >= 1) {
-      element.scrollTop = target;
+    const currentOffset = readScrollMetrics(element, axisRef.current).scrollOffset;
+    if (Math.abs(currentOffset - target) >= 1) {
+      writeScrollOffset(element, axisRef.current, target);
     }
     // measureVersion のみを依存にし、実測反映時だけ補正する（スクロール毎には走らせない）。
   }, [measureVersion, enabled]);
@@ -452,25 +507,29 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
         return;
       }
       const align = scrollOptions?.align ?? 'auto';
-      const viewport = element.clientHeight;
+      // viewportPadding（固定見出し等が常時占有する領域）を差し引いた実効ビューポートを使う。
+      const viewport = Math.max(
+        0,
+        (axis === 'horizontal' ? element.clientWidth : element.clientHeight) - viewportPadding,
+      );
       const itemSize = measured.get(getItemKey(index)) ?? estimateSize(index);
       if (align === 'start') {
-        element.scrollTop = targetStart;
+        writeScrollOffset(element, axis, targetStart);
         return;
       }
       if (align === 'center') {
-        element.scrollTop = targetStart - Math.max(0, (viewport - itemSize) / 2);
+        writeScrollOffset(element, axis, targetStart - Math.max(0, (viewport - itemSize) / 2));
         return;
       }
       // auto: 可視域の外にあるときだけ、最小限スクロールして収める。
-      const current = element.scrollTop;
+      const current = readScrollMetrics(element, axis).scrollOffset;
       if (targetStart < current) {
-        element.scrollTop = targetStart;
+        writeScrollOffset(element, axis, targetStart);
       } else if (targetStart + itemSize > current + viewport) {
-        element.scrollTop = targetStart + itemSize - viewport;
+        writeScrollOffset(element, axis, targetStart + itemSize - viewport);
       }
     },
-    [count, getItemKey, estimateSize, measure],
+    [count, getItemKey, estimateSize, measure, axis, viewportPadding],
   );
 
   return {

@@ -149,6 +149,16 @@ export {
   VirtualListView,
   type VirtualListViewProps,
 } from './react/components/virtual-list-view';
+export {
+  VirtualResourceView,
+  type VirtualResourceViewHandle,
+  type VirtualResourceViewProps,
+} from './react/components/virtual-resource-view';
+export {
+  VirtualTimelineView,
+  type VirtualTimelineViewHandle,
+  type VirtualTimelineViewProps,
+} from './react/components/virtual-timeline-view';
 export { YearView, type YearViewProps } from './react/components/year-view';
 // React: コンテキスト
 export { CalendarProvider, type CalendarProviderProps, useCalendarContext } from './react/context';

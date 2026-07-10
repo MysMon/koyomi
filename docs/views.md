@@ -397,7 +397,38 @@ function Agenda() {
 
 ### 独自 UI へ組み込む（useVirtualizer）
 
-`VirtualListView` はプリミティブ `useVirtualizer` の薄いラッパです。完全に独自のマークアップで仮想化したい場合は、`buildListViewModel`（[ビューモデルを直接使う](#ビューモデルを直接使う上級編)）と `useVirtualizer` を直接組み合わせられます。`useVirtualizer` はビューに依存しない汎用の縦方向ウィンドウイングを提供します（詳細は [API リファレンス](./api.md)）。
+`VirtualListView` はプリミティブ `useVirtualizer` の薄いラッパです。完全に独自のマークアップで仮想化したい場合は、`buildListViewModel`（[ビューモデルを直接使う](#ビューモデルを直接使う上級編)）と `useVirtualizer` を直接組み合わせられます。`useVirtualizer` はビューに依存しない汎用のウィンドウイングを提供し、`axis: 'vertical' | 'horizontal'`（既定 `'vertical'`）で縦・横どちらの軸でも使えます（詳細は [API リファレンス](./api.md)）。
+
+## レーンの仮想化（リソース・タイムラインビュー）
+
+数十〜数百件のリソースを扱う画面では、`VirtualResourceView` / `VirtualTimelineView` で可視範囲のリソースだけを描画できます。既定の `ResourceView` / `TimelineView` は全件描画のままで、仮想化は完全に opt-in の別コンポーネントです（DOM 構造・ARIA・`renderEvent` 等のカスタマイズ props は元のビューと同じ）。
+
+```tsx
+import { CalendarProvider, VirtualTimelineView, useCalendar } from '@koyomi-cal/react';
+
+function CraneSchedule() {
+  const calendar = useCalendar({ initialView: 'timeline', resources: manyCranes, timelineDays: 7 });
+  return (
+    <CalendarProvider value={calendar} callbacks={{ onEventChange: applyChange }}>
+      <VirtualTimelineView />
+    </CalendarProvider>
+  );
+}
+```
+
+- **`VirtualTimelineView`** はリソース行を縦方向に仮想化します（`TimelineView` の行と同じ `role="row"`/`rowheader`/`gridcell` 構造）。行 1 件分の推定高は `estimateRowHeight`（既定はレーン数 × 28px）。
+- **`VirtualResourceView`** はリソース列を横方向に仮想化します（`ResourceView` の列と同じ `role="columnheader"`/`gridcell` 構造）。`ResourceView` 自体は列数が多いと横スクロールに任せる方針（`docs/internal/components-dom.md` 参照）ですが、数百列規模の極端なケース向けに `VirtualResourceView` が windowing を提供します。列幅は固定（`columnWidth`、既定 160px = `--koyomi-resource-column-width` の既定値と同じ）です。
+- どちらも **境界寸法は CSS で指定します**。`VirtualTimelineView` は `[data-koyomi="timeline-body"]` の `max-height`（既定テーマは 640px）、`VirtualResourceView` はルート `[data-koyomi="resource"]` の境界幅（横スクロールを担う要素）です。境界寸法が無い環境では仮想化は無害に無効化され、全件描画へフォールバックします（開発ビルドで一度警告します）。
+- フォーカス中のリソース（行・列）は、スクロールで可視窓の外に出ても DOM を保持し続けます（`VirtualListView` の pinned 日セクションと同じ方式）。`VirtualResourceView` は列見出し・終日セル・本文列の 3 箇所がまとめて保持されます。
+- `ref` 経由で `scrollToResource(resourceId, options?)`（`resourceId` は未割り当てへは `null`、`options.align` は `'auto' | 'start' | 'center'`）を呼べます。
+
+```tsx
+const handleRef = useRef<VirtualTimelineViewHandle>(null);
+// ...
+<VirtualTimelineView ref={handleRef} />;
+// ...
+handleRef.current?.scrollToResource('crane-5');
+```
 
 ## 複数タイムゾーン軸（timeAxisZones）
 

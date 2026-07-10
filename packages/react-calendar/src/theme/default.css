@@ -1049,6 +1049,26 @@
 }
 
 /* ---------------------------------------------------------------------------
+ * リソースビューの仮想化（VirtualResourceView）
+ *
+ * 横スクロール（[data-koyomi="resource"] の overflow-x）は非仮想化版と共通
+ * （上のリソースビュー節を参照）。ここで追加するのは、列見出し行のラッパー
+ * （pinned 列見出しの絶対配置の基準。終日行・本文のラッパーは既に position: relative）と、
+ * 3 箇所（列見出し・終日・本文）共通のスペーサだけ。
+ * ------------------------------------------------------------------------ */
+
+[data-koyomi="resource"][data-koyomi-virtualized] [data-koyomi="resource-headers"] {
+  position: relative; /* pinned 列見出しの絶対配置の基準 */
+}
+
+[data-koyomi="resource-header-spacer"],
+[data-koyomi="resource-allday-spacer"],
+[data-koyomi="resource-columns-spacer"] {
+  flex: none;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
  * タイムラインビュー
  *
  * 横 = 表示分（§7.2）、縦 = リソース行。単一の横スクロールコンテナ
@@ -1238,4 +1258,28 @@
   background-color: var(--koyomi-accent);
   opacity: 0.2;
   pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * タイムラインビューの仮想化（VirtualTimelineView）
+ *
+ * スクロールコンテナ（[data-koyomi="timeline-body"]）・ヘッダー行の sticky 配置は
+ * 非仮想化版と共通（上のタイムラインビュー節を参照）。ここで追加するのは、
+ * ヘッダー行より後ろに同居する行リストのラッパー（pinned 行の絶対配置の基準）と、
+ * 窓の前後のスペーサだけ。
+ * ------------------------------------------------------------------------ */
+
+[data-koyomi="timeline-rows"] {
+  position: relative; /* pinned 行の絶対配置の基準 */
+}
+
+[data-koyomi="timeline-row-spacer"] {
+  pointer-events: none;
+}
+
+/* 窓外でフォーカス保持中の行（通常フローに干渉させない）。 */
+[data-koyomi="timeline-row-group"][data-koyomi-pinned] {
+  position: absolute;
+  inset-inline-start: 0;
+  width: 100%;
 }
