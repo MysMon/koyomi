@@ -28,6 +28,8 @@ const NOW = new Date('2026-07-15T01:00:00Z');
 const DAY0 = '2026-07-15';
 /** タイムラインの表示 2 日目（`timelineDays: 2` のときのみ使用）。 */
 const DAY1 = '2026-07-16';
+/** DAY0 の前日（日をまたぐオカレンスの検証用）。 */
+const PREV_DAY = '2026-07-14';
 
 /** 東京タイムゾーンの現地時刻 `'YYYY-MM-DDTHH:mm'` から絶対時刻を作るテストヘルパ。 */
 function at(isoLocal: string): Date {
@@ -158,6 +160,13 @@ function releasePointer(clientX: number, clientY: number): void {
 function pressEscape(): void {
   act(() => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+}
+
+/** document への pointercancel ディスパッチ（`use-time-grid-drag.test.tsx` と同じ手法）。 */
+function firePointerCancel(): void {
+  act(() => {
+    document.dispatchEvent(new MouseEvent('pointercancel', { bubbles: true }));
   });
 }
 
@@ -534,6 +543,206 @@ describe('useTimelineDrag - Escape キャンセル', () => {
     expect(sink.current?.state.dragPreview).toBeNull();
 
     // Escape 後は document のリスナーが外れているため、以降の pointerup は無視される
+    releasePointer(dm(0, 12, 0), rowCenterY(1));
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      start: `${DAY0}T10:00`,
+      end: `${DAY0}T11:00`,
+      resourceId: 'crane-1',
+    });
+  });
+});
+
+describe('useTimelineDrag - previewFor（ドラッグプレビューの行別表示）', () => {
+  it('作成ドラッグ中、対象行にのみ timeline-preview が出現し、対象外の行には出ない', () => {
+    const { container } = renderHarness({ resources: [CRANE_1, CRANE_2], timelineDays: 1 });
+    mockAllRowRects(container, 1);
+    const rows = container.querySelectorAll('[data-koyomi="timeline-row"]');
+    const craneTwoRow = rows[1];
+    if (craneTwoRow === undefined) {
+      throw new Error('crane-2 行が見つかりません');
+    }
+    const y = rowCenterY(1);
+
+    firePointerDown(craneTwoRow, dm(0, 10, 0), y); // 10:00
+    movePointer(dm(0, 11, 30), y); // 11:30
+
+    const preview = craneTwoRow.querySelector('[data-koyomi="timeline-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).toHaveAttribute('data-kind', 'create');
+    const style = (preview as HTMLElement).style;
+    expect(style.insetInlineStart).toContain('41.66');
+    expect(style.width).toBe('6.25%'); // (690-600)/1440*100
+
+    // 対象外の行（crane-1）にはプレビューが出ない
+    expect(rows[0]?.querySelector('[data-koyomi="timeline-preview"]')).toBeNull();
+
+    releasePointer(dm(0, 11, 30), y);
+  });
+
+  it('移動ドラッグで行をまたぐと、元の行のプレビューは消え、移動先の行にのみ出現する', () => {
+    const event: CalendarEvent = {
+      id: 'ev-move-preview',
+      title: '荷揚げ',
+      start: `${DAY0}T09:00`,
+      end: `${DAY0}T10:00`,
+      resourceId: 'crane-1',
+    };
+    const { container } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 1,
+      events: [event],
+    });
+    mockAllRowRects(container, 1);
+    const itemEl = getItemElement(container, 'ev-move-preview', `${DAY0}T09:00`);
+    const rows = container.querySelectorAll('[data-koyomi="timeline-row"]');
+
+    firePointerDown(itemEl, dm(0, 9, 0), rowCenterY(0)); // crane-1 行 9:00 を掴む
+    movePointer(dm(0, 10, 0), rowCenterY(1)); // crane-2 行 10:00 へ（+1h）
+
+    // 元の行（crane-1）にはプレビューが残らない
+    expect(rows[0]?.querySelector('[data-koyomi="timeline-preview"]')).toBeNull();
+    const preview = rows[1]?.querySelector('[data-koyomi="timeline-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).toHaveAttribute('data-kind', 'move');
+    const style = (preview as HTMLElement).style;
+    expect(style.insetInlineStart).toContain('41.66');
+    expect(style.width).toContain('4.16');
+
+    releasePointer(dm(0, 10, 0), rowCenterY(1));
+  });
+
+  it('前日から続く帯をリサイズすると、プレビュー開始が範囲先頭（insetInlineStart 0%）にクランプされる', () => {
+    const event: CalendarEvent = {
+      id: 'ev-continues-before',
+      title: '夜間作業',
+      start: `${PREV_DAY}T22:00`,
+      end: `${DAY0}T02:00`,
+      resourceId: 'crane-1',
+    };
+    const { container } = renderHarness({ resources: [CRANE_1], timelineDays: 1, events: [event] });
+    mockAllRowRects(container, 1);
+    const itemEl = getItemElement(container, 'ev-continues-before', `${PREV_DAY}T22:00`);
+    const handleEl = itemEl.querySelector('[data-koyomi-resize-handle="end"]');
+    if (handleEl === null) {
+      throw new Error('終了端のリサイズハンドルが見つかりません');
+    }
+    const row = container.querySelector('[data-koyomi="timeline-row"]');
+    if (row === null) {
+      throw new Error('行が見つかりません');
+    }
+
+    firePointerDown(handleEl, dm(0, 10, 0), rowCenterY(0));
+    movePointer(dm(0, 12, 0), rowCenterY(0)); // 12:00
+
+    const preview = row.querySelector('[data-koyomi="timeline-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).toHaveAttribute('data-kind', 'resize');
+    const style = (preview as HTMLElement).style;
+    // 実際の開始（前日22:00）は表示範囲より前のため 0% にクランプされる
+    expect(style.insetInlineStart).toBe('0%');
+    expect(style.width).toBe('50%'); // (720-0)/1440*100
+
+    releasePointer(dm(0, 12, 0), rowCenterY(0));
+  });
+
+  it('翌日へ続く帯をリサイズすると、プレビュー終了が範囲終端（width 込みで 100%）にクランプされる', () => {
+    const event: CalendarEvent = {
+      id: 'ev-continues-after',
+      title: '夜間作業',
+      start: `${DAY0}T22:00`,
+      end: `${DAY1}T02:00`,
+      resourceId: 'crane-1',
+    };
+    const { container } = renderHarness({ resources: [CRANE_1], timelineDays: 1, events: [event] });
+    mockAllRowRects(container, 1);
+    const itemEl = getItemElement(container, 'ev-continues-after', `${DAY0}T22:00`);
+    const handleEl = itemEl.querySelector('[data-koyomi-resize-handle="start"]');
+    if (handleEl === null) {
+      throw new Error('開始端のリサイズハンドルが見つかりません');
+    }
+    const row = container.querySelector('[data-koyomi="timeline-row"]');
+    if (row === null) {
+      throw new Error('行が見つかりません');
+    }
+
+    firePointerDown(handleEl, dm(0, 22, 0), rowCenterY(0));
+    movePointer(dm(0, 18, 0), rowCenterY(0)); // 18:00
+
+    const preview = row.querySelector('[data-koyomi="timeline-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).toHaveAttribute('data-kind', 'resize');
+    const style = (preview as HTMLElement).style;
+    expect(style.insetInlineStart).toBe('75%'); // 1080/1440*100
+    // 実際の終了（翌日02:00）は表示範囲より後のため終端（width 込みで 100%）にクランプされる
+    expect(style.width).toBe('25%'); // (1440-1080)/1440*100
+
+    releasePointer(dm(0, 18, 0), rowCenterY(0));
+  });
+
+  it('終日帯の日単位移動中、移動先行にのみプレビューが出る', () => {
+    const event: CalendarEvent = {
+      id: 'ev-allday-preview',
+      title: '定期点検',
+      start: DAY0,
+      end: DAY1,
+      allDay: true,
+      resourceId: 'crane-1',
+    };
+    const { container } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 2,
+      events: [event],
+    });
+    mockAllRowRects(container, 2);
+    const itemEl = container.querySelector('[data-koyomi="timeline-item"][data-all-day="true"]');
+    if (itemEl === null) {
+      throw new Error('終日の帯が見つかりません');
+    }
+    const rows = container.querySelectorAll('[data-koyomi="timeline-row"]');
+
+    firePointerDown(itemEl, dm(0, 10, 0), rowCenterY(0)); // 1 日目 10:00 を掴む
+    movePointer(dm(1, 10, 0), rowCenterY(1)); // 2 日目 10:00・crane-2 行へ
+
+    expect(rows[0]?.querySelector('[data-koyomi="timeline-preview"]')).toBeNull();
+    const preview = rows[1]?.querySelector('[data-koyomi="timeline-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).toHaveAttribute('data-kind', 'move');
+    const style = (preview as HTMLElement).style;
+    expect(style.insetInlineStart).toBe('50%'); // 1440/2880*100
+    expect(style.width).toBe('50%'); // (2880-1440)/2880*100
+
+    releasePointer(dm(1, 10, 0), rowCenterY(1));
+  });
+});
+
+describe('useTimelineDrag - pointercancel によるキャンセル', () => {
+  it('ドラッグ中に pointercancel が発生するとキャンセルされ、イベントは変更されない（コミットもされない）', () => {
+    const event: CalendarEvent = {
+      id: 'ev-pointercancel',
+      title: '荷揚げ',
+      start: `${DAY0}T10:00`,
+      end: `${DAY0}T11:00`,
+      resourceId: 'crane-1',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 1,
+      events: [event],
+    });
+    mockAllRowRects(container, 1);
+    const itemEl = getItemElement(container, 'ev-pointercancel', `${DAY0}T10:00`);
+
+    firePointerDown(itemEl, dm(0, 10, 0), rowCenterY(0));
+    movePointer(dm(0, 12, 0), rowCenterY(1));
+    expect(sink.current?.state.dragPreview).not.toBeNull();
+
+    firePointerCancel();
+
+    expect(sink.current?.state.dragPreview).toBeNull();
+
+    // pointercancel 後は document のリスナーが外れているため、以降の pointerup は無視される
     releasePointer(dm(0, 12, 0), rowCenterY(1));
 
     const events = sink.current?.api.getEvents() ?? [];

@@ -6,7 +6,7 @@
  * `container.querySelector('[data-koyomi="..."]')` で DOM 仕様を検証する
  * （`month-view.test.tsx` と同じ流儀）。
  */
-import { act, render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -63,6 +63,8 @@ function Harness(props: {
     ...(props.hiddenWeekdays !== undefined ? { hiddenWeekdays: props.hiddenWeekdays } : {}),
     ...(props.multiMonthCount !== undefined ? { multiMonthCount: props.multiMonthCount } : {}),
   });
+  // apiRef 経由でテストから calendar.api を直接参照できるようにする
+  // （month-view.test.tsx の Harness と同じ方針）。
   if (props.apiRef !== undefined) {
     props.apiRef.current = calendar.api;
   }
@@ -313,5 +315,78 @@ describe('MultiMonthView - ドラッグによる月またぎ移動', () => {
     expect(change?.occurrence.eventId).toBe('boundary');
     expect(change?.newRange.start.getTime()).toBe(new Date('2026-08-05T09:00').getTime());
     expect(change?.newRange.end.getTime()).toBe(new Date('2026-08-05T10:00').getTime());
+  });
+});
+
+describe('MultiMonthView - クリック操作', () => {
+  // month-view.test.tsx の「MonthView - クリック操作」と同じ 3 ケースを移植する
+  // （goToDay / handleOverflowClick は MonthView と同型のロジック）。
+  it('「+N 件」クリックで day ビューに切り替わり、その日へ goTo される（既定動作）', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+    ];
+    const apiRef: { current: CalendarApi | null } = { current: null };
+    const { container } = render(<Harness events={events} dayMaxEvents={1} apiRef={apiRef} />);
+
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    expect(overflowButton).toBeInstanceOf(HTMLElement);
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('「+N件」ボタンが見つかりません');
+    }
+
+    fireEvent.click(overflowButton);
+
+    expect(apiRef.current?.getState().view).toBe('day');
+    expect(apiRef.current?.getState().currentDate.getTime()).toBe(
+      new Date('2026-07-07T15:00:00Z').getTime(), // 2026-07-08 0:00 JST
+    );
+  });
+
+  it('onOverflowClick が指定されていればそれが呼ばれ、既定の画面遷移は行われない', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+    ];
+    const onOverflowClick = vi.fn();
+    const apiRef: { current: CalendarApi | null } = { current: null };
+    const { container } = render(
+      <Harness events={events} dayMaxEvents={1} callbacks={{ onOverflowClick }} apiRef={apiRef} />,
+    );
+
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('「+N件」ボタンが見つかりません');
+    }
+    fireEvent.click(overflowButton);
+
+    expect(onOverflowClick).toHaveBeenCalledTimes(1);
+    expect(onOverflowClick.mock.calls[0]?.[0]?.key).toBe('2026-07-08');
+    expect(apiRef.current?.getState().view).toBe('multiMonth');
+  });
+
+  it('日番号クリックで day ビューに切り替わり、その日へ goTo される', () => {
+    const apiRef: { current: CalendarApi | null } = { current: null };
+    const { container } = render(<Harness apiRef={apiRef} />);
+
+    const dayCell = container.querySelector('[data-koyomi-date="2026-07-10"]');
+    expect(dayCell).toBeInstanceOf(HTMLElement);
+    if (!(dayCell instanceof HTMLElement)) {
+      throw new Error('日セルが見つかりません');
+    }
+    const dayNumberButton = dayCell.querySelector('[data-koyomi="month-day-number"]');
+    expect(dayNumberButton).toBeInstanceOf(HTMLElement);
+    if (!(dayNumberButton instanceof HTMLElement)) {
+      throw new Error('日番号ボタンが見つかりません');
+    }
+
+    fireEvent.click(dayNumberButton);
+
+    expect(apiRef.current?.getState().view).toBe('day');
+    expect(apiRef.current?.getState().currentDate.getTime()).toBe(
+      new Date('2026-07-09T15:00:00Z').getTime(), // 2026-07-10 0:00 JST
+    );
+    // 日番号クリックはイベント作成を伴わない（pointerdown の伝播が止められている）
+    expect(apiRef.current?.getEvents()).toHaveLength(0);
   });
 });

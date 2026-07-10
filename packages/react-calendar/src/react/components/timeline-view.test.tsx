@@ -5,7 +5,7 @@
  * `TimelineView` が生成する DOM を `data-koyomi="..."` 属性で検証する。
  * テストプロセスは vitest.config.ts により TZ=Asia/Tokyo で実行される。
  */
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 import type {
@@ -16,6 +16,7 @@ import type {
   TimelineRow,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
+import type { UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
 import type { TimelineViewProps } from './timeline-view';
 import { TimelineView } from './timeline-view';
@@ -47,6 +48,8 @@ interface HarnessProps {
   slotMinutes?: number;
   /** `TimelineView` へそのまま渡す追加 props。 */
   viewProps?: TimelineViewProps;
+  /** `useCalendar` の戻り値を外部から観測するための入れ物。 */
+  sink?: { current: UseCalendarResult | null };
 }
 
 /** `TimelineView` を `CalendarProvider` 配下で描画するテスト用ハーネス。 */
@@ -62,6 +65,9 @@ function Harness(props: HarnessProps): ReactElement {
     ...(props.timelineDays !== undefined ? { timelineDays: props.timelineDays } : {}),
     ...(props.slotMinutes !== undefined ? { slotMinutes: props.slotMinutes } : {}),
   });
+  if (props.sink) {
+    props.sink.current = calendar;
+  }
   return (
     <CalendarProvider value={calendar}>
       <TimelineView {...(props.viewProps ?? {})} />
@@ -403,5 +409,43 @@ describe('TimelineView - リソース color の反映', () => {
     expect(withoutOwnColor?.getAttribute('style')).toContain('--koyomi-event-color: #0000ff');
     // イベント自身の color が優先される
     expect(withOwnColor?.getAttribute('style')).toContain('--koyomi-event-color: #00ff00');
+  });
+});
+
+describe('TimelineView - ドラッグプレビュー', () => {
+  it('setDragPreview 後、対象行にのみ timeline-preview が data-kind・insetInlineStart・width 付きで出現する', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(
+      <Harness resources={[CRANE_1, CRANE_2]} timelineDays={1} sink={sink} />,
+    );
+
+    expect(container.querySelector('[data-koyomi="timeline-preview"]')).toBeNull();
+
+    act(() => {
+      sink.current?.api.setDragPreview({
+        kind: 'resize',
+        occurrenceKey: 'e1@2026-07-15T01:00:00.000Z',
+        range: {
+          start: new Date('2026-07-15T01:00:00Z'), // 10:00 JST
+          end: new Date('2026-07-15T03:00:00Z'), // 12:00 JST
+        },
+        allDay: false,
+        resourceId: 'crane-2',
+      });
+    });
+
+    const rows = container.querySelectorAll('[data-koyomi="timeline-row"]');
+    const preview = rows[1]?.querySelector('[data-koyomi="timeline-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).toHaveAttribute('data-kind', 'resize');
+    // ドラッグプレビューは装飾要素なので読み上げ対象から外す
+    expect(preview).toHaveAttribute('aria-hidden', 'true');
+    const style = (preview as HTMLElement).style;
+    // 10:00 = 600分 → 600/1440*100 ≈ 41.66...%、12:00 = 720分 → 幅 120/1440*100 ≈ 8.33...%
+    expect(style.insetInlineStart).toContain('41.66');
+    expect(style.width).toContain('8.33');
+
+    // 対象外の行（crane-1）にはプレビューが出ない
+    expect(rows[0]?.querySelector('[data-koyomi="timeline-preview"]')).toBeNull();
   });
 });
