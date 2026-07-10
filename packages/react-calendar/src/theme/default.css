@@ -30,6 +30,7 @@
  *   --koyomi-timeline-day-width     タイムラインビューの 1 日分のトラック幅
  *   --koyomi-timeline-lane-height   タイムラインビューの帯 1 レーンの高さ
  *   --koyomi-timeline-header-width  タイムラインビューの行見出し列（左端固定列）の幅
+ *   --koyomi-now-color              現在時刻線（now-indicator）の色
  *
  * 上記に加え、時間グリッドの時刻軸幅をヘッダー・終日行・本体で揃えるための
  * 内部変数として --koyomi-time-axis-width も定義している（必要なら上書き可）。
@@ -63,6 +64,7 @@
   --koyomi-timeline-day-width: 720px;
   --koyomi-timeline-lane-height: 28px;
   --koyomi-timeline-header-width: 120px;
+  --koyomi-now-color: #ea4335;
 
   background-color: var(--koyomi-bg);
   color: var(--koyomi-fg);
@@ -91,6 +93,7 @@
     --koyomi-today-bg: #263449;
     --koyomi-event-color: #8ab4f8;
     --koyomi-event-fg: #202124;
+    --koyomi-now-color: #ea4335;
   }
 }
 
@@ -105,6 +108,7 @@
   --koyomi-today-bg: #263449;
   --koyomi-event-color: #8ab4f8;
   --koyomi-event-fg: #202124;
+  --koyomi-now-color: #ea4335;
 }
 
 [data-koyomi-theme="light"] [data-koyomi="root"],
@@ -117,10 +121,19 @@
   --koyomi-today-bg: #e8f0fe;
   --koyomi-event-color: #1a73e8;
   --koyomi-event-fg: #ffffff;
+  --koyomi-now-color: #ea4335;
 }
 
-/* ボタンのブラウザ既定スタイルをリセットする（見た目は各部位のセレクタで個別に当てる） */
-[data-koyomi="root"] button {
+/*
+ * ボタン/見出しのブラウザ既定スタイルをリセットする（見た目は各部位のセレクタで個別に当てる）。
+ * renderDayCell 等のカスタム描画スロットで利用者が差し込む任意の button/h2/h3 には
+ * 波及させたくないため、セレクタは「data-koyomi 属性を持つ button/h2/h3」に限定する
+ * （ライブラリ自身が出力する button/h2/h3 は必ず data-koyomi 属性を持つ）。
+ * ルート側の `[data-koyomi="root"]` は :where() で包み、詳細度への寄与をゼロにすることで、
+ * 以前の `[data-koyomi="root"] button` 等と詳細度（0,1,1 / フォーカス時は 0,2,1）を
+ * 完全に一致させ、他のルールとの優先順位（カスケード結果）を一切変えていない。
+ */
+:where([data-koyomi="root"]) button[data-koyomi] {
   margin: 0;
   padding: 0;
   border: none;
@@ -131,14 +144,14 @@
   cursor: pointer;
 }
 
-[data-koyomi="root"] h2,
-[data-koyomi="root"] h3 {
+:where([data-koyomi="root"]) h2[data-koyomi],
+:where([data-koyomi="root"]) h3[data-koyomi] {
   margin: 0;
   font-size: inherit;
   font-weight: inherit;
 }
 
-[data-koyomi="root"] button:focus-visible {
+:where([data-koyomi="root"]) button[data-koyomi]:focus-visible {
   outline: 2px solid var(--koyomi-accent);
   outline-offset: 2px;
 }
@@ -678,7 +691,7 @@
   position: absolute;
   inset-inline: 0;
   height: 0;
-  border-top: 2px solid #ea4335;
+  border-top: 2px solid var(--koyomi-now-color);
   pointer-events: none;
 }
 
@@ -690,7 +703,7 @@
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background-color: #ea4335;
+  background-color: var(--koyomi-now-color);
 }
 
 /*
@@ -706,7 +719,7 @@
   width: 0;
   height: auto;
   border-top: none;
-  border-inline-start: 2px solid #ea4335;
+  border-inline-start: 2px solid var(--koyomi-now-color);
 }
 
 /* ---------------------------------------------------------------------------

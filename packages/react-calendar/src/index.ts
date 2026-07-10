@@ -10,10 +10,12 @@
 export { createCalendar } from './core/calendar';
 // 日付範囲ユーティリティ
 export {
+  addMonthsInZone,
   eachDayInRange,
   monthGridRange,
   navigateDate,
   rangesOverlap,
+  startOfMonthInZone,
   startOfWeekInZone,
   startOfYearInZone,
   visibleRangeFor,
@@ -31,6 +33,7 @@ export {
   type TimeGridDragMode,
   type TimeGridDragState,
   timeAtGridPosition,
+  timeAtTimelineOffset,
 } from './core/interaction';
 // イベント変更の純粋関数
 export {
@@ -164,6 +167,7 @@ export {
   type DayCellProps,
   type DayDragHandlers,
   type SegmentProps,
+  type SegmentResizeHandleProps,
   useDayDrag,
 } from './react/use-day-drag';
 export {
