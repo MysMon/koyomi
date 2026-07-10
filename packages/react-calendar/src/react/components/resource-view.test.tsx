@@ -370,3 +370,26 @@ describe('ResourceView - Codex レビュー回帰（終日アイテム）', () =
     expect(items).toHaveLength(1);
   });
 });
+
+describe('ResourceView - Codex 再レビュー回帰', () => {
+  it('終日アイテムはセル幅いっぱいに広がる（insetInlineStart 0% / width 100%）', () => {
+    const { container } = render(
+      <Harness
+        resources={[ROOM_A]}
+        events={[
+          {
+            id: 'ad-w',
+            title: '終日',
+            start: '2026-07-15',
+            end: '2026-07-16',
+            allDay: true,
+            resourceId: 'room-a',
+          },
+        ]}
+      />,
+    );
+    const item = container.querySelector('[data-koyomi="allday-event"]');
+    expect(item instanceof HTMLElement ? item.style.width : '').toBe('100%');
+    expect(item instanceof HTMLElement ? item.style.insetInlineStart : '').toBe('0%');
+  });
+});

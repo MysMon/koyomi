@@ -235,8 +235,13 @@ const AllDayItemButton = memo(function AllDayItemButton(props: {
 }): ReactElement {
   const { occurrence, column, lane, timeZone, locale, drag } = props;
   const style = withEventColorStyle(
-    // 週/日ビューの終日セグメントと同じレーン縦積みの位置決め
-    { top: `calc(${lane} * var(--koyomi-lane-height, 24px))` },
+    // 週/日ビューの終日セグメントと同じ位置決め。列 = 1 日のため水平スパンは
+    // 常に列幅いっぱい（週/日ビューの startCol/span に相当する % は 0%/100% 固定）
+    {
+      top: `calc(${lane} * var(--koyomi-lane-height, 24px))`,
+      insetInlineStart: '0%',
+      width: '100%',
+    },
     occurrence.event.color ?? column.resource?.color,
   );
   return (
