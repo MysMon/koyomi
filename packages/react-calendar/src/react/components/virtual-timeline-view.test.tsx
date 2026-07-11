@@ -8,7 +8,12 @@ import { act, fireEvent, render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { createRef } from 'react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CalendarEvent, CalendarResource, CalendarViewType } from '../../core/types';
+import type {
+  BusinessHoursRule,
+  CalendarEvent,
+  CalendarResource,
+  CalendarViewType,
+} from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
@@ -54,6 +59,7 @@ interface HarnessProps {
   events?: readonly CalendarEvent[];
   resources?: readonly CalendarResource[];
   timelineDays?: number;
+  businessHours?: readonly BusinessHoursRule[];
   callbacks?: CalendarInteractionCallbacks;
   viewProps?: VirtualTimelineViewProps;
   sink?: { current: UseCalendarResult | null };
@@ -70,6 +76,7 @@ function Harness(props: HarnessProps): ReactElement {
     resources: props.resources ?? [],
     unassignedLane: 'auto',
     ...(props.timelineDays !== undefined ? { timelineDays: props.timelineDays } : {}),
+    ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -319,5 +326,30 @@ describe('VirtualTimelineView', () => {
       'リソースがありません',
     );
     expect(container.querySelector('[data-koyomi-virtualized]')).toBeNull();
+  });
+});
+
+describe('VirtualTimelineView - businessHours（営業時間）', () => {
+  it('省略時（既定 []）は timeline-business-hours 要素が描画されない', () => {
+    const { container } = render(<Harness resources={makeResources(2)} />);
+    expect(container.querySelectorAll('[data-koyomi="timeline-business-hours"]')).toHaveLength(0);
+  });
+
+  it('指定した時間帯が insetInlineStart/width % の帯として可視行に描画される（2026-07-15 は水曜）', () => {
+    const businessHours: BusinessHoursRule[] = [
+      { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' },
+    ];
+    const { container } = render(
+      <Harness resources={makeResources(2)} businessHours={businessHours} />,
+    );
+    const bands = container.querySelectorAll('[data-koyomi="timeline-business-hours"]');
+    expect(bands.length).toBeGreaterThan(0);
+    for (const band of bands) {
+      expect(band).toHaveAttribute('aria-hidden', 'true');
+      const style = (band as HTMLElement).style;
+      // 09:00 = 540 分 / 1440 分 = 37.5%、幅 = (18:00 - 09:00) = 540 分 / 1440 分 = 37.5%
+      expect(style.insetInlineStart).toBe('37.5%');
+      expect(style.width).toBe('37.5%');
+    }
   });
 });

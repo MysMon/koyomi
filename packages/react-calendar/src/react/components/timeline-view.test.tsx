@@ -9,6 +9,7 @@ import { act, render } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 import type {
+  BusinessHoursRule,
   CalendarEvent,
   CalendarResource,
   CalendarViewType,
@@ -46,6 +47,8 @@ interface HarnessProps {
   timelineDays?: number;
   /** 時間軸の目盛り間隔（分）。 */
   slotMinutes?: number;
+  /** 営業時間の指定（{@link CalendarOptions.businessHours}）。 */
+  businessHours?: readonly BusinessHoursRule[];
   /** `TimelineView` へそのまま渡す追加 props。 */
   viewProps?: TimelineViewProps;
   /** `useCalendar` の戻り値を外部から観測するための入れ物。 */
@@ -64,6 +67,7 @@ function Harness(props: HarnessProps): ReactElement {
     unassignedLane: props.unassignedLane ?? 'auto',
     ...(props.timelineDays !== undefined ? { timelineDays: props.timelineDays } : {}),
     ...(props.slotMinutes !== undefined ? { slotMinutes: props.slotMinutes } : {}),
+    ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -505,5 +509,69 @@ describe('TimelineView - ARIA', () => {
     for (const header of otherHeaders) {
       expect(header).not.toHaveAttribute('aria-current');
     }
+  });
+});
+
+describe('TimelineView - businessHours（営業時間）', () => {
+  it('省略時（既定 []）は timeline-business-hours 要素が描画されない', () => {
+    const { container } = render(<Harness resources={[CRANE_1]} />);
+    expect(container.querySelectorAll('[data-koyomi="timeline-business-hours"]')).toHaveLength(0);
+  });
+
+  it('指定した時間帯が insetInlineStart/width % の帯として全行に描画される（2026-07-15 は水曜）', () => {
+    const businessHours: BusinessHoursRule[] = [
+      { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' },
+    ];
+    const { container } = render(
+      <Harness resources={[CRANE_1, CRANE_2]} businessHours={businessHours} />,
+    );
+    const bands = container.querySelectorAll('[data-koyomi="timeline-business-hours"]');
+    // 1 日分（totalMinutes=1440）× 2 行
+    expect(bands).toHaveLength(2);
+    for (const band of bands) {
+      expect(band).toHaveAttribute('aria-hidden', 'true');
+      const style = (band as HTMLElement).style;
+      // 09:00 = 540 分 / 1440 分 = 37.5%、幅 = (18:00 - 09:00) = 540 分 / 1440 分 = 37.5%
+      expect(style.insetInlineStart).toBe('37.5%');
+      expect(style.width).toBe('37.5%');
+    }
+  });
+
+  it('daysOfWeek に表示日の曜日が含まれない場合は帯が描画されない', () => {
+    const businessHours: BusinessHoursRule[] = [
+      { daysOfWeek: [0], startTime: '09:00', endTime: '18:00' },
+    ];
+    const { container } = render(<Harness resources={[CRANE_1]} businessHours={businessHours} />);
+    expect(container.querySelectorAll('[data-koyomi="timeline-business-hours"]')).toHaveLength(0);
+  });
+
+  it('帯は timeline-row の中で timeline-item より前（背面）に描画される', () => {
+    const businessHours: BusinessHoursRule[] = [
+      { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' },
+    ];
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '予定',
+        start: '2026-07-15T10:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'crane-1',
+      },
+    ];
+    const { container } = render(
+      <Harness resources={[CRANE_1]} events={events} businessHours={businessHours} />,
+    );
+    const row = container.querySelector('[data-koyomi="timeline-row"]');
+    expect(row).not.toBeNull();
+    const children = Array.from(row?.children ?? []);
+    const bandIndex = children.findIndex(
+      (el) => el.getAttribute('data-koyomi') === 'timeline-business-hours',
+    );
+    const itemIndex = children.findIndex(
+      (el) => el.getAttribute('data-koyomi') === 'timeline-item',
+    );
+    expect(bandIndex).toBeGreaterThanOrEqual(0);
+    expect(itemIndex).toBeGreaterThanOrEqual(0);
+    expect(bandIndex).toBeLessThan(itemIndex);
   });
 });

@@ -82,6 +82,7 @@ export {
 } from './core/timezone';
 // コア型定義
 export type {
+  BusinessHourRange,
   BusinessHourSlot,
   BusinessHoursRule,
   CalendarApi,

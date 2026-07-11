@@ -34,7 +34,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { TimelineItem, TimelineRow, TimeZoneId } from '../../core/types';
+import type { BusinessHourRange, TimelineItem, TimelineRow, TimeZoneId } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
 import { useIsomorphicLayoutEffect } from '../use-isomorphic-layout-effect';
@@ -49,6 +49,7 @@ import {
   DEFAULT_EMPTY_LABEL,
   DEFAULT_UNASSIGNED_LABEL,
   MINUTES_PER_DAY,
+  sameBusinessHourRanges,
   samePreviewSegment,
   sameTimelineRow,
   toDivRef,
@@ -107,6 +108,8 @@ interface TimelineRowGroupProps {
   locale: string;
   totalMinutes: number;
   nowIndicatorMinutes: number | null;
+  /** {@link TimelineViewModel.businessHourRanges}（全行共通）。 */
+  businessHourRanges: readonly BusinessHourRange[];
   unassignedLabel: ReactNode;
   renderEvent: ((item: TimelineItem) => ReactNode) | undefined;
   renderRowHeader: ((row: TimelineRow, defaultContent: ReactNode) => ReactNode) | undefined;
@@ -132,6 +135,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
     locale,
     totalMinutes,
     nowIndicatorMinutes,
+    businessHourRanges,
     unassignedLabel,
     renderEvent,
     renderRowHeader,
@@ -175,6 +179,17 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
         role="gridcell"
         style={withLaneCountStyle(row.laneCount)}
       >
+        {businessHourRanges.map((range) => (
+          <div
+            key={`${range.startMinutes}-${range.endMinutes}`}
+            data-koyomi="timeline-business-hours"
+            aria-hidden="true"
+            style={{
+              insetInlineStart: `${(range.startMinutes / totalMinutes) * 100}%`,
+              width: `${((range.endMinutes - range.startMinutes) / totalMinutes) * 100}%`,
+            }}
+          />
+        ))}
         {row.items.map((item) => {
           const itemProps = drag.getItemProps(item);
           const occurrence = item.occurrence;
@@ -261,6 +276,7 @@ const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
     prev.locale === next.locale &&
     prev.totalMinutes === next.totalMinutes &&
     prev.nowIndicatorMinutes === next.nowIndicatorMinutes &&
+    sameBusinessHourRanges(prev.businessHourRanges, next.businessHourRanges) &&
     prev.unassignedLabel === next.unassignedLabel &&
     prev.renderEvent === next.renderEvent &&
     prev.renderRowHeader === next.renderRowHeader &&
@@ -434,7 +450,8 @@ export const VirtualTimelineView = forwardRef<VirtualTimelineViewHandle, Virtual
       return null;
     }
 
-    const { days, slots, totalMinutes, nowIndicatorMinutes, isEmpty } = viewModel;
+    const { days, slots, totalMinutes, nowIndicatorMinutes, isEmpty, businessHourRanges } =
+      viewModel;
     const { timeZone, options } = state;
     const { locale } = options;
 
@@ -458,6 +475,7 @@ export const VirtualTimelineView = forwardRef<VirtualTimelineViewHandle, Virtual
         locale={locale}
         totalMinutes={totalMinutes}
         nowIndicatorMinutes={nowIndicatorMinutes}
+        businessHourRanges={businessHourRanges}
         unassignedLabel={unassignedLabel}
         renderEvent={renderEvent}
         renderRowHeader={renderRowHeader}

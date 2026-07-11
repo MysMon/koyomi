@@ -6,7 +6,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import { parseDateValue } from '../timezone';
-import type { CalendarEvent, CalendarResource, EventOccurrence, TimeZoneId } from '../types';
+import type {
+  BusinessHoursRule,
+  CalendarEvent,
+  CalendarResource,
+  EventOccurrence,
+  TimeZoneId,
+} from '../types';
 import { buildResourceViewModel } from './resource-view';
 
 const TOKYO = 'Asia/Tokyo';
@@ -61,6 +67,7 @@ function build(params: {
   now?: Date;
   timeZone?: TimeZoneId;
   slotMinutes?: number;
+  businessHours?: readonly BusinessHoursRule[];
 }) {
   return buildResourceViewModel({
     currentDate: params.currentDate ?? at('2026-07-10T09:00'),
@@ -70,6 +77,7 @@ function build(params: {
     unassignedLane: params.unassignedLane ?? 'auto',
     slotMinutes: params.slotMinutes ?? 60,
     now: params.now ?? at('2026-07-10T10:30'),
+    ...(params.businessHours !== undefined ? { businessHours: params.businessHours } : {}),
   });
 }
 
@@ -342,6 +350,47 @@ describe('buildResourceViewModel', () => {
       expect(item?.startMinutes).toBe(600);
       expect(item?.endMinutes).toBe(660);
       expect(vm.nowIndicatorMinutes).toBe(720);
+    });
+  });
+
+  describe('businessHours（営業時間）', () => {
+    it('省略時（既定 []）はすべてのスロットが isBusinessHours: false になる', () => {
+      const vm = build({ slotMinutes: 60 });
+      expect(vm.businessHourSlots).toHaveLength(vm.slots.length);
+      expect(vm.businessHourSlots.every((slot) => slot.isBusinessHours === false)).toBe(true);
+    });
+
+    it('表示日（列共通）の曜日を基準に該当スロットが isBusinessHours: true になる', () => {
+      // 2026-07-10 は金曜（weekday: 5）
+      const vm = build({
+        slotMinutes: 60,
+        businessHours: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' }],
+      });
+      const at9 = vm.businessHourSlots.find((slot) => slot.minutes === 540);
+      const at18 = vm.businessHourSlots.find((slot) => slot.minutes === 1080);
+      const at8 = vm.businessHourSlots.find((slot) => slot.minutes === 480);
+      expect(at9?.isBusinessHours).toBe(true);
+      expect(at18?.isBusinessHours).toBe(false);
+      expect(at8?.isBusinessHours).toBe(false);
+    });
+
+    it('daysOfWeek に表示日の曜日が含まれない場合は終日 isBusinessHours: false になる', () => {
+      // 2026-07-10 は金曜（weekday: 5）。日曜だけを営業日にする
+      const vm = build({
+        slotMinutes: 60,
+        businessHours: [{ daysOfWeek: [0], startTime: '09:00', endTime: '18:00' }],
+      });
+      expect(vm.businessHourSlots.every((slot) => slot.isBusinessHours === false)).toBe(true);
+    });
+
+    it('列が複数あっても businessHourSlots は全列共通の 1 本（列ごとの再計算をしない）', () => {
+      const vm = build({
+        resources: [resource('r1'), resource('r2')],
+        businessHours: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' }],
+      });
+      expect(vm.columns).toHaveLength(2);
+      // ResourceViewModel 自体に 1 本だけ存在し、列ごとの businessHourSlots は持たない
+      expect(vm.businessHourSlots.some((slot) => slot.isBusinessHours)).toBe(true);
     });
   });
 });

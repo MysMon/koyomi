@@ -31,7 +31,8 @@
  *   --koyomi-timeline-lane-height   タイムラインビューの帯 1 レーンの高さ
  *   --koyomi-timeline-header-width  タイムラインビューの行見出し列（左端固定列）の幅
  *   --koyomi-now-color              現在時刻線（now-indicator）の色
- *   --koyomi-business-hours-bg      営業時間内スロット（businessHours）の背景色
+ *   --koyomi-business-hours-bg      営業時間内区間（businessHours）の背景色
+ *                                    （週/日・リソース・タイムラインビュー共通）
  *
  * 上記に加え、時間グリッドの時刻軸幅をヘッダー・終日行・本体で揃えるための
  * 内部変数として --koyomi-time-axis-width も定義している（必要なら上書き可）。
@@ -635,7 +636,9 @@
   pointer-events: none;
 }
 
-/* 営業時間内スロット（businessHours）。コンポーネント側が該当スロットにのみ
+/* 営業時間内スロット（businessHours）。週/日ビュー（TimeGridView）とリソースビュー
+ * （ResourceView / VirtualResourceView）は同じ data-koyomi="timegrid-slot" 罫線を
+ * 共有しているため、この 1 ルールで両方に効く。コンポーネント側が該当スロットにのみ
  * height（次のスロットまでの高さ）を inline style で付与するため、ここでは
  * 控えめな背景色を敷くだけでよい */
 [data-koyomi="timegrid-slot"][data-koyomi-business-hours] {
@@ -1218,6 +1221,16 @@
   height: calc(var(--koyomi-timeline-lane-height, 28px) * var(--koyomi-timeline-lanes, 1));
   /* 空き領域からの作成ドラッグをタッチのスクロールに奪われないようにする */
   touch-action: none;
+}
+
+/* 営業時間内の区間（businessHours）。週/日・リソースビューの timegrid-slot と
+ * 同じ控えめな背景色を敷くだけの下敷き帯。コンポーネント側が timeline-item より
+ * 前（DOM 順で先）に描画するため、絶対配置のスタッキング順で自然に背面へ回る */
+[data-koyomi="timeline-business-hours"] {
+  position: absolute;
+  inset-block: 0;
+  background-color: var(--koyomi-business-hours-bg);
+  pointer-events: none;
 }
 
 [data-koyomi="timeline-item"] {

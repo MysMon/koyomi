@@ -16,16 +16,9 @@
  * `scrollToResource`（`VirtualResourceView` / `VirtualTimelineView` の ref API）
  * を使った「リソースへジャンプ」の `<select>` を提供する。
  *
- * @remarks
- * `businessHours`（営業時間）はライブラリ上は週/日ビュー（`TimeGridView`）専用の
- * 機能で、リソース/タイムラインビューのビューモデル（`ResourceViewModel` /
- * `TimelineViewModel`）には対応する `businessHourSlots` が存在しない
- * （`docs/views.md` の「営業時間」節も週/日ビュー限定と明記している）。
- * そのため本パターンでは `businessHours` オプションを設定した上で、公開 API の
- * `weekdayInZone` だけを使って同じ設定から曜日判定を行い、リソースビューの列に
- * CSS のみでハイライト帯を重ねる補完表示を行っている（ライブラリの内部関数は
- * 一切使わない）。将来ライブラリ側がリソース/タイムラインビューの営業時間表示に
- * 対応した場合、この補完表示は不要になる。
+ * `businessHours`（営業時間）はリソース/タイムラインビューにもネイティブ対応して
+ * いるため、`useCalendar` のオプションを設定するだけで各ビューの見た目に反映される
+ * （`docs/views.md` の「営業時間」節を参照。CSS 側の補完表示は不要）。
  */
 
 import type {
@@ -45,16 +38,8 @@ import {
   VirtualListView,
   VirtualResourceView,
   VirtualTimelineView,
-  weekdayInZone,
 } from '@koyomi-cal/react';
-import {
-  type CSSProperties,
-  type ReactElement,
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { type ReactElement, useCallback, useMemo, useRef, useState } from 'react';
 import { makeManyEvents, makeManyResources } from '../sample-data';
 import './team.css';
 
@@ -75,9 +60,6 @@ const LIST_DAYS = 45;
 
 /** タイムラインビューの表示日数（1 週間弱）。 */
 const TIMELINE_DAYS = 5;
-
-/** 1 日の分数。 */
-const MINUTES_PER_DAY = 1440;
 
 /** 表示するビューの選択肢（このパターンでは 3 ビューのみに opt-in）。 */
 const VIEW_TABS: readonly { value: 'resource' | 'timeline' | 'list'; label: string }[] = [
@@ -156,12 +138,6 @@ function parseUnassignedLane(value: string): 'auto' | 'always' {
   throw new Error(`不正な unassignedLane の値です: '${value}'`);
 }
 
-/** `'HH:mm'` 形式の時刻を 0 時からの分数に変換する（営業時間の帯表示用途限定の簡易実装）。 */
-function minutesFromHHmm(value: string): number {
-  const [hoursText, minutesText] = value.split(':');
-  return Number(hoursText ?? 0) * 60 + Number(minutesText ?? 0);
-}
-
 /** リソース ID から表示名を求める（`null` は「未割り当て」、`undefined` は空文字）。 */
 function resourceTitleFor(
   resources: readonly CalendarResource[],
@@ -174,23 +150,6 @@ function resourceTitleFor(
     return '未割り当て';
   }
   return resources.find((entry) => entry.id === resourceId)?.title ?? resourceId;
-}
-
-/**
- * 営業時間ハイライトの帯を CSS カスタムプロパティとして表現する。
- *
- * `--team-business-top` / `--team-business-height` はこのオブジェクトの型
- * （`CSSProperties`）に存在しないプロパティ名のため、`as` キャストが必要になる
- * （DOM 仕様で明示的に許可されている、カスタムプロパティ用の唯一の抜け道。
- * ライブラリ本体 `list-view-parts.tsx` の `eventSwatchStyle` と同じ理由）。
- */
-function businessHighlightStyle(rule: BusinessHoursRule): CSSProperties {
-  const startMinutes = minutesFromHHmm(rule.startTime);
-  const endMinutes = minutesFromHHmm(rule.endTime);
-  return {
-    '--team-business-top': `${(startMinutes / MINUTES_PER_DAY) * 100}%`,
-    '--team-business-height': `${((endMinutes - startMinutes) / MINUTES_PER_DAY) * 100}%`,
-  } as CSSProperties;
 }
 
 /**
@@ -337,15 +296,6 @@ export function TeamPattern(): ReactElement {
     [state.currentDate, state.timeZone],
   );
 
-  const businessRule = useMemo(
-    () =>
-      BUSINESS_HOURS.find((rule) =>
-        rule.daysOfWeek.includes(weekdayInZone(state.currentDate, state.timeZone)),
-      ),
-    [state.currentDate, state.timeZone],
-  );
-  const showBusinessHighlight = state.view === 'resource' && businessRule !== undefined;
-
   return (
     <div className="team-pattern demo-app">
       <header className="demo-header">
@@ -464,14 +414,7 @@ export function TeamPattern(): ReactElement {
           )}
         </aside>
 
-        <div
-          ref={containerRef}
-          className="team-calendar-frame"
-          data-team-business-hours={showBusinessHighlight ? 'true' : undefined}
-          style={
-            showBusinessHighlight && businessRule ? businessHighlightStyle(businessRule) : undefined
-          }
-        >
+        <div ref={containerRef} className="team-calendar-frame">
           <CalendarProvider value={calendar} callbacks={callbacks}>
             {state.view === 'resource' && <VirtualResourceView ref={resourceViewRef} />}
             {state.view === 'timeline' && <VirtualTimelineView ref={timelineViewRef} />}

@@ -385,6 +385,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           resources,
           unassignedLane: resolvedOptions.unassignedLane,
           slotMinutes: resolvedOptions.slotMinutes,
+          businessHours: resolvedOptions.businessHours,
           now,
         });
       case 'timeline':
@@ -396,6 +397,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           unassignedLane: resolvedOptions.unassignedLane,
           timelineDays: resolvedOptions.timelineDays,
           slotMinutes: resolvedOptions.slotMinutes,
+          businessHours: resolvedOptions.businessHours,
           now,
         });
     }

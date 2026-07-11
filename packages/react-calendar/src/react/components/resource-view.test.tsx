@@ -9,6 +9,7 @@ import { act, render } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 import type {
+  BusinessHoursRule,
   CalendarEvent,
   CalendarResource,
   CalendarViewType,
@@ -42,6 +43,8 @@ interface HarnessProps {
   resources?: readonly CalendarResource[];
   /** 未割り当てレーンの生成規則。 */
   unassignedLane?: 'auto' | 'always';
+  /** 営業時間の指定（{@link CalendarOptions.businessHours}）。 */
+  businessHours?: readonly BusinessHoursRule[];
   /** `ResourceView` へそのまま渡す追加 props。 */
   viewProps?: ResourceViewProps;
   /** `useCalendar` の戻り値を外部から観測するための入れ物。 */
@@ -58,6 +61,7 @@ function Harness(props: HarnessProps): ReactElement {
     events: props.events ?? EMPTY_EVENTS,
     resources: props.resources ?? EMPTY_RESOURCES,
     unassignedLane: props.unassignedLane ?? 'auto',
+    ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -575,5 +579,30 @@ describe('ResourceView - ARIA', () => {
     );
     const cells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
     expect(cells[cells.length - 1]).toHaveAttribute('aria-label', '未割り当て');
+  });
+});
+
+describe('ResourceView - businessHours（営業時間）', () => {
+  it('省略時（既定 []）は data-koyomi-business-hours 属性が付かない', () => {
+    const { container } = render(<Harness resources={[ROOM_A]} />);
+    expect(container.querySelectorAll('[data-koyomi-business-hours]')).toHaveLength(0);
+  });
+
+  it('指定した時間帯のスロットにのみ data-koyomi-business-hours 属性が付き、全列共通になる（2026-07-15 は水曜）', () => {
+    const businessHours: BusinessHoursRule[] = [
+      { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '17:00' },
+    ];
+    const { container } = render(
+      <Harness resources={[ROOM_A, ROOM_B]} businessHours={businessHours} />,
+    );
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+    expect(columns).toHaveLength(2);
+    for (const column of columns) {
+      const slots = column.querySelectorAll('[data-koyomi="timegrid-slot"]');
+      // slotMinutes 既定 60 分: インデックス 9 = 9:00、17 = 17:00
+      expect(slots[9]).toHaveAttribute('data-koyomi-business-hours', 'true');
+      expect(slots[17]).not.toHaveAttribute('data-koyomi-business-hours');
+      expect(slots[8]).not.toHaveAttribute('data-koyomi-business-hours');
+    }
   });
 });

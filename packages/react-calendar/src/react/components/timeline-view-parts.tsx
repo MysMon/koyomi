@@ -18,7 +18,12 @@
 
 import type { CSSProperties, Ref } from 'react';
 import { useRef, useState } from 'react';
-import type { CalendarResource, TimelineItem, TimelineRow } from '../../core/types';
+import type {
+  BusinessHourRange,
+  CalendarResource,
+  TimelineItem,
+  TimelineRow,
+} from '../../core/types';
 import type { TimelineDragHandlers, TimelinePreviewSegment } from '../use-timeline-drag';
 
 /** 1 日の分（24:00 = 1440 分）。 */
@@ -147,6 +152,31 @@ export function sameTimelineRow(a: TimelineRow, b: TimelineRow): boolean {
     a.laneCount === b.laneCount &&
     sameTimelineItems(a.items, b.items)
   );
+}
+
+/**
+ * `TimelineViewModel.businessHourRanges` の内容が等しいかどうかを比較する。
+ * ビューモデル全体で共有する 1 本の配列（全行共通）のため、通常は参照比較で
+ * 早期に一致するが、`memo` の安全側フォールバックとして内容比較も行う。
+ */
+export function sameBusinessHourRanges(
+  a: readonly BusinessHourRange[],
+  b: readonly BusinessHourRange[],
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((range, index) => {
+    const other = b[index];
+    return (
+      other !== undefined &&
+      range.startMinutes === other.startMinutes &&
+      range.endMinutes === other.endMinutes
+    );
+  });
 }
 
 /** `TimelinePreviewSegment` の内容が等しいかどうかを比較する。 */
