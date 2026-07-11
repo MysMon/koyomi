@@ -10,7 +10,7 @@
  * 幅を `timelineDays * 1440`px（= 表示分 1 分 1px）にすることで、clientX が
  * そのまま「表示分」になるようにする（§7.2 の座標系）。
  */
-import { act, fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render, renderHook } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { parseDateValue } from '../core/timezone';
@@ -19,6 +19,7 @@ import { TimelineView } from './components/timeline-view';
 import { CalendarProvider } from './context';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 import { useCalendar } from './use-calendar';
+import { useTimelineDrag } from './use-timeline-drag';
 
 /** 表示タイムゾーン。 */
 const TOKYO = 'Asia/Tokyo';
@@ -311,6 +312,107 @@ describe('useTimelineDrag - 移動・リサイズ', () => {
       resourceId: 'crane-1',
     });
     expect(sink.current?.state.dragPreview).toBeNull();
+  });
+});
+
+describe('useTimelineDrag - 追加通知（onEventDoubleClick / onEventContextMenu / onEventHover / onEventHoverEnd）', () => {
+  const EVENT: CalendarEvent = {
+    id: 'ev-notify',
+    title: '会議',
+    start: `${DAY0}T10:00`,
+    end: `${DAY0}T11:00`,
+    resourceId: 'crane-1',
+  };
+
+  it('ダブルクリックで onEventDoubleClick がオカレンスと nativeEvent を受け取る', () => {
+    const onEventDoubleClick = vi.fn();
+    const { container } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [EVENT],
+      callbacks: { onEventDoubleClick },
+    });
+    mockAllRowRects(container, 1);
+    const itemEl = getItemElement(container, 'ev-notify', `${DAY0}T10:00`);
+
+    fireEvent.dblClick(itemEl);
+
+    expect(onEventDoubleClick).toHaveBeenCalledTimes(1);
+    expect(onEventDoubleClick.mock.calls[0]?.[0]?.event.title).toBe('会議');
+    expect(onEventDoubleClick.mock.calls[0]?.[1]).toBeInstanceOf(MouseEvent);
+  });
+
+  it('コンテキストメニュー操作で onEventContextMenu が呼ばれ、ライブラリは preventDefault しない', () => {
+    const onEventContextMenu = vi.fn();
+    const { container } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [EVENT],
+      callbacks: { onEventContextMenu },
+    });
+    mockAllRowRects(container, 1);
+    const itemEl = getItemElement(container, 'ev-notify', `${DAY0}T10:00`);
+
+    const contextMenuEvent = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    const preventDefaultSpy = vi.spyOn(contextMenuEvent, 'preventDefault');
+    fireEvent(itemEl, contextMenuEvent);
+
+    expect(onEventContextMenu).toHaveBeenCalledTimes(1);
+    expect(preventDefaultSpy).not.toHaveBeenCalled();
+  });
+
+  it('pointerover/pointerout（外部要素からの出入り）で onEventHover / onEventHoverEnd が呼ばれる', () => {
+    const onEventHover = vi.fn();
+    const onEventHoverEnd = vi.fn();
+    const { container } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [EVENT],
+      callbacks: { onEventHover, onEventHoverEnd },
+    });
+    mockAllRowRects(container, 1);
+    const itemEl = getItemElement(container, 'ev-notify', `${DAY0}T10:00`);
+    const outside = document.createElement('div');
+    document.body.appendChild(outside);
+
+    fireEvent(itemEl, new MouseEvent('pointerover', { bubbles: true, relatedTarget: outside }));
+    expect(onEventHover).toHaveBeenCalledTimes(1);
+
+    fireEvent(itemEl, new MouseEvent('pointerout', { bubbles: true, relatedTarget: outside }));
+    expect(onEventHoverEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('コールバック未指定時は getItemProps() のキー集合が従来と完全一致する（追加通知系のキーを含まない）', () => {
+    const { result } = renderHook(() => {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'timeline',
+        events: [EVENT],
+        resources: [CRANE_1],
+        timelineDays: 1,
+      });
+      const drag = useTimelineDrag({ calendar });
+      return { calendar, drag };
+    });
+
+    const { viewModel } = result.current.calendar;
+    if (viewModel.type !== 'timeline') {
+      throw new Error('テストはタイムラインビューを前提とする');
+    }
+    const item = viewModel.rows
+      .flatMap((row) => row.items)
+      .find((positioned) => positioned.occurrence.eventId === 'ev-notify');
+    if (item === undefined) {
+      throw new Error('アイテムが見つかりません');
+    }
+
+    const props = result.current.drag.getItemProps(item);
+
+    expect(Object.keys(props).sort()).toEqual(
+      ['data-koyomi-occurrence', 'onClick', 'onKeyDown', 'onPointerDown', 'tabIndex'].sort(),
+    );
   });
 });
 

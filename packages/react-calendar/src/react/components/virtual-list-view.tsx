@@ -249,6 +249,7 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
         allDayLabel={allDayLabel}
         onEventClick={handleEventClick}
         onEventKeyDown={handleEventKeyDown}
+        callbacks={callbacks}
         sectionRef={virtualizer.measureElement(day.key)}
         role="listitem"
         ariaLabel={dayAriaLabel ? dayAriaLabel(day, defaultDayAriaLabel) : defaultDayAriaLabel}

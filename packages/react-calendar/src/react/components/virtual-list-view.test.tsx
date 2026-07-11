@@ -227,6 +227,22 @@ describe('VirtualListView', () => {
     expect(occurrence.eventId).toBe('e1');
   });
 
+  it('ダブルクリックで onEventDoubleClick が発火する（共有レンダラの配線確認）', () => {
+    const onEventDoubleClick = vi.fn();
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const { container } = render(
+      <TestVirtualList events={events} listDays={40} callbacks={{ onEventDoubleClick }} />,
+    );
+    const button = container.querySelector('[data-koyomi="list-event"]');
+    if (button === null) {
+      throw new Error('list-event が見つかりません');
+    }
+    fireEvent.dblClick(button);
+    expect(onEventDoubleClick).toHaveBeenCalledTimes(1);
+  });
+
   it('フォーカス中の日セクションは窓外へスクロールしても pinned で残り、blur で解除される', async () => {
     const { container } = render(
       <TestVirtualList events={makeDailyEvents(40)} listDays={60} estimateDayHeight={50} />,

@@ -22,6 +22,7 @@ import type {
   CalendarEventInput,
   CalendarEventPatch,
   CalendarOptions,
+  CalendarRangeChangeInfo,
   CalendarResource,
   CalendarState,
   CalendarViewModel,
@@ -249,6 +250,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
   let resources: readonly CalendarResource[] = options?.resources ?? [];
   let dragPreview: DragPreview | null = null;
   let onEventsChange = options?.onEventsChange;
+  let onRangeChange = options?.onRangeChange;
 
   assertTimeZone(timeZone);
   assertValidDate(currentDate);
@@ -260,6 +262,52 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
   let viewModelCache: CalendarViewModel | null = null;
   /** ID 自動採番のカウンタ。 */
   let idCounter = 0;
+  /**
+   * 直近に `onRangeChange` へ通知した内容（比較用）。`null` は未通知
+   * （作成直後、まだ 1 度も通知していない状態）を表す。
+   */
+  let lastNotifiedRange: {
+    view: CalendarViewType;
+    currentDateTime: number;
+    rangeStart: number;
+    rangeEnd: number;
+  } | null = null;
+
+  /**
+   * `onRangeChange` の発火判定を行う。ビュー・基準日・表示範囲（の計算結果）が
+   * 直前の通知と 1 つでも異なる場合のみ 1 回発火する。表示範囲は
+   * {@link getVisibleRange}（イベント展開にも使う既存の範囲計算）をそのまま
+   * 再利用し、別の計算式を持たない。
+   */
+  function notifyRangeChangeIfNeeded(): void {
+    if (onRangeChange === undefined) {
+      return;
+    }
+    const range = getVisibleRange();
+    const next = {
+      view,
+      currentDateTime: currentDate.getTime(),
+      rangeStart: range.start.getTime(),
+      rangeEnd: range.end.getTime(),
+    };
+    if (
+      lastNotifiedRange !== null &&
+      lastNotifiedRange.view === next.view &&
+      lastNotifiedRange.currentDateTime === next.currentDateTime &&
+      lastNotifiedRange.rangeStart === next.rangeStart &&
+      lastNotifiedRange.rangeEnd === next.rangeEnd
+    ) {
+      return;
+    }
+    lastNotifiedRange = next;
+    const info: CalendarRangeChangeInfo = {
+      view,
+      currentDate,
+      rangeStart: range.start,
+      rangeEnd: range.end,
+    };
+    onRangeChange(info);
+  }
 
   /**
    * 状態変更を確定してリスナーに通知する。
@@ -272,6 +320,14 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
     }
     for (const listener of listeners) {
       listener();
+    }
+    if (invalidatesViewModel) {
+      // ビュー・基準日・オプション（表示範囲に影響し得る）の変更はここに集約されるため、
+      // ここで併せて onRangeChange の発火判定を行う（イベント/リソースの変更など
+      // 範囲に無関係な更新は notifyRangeChangeIfNeeded 内の差分比較で自然に除外される）。
+      // listeners 通知の後に呼ぶことで、commit 完了後に呼ぶ onEventsChange と
+      // 発火タイミングの規約を揃える。
+      notifyRangeChangeIfNeeded();
     }
   }
 
@@ -403,6 +459,9 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
     }
   }
 
+  // 作成直後に 1 回発火する（FullCalendar の datesSet が初期レンダーでも呼ばれるのに合わせる）。
+  notifyRangeChangeIfNeeded();
+
   return {
     getState(): CalendarState {
       if (stateCache === null) {
@@ -501,6 +560,10 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       if (patch.onEventsChange !== undefined) {
         // コールバックの差し替えは state スナップショットに影響しないため通知しない
         onEventsChange = patch.onEventsChange;
+      }
+      if (patch.onRangeChange !== undefined) {
+        // 同上。差し替え自体では発火せず、以後の実際の変更で新しいコールバックが呼ばれる
+        onRangeChange = patch.onRangeChange;
       }
       if (!resolvedOptionsEqual(nextResolved, resolvedOptions)) {
         resolvedOptions = nextResolved;

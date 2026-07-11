@@ -51,6 +51,8 @@ import {
   checkBeforeEventDelete,
   checkBeforeSelectRange,
   createAutoScrollLoop,
+  type EventNotificationProps,
+  eventNotificationProps,
   resolveScopeForRecurring,
 } from './drag-common';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
@@ -66,7 +68,7 @@ export interface TimeGridDayProps {
 }
 
 /** イベントブロック要素に付与する props。 */
-export interface TimeGridEventProps {
+export interface TimeGridEventProps extends EventNotificationProps {
   /** 移動ドラッグを開始する（`editable: false` の場合は何もしない）。 */
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   /** クリック（ドラッグに至らなかった場合）で `onEventClick` を呼ぶ。 */
@@ -1004,6 +1006,7 @@ export function useTimeGridDrag(params: {
       },
       tabIndex: 0,
       'data-koyomi-occurrence': occurrence.key,
+      ...eventNotificationProps(paramsRef.current.callbacks, occurrence),
     };
     if (dragSessionRef.current?.occurrence?.key === occurrence.key) {
       return { ...base, 'data-koyomi-dragging': 'true' };

@@ -46,6 +46,8 @@ import {
   checkBeforeEventDelete,
   checkBeforeSelectRange,
   createAutoScrollLoop,
+  type EventNotificationProps,
+  eventNotificationProps,
   laneResourceIdOf,
   resolveScopeForRecurring,
 } from './drag-common';
@@ -65,7 +67,7 @@ export interface TimelineRowProps {
 }
 
 /** 帯（タイムラインアイテム）要素に付与する props。 */
-export interface TimelineItemProps {
+export interface TimelineItemProps extends EventNotificationProps {
   /** 移動ドラッグを開始する（`editable: false` の場合は何もしない）。 */
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   /** クリック（ドラッグに至らなかった場合）で `onEventClick` を呼ぶ。 */
@@ -877,6 +879,7 @@ export function useTimelineDrag(params: {
       },
       tabIndex: 0,
       'data-koyomi-occurrence': occurrence.key,
+      ...eventNotificationProps(paramsRef.current.callbacks, occurrence),
     };
     if (dragSessionRef.current?.occurrence?.key === occurrence.key) {
       return { ...base, 'data-koyomi-dragging': 'true' };

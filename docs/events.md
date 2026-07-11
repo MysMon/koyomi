@@ -272,6 +272,37 @@ function useCalendarSyncedWithServer(initialEvents: CalendarEvent[], saveToServe
 }
 ```
 
+## onRangeChange で表示範囲の変更を検知する
+
+`onRangeChange` は、表示ビュー・基準日・表示範囲のいずれかが変わったときに 1 回呼ばれます（FullCalendar の `datesSet` 相当）。**作成直後（初期化時）にも 1 回発火**します。
+
+```tsx
+import { useCalendar } from '@koyomi-cal/react';
+import type { CalendarRangeChangeInfo } from '@koyomi-cal/react';
+
+function useCalendarWithFetch() {
+  const calendar = useCalendar({
+    initialView: 'month',
+    onRangeChange: (info: CalendarRangeChangeInfo) => {
+      // info.view / info.currentDate / info.rangeStart / info.rangeEnd を使って
+      // サーバーから表示範囲分のイベントを取得する、など
+      fetchEvents(info.rangeStart, info.rangeEnd).then((events) => {
+        calendar.api.setEvents(events);
+      });
+    },
+  });
+  return calendar;
+}
+
+// 期待される動作:
+// - useCalendar() 呼び出し直後に 1 回発火する（初期表示分の取得に使える）
+// - setView / goTo / next / prev のたびに、新しい表示範囲で発火する
+// - createEvent / updateEvent / deleteEvent / setEvents など、
+//   ビュー・基準日・表示範囲に無関係な変更では発火しない
+```
+
+`rangeStart` / `rangeEnd` は `calendar.api.getVisibleRange()` と同じ範囲です（`rangeEnd` は排他的）。実質的に無変化な呼び出し（同じビューへの `setView` や同じ日時への `goTo` など）では発火しません。
+
 ## undo（元に戻す）を実装する
 
 `updateEvent` / `deleteEvent`（ドラッグ操作から呼ばれる場合を含む）は、

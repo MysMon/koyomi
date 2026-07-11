@@ -140,7 +140,7 @@ interface UseCalendarOptions extends CalendarOptions {
 カレンダーエンジンを作成し、React の状態として購読するメインフックです。エンジンはマウント時に一度だけ作成され、`useSyncExternalStore` で購読されます。
 
 - `options` は**初期値として一度だけ**使われます（後から変更しても反映されません。動的に変更する場合は `api.updateOptions` / `api.setEvents` / `api.setResources` / `api.setTimeZone` を使います）。マウント後に異なる `events` / `resources` 参照を渡し続けた場合、開発ビルドではそれぞれ一度だけ警告が表示されます。
-- `onEventsChange` コールバックと `refreshSeconds` だけは常に最新の値が反映されます。
+- `onEventsChange` / `onRangeChange` コールバックと `refreshSeconds` だけは常に最新の値が反映されます。
 - 戻り値の `api` は再レンダリングを跨いで安定した参照です（`useEffect` の依存に安全に使えます）。
 - SSR（`renderToString` / Next.js）でも例外なく初期状態を描画できます（`getServerSnapshot` 対応済み）。Next.js App Router では `'use client'` が必要です。
 
@@ -830,6 +830,7 @@ interface ToolbarLabels {
 | `businessHours?` | `readonly BusinessHoursRule[]` | `[]`（週/日・リソース・タイムラインビューの営業時間の指定。詳細は [ビュー: 営業時間](./views.md#営業時間businesshours) を参照） |
 | `now?` | `() => Date` | `() => new Date()` |
 | `onEventsChange?` | `(events: readonly CalendarEvent[]) => void` | なし |
+| `onRangeChange?` | `(info: CalendarRangeChangeInfo) => void` | なし（ビュー・基準日・表示範囲のいずれかが変わるたびに 1 回発火。作成直後にも 1 回発火する。FullCalendar の `datesSet` 相当。詳細は [イベントの管理: onRangeChange](./events.md#onrangechange-で表示範囲の変更を検知する) を参照） |
 
 `initialDate` / `initialView` は**作成時専用**です（`updateOptions` は型レベルで受け付けません。変更には `goTo` / `setView` を使います）。
 
@@ -840,6 +841,8 @@ interface ToolbarLabels {
 `ResolvedCalendarOptions` は既定値適用後の型で、`onEventsChange` を除くすべてのフィールドが必須になったものです（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `timeAxisZones` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `multiMonthCount` / `timelineDays` / `unassignedLane` / `locale` / `hiddenWeekdays` / `showWeekNumbers` / `businessHours` / `now`）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' | 'resource' | 'timeline'` です。
 
 `BusinessHoursRule` は `{ daysOfWeek: readonly Weekday[]; startTime: string; endTime: string }`（`startTime` / `endTime` は `'HH:mm'` 形式。`startTime` が `endTime` 以降、または形式が不正だと `Error`）です。
+
+`CalendarRangeChangeInfo` は `{ view: CalendarViewType; currentDate: Date; rangeStart: Date; rangeEnd: Date }`（`onRangeChange` に渡される変更後のビュー・基準日・表示範囲。`rangeStart`/`rangeEnd` は `getVisibleRange()` と同じ範囲で `rangeEnd` は排他的）です。
 
 ### 状態とビューモデル
 
@@ -904,6 +907,10 @@ interface ToolbarLabels {
 | `resolveRecurringScope?` | `(occurrence: EventOccurrence, action: 'move' | 'resize' | 'delete' | 'update') => Promise<RecurringEditScope | null>` | `'this'`（この予定のみ）を返す |
 | `onOverflowClick?` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[], details: OverflowClickDetails) => void` | その日の日ビューに切り替える |
 | `onDayNumberClick?` | `(date: Date) => void` | その日の日ビューに切り替える |
+| `onEventDoubleClick?` | `(occurrence: EventOccurrence, nativeEvent: MouseEvent) => void` | 何もしない（未指定時は `onDoubleClick` リスナー自体を要素に付けない） |
+| `onEventContextMenu?` | `(occurrence: EventOccurrence, nativeEvent: MouseEvent) => void` | 何もしない（`preventDefault` はしない。未指定時は `onContextMenu` リスナー自体を要素に付けない） |
+| `onEventHover?` | `(occurrence: EventOccurrence, nativeEvent: MouseEvent) => void` | 何もしない（`pointerenter`。未指定時は `onPointerEnter` リスナー自体を要素に付けない） |
+| `onEventHoverEnd?` | `(occurrence: EventOccurrence, nativeEvent: MouseEvent) => void` | 何もしない（`pointerleave`。未指定時は `onPointerLeave` リスナー自体を要素に付けない） |
 
 ## 低レベルユーティリティ
 

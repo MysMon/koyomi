@@ -850,6 +850,29 @@ export interface CalendarOptions {
    * 外部ストアと同期する場合に使用する。
    */
   onEventsChange?: (events: readonly CalendarEvent[]) => void;
+  /**
+   * 表示ビュー・基準日・表示範囲のいずれかが変わったときに呼ばれるコールバック
+   * （FullCalendar の `datesSet` 相当）。作成直後（初期化時）にも 1 回発火する。
+   *
+   * イベント・リソースの変更や `refresh` など、ビュー・基準日・表示範囲に
+   * 影響しない更新では発火しない。表示範囲はイベント展開に使っているものと
+   * 同じ計算（{@link CalendarApi.getVisibleRange}）を再利用する。
+   */
+  onRangeChange?: (info: CalendarRangeChangeInfo) => void;
+}
+
+/**
+ * {@link CalendarOptions.onRangeChange} に渡される、変更後のビュー・基準日・表示範囲。
+ */
+export interface CalendarRangeChangeInfo {
+  /** 変更後のビュー。 */
+  view: CalendarViewType;
+  /** 変更後の基準日。 */
+  currentDate: Date;
+  /** 変更後の表示範囲の開始（{@link CalendarApi.getVisibleRange} と同じ、`end` 排他）。 */
+  rangeStart: Date;
+  /** 変更後の表示範囲の終了（排他）。 */
+  rangeEnd: Date;
 }
 
 /** 既定値が適用された解決済みオプション。 */
