@@ -47,6 +47,9 @@ import type {
 import {
   attachDragSessionListeners,
   autoScrollVelocity,
+  checkBeforeEventChange,
+  checkBeforeEventDelete,
+  checkBeforeSelectRange,
   createAutoScrollLoop,
   resolveScopeForRecurring,
 } from './drag-common';
@@ -440,25 +443,33 @@ export function useTimeGridDrag(params: {
   }
 
   /**
-   * 作成ドラッグ（`create`）の確定処理。
-   * `onSelectRange` / `createEvent` がアプリ側で例外を投げても、`finally` で必ず
-   * プレビューを消し、例外は `reportError`（`onError`）へ流す（選択オーバーレイの残留防止）。
+   * 作成ドラッグ（`create`）の確定処理。`onBeforeSelectRange` で拒否されなければ
+   * 確定する。`onBeforeSelectRange` / `onSelectRange` / `createEvent` がアプリ側で
+   * 例外を投げても、`finally` で必ずプレビューを消し、例外は `reportError`
+   * （`onError`）へ流す（選択オーバーレイの残留防止）。
    */
-  function commitCreate(session: DragSession, nativeEvent: MouseEvent): void {
+  async function commitCreate(session: DragSession, nativeEvent: MouseEvent): Promise<void> {
     try {
       const range = session.hasMoved
         ? computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY)
         : clickRangeForCreate(session.anchor);
       if (range !== null) {
-        const { calendar, callbacks } = paramsRef.current;
-        if (callbacks?.onSelectRange) {
-          callbacks.onSelectRange({ range, allDay: false });
-        } else {
-          calendar.api.createEvent({
-            title: calendar.state.options.defaultEventTitle,
-            start: range.start,
-            end: range.end,
-          });
+        const gate = checkBeforeSelectRange(paramsRef.current.callbacks, {
+          range,
+          allDay: false,
+        });
+        const allowed = typeof gate === 'boolean' ? gate : await gate;
+        if (allowed) {
+          const { calendar, callbacks } = paramsRef.current;
+          if (callbacks?.onSelectRange) {
+            callbacks.onSelectRange({ range, allDay: false });
+          } else {
+            calendar.api.createEvent({
+              title: calendar.state.options.defaultEventTitle,
+              start: range.start,
+              end: range.end,
+            });
+          }
         }
       }
     } catch (error) {
@@ -556,6 +567,16 @@ export function useTimeGridDrag(params: {
       suppressNextClickRef.current = true;
       if (session.allDayConversion !== null) {
         const conversionRange = session.allDayConversion;
+        const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
+          occurrence,
+          range: conversionRange,
+          allDay: true,
+          action: 'convert',
+        });
+        const allowed = typeof gate === 'boolean' ? gate : await gate;
+        if (!allowed) {
+          return;
+        }
         let conversionScope: RecurringEditScope | null = null;
         if (occurrence.isRecurring) {
           const resolved = await resolveScopeForRecurring(
@@ -576,6 +597,16 @@ export function useTimeGridDrag(params: {
         return;
       }
       const action: 'move' | 'resize' = session.mode === 'move' ? 'move' : 'resize';
+      const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
+        occurrence,
+        range,
+        allDay: false,
+        action,
+      });
+      const allowed = typeof gate === 'boolean' ? gate : await gate;
+      if (!allowed) {
+        return;
+      }
       let recurringScope: RecurringEditScope | null = null;
       if (occurrence.isRecurring) {
         const resolved = await resolveScopeForRecurring(
@@ -597,7 +628,7 @@ export function useTimeGridDrag(params: {
   /** セッションの種類に応じて確定処理を振り分ける。 */
   function commitSession(session: DragSession, nativeEvent: MouseEvent): void {
     if (session.mode === 'create') {
-      commitCreate(session, nativeEvent);
+      void commitCreate(session, nativeEvent).catch(reportError);
       return;
     }
     void commitMoveOrResize(session, nativeEvent).catch(reportError);
@@ -839,6 +870,11 @@ export function useTimeGridDrag(params: {
     if (occurrence.event.editable === false) {
       return;
     }
+    const gate = checkBeforeEventDelete(paramsRef.current.callbacks, occurrence);
+    const allowed = typeof gate === 'boolean' ? gate : await gate;
+    if (!allowed) {
+      return;
+    }
     if (!occurrence.isRecurring) {
       const changes = paramsRef.current.calendar.api.deleteEvent(occurrence.eventId);
       paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope: null, changes });
@@ -864,6 +900,16 @@ export function useTimeGridDrag(params: {
     action: 'move' | 'resize',
     range: DateRange,
   ): Promise<void> {
+    const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
+      occurrence,
+      range,
+      allDay: false,
+      action,
+    });
+    const allowed = typeof gate === 'boolean' ? gate : await gate;
+    if (!allowed) {
+      return;
+    }
     let recurringScope: RecurringEditScope | null = null;
     if (occurrence.isRecurring) {
       const resolved = await resolveScopeForRecurring(

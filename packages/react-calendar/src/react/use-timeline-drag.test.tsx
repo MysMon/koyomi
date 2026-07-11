@@ -759,3 +759,224 @@ describe('useTimelineDrag - pointercancel によるキャンセル', () => {
     });
   });
 });
+
+describe('useTimelineDrag - 適用前フック（onBeforeSelectRange / onBeforeEventChange / onBeforeEventDelete）', () => {
+  it('onBeforeSelectRange が false を返すと、行の横ドラッグによる作成は行われず onSelectRange も呼ばれない', () => {
+    const onBeforeSelectRange = vi.fn().mockReturnValue(false);
+    const onSelectRange = vi.fn();
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 1,
+      callbacks: { onBeforeSelectRange, onSelectRange },
+    });
+    mockAllRowRects(container, 1);
+    const rows = container.querySelectorAll('[data-koyomi="timeline-row"]');
+    const craneTwoRow = rows[1];
+    if (craneTwoRow === undefined) {
+      throw new Error('crane-2 行が見つかりません');
+    }
+    const y = rowCenterY(1);
+
+    firePointerDown(craneTwoRow, dm(0, 10, 0), y); // 10:00
+    movePointer(dm(0, 11, 30), y); // 11:30
+    releasePointer(dm(0, 11, 30), y);
+
+    expect(onBeforeSelectRange).toHaveBeenCalledWith({
+      range: { start: at(`${DAY0}T10:00`), end: at(`${DAY0}T11:30`) },
+      allDay: false,
+      resourceId: 'crane-2',
+    });
+    expect(onSelectRange).not.toHaveBeenCalled();
+    expect(sink.current?.api.getEvents()).toHaveLength(0);
+  });
+
+  it('onBeforeSelectRange が Promise<false> を返す場合も、既定の即時作成が拒否される', async () => {
+    const onBeforeSelectRange = vi.fn().mockResolvedValue(false);
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 1,
+      callbacks: { onBeforeSelectRange },
+    });
+    mockAllRowRects(container, 1);
+    const rows = container.querySelectorAll('[data-koyomi="timeline-row"]');
+    const craneOneRow = rows[0];
+    if (craneOneRow === undefined) {
+      throw new Error('crane-1 行が見つかりません');
+    }
+    const y = rowCenterY(0);
+
+    firePointerDown(craneOneRow, dm(0, 9, 0), y); // 9:00
+    movePointer(dm(0, 10, 0), y); // 10:00
+    await act(async () => {
+      releasePointer(dm(0, 10, 0), y);
+    });
+
+    expect(sink.current?.api.getEvents()).toHaveLength(0);
+  });
+
+  it('onBeforeSelectRange が true を返す（または省略する）と従来どおり作成される', () => {
+    const onBeforeSelectRange = vi.fn().mockReturnValue(true);
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 1,
+      callbacks: { onBeforeSelectRange },
+    });
+    mockAllRowRects(container, 1);
+    const rows = container.querySelectorAll('[data-koyomi="timeline-row"]');
+    const craneOneRow = rows[0];
+    if (craneOneRow === undefined) {
+      throw new Error('crane-1 行が見つかりません');
+    }
+    const y = rowCenterY(0);
+
+    firePointerDown(craneOneRow, dm(0, 9, 0), y);
+    movePointer(dm(0, 10, 0), y);
+    releasePointer(dm(0, 10, 0), y);
+
+    expect(sink.current?.api.getEvents()).toHaveLength(1);
+  });
+
+  it('onBeforeEventChange が false を返すと、行をまたぐ移動は適用されず onEventChange も呼ばれない', () => {
+    const onBeforeEventChange = vi.fn().mockReturnValue(false);
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-before-change-move',
+      title: '荷揚げ',
+      start: `${DAY0}T09:00`,
+      end: `${DAY0}T10:00`,
+      resourceId: 'crane-1',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 1,
+      events: [event],
+      callbacks: { onBeforeEventChange, onEventChange },
+    });
+    mockAllRowRects(container, 1);
+    const itemEl = getItemElement(container, 'ev-before-change-move', `${DAY0}T09:00`);
+
+    firePointerDown(itemEl, dm(0, 9, 0), rowCenterY(0)); // crane-1 9:00
+    movePointer(dm(0, 10, 0), rowCenterY(1)); // crane-2 10:00
+    releasePointer(dm(0, 10, 0), rowCenterY(1));
+
+    expect(onBeforeEventChange).toHaveBeenCalledWith({
+      occurrence: expect.objectContaining({ eventId: 'ev-before-change-move' }),
+      range: { start: at(`${DAY0}T10:00`), end: at(`${DAY0}T11:00`) },
+      allDay: false,
+      resourceId: 'crane-2',
+      action: 'move',
+    });
+    expect(onEventChange).not.toHaveBeenCalled();
+    expect(sink.current?.api.getEvents()).toEqual([event]);
+  });
+
+  it('帯のリサイズで onBeforeEventChange が Promise<false> を返すと適用されない（action: "resize"）', async () => {
+    const onBeforeEventChange = vi.fn().mockResolvedValue(false);
+    const event: CalendarEvent = {
+      id: 'ev-before-change-resize',
+      title: '荷揚げ',
+      start: `${DAY0}T09:00`,
+      end: `${DAY0}T10:00`,
+      resourceId: 'crane-1',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [event],
+      callbacks: { onBeforeEventChange },
+    });
+    mockAllRowRects(container, 1);
+    const itemEl = getItemElement(container, 'ev-before-change-resize', `${DAY0}T09:00`);
+    const handleEl = itemEl.querySelector('[data-koyomi-resize-handle="end"]');
+    if (handleEl === null) {
+      throw new Error('リサイズハンドルが見つかりません');
+    }
+
+    firePointerDown(handleEl, dm(0, 10, 0), rowCenterY(0)); // 10:00（終了端）
+    movePointer(dm(0, 11, 0), rowCenterY(0)); // 11:00
+    await act(async () => {
+      releasePointer(dm(0, 11, 0), rowCenterY(0));
+    });
+
+    expect(onBeforeEventChange).toHaveBeenCalledWith(expect.objectContaining({ action: 'resize' }));
+    expect(sink.current?.api.getEvents()).toEqual([event]);
+  });
+
+  it('onBeforeEventChange が false を返すと、矢印キーによる移動（キーボード）も適用されない', async () => {
+    const onBeforeEventChange = vi.fn().mockReturnValue(false);
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-before-change-arrow',
+      title: '荷揚げ',
+      start: `${DAY0}T09:00`,
+      end: `${DAY0}T10:00`,
+      resourceId: 'crane-1',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 1,
+      events: [event],
+      callbacks: { onBeforeEventChange, onEventChange },
+    });
+    const itemEl = getItemElement(container, 'ev-before-change-arrow', `${DAY0}T09:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(itemEl, { key: 'ArrowRight' });
+    });
+
+    expect(onBeforeEventChange).toHaveBeenCalledWith(expect.objectContaining({ action: 'move' }));
+    expect(onEventChange).not.toHaveBeenCalled();
+    expect(sink.current?.api.getEvents()).toEqual([event]);
+  });
+
+  it('onBeforeEventDelete が false を返すと、キーボード削除は適用されず onEventDelete も呼ばれない', () => {
+    const onBeforeEventDelete = vi.fn().mockReturnValue(false);
+    const onEventDelete = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-before-delete',
+      title: '荷揚げ',
+      start: `${DAY0}T09:00`,
+      end: `${DAY0}T10:00`,
+      resourceId: 'crane-1',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [event],
+      callbacks: { onBeforeEventDelete, onEventDelete },
+    });
+    const itemEl = getItemElement(container, 'ev-before-delete', `${DAY0}T09:00`);
+
+    fireEvent.keyDown(itemEl, { key: 'Delete' });
+
+    expect(onBeforeEventDelete).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: 'ev-before-delete' }),
+    );
+    expect(onEventDelete).not.toHaveBeenCalled();
+    expect(sink.current?.api.getEvents()).toHaveLength(1);
+  });
+
+  it('onBeforeEventDelete が Promise<false> を返す場合も削除は適用されない', async () => {
+    const onBeforeEventDelete = vi.fn().mockResolvedValue(false);
+    const event: CalendarEvent = {
+      id: 'ev-before-delete-async',
+      title: '荷揚げ',
+      start: `${DAY0}T09:00`,
+      end: `${DAY0}T10:00`,
+      resourceId: 'crane-1',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [event],
+      callbacks: { onBeforeEventDelete },
+    });
+    const itemEl = getItemElement(container, 'ev-before-delete-async', `${DAY0}T09:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(itemEl, { key: 'Backspace' });
+    });
+
+    expect(sink.current?.api.getEvents()).toHaveLength(1);
+  });
+});

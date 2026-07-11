@@ -208,14 +208,63 @@ async function resolveRecurringScope(): Promise<RecurringEditScope | null> {
 
 適用結果（`rrule` の打ち切りや例外イベントの追加など）の詳細は [繰り返し予定](./recurrence.md) を参照してください。
 
+## 適用前フックで操作を拒否する
+
+`onBeforeEventChange` / `onBeforeSelectRange` / `onBeforeEventDelete` は、確定前の操作を「適用するかどうか」自体を判定できるフックです（FullCalendar の `eventAllow` / `selectAllow` に相当）。`resolveRecurringScope` が「どの範囲に適用するか」を決めるのに対し、これらは「そもそも適用してよいか」を決めます。
+
+- `onBeforeEventChange?: (proposal: EventChangeProposal) => boolean | Promise<boolean>` — ドラッグ移動・リサイズ・終日⇔時間指定変換の適用前に呼ばれる。`false`（または `Promise<false>` に解決される値）を返すと変更は適用されず、`onEventChange` も呼ばれない。ドラッグ操作はその場で静かに終了し、キーボード操作（矢印キー等）では何も起きない
+- `onBeforeSelectRange?: (selection: RangeSelection) => boolean | Promise<boolean>` — 空き領域のクリック・ドラッグによる範囲選択の適用前に呼ばれる。`false` を返すと `onSelectRange` は呼ばれない（省略時の既定の即時作成も行われない）
+- `onBeforeEventDelete?: (occurrence: EventOccurrence) => boolean | Promise<boolean>` — キーボード操作（Delete/Backspace）による削除の適用前に呼ばれる。`false` を返すと削除されず `onEventDelete` も呼ばれない。確認ダイアログなど、ユーザーの応答を待つ必要がある UI 向けに `Promise` を返せる（`window.confirm` 相当の非同期確認）
+
+いずれも省略時は常に許可（`true`）として扱われ、従来と完全に同じ動作になります。
+
+```tsx
+import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
+import type { EventChangeProposal } from '@koyomi-cal/react';
+
+function App() {
+  const calendar = useCalendar({ initialView: 'week' });
+
+  function onBeforeEventChange(proposal: EventChangeProposal): boolean {
+    // 例: 終了済みの予定は移動・リサイズを禁止する
+    return proposal.occurrence.event.title !== '確定済み';
+  }
+
+  async function onBeforeEventDelete(): Promise<boolean> {
+    // 確認ダイアログの結果を待ってから削除を許可・拒否する
+    return window.confirm('この予定を削除しますか？');
+  }
+
+  return (
+    <CalendarProvider value={calendar} callbacks={{ onBeforeEventChange, onBeforeEventDelete }}>
+      <TimeGridView />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - タイトルが「確定済み」の予定をドラッグしても、移動・リサイズは適用されず
+//   onEventChange も呼ばれない（ドラッグはその場で静かに終了する）
+// - Delete キーを押すと確認ダイアログが表示され、キャンセルすると削除されない
+```
+
+**判定の順序**: 繰り返し予定の操作では、`onBeforeEventChange` / `onBeforeEventDelete` は `resolveRecurringScope` より**前**に判定されます。拒否された場合はスコープの問い合わせ自体が行われません（ダイアログが不要に開くのを防げます）。
+
+**配線される操作**: `useDayDrag` / `useTimeGridDrag` / `useResourceGridDrag` / `useTimelineDrag`（およびそれらを内部で使うビルトインコンポーネント）の、移動・リサイズ・終日⇔時間指定変換・作成範囲の確定・キーボード操作・削除のすべての経路で判定されます。
+
+**プレビュー表示は反映されない**: ドラッグ中に表示されるプレビュー（ハイライト）は、これらの適用前フックの結果を反映しません。判定は `pointerup` などで操作が確定するタイミングでのみ行われるため、「ドラッグ中は移動できそうに見えるが、離した瞬間に元の位置へ戻る」という見た目になります。ドラッグ中に禁止領域を視覚的に示したい場合は、アプリ側で `calendar.state.dragPreview` を見て独自にスタイリングしてください。
+
 ## コールバックのまとめ
 
 | コールバック | 呼ばれるタイミング | 省略時の既定動作 |
 | --- | --- | --- |
 | `onSelectRange` | 空き領域のクリック・ドラッグで範囲選択が確定したとき | `defaultEventTitle`（既定 `'(タイトルなし)'`）で即時作成する |
+| `onBeforeSelectRange` | 範囲選択の確定前（`onSelectRange` より前） | 常に許可する（`true`） |
 | `onEventClick` | 予定がクリック、または Enter・Space で選択されたとき | 何もしない |
 | `onEventChange` | ドラッグ・キーボードによる移動・リサイズが確定し、変更が適用された後 | （通知のみ。変更の適用自体は常にライブラリが行う。`changes` に影響を受けた各イベントの before/after が入り undo に使える） |
+| `onBeforeEventChange` | 移動・リサイズ・終日⇔時間指定変換の適用前（`resolveRecurringScope` より前） | 常に許可する（`true`） |
 | `onEventDelete` | キーボード（Delete/Backspace）による削除が適用された後 | （通知のみ。undo UI やトーストの起点に使える。`changes` に影響を受けた各イベントの before/after が入る） |
+| `onBeforeEventDelete` | キーボード削除の適用前（`resolveRecurringScope` より前） | 常に許可する（`true`） |
 | `onError` | インタラクション中の非同期処理（スコープ解決や適用）が例外を投げたとき | `console.error` に出力する |
 | `resolveRecurringScope` | 繰り返し予定の移動・リサイズ・削除・更新の適用範囲を決めるとき | 常に `'this'`（この予定のみ） |
 | `onOverflowClick` | 月ビューの「+N 件」がクリックされたとき。第 2 引数で非表示のオカレンス一覧（`hiddenOccurrences`）、第 3 引数（`details`）で表示中のオカレンス一覧（`visibleOccurrences`）を受け取れる | その日の日ビューに切り替える |

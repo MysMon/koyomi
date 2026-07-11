@@ -35,6 +35,11 @@ import type {
   RecurringEditScope,
   ResolvedCalendarOptions,
 } from '../core/types';
+import {
+  checkBeforeEventChange,
+  checkBeforeEventDelete,
+  checkBeforeSelectRange,
+} from './drag-common';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 
 /** 日セル要素に付与する props。 */
@@ -290,8 +295,16 @@ export function useDayDrag(params: {
     };
   }
 
-  /** 範囲選択を確定する（`onSelectRange` があればそれを呼び、なければ即時作成する）。 */
-  function commitSelection(range: DateRange): void {
+  /**
+   * 範囲選択を確定する（`onBeforeSelectRange` で拒否されなければ、`onSelectRange` が
+   * あればそれを呼び、なければ即時作成する）。
+   */
+  async function commitSelection(range: DateRange): Promise<void> {
+    const gate = checkBeforeSelectRange(callbacksRef.current, { range, allDay: true });
+    const allowed = typeof gate === 'boolean' ? gate : await gate;
+    if (!allowed) {
+      return;
+    }
     const onSelectRange = callbacksRef.current?.onSelectRange;
     if (onSelectRange !== undefined) {
       onSelectRange({ range, allDay: true });
@@ -318,6 +331,16 @@ export function useDayDrag(params: {
     action: 'move' | 'resize' = 'move',
   ): Promise<void> {
     try {
+      const gate = checkBeforeEventChange(callbacksRef.current, {
+        occurrence,
+        range,
+        allDay: occurrence.allDay,
+        action,
+      });
+      const allowed = typeof gate === 'boolean' ? gate : await gate;
+      if (!allowed) {
+        return;
+      }
       let scope: RecurringEditScope | null = null;
       let changes: readonly EventChangeEntry[];
       if (occurrence.isRecurring) {
@@ -363,6 +386,16 @@ export function useDayDrag(params: {
     range: DateRange,
   ): Promise<void> {
     try {
+      const gate = checkBeforeEventChange(callbacksRef.current, {
+        occurrence,
+        range,
+        allDay: false,
+        action: 'convert',
+      });
+      const allowed = typeof gate === 'boolean' ? gate : await gate;
+      if (!allowed) {
+        return;
+      }
       let scope: RecurringEditScope | null = null;
       let changes: readonly EventChangeEntry[];
       if (occurrence.isRecurring) {
@@ -405,6 +438,11 @@ export function useDayDrag(params: {
    */
   async function commitDelete(occurrence: EventOccurrence): Promise<void> {
     if (occurrence.event.editable === false) {
+      return;
+    }
+    const gate = checkBeforeEventDelete(callbacksRef.current, occurrence);
+    const allowed = typeof gate === 'boolean' ? gate : await gate;
+    if (!allowed) {
       return;
     }
     let scope: RecurringEditScope | null = null;
@@ -530,7 +568,7 @@ export function useDayDrag(params: {
       const pointerDay = locateDay(event.clientX, event.clientY) ?? anchorDay;
       const finalRange = computeRange(pointerDay);
       if (kind === 'create') {
-        commitSelection(finalRange);
+        void commitSelection(finalRange).catch(reportError);
         return;
       }
       if (!session.moved || occurrence === null) {
@@ -647,7 +685,10 @@ export function useDayDrag(params: {
           return;
         }
         event.preventDefault();
-        commitSelection({ start: day.date, end: addDaysInZone(day.date, 1, timeZoneRef.current) });
+        void commitSelection({
+          start: day.date,
+          end: addDaysInZone(day.date, 1, timeZoneRef.current),
+        }).catch(reportError);
       },
       tabIndex: 0,
       'data-koyomi-date': day.key,

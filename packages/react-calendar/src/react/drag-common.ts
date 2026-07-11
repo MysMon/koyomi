@@ -12,6 +12,9 @@
  * - {@link laneResourceIdOf} — オカレンスの現在のレーンのリソース ID を求める
  *   （リソースビュー・タイムラインの2フックで共有）
  * - {@link resolveScopeForRecurring} — 繰り返しオカレンスのスコープ解決（3フック共通）
+ * - {@link checkBeforeEventChange} / {@link checkBeforeSelectRange} /
+ *   {@link checkBeforeEventDelete} — 適用前フック（`onBeforeEventChange` 等）の
+ *   判定（4フック共通。`use-day-drag.ts` を含む）
  * - {@link autoScrollVelocity} — オートスクロールの速度計算（3フック共通）
  * - {@link createAutoScrollLoop} — オートスクロールの rAF ループ管理（3フック共通。
  *   軸（縦/横）だけが違う）
@@ -27,7 +30,7 @@
  */
 
 import type { EventOccurrence, RecurringEditScope } from '../core/types';
-import type { CalendarInteractionCallbacks } from './types';
+import type { CalendarInteractionCallbacks, EventChangeProposal, RangeSelection } from './types';
 
 /**
  * オカレンスの現在のレーンのリソース ID（未割り当ては `null`）を返す。
@@ -74,6 +77,80 @@ export async function resolveScopeForRecurring(
 ): Promise<RecurringEditScope | null> {
   const resolveRecurringScope = callbacks?.resolveRecurringScope;
   return resolveRecurringScope ? resolveRecurringScope(occurrence, action) : 'this';
+}
+
+/**
+ * 変更（移動・リサイズ・終日⇔時間指定変換）の適用前フック `onBeforeEventChange`
+ * を判定する（FullCalendar の `eventAllow` 相当）。呼び出し元は
+ * `resolveRecurringScope` による繰り返しスコープの問い合わせより**前**に
+ * これを呼ぶこと（拒否された場合にスコープ問い合わせ自体を行わないため）。
+ *
+ * 戻り値は次の三項演算子パターンと組み合わせて使うこと（呼び出し元の `async`
+ * 関数の中に直接書く。別の `async` ヘルパー関数へ切り出さない）:
+ *
+ * ```ts
+ * const gate = checkBeforeEventChange(callbacks, proposal);
+ * const allowed = typeof gate === 'boolean' ? gate : await gate;
+ * ```
+ *
+ * `boolean` を直接返す分岐（フック未指定、または同期的に `true`/`false` を返す
+ * 実装）では `await` 式自体を評価しない。これを `await checkBeforeEventChange(...)`
+ * のように毎回無条件に `await` してしまうと、フック未指定・同期 `true` 返却の
+ * 場合でも呼び出し元の関数が microtask を 1 回消費してしまい、繰り返しでない
+ * 単発オカレンスの操作が同期的に完結するという既存の前提（ドラッグ確定直後の
+ * ネイティブ `click` 抑制のタイミング等）が崩れる。この判定を別の `async` 関数へ
+ * 切り出すと、その関数呼び出し自体が常に `Promise` を返すため、`boolean` 分岐でも
+ * 同じ問題が再発する（`async` 関数は本体が `await` に到達しなくても常に
+ * `Promise` を返すため）。そのため、あえて関数化せず各呼び出し元にこの三項演算子
+ * をそのまま書く方針にしている。
+ *
+ * @param callbacks - インタラクションコールバック。`onBeforeEventChange` が
+ *   未指定なら常に許可（`true`）する
+ * @param proposal - 適用しようとしている変更の内容
+ * @returns 適用してよければ `true`（または `true` に解決される `Promise`）
+ */
+export function checkBeforeEventChange(
+  callbacks: CalendarInteractionCallbacks | undefined,
+  proposal: EventChangeProposal,
+): boolean | Promise<boolean> {
+  const onBeforeEventChange = callbacks?.onBeforeEventChange;
+  return onBeforeEventChange === undefined ? true : onBeforeEventChange(proposal);
+}
+
+/**
+ * 範囲選択の適用前フック `onBeforeSelectRange` を判定する
+ * （FullCalendar の `selectAllow` 相当）。{@link checkBeforeEventChange} と同様、
+ * 三項演算子パターンと組み合わせて使うこと。
+ *
+ * @param callbacks - インタラクションコールバック。`onBeforeSelectRange` が
+ *   未指定なら常に許可（`true`）する
+ * @param selection - 選択された範囲
+ * @returns 適用してよければ `true`（または `true` に解決される `Promise`）
+ */
+export function checkBeforeSelectRange(
+  callbacks: CalendarInteractionCallbacks | undefined,
+  selection: RangeSelection,
+): boolean | Promise<boolean> {
+  const onBeforeSelectRange = callbacks?.onBeforeSelectRange;
+  return onBeforeSelectRange === undefined ? true : onBeforeSelectRange(selection);
+}
+
+/**
+ * 削除の適用前フック `onBeforeEventDelete` を判定する。
+ * 呼び出し元は `resolveRecurringScope` より**前**にこれを呼ぶこと
+ * （{@link checkBeforeEventChange} と同じ理由）。三項演算子パターンと組み合わせて使うこと。
+ *
+ * @param callbacks - インタラクションコールバック。`onBeforeEventDelete` が
+ *   未指定なら常に許可（`true`）する
+ * @param occurrence - 削除しようとしているオカレンス
+ * @returns 削除してよければ `true`（または `true` に解決される `Promise`）
+ */
+export function checkBeforeEventDelete(
+  callbacks: CalendarInteractionCallbacks | undefined,
+  occurrence: EventOccurrence,
+): boolean | Promise<boolean> {
+  const onBeforeEventDelete = callbacks?.onBeforeEventDelete;
+  return onBeforeEventDelete === undefined ? true : onBeforeEventDelete(occurrence);
 }
 
 /**

@@ -803,3 +803,212 @@ describe('useResourceGridDrag - pointercancel によるキャンセル', () => {
     });
   });
 });
+
+describe('useResourceGridDrag - 適用前フック（onBeforeSelectRange / onBeforeEventChange / onBeforeEventDelete）', () => {
+  it('onBeforeSelectRange が false を返すと、空き領域のクリック作成は行われず onSelectRange も呼ばれない', () => {
+    const onBeforeSelectRange = vi.fn().mockReturnValue(false);
+    const onSelectRange = vi.fn();
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      callbacks: { onBeforeSelectRange, onSelectRange },
+    });
+    mockAllColumnRects(container);
+    const roomBColumn = container.querySelectorAll('[data-koyomi="resource-column"]')[1];
+    if (roomBColumn === undefined) {
+      throw new Error('room-b 列が見つかりません');
+    }
+    const x = columnCenterX(1);
+
+    firePointerDown(roomBColumn, x, 600); // 10:00
+    releasePointer(x, 600);
+
+    expect(onBeforeSelectRange).toHaveBeenCalledWith({
+      range: { start: at(`${DAY}T10:00`), end: at(`${DAY}T11:00`) },
+      allDay: false,
+      resourceId: 'room-b',
+    });
+    expect(onSelectRange).not.toHaveBeenCalled();
+    expect(sink.current?.api.getEvents()).toHaveLength(0);
+  });
+
+  it('onBeforeSelectRange が Promise<false> を返す場合も、終日セルのクリック作成が拒否される', async () => {
+    const onBeforeSelectRange = vi.fn().mockResolvedValue(false);
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      callbacks: { onBeforeSelectRange },
+    });
+    const allDayCells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
+    const roomBCell = allDayCells[1];
+    if (roomBCell === undefined) {
+      throw new Error('room-b の終日セルが見つかりません');
+    }
+
+    await act(async () => {
+      fireEvent.click(roomBCell);
+    });
+
+    expect(sink.current?.api.getEvents()).toHaveLength(0);
+  });
+
+  it('onBeforeSelectRange が true を返す（または省略する）と従来どおり作成される', () => {
+    const onBeforeSelectRange = vi.fn().mockReturnValue(true);
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      callbacks: { onBeforeSelectRange },
+    });
+    mockAllColumnRects(container);
+    const roomBColumn = container.querySelectorAll('[data-koyomi="resource-column"]')[1];
+    if (roomBColumn === undefined) {
+      throw new Error('room-b 列が見つかりません');
+    }
+    const x = columnCenterX(1);
+
+    firePointerDown(roomBColumn, x, 600);
+    releasePointer(x, 600);
+
+    expect(sink.current?.api.getEvents()).toHaveLength(1);
+  });
+
+  it('onBeforeEventChange が false を返すと、列をまたぐ移動は適用されず onEventChange も呼ばれない', () => {
+    const onBeforeEventChange = vi.fn().mockReturnValue(false);
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-before-change-move',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { onBeforeEventChange, onEventChange },
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-before-change-move', `${DAY}T10:00`);
+
+    firePointerDown(eventEl, columnCenterX(0), 600); // room-a 10:00
+    movePointer(columnCenterX(1), 660); // room-b 11:00
+    releasePointer(columnCenterX(1), 660);
+
+    expect(onBeforeEventChange).toHaveBeenCalledWith({
+      occurrence: expect.objectContaining({ eventId: 'ev-before-change-move' }),
+      range: { start: at(`${DAY}T11:00`), end: at(`${DAY}T12:00`) },
+      allDay: false,
+      resourceId: 'room-b',
+      action: 'move',
+    });
+    expect(onEventChange).not.toHaveBeenCalled();
+    expect(sink.current?.api.getEvents()).toEqual([event]);
+  });
+
+  it('onBeforeEventChange が Promise<false> を返すと、終日アイテムの列間移動（allday-move、action: "move"）も適用されない', async () => {
+    const onBeforeEventChange = vi.fn().mockResolvedValue(false);
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-before-change-allday',
+      title: '休暇',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { onBeforeEventChange, onEventChange },
+    });
+    mockAllColumnRects(container);
+    const allDayItemEl = container.querySelector('[data-koyomi="allday-event"]');
+    if (allDayItemEl === null) {
+      throw new Error('終日アイテムが見つかりません');
+    }
+
+    firePointerDown(allDayItemEl, columnCenterX(0), 10);
+    movePointer(columnCenterX(1), 10);
+    await act(async () => {
+      releasePointer(columnCenterX(1), 10);
+    });
+
+    expect(onBeforeEventChange).toHaveBeenCalledWith(
+      expect.objectContaining({ allDay: true, resourceId: 'room-b', action: 'move' }),
+    );
+    expect(onEventChange).not.toHaveBeenCalled();
+    expect(sink.current?.api.getEvents()).toEqual([event]);
+  });
+
+  it('onBeforeEventChange が false を返すと、矢印キーによる移動（キーボード）も適用されない', async () => {
+    const onBeforeEventChange = vi.fn().mockReturnValue(false);
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-before-change-arrow',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { onBeforeEventChange, onEventChange },
+    });
+    const eventEl = getEventElement(container, 'ev-before-change-arrow', `${DAY}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowDown' });
+    });
+
+    expect(onBeforeEventChange).toHaveBeenCalledWith(expect.objectContaining({ action: 'move' }));
+    expect(onEventChange).not.toHaveBeenCalled();
+    expect(sink.current?.api.getEvents()).toEqual([event]);
+  });
+
+  it('onBeforeEventDelete が false を返すと、キーボード削除は適用されず onEventDelete も呼ばれない', () => {
+    const onBeforeEventDelete = vi.fn().mockReturnValue(false);
+    const onEventDelete = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-before-delete',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { onBeforeEventDelete, onEventDelete },
+    });
+    const eventEl = getEventElement(container, 'ev-before-delete', `${DAY}T10:00`);
+
+    fireEvent.keyDown(eventEl, { key: 'Delete' });
+
+    expect(onBeforeEventDelete).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: 'ev-before-delete' }),
+    );
+    expect(onEventDelete).not.toHaveBeenCalled();
+    expect(sink.current?.api.getEvents()).toHaveLength(1);
+  });
+
+  it('onBeforeEventDelete が Promise<false> を返す場合も削除は適用されない', async () => {
+    const onBeforeEventDelete = vi.fn().mockResolvedValue(false);
+    const event: CalendarEvent = {
+      id: 'ev-before-delete-async',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { onBeforeEventDelete },
+    });
+    const eventEl = getEventElement(container, 'ev-before-delete-async', `${DAY}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'Backspace' });
+    });
+
+    expect(sink.current?.api.getEvents()).toHaveLength(1);
+  });
+});

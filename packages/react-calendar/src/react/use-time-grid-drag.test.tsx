@@ -1394,6 +1394,224 @@ describe('useTimeGridDrag - 終日行への変換ドラッグ', () => {
   });
 });
 
+describe('useTimeGridDrag - 適用前フック（onBeforeSelectRange / onBeforeEventChange / onBeforeEventDelete）', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('onBeforeSelectRange が false を返すと、空き領域のドラッグ作成は行われず onSelectRange も呼ばれない', () => {
+    const onBeforeSelectRange = vi.fn().mockReturnValue(false);
+    const onSelectRange = vi.fn();
+    const { sink } = renderHarness({ callbacks: { onBeforeSelectRange, onSelectRange } });
+    const dayEl = screen.getByTestId(`day-${MON}`);
+    const x = columnCenterX(MON);
+
+    firePointerDown(dayEl, x, 600); // 10:00
+    movePointer(x, 690); // 11:30
+    releasePointer(x, 690);
+
+    expect(onBeforeSelectRange).toHaveBeenCalledWith({
+      range: { start: at(`${MON}T10:00`), end: at(`${MON}T11:30`) },
+      allDay: false,
+    });
+    expect(onSelectRange).not.toHaveBeenCalled();
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(0);
+  });
+
+  it('onBeforeSelectRange が Promise<false> を返す場合も、既定の即時作成が拒否される', async () => {
+    const onBeforeSelectRange = vi.fn().mockResolvedValue(false);
+    const { sink } = renderHarness({ callbacks: { onBeforeSelectRange } });
+    const dayEl = screen.getByTestId(`day-${SUN}`);
+    const x = columnCenterX(SUN);
+
+    firePointerDown(dayEl, x, 540); // 9:00
+    movePointer(x, 600); // 10:00
+    await releasePointerAsync(x, 600);
+
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(0);
+  });
+
+  it('onBeforeSelectRange が true を返す（または省略する）と従来どおり即時作成される', () => {
+    const onBeforeSelectRange = vi.fn().mockReturnValue(true);
+    const { sink } = renderHarness({ callbacks: { onBeforeSelectRange } });
+    const dayEl = screen.getByTestId(`day-${SUN}`);
+    const x = columnCenterX(SUN);
+
+    firePointerDown(dayEl, x, 540); // 9:00
+    movePointer(x, 600); // 10:00
+    releasePointer(x, 600);
+
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(1);
+  });
+
+  it('onBeforeEventChange が false を返すと、移動ドラッグは適用されず onEventChange も呼ばれない', () => {
+    const onBeforeEventChange = vi.fn().mockReturnValue(false);
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-before-change-move',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({
+      events: [event],
+      callbacks: { onBeforeEventChange, onEventChange },
+    });
+    const occurrenceKey = `ev-before-change-move@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(TUE);
+
+    firePointerDown(eventEl, x, 600); // 10:00
+    movePointer(x, 720); // 12:00（+2h）
+    releasePointer(x, 720);
+
+    expect(onBeforeEventChange).toHaveBeenCalledWith({
+      occurrence: expect.objectContaining({ eventId: 'ev-before-change-move' }),
+      range: { start: at(`${TUE}T12:00`), end: at(`${TUE}T13:00`) },
+      allDay: false,
+      action: 'move',
+    });
+    expect(onEventChange).not.toHaveBeenCalled();
+    expect(sink.current?.calendar.api.getEvents()).toEqual([event]);
+  });
+
+  it('繰り返しイベントの移動で onBeforeEventChange が Promise<false> を返すと、resolveRecurringScope は呼ばれず適用もされない', async () => {
+    const onBeforeEventChange = vi.fn().mockResolvedValue(false);
+    const resolveRecurringScope = vi.fn().mockResolvedValue('this' as RecurringEditScope);
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'recurring-before-change',
+      title: '定例',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      rrule: 'FREQ=WEEKLY;BYDAY=WE',
+    };
+    const { sink } = renderHarness({
+      events: [event],
+      callbacks: { onBeforeEventChange, resolveRecurringScope, onEventChange },
+    });
+    const occurrenceKey = `recurring-before-change@${at(`${WED}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(WED);
+
+    firePointerDown(eventEl, x, 600); // 10:00
+    movePointer(x, 720); // 12:00
+    await releasePointerAsync(x, 720);
+
+    expect(resolveRecurringScope).not.toHaveBeenCalled();
+    expect(onEventChange).not.toHaveBeenCalled();
+    expect(sink.current?.calendar.api.getEvents()).toEqual([event]);
+  });
+
+  it('onBeforeEventChange が false を返すと、終日行への変換ドラッグ（action: "convert"）も適用されない', () => {
+    const onBeforeEventChange = vi.fn().mockReturnValue(false);
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-before-change-convert',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({
+      events: [event],
+      callbacks: { onBeforeEventChange, onEventChange },
+    });
+    const occurrenceKey = `ev-before-change-convert@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(TUE);
+
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(makeAlldayCellElement());
+
+    firePointerDown(eventEl, x, 600); // 10:00 を掴む
+    movePointer(x, 10); // 終日行相当
+    releasePointer(x, 10);
+
+    expect(onBeforeEventChange).toHaveBeenCalledWith(
+      expect.objectContaining({ allDay: true, action: 'convert' }),
+    );
+    expect(onEventChange).not.toHaveBeenCalled();
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]?.allDay).not.toBe(true);
+  });
+
+  it('onBeforeEventChange が false を返すと、矢印キーによる移動（キーボード）も適用されない', async () => {
+    const onBeforeEventChange = vi.fn().mockReturnValue(false);
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-before-change-arrow',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({
+      events: [event],
+      callbacks: { onBeforeEventChange, onEventChange },
+    });
+    const occurrenceKey = `ev-before-change-arrow@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowDown' });
+    });
+
+    expect(onBeforeEventChange).toHaveBeenCalledWith(expect.objectContaining({ action: 'move' }));
+    expect(onEventChange).not.toHaveBeenCalled();
+    expect(sink.current?.calendar.api.getEvents()).toEqual([event]);
+  });
+
+  it('onBeforeEventDelete が false を返すと、キーボード削除は適用されず onEventDelete も呼ばれない', () => {
+    const onBeforeEventDelete = vi.fn().mockReturnValue(false);
+    const onEventDelete = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-before-delete',
+      title: '削除対象',
+      start: `${TUE}T09:00`,
+      end: `${TUE}T09:30`,
+    };
+    const { sink } = renderHarness({
+      events: [event],
+      callbacks: { onBeforeEventDelete, onEventDelete },
+    });
+    const occurrenceKey = `ev-before-delete@${at(`${TUE}T09:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    fireEvent.keyDown(eventEl, { key: 'Delete' });
+
+    expect(onBeforeEventDelete).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: 'ev-before-delete' }),
+    );
+    expect(onEventDelete).not.toHaveBeenCalled();
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(1);
+  });
+
+  it('繰り返しイベントの削除で onBeforeEventDelete が Promise<false> を返すと、resolveRecurringScope は呼ばれず削除もされない', async () => {
+    const onBeforeEventDelete = vi.fn().mockResolvedValue(false);
+    const resolveRecurringScope = vi.fn().mockResolvedValue('all' as RecurringEditScope);
+    const onEventDelete = vi.fn();
+    const event: CalendarEvent = {
+      id: 'recurring-before-delete',
+      title: '定例',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      rrule: 'FREQ=WEEKLY;BYDAY=WE',
+    };
+    const { sink } = renderHarness({
+      events: [event],
+      callbacks: { onBeforeEventDelete, resolveRecurringScope, onEventDelete },
+    });
+    const occurrenceKey = `recurring-before-delete@${at(`${WED}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'Delete' });
+    });
+
+    expect(resolveRecurringScope).not.toHaveBeenCalled();
+    expect(onEventDelete).not.toHaveBeenCalled();
+    expect(sink.current?.calendar.api.getEvents()).toEqual([event]);
+  });
+});
+
 describe('autoScrollVelocity', () => {
   it('コンテナ中央では 0 を返す', () => {
     expect(autoScrollVelocity({ edgeStart: 0, edgeEnd: 600, pointer: 300 })).toBe(0);

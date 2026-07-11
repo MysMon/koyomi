@@ -182,6 +182,7 @@ export type {
   CalendarContextValue,
   CalendarInteractionCallbacks,
   EventChange,
+  EventChangeProposal,
   EventDelete,
   MonthOverflowButtonProps,
   OverflowClickDetails,

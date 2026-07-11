@@ -294,7 +294,7 @@ const dayProps = result.current.getDayProps({
 console.log(dayProps['data-koyomi-date']); // => '2026-07-01'
 ```
 
-インタラクションのコールバック（`onEventClick` / `onSelectRange` / `onEventChange` / `onEventDelete` / `onError` / `resolveRecurringScope` / `onOverflowClick`）の詳細は [インタラクション](./interactions.md) を参照してください。
+インタラクションのコールバック（`onEventClick` / `onSelectRange` / `onBeforeSelectRange` / `onEventChange` / `onBeforeEventChange` / `onEventDelete` / `onBeforeEventDelete` / `onError` / `resolveRecurringScope` / `onOverflowClick`）の詳細は [インタラクション](./interactions.md) を参照してください。
 
 ### `useResourceGridDrag`
 
@@ -864,6 +864,7 @@ interface ToolbarLabels {
 | `CalendarContextValue` | `UseCalendarResult & { callbacks: CalendarInteractionCallbacks }` | `useCalendarContext()` の戻り値 |
 | `RangeSelection` | `{ range: DateRange; allDay: boolean; resourceId?: string | null }` | 範囲選択（新規作成操作）の内容。`resourceId` はリソース/タイムラインビューでの選択時のみ設定される（`null` は未割り当てレーン） |
 | `EventChange` | `{ occurrence: EventOccurrence; newRange: DateRange; allDay: boolean; scope: RecurringEditScope | null; resourceId?: string | null; changes: readonly EventChangeEntry[] }` | ドラッグ・キーボードによるイベント変更の内容。`resourceId` はリソース/タイムラインビューでの変更時のみ設定される（`null` は未割り当てへの移動）。`changes` は影響を受けた各イベントの before/after 一覧（undo 用途） |
+| `EventChangeProposal` | `{ occurrence: EventOccurrence; range: DateRange; allDay: boolean; resourceId?: string | null; action: 'move' | 'resize' | 'convert' }` | `onBeforeEventChange` の引数。これから適用しようとしている変更の内容（`resourceId` はリソース/タイムラインビューでの変更時のみ設定） |
 | `EventDelete` | `{ occurrence: EventOccurrence; scope: RecurringEditScope | null; changes: readonly EventChangeEntry[] }` | キーボード削除の内容。`changes` は `EventChange` と同様 |
 | `OverflowClickDetails` | `{ visibleOccurrences: readonly EventOccurrence[] }` | `onOverflowClick` の第 3 引数。その日で表示中のオカレンス一覧（`hiddenOccurrences` と組み合わせて全件を把握できる） |
 | `MonthOverflowButtonProps` | `{ 'aria-haspopup'?: 'true' | 'dialog' | 'menu' | 'listbox' | 'tree' | 'grid'; 'aria-expanded'?: boolean; 'aria-controls'?: string }` | 「+N 件」ボタンに追加する props（`overflowButtonProps` の戻り値） |
@@ -875,8 +876,11 @@ interface ToolbarLabels {
 | --- | --- | --- |
 | `onEventClick?` | `(occurrence: EventOccurrence, domEvent: MouseEvent) => void` | 何もしない |
 | `onSelectRange?` | `(selection: RangeSelection) => void` | `defaultEventTitle`（既定 `'(タイトルなし)'`）のタイトルでイベントを即時作成する |
+| `onBeforeSelectRange?` | `(selection: RangeSelection) => boolean | Promise<boolean>` | 常に許可する（`true`） |
 | `onEventChange?` | `(change: EventChange) => void` | 変更の適用はライブラリが行うため、これは通知のみ |
+| `onBeforeEventChange?` | `(proposal: EventChangeProposal) => boolean | Promise<boolean>` | 常に許可する（`true`） |
 | `onEventDelete?` | `(deletion: EventDelete) => void` | 削除の適用はライブラリが行うため、これは通知のみ |
+| `onBeforeEventDelete?` | `(occurrence: EventOccurrence) => boolean | Promise<boolean>` | 常に許可する（`true`） |
 | `onError?` | `(error: unknown) => void` | `console.error` に出力する |
 | `resolveRecurringScope?` | `(occurrence: EventOccurrence, action: 'move' | 'resize' | 'delete' | 'update') => Promise<RecurringEditScope | null>` | `'this'`（この予定のみ）を返す |
 | `onOverflowClick?` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[], details: OverflowClickDetails) => void` | その日の日ビューに切り替える |
