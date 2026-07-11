@@ -123,6 +123,19 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
     [onOverflowClickCallback, goToDay],
   );
 
+  const onDayNumberClickCallback = callbacks.onDayNumberClick;
+  /** 日番号クリック。`onDayNumberClick` があればそれを呼び、なければ day ビューへ切り替える。 */
+  const handleDayNumberClick = useCallback(
+    (date: Date): void => {
+      if (onDayNumberClickCallback !== undefined) {
+        onDayNumberClickCallback(date);
+        return;
+      }
+      goToDay(date);
+    },
+    [onDayNumberClickCallback, goToDay],
+  );
+
   if (viewModel.type !== 'month') {
     return null;
   }
@@ -174,7 +187,7 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
             renderEvent={renderEvent}
             overflowLabel={overflowLabel}
             renderDayCell={renderDayCell}
-            onDayNumberClick={goToDay}
+            onDayNumberClick={handleDayNumberClick}
             onOverflowClick={handleOverflowClick}
             overflowButtonProps={overflowButtonProps}
             interactiveOutsideDays={true}

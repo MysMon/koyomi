@@ -141,6 +141,19 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
     [onOverflowClickCallback, goToDay],
   );
 
+  const onDayNumberClickCallback = callbacks.onDayNumberClick;
+  /** 日番号クリック。`onDayNumberClick` があればそれを呼び、なければ day ビューへ切り替える。 */
+  const handleDayNumberClick = useCallback(
+    (date: Date): void => {
+      if (onDayNumberClickCallback !== undefined) {
+        onDayNumberClickCallback(date);
+        return;
+      }
+      goToDay(date);
+    },
+    [onDayNumberClickCallback, goToDay],
+  );
+
   if (viewModel.type !== 'multiMonth') {
     return null;
   }
@@ -163,7 +176,7 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
           renderEvent={renderEvent}
           overflowLabel={overflowLabel}
           renderDayCell={renderDayCell}
-          onDayNumberClick={goToDay}
+          onDayNumberClick={handleDayNumberClick}
           onOverflowClick={handleOverflowClick}
           overflowButtonProps={overflowButtonProps}
         />

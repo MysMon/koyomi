@@ -119,7 +119,7 @@ const HAS_EVENTS_BUTTON_ATTRS: { 'data-has-events': 'true' } = { 'data-has-event
  */
 export function YearView(props: YearViewProps): ReactElement | null {
   const { renderMonthHeader, renderDayCell } = props;
-  const { api, state, viewModel } = useCalendarContext();
+  const { api, state, viewModel, callbacks } = useCalendarContext();
 
   /** 指定日の day ビューへ切り替える（月ビューの日番号ボタンと同じ挙動）。 */
   const goToDay = useCallback(
@@ -128,6 +128,19 @@ export function YearView(props: YearViewProps): ReactElement | null {
       api.setView('day');
     },
     [api],
+  );
+
+  const onDayNumberClickCallback = callbacks.onDayNumberClick;
+  /** 日セルクリック。`onDayNumberClick` があればそれを呼び、なければ day ビューへ切り替える。 */
+  const handleDayClick = useCallback(
+    (date: Date): void => {
+      if (onDayNumberClickCallback !== undefined) {
+        onDayNumberClickCallback(date);
+        return;
+      }
+      goToDay(date);
+    },
+    [onDayNumberClickCallback, goToDay],
   );
 
   if (viewModel.type !== 'year') {
@@ -149,7 +162,7 @@ export function YearView(props: YearViewProps): ReactElement | null {
           locale={locale}
           renderMonthHeader={renderMonthHeader}
           renderDayCell={renderDayCell}
-          onDayClick={goToDay}
+          onDayClick={handleDayClick}
         />
       ))}
     </div>

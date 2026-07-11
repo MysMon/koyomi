@@ -407,6 +407,19 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
     [api],
   );
 
+  const onDayNumberClickCallback = callbacks.onDayNumberClick;
+  /** 日番号クリック。`onDayNumberClick` があればそれを呼び、なければ day ビューへ切り替える。 */
+  const handleDayNumberClick = useCallback(
+    (date: Date): void => {
+      if (onDayNumberClickCallback !== undefined) {
+        onDayNumberClickCallback(date);
+        return;
+      }
+      selectAndGoToDay(date);
+    },
+    [onDayNumberClickCallback, selectAndGoToDay],
+  );
+
   if (viewModel.type !== 'timeGrid') {
     return null;
   }
@@ -449,7 +462,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
                   type="button"
                   data-koyomi="timegrid-day-number"
                   aria-label={formatFullDateLabel(day.date, timeZone, locale)}
-                  onClick={() => selectAndGoToDay(day.date)}
+                  onClick={() => handleDayNumberClick(day.date)}
                 >
                   {formatDayNumberLabel(day.date, timeZone, locale)}
                 </button>

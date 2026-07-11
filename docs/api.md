@@ -294,7 +294,7 @@ const dayProps = result.current.getDayProps({
 console.log(dayProps['data-koyomi-date']); // => '2026-07-01'
 ```
 
-インタラクションのコールバック（`onEventClick` / `onSelectRange` / `onBeforeSelectRange` / `onEventChange` / `onBeforeEventChange` / `onEventDelete` / `onBeforeEventDelete` / `onError` / `resolveRecurringScope` / `onOverflowClick`）の詳細は [インタラクション](./interactions.md) を参照してください。
+インタラクションのコールバック（`onEventClick` / `onSelectRange` / `onBeforeSelectRange` / `onEventChange` / `onBeforeEventChange` / `onEventDelete` / `onBeforeEventDelete` / `onError` / `resolveRecurringScope` / `onOverflowClick` / `onDayNumberClick`）の詳細は [インタラクション](./interactions.md) を参照してください。
 
 ### `useResourceGridDrag`
 
@@ -884,6 +884,7 @@ interface ToolbarLabels {
 | `onError?` | `(error: unknown) => void` | `console.error` に出力する |
 | `resolveRecurringScope?` | `(occurrence: EventOccurrence, action: 'move' | 'resize' | 'delete' | 'update') => Promise<RecurringEditScope | null>` | `'this'`（この予定のみ）を返す |
 | `onOverflowClick?` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[], details: OverflowClickDetails) => void` | その日の日ビューに切り替える |
+| `onDayNumberClick?` | `(date: Date) => void` | その日の日ビューに切り替える |
 
 ## 低レベルユーティリティ
 

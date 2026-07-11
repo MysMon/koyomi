@@ -329,6 +329,29 @@ describe('TimeGridView', () => {
     );
   });
 
+  it('onDayNumberClick が指定されていればそれが呼ばれ、既定の画面遷移は行われない', () => {
+    const onDayNumberClick = vi.fn();
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(
+      <Harness initialView="week" callbacks={{ onDayNumberClick }} sink={sink} />,
+    );
+
+    const targetHeader = container.querySelector(
+      '[data-koyomi="timegrid-day-header"][data-koyomi-date="2026-07-14"]',
+    );
+    const dayNumberButton = targetHeader?.querySelector('[data-koyomi="timegrid-day-number"]');
+    expect(dayNumberButton).not.toBeNull();
+    if (dayNumberButton !== null && dayNumberButton !== undefined) {
+      fireEvent.click(dayNumberButton);
+    }
+
+    expect(onDayNumberClick).toHaveBeenCalledTimes(1);
+    expect(onDayNumberClick.mock.calls[0]?.[0]?.getTime()).toBe(
+      new Date('2026-07-13T15:00:00.000Z').getTime(),
+    );
+    expect(sink.current?.api.getState().view).toBe('week');
+  });
+
   it('timeGrid 以外のビュー（例: month）では何も描画しない', () => {
     const { container } = render(<Harness initialView="month" />);
     expect(container.querySelector('[data-koyomi="timegrid"]')).toBeNull();
