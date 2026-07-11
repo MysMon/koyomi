@@ -257,6 +257,34 @@ describe('TimelineView - カスタム描画 props', () => {
     expect(custom?.textContent).toBe('CUSTOM:荷揚げ');
   });
 
+  it('eventAriaLabel は既定の aria-label 文字列（日時＋リソース名）を defaultLabel として受け取り、返り値に置き換わる', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '荷揚げ',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'crane-1',
+      },
+    ];
+    const eventAriaLabel = (
+      occurrence: import('../../core/types').EventOccurrence,
+      defaultLabel: string,
+    ): string => {
+      expect(occurrence.eventId).toBe('e1');
+      expect(defaultLabel).toBe('荷揚げ、7月15日 9:00〜11:00、クレーン1号機');
+      return `カスタム:${defaultLabel}`;
+    };
+    const { container } = render(
+      <Harness resources={[CRANE_1]} events={events} viewProps={{ eventAriaLabel }} />,
+    );
+    const item = container.querySelector('[data-koyomi="timeline-item"]');
+    expect(item).toHaveAttribute(
+      'aria-label',
+      'カスタム:荷揚げ、7月15日 9:00〜11:00、クレーン1号機',
+    );
+  });
+
   it('renderRowHeader で行見出しの内容を差し替えられ、defaultContent には既定の内容が渡る', () => {
     const renderRowHeader = (row: TimelineRow, defaultContent: ReactNode): ReactElement => (
       <div data-koyomi="custom-row-header">

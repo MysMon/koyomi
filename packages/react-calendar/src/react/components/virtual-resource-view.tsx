@@ -48,7 +48,7 @@ import { useIsomorphicLayoutEffect } from '../use-isomorphic-layout-effect';
 import type { ResourceGridDragHandlers, ResourcePreviewSegment } from '../use-resource-grid-drag';
 import { useResourceGridDrag } from '../use-resource-grid-drag';
 import { useVirtualizer } from '../use-virtualizer';
-import { withEventColorStyle } from './month-view-parts';
+import { resolveEventAriaLabel, withEventColorStyle } from './month-view-parts';
 import {
   ariaLabelText,
   ariaLabelWithResource,
@@ -88,6 +88,14 @@ export interface VirtualResourceViewProps {
   columnWidth?: number;
   /** 前後 overscan 列数。既定 3。 */
   overscan?: number;
+  /**
+   * イベントブロックの aria-label をカスタマイズする関数（`ResourceView` と同じ）。
+   * 第 2 引数に既定の aria-label 文字列（日時＋リソース名）を渡すので、
+   * それを加工・置換して返せる。省略時は既定文字列をそのまま使う。
+   * @param occurrence - 対象のオカレンス
+   * @param defaultLabel - 既定の aria-label 文字列
+   */
+  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
 }
 
 /** {@link VirtualResourceView} が `ref` 経由で公開する命令的 API。 */
@@ -235,6 +243,8 @@ interface AllDayCellProps {
   left?: number;
   /** 仮想化: 終日アイテムをタブ順に含めるか。既定 `true`（`false` で `tabIndex=-1`）。 */
   itemTabbable?: boolean;
+  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
+  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
 }
 
 /** リソースビューの終日セル 1 件分（内部に終日アイテムのボタンを縦積みする）。 */
@@ -251,6 +261,7 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
     pinned,
     left,
     itemTabbable,
+    eventAriaLabel,
   } = props;
   const style: CSSProperties = {
     flex: `0 0 ${columnWidth}px`,
@@ -288,6 +299,7 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
           isDragging={isDragging}
           timeZone={timeZone}
           locale={locale}
+          eventAriaLabel={eventAriaLabel}
           {...(itemTabbable === false ? { tabbable: false } : {})}
         />
       ))}
@@ -309,7 +321,8 @@ const AllDayCell = memo(AllDayCellImpl, (prev, next) => {
     prev.locale === next.locale &&
     prev.pinned === next.pinned &&
     prev.left === next.left &&
-    prev.itemTabbable === next.itemTabbable
+    prev.itemTabbable === next.itemTabbable &&
+    prev.eventAriaLabel === next.eventAriaLabel
   );
 });
 
@@ -326,11 +339,13 @@ interface AllDayItemButtonProps {
   locale: string;
   /** 仮想化: タブ順に含めるか。既定 `true`（`false` で `tabIndex=-1`。pinned 列で使う）。 */
   tabbable?: boolean;
+  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
+  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
 }
 
 /** リソースビューの終日アイテム 1 件分のボタン（列間移動のみ）。 */
 function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
-  const { occurrence, column, lane, drag, timeZone, locale, tabbable } = props;
+  const { occurrence, column, lane, drag, timeZone, locale, tabbable, eventAriaLabel } = props;
   const style = withEventColorStyle(
     {
       top: `calc(${lane} * var(--koyomi-lane-height, 24px))`,
@@ -345,7 +360,11 @@ function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
       {...drag.getAllDayItemProps(occurrence)}
       data-koyomi="allday-event"
       style={style}
-      aria-label={ariaLabelWithResource(occurrence, column.resource?.title, timeZone, locale)}
+      aria-label={resolveEventAriaLabel(
+        occurrence,
+        ariaLabelWithResource(occurrence, column.resource?.title, timeZone, locale),
+        eventAriaLabel,
+      )}
       {...(tabbable === false ? { tabIndex: -1 } : {})}
     >
       {occurrence.event.title}
@@ -362,7 +381,8 @@ const AllDayItemButton = memo(AllDayItemButtonImpl, (prev, next) => {
     prev.isDragging === next.isDragging &&
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
-    prev.tabbable === next.tabbable
+    prev.tabbable === next.tabbable &&
+    prev.eventAriaLabel === next.eventAriaLabel
   );
 });
 
@@ -385,6 +405,8 @@ interface ResourceColumnBodyProps {
   pinned?: boolean;
   left?: number;
   eventTabbable?: boolean;
+  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
+  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
 }
 
 /** リソースビューの 1 列分（目盛り線・イベント・プレビュー・現在時刻線）。 */
@@ -404,6 +426,7 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
     pinned,
     left,
     eventTabbable,
+    eventAriaLabel,
   } = props;
   // 列幅は columnWidth で固定（measure: false）のため、drag.getColumnProps が返す ref を
   // そのまま使う（実測用 ref コールバックの合成は不要。measureElement 経由の配線は行わない）。
@@ -473,11 +496,10 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
             data-continues-before={item.continuesBefore ? 'true' : undefined}
             data-continues-after={item.continuesAfter ? 'true' : undefined}
             style={itemStyle}
-            aria-label={ariaLabelWithResource(
+            aria-label={resolveEventAriaLabel(
               item.occurrence,
-              column.resource?.title,
-              timeZone,
-              locale,
+              ariaLabelWithResource(item.occurrence, column.resource?.title, timeZone, locale),
+              eventAriaLabel,
             )}
             {...(eventTabbable === false ? { tabIndex: -1 } : {})}
           >
@@ -551,7 +573,8 @@ const ResourceColumnBody = memo(ResourceColumnBodyImpl, (prev, next) => {
     prev.columnWidth === next.columnWidth &&
     prev.pinned === next.pinned &&
     prev.left === next.left &&
-    prev.eventTabbable === next.eventTabbable
+    prev.eventTabbable === next.eventTabbable &&
+    prev.eventAriaLabel === next.eventAriaLabel
   );
 });
 
@@ -582,6 +605,7 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
       emptyLabel = DEFAULT_EMPTY_LABEL,
       columnWidth = DEFAULT_COLUMN_WIDTH,
       overscan,
+      eventAriaLabel,
     } = props;
     const { api, state, viewModel, callbacks } = useCalendarContext();
     const calendar = { api, state, viewModel };
@@ -797,6 +821,7 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
                     isPreviewTarget={drag.isAllDayPreviewTarget(column)}
                     timeZone={timeZone}
                     locale={locale}
+                    eventAriaLabel={eventAriaLabel}
                   />
                 ) : null;
               })}
@@ -822,6 +847,7 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
                     pinned
                     left={item.start}
                     itemTabbable={false}
+                    eventAriaLabel={eventAriaLabel}
                   />
                 ) : null;
               })}
@@ -860,6 +886,7 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
                   isDragging={drag.isDragging}
                   preview={drag.previewFor(column)}
                   columnWidth={columnWidth}
+                  eventAriaLabel={eventAriaLabel}
                 />
               ) : null;
             })}
@@ -889,6 +916,7 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
                   pinned
                   left={item.start}
                   eventTabbable={false}
+                  eventAriaLabel={eventAriaLabel}
                 />
               ) : null;
             })}

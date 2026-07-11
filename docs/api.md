@@ -482,30 +482,39 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `renderMonthDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 月ビューの日セルのカスタム描画（`MonthView.renderDayCell` へ転送） |
 | `monthOverflowLabel` | `(count: number) => ReactNode` | 月ビューの「+N 件」の文言（`MonthView.overflowLabel` へ転送） |
 | `monthOverflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 月ビューの「+N 件」ボタンに追加する props（`MonthView.overflowButtonProps` へ転送） |
+| `monthEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | 月ビューのイベントボタンの aria-label（`MonthView.eventAriaLabel` へ転送） |
 | `renderTimeGridEvent` | `(item: PositionedOccurrence) => ReactNode` | 週/日ビューのイベントブロックのカスタム描画 |
 | `renderTimeGridDayHeader` | `(day: TimeGridDay, defaultContent: ReactNode) => ReactNode` | 週/日ビューの日ヘッダーのカスタム描画（`TimeGridView.renderDayHeader` へ転送） |
+| `timeGridEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | 週/日ビューのイベントブロック（終日行含む）の aria-label（`TimeGridView.eventAriaLabel` へ転送） |
 | `renderListEvent` | `(occurrence: EventOccurrence) => ReactNode` | リストビューのイベント行のカスタム描画 |
 | `listAllDayLabel` | `ReactNode` | リストビューの終日ラベル（既定「終日」） |
 | `listEmptyLabel` | `ReactNode` | リストビューの空状態メッセージ（既定「予定はありません」） |
 | `renderListDayHeader` | `(day: ListDay, defaultContent: ReactNode) => ReactNode` | リストビューの日付見出しのカスタム描画 |
+| `listEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | リストビューのイベント行の aria-label（`ListView` / `VirtualListView` の `eventAriaLabel` へ転送） |
+| `listDayAriaLabel` | `(day: ListDay, defaultLabel: string) => string` | リストビューの日セクションの aria-label（`ListView` / `VirtualListView` の `dayAriaLabel` へ転送） |
 | `virtualizeList` | `boolean` | リストビューを仮想化する（`ListView` の代わりに `VirtualListView`）。既定 `false` |
 | `listEstimateDayHeight` | `number \| ((day: ListDay, index: number) => number)` | 仮想化時の日セクション推定高（`VirtualListView.estimateDayHeight` へ転送） |
 | `listOverscan` | `number` | 仮想化時の前後 overscan 日数（`VirtualListView.overscan` へ転送） |
 | `renderYearMonthHeader` | `(month: YearMonth, defaultContent: ReactNode) => ReactNode` | 年ビューのミニ月グリッドの見出しのカスタム描画（`YearView.renderMonthHeader` へ転送） |
 | `renderYearDayCell` | `(day: YearDay, defaultContent: ReactNode) => ReactNode` | 年ビューの日セルのカスタム描画（`YearView.renderDayCell` へ転送） |
+| `yearDayCountLabel` | `(count: number) => string` | 年ビューの日セルの件数文言「予定N件」部分（`YearView.dayCountLabel` へ転送） |
+| `yearDayAriaLabel` | `(day: YearDay, defaultLabel: string) => string` | 年ビューの日セルの aria-label 全体（`YearView.dayAriaLabel` へ転送） |
 | `renderMultiMonthEvent` | `(segment: EventSegment) => ReactNode` | 複数月ビューのセグメントのカスタム描画（`MultiMonthView.renderEvent` へ転送） |
 | `renderMultiMonthDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 複数月ビューの日セルのカスタム描画（`MultiMonthView.renderDayCell` へ転送） |
 | `multiMonthOverflowLabel` | `(count: number) => ReactNode` | 複数月ビューの「+N 件」の文言（`MultiMonthView.overflowLabel` へ転送） |
 | `multiMonthOverflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 複数月ビューの「+N 件」ボタンに追加する props（`MultiMonthView.overflowButtonProps` へ転送） |
+| `multiMonthEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | 複数月ビューのイベントボタンの aria-label（`MultiMonthView.eventAriaLabel` へ転送） |
 | `renderResourceEvent` | `(item: PositionedOccurrence) => ReactNode` | リソースビューのイベントブロックのカスタム描画（`ResourceView.renderEvent` へ転送） |
 | `renderResourceColumnHeader` | `(column: ResourceColumn, defaultContent: ReactNode) => ReactNode` | リソースビューの列見出しのカスタム描画（`ResourceView.renderColumnHeader` へ転送） |
 | `resourceUnassignedLabel` | `ReactNode` | リソースビューの未割り当て列ラベル（既定「未割り当て」。`ResourceView.unassignedLabel` へ転送） |
 | `resourceEmptyLabel` | `ReactNode` | リソースビューの空状態メッセージ（既定「リソースがありません」。`ResourceView.emptyLabel` へ転送） |
+| `resourceEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | リソースビューのイベントブロックの aria-label（`ResourceView.eventAriaLabel` へ転送） |
 | `renderTimelineEvent` | `(item: TimelineItem) => ReactNode` | タイムラインの帯のカスタム描画（`TimelineView.renderEvent` へ転送） |
 | `renderTimelineRowHeader` | `(row: TimelineRow, defaultContent: ReactNode) => ReactNode` | タイムラインの行見出しのカスタム描画（`TimelineView.renderRowHeader` へ転送） |
 | `timelineUnassignedLabel` | `ReactNode` | タイムラインの未割り当て行ラベル（既定「未割り当て」。`TimelineView.unassignedLabel` へ転送） |
 | `timelineEmptyLabel` | `ReactNode` | タイムラインの空状態メッセージ（既定「リソースがありません」。`TimelineView.emptyLabel` へ転送） |
 | `timelineCornerLabel` | `string` | タイムラインのヘッダー行の角セルの `aria-label`（既定「リソース」。`TimelineView.cornerLabel` へ転送） |
+| `timelineEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | タイムラインの帯の aria-label（`TimelineView.eventAriaLabel` へ転送） |
 
 ### `MonthView`
 
@@ -521,6 +530,7 @@ function MonthView(props: MonthViewProps): ReactElement | null
 | `renderDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 日セルの内容（日番号ボタン＋「+N 件」ボタン）をラップ・置換する。祝日ラベルやバッジの注入用 |
 | `overflowLabel` | `(count: number) => ReactNode` | 「+N 件」ボタンの文言（既定 `+N 件`） |
 | `overflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 「+N 件」ボタンに追加する props（`aria-haspopup` / `aria-expanded` 等）。省略時は追加の props を付与しない |
+| `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | イベントボタンの aria-label。`defaultLabel` に既定文字列（`formatEventAriaLabel` の結果）を渡すので加工・置換できる。省略時は既定文字列のまま |
 
 ルート要素には WAI-ARIA の grid ロール（`grid` / `row` / `columnheader` / `gridcell`）と、各日セルへの完全な日付の `aria-label`・今日への `aria-current="date"` が付与されます。
 
@@ -536,6 +546,7 @@ function TimeGridView(props: TimeGridViewProps): ReactElement | null
 | --- | --- | --- |
 | `renderEvent` | `(item: PositionedOccurrence) => ReactNode` | 時間指定イベントの表示内容。省略時は `'H:mm〜H:mm タイトル'`。終日行の内容はこの prop では変更できない |
 | `renderDayHeader` | `(day: TimeGridDay, defaultContent: ReactNode) => ReactNode` | 日ヘッダー（曜日・日番号）の内容 |
+| `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | イベントボタン（時間指定・終日行の両方）の aria-label。`defaultLabel` に既定文字列を渡すので加工・置換できる。省略時は既定文字列のまま |
 
 ### `ListView`
 
@@ -551,6 +562,8 @@ function ListView(props: ListViewProps): ReactElement | null
 | `allDayLabel` | `ReactNode` | 終日予定の時刻ラベル（既定「終日」） |
 | `emptyLabel` | `ReactNode` | 空状態のメッセージ（既定「予定はありません」） |
 | `renderDayHeader` | `(day: ListDay, defaultContent: ReactNode) => ReactNode` | 日付見出しの内容 |
+| `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | イベント行（`list-event`）の aria-label。`defaultLabel` に既定文字列（`formatEventAriaLabel` の結果）を渡すので加工・置換できる。省略時は既定文字列のまま |
+| `dayAriaLabel` | `(day: ListDay, defaultLabel: string) => string` | 日セクション（`list-day`）の aria-label。`defaultLabel` に既定文字列（例:「7月16日(木) 予定2件」、`VirtualListView` と同じ形式）を渡すので加工・置換できる。省略時は既定文字列のまま |
 
 ### `VirtualListView`
 
@@ -558,9 +571,9 @@ function ListView(props: ListViewProps): ReactElement | null
 function VirtualListView(props: VirtualListViewProps): ReactElement | null
 ```
 
-`ListView` を縦方向に仮想化した opt-in コンポーネントです。可視範囲の日セクションだけを描画し、大量の予定・長期間表示での DOM 肥大を抑えます。日セクションの内容（`data-koyomi-*` 構造）は共有レンダラを通じて `ListView` と完全に一致します。内部で `useVirtualizer` を使用します。
+`ListView` を縦方向に仮想化した opt-in コンポーネントです。可視範囲の日セクションだけを描画し、大量の予定・長期間表示での DOM 肥大を抑えます。日セクションの内容（`data-koyomi-*` 構造）は共有レンダラを通じて `ListView` と完全に一致します（日セクションの既定 aria-label も同じ形式で、仮想化の有無で読み上げは変わりません）。内部で `useVirtualizer` を使用します。
 
-`ListView` の props（`renderEvent` / `allDayLabel` / `emptyLabel` / `renderDayHeader`）に加えて次を受け付けます。
+`ListView` の props（`renderEvent` / `allDayLabel` / `emptyLabel` / `renderDayHeader` / `eventAriaLabel` / `dayAriaLabel`）に加えて次を受け付けます。
 
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
@@ -583,6 +596,8 @@ function YearView(props: YearViewProps): ReactElement | null
 | --- | --- | --- |
 | `renderMonthHeader` | `(month: YearMonth, defaultContent: ReactNode) => ReactNode` | ミニ月グリッドの見出しの内容 |
 | `renderDayCell` | `(day: YearDay, defaultContent: ReactNode) => ReactNode` | 日セルの内容（日番号＋件数マーカー）をラップ・置換する |
+| `dayCountLabel` | `(count: number) => string` | 日セルの aria-label に含める件数文言「予定N件」部分（既定 `'予定N件'`）。予定が 0 件の日には呼ばれない |
+| `dayAriaLabel` | `(day: YearDay, defaultLabel: string) => string` | 日セルの aria-label 全体。`defaultLabel` に `dayCountLabel` 適用後の既定文字列（例:「7月10日 予定3件」）を渡すので加工・置換できる。省略時は既定文字列のまま |
 
 ルート要素には月ビューと同じ WAI-ARIA grid ロール（ミニ月単位で `grid` / `row` / `columnheader` / `gridcell`）と、各日セルへの完全な日付＋件数の `aria-label`（例:「7月10日 予定3件」）・今日への `aria-current="date"` が付与されます。`hiddenWeekdays` は無視されます（常に 7 列。日ビューと同じ扱い）。
 
@@ -600,6 +615,7 @@ function MultiMonthView(props: MultiMonthViewProps): ReactElement | null
 | `renderDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 日セルの内容をラップ・置換する。前後月の日付セル（`data-outside`）はインタラクティブでないため適用されない |
 | `overflowLabel` | `(count: number) => ReactNode` | 「+N 件」ボタンの文言（既定 `+N 件`） |
 | `overflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 「+N 件」ボタンに追加する props（`MonthView` と同じ） |
+| `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | イベントボタンの aria-label（`MonthView` と同じ）。`defaultLabel` に既定文字列を渡すので加工・置換できる |
 
 `MonthView` との違いは、前後月の日付セルに予定を表示しない点だけです。月境界をまたぐ帯は月ごとにクランプされ、`continuesBefore` / `continuesAfter` で「←続く／続く→」を示します（月ビューの複数週セグメントと同じセマンティクス）。前後月の日付セルはクリック・キーボード操作の対象になりません（`tabIndex` なし）。
 
@@ -617,6 +633,7 @@ function ResourceView(props: ResourceViewProps): ReactElement | null
 | `renderColumnHeader` | `(column: ResourceColumn, defaultContent: ReactNode) => ReactNode` | 列見出しの内容（`defaultContent` はリソース名、または未割り当て列は `unassignedLabel`）をラップ・置換する |
 | `unassignedLabel` | `ReactNode` | 未割り当て列の見出しラベル（既定「未割り当て」） |
 | `emptyLabel` | `ReactNode` | 空状態（列が 1 つもない）のメッセージ（既定「リソースがありません」） |
+| `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | イベントブロックの aria-label。`defaultLabel` に既定文字列（日時＋リソース名、`ariaLabelWithResource` の結果）を渡すので加工・置換できる。省略時は既定文字列のまま |
 
 イベントブロック・リサイズハンドル・現在時刻線・プレビューは週/日ビューと同じ部位名（`timegrid-event` 等）を使い、デフォルトテーマのスタイルを共有します。a11y は週/日ビューの現状（grid 系 role なし）に合わせ、操作要素は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
 
@@ -635,6 +652,7 @@ function TimelineView(props: TimelineViewProps): ReactElement | null
 | `unassignedLabel` | `ReactNode` | 未割り当て行の見出しラベル（既定「未割り当て」） |
 | `emptyLabel` | `ReactNode` | 空状態（行が 1 つもない）のメッセージ（既定「リソースがありません」） |
 | `cornerLabel` | `string` | ヘッダー行の角セル（行見出し列の列見出し）の `aria-label`（既定「リソース」） |
+| `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | 帯の aria-label。`defaultLabel` に既定文字列（日時＋リソース名）を渡すので加工・置換できる。省略時は既定文字列のまま |
 
 水平位置は `表示分 / totalMinutes` の % を inline で出力します（位置決めの数値のみ）。スクロールは単一の横スクロールコンテナ（`timeline-body`）で行い、行見出しはテーマ CSS の `position: sticky` で固定します（スクロール同期の JS は持ちません）。目盛りが 1,000 個を超える構成（`timelineDays × ceil(1440 / slotMinutes)`）では開発ビルドで一度だけ警告します。a11y は週/日ビューの現状に合わせ、帯は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
 
@@ -646,7 +664,7 @@ function VirtualResourceView(props: VirtualResourceViewProps): ReactElement | nu
 
 `ResourceView` の列（リソース列）を横方向に仮想化した opt-in の別コンポーネントです（`ResourceView` 自体は変更しません）。可視範囲のリソース列だけを描画し、数百列規模の DOM 肥大を抑えます。DOM 構造・ARIA（`role="grid"` / `row` / `columnheader` / `gridcell`）は `ResourceView` と同じです。内部で `useVirtualizer`（`axis: 'horizontal'`）を使用します。`ref` 経由で `VirtualResourceViewHandle` を公開します。
 
-`ResourceView` の props（`renderEvent` / `renderColumnHeader` / `unassignedLabel` / `emptyLabel`）に加えて次を受け付けます。
+`ResourceView` の props（`renderEvent` / `renderColumnHeader` / `unassignedLabel` / `emptyLabel` / `eventAriaLabel`）に加えて次を受け付けます。
 
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
@@ -669,7 +687,7 @@ function VirtualTimelineView(props: VirtualTimelineViewProps): ReactElement | nu
 
 `TimelineView` の行（リソース行）を縦方向に仮想化した opt-in の別コンポーネントです（`TimelineView` 自体は変更しません）。可視範囲のリソース行だけを描画し、数百行規模の DOM 肥大を抑えます。DOM 構造・ARIA（`role="grid"` / `row` / `rowheader` / `gridcell`）は `TimelineView` と同じです。内部で `useVirtualizer` を使用します。`ref` 経由で `VirtualTimelineViewHandle` を公開します。
 
-`TimelineView` の props（`renderEvent` / `renderRowHeader` / `unassignedLabel` / `emptyLabel` / `cornerLabel`）に加えて次を受け付けます。
+`TimelineView` の props（`renderEvent` / `renderRowHeader` / `unassignedLabel` / `emptyLabel` / `cornerLabel` / `eventAriaLabel`）に加えて次を受け付けます。
 
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
@@ -711,10 +729,11 @@ interface ToolbarLabels {
   today?: ReactNode;
   prev?: ReactNode;
   next?: ReactNode;
+  viewsGroup?: string;
 }
 ```
 
-「今日」「前へ」「次へ」のナビゲーション、期間タイトル、ビュー切替（既定は月・週・日・リスト。`views` prop で年・複数月・リソース・タイムラインビュー等を追加できる opt-in）を提供します。タイトルは現在のビューに応じて `formatMonthTitle` / `formatDayTitle` / `formatRangeTitle` / `formatYearTitle` のいずれかで整形されます（複数月ビューは表示範囲の開始月・終了月をそれぞれ `formatMonthTitle` で整形し、「2026年7月〜2026年9月」のように連結します。同一月なら単一表記。リソースビューは日ビューと同じ `formatDayTitle`。タイムラインビューは `timelineDays: 1` なら日ビューと同じ形式、複数日なら `formatRangeTitle` による範囲形式「2026年7月15日〜7月21日」）。`labels` で全ボタン文言を差し替えられます（i18n 対応）。
+「今日」「前へ」「次へ」のナビゲーション、期間タイトル、ビュー切替（既定は月・週・日・リスト。`views` prop で年・複数月・リソース・タイムラインビュー等を追加できる opt-in）を提供します。タイトルは現在のビューに応じて `formatMonthTitle` / `formatDayTitle` / `formatRangeTitle` / `formatYearTitle` のいずれかで整形されます（複数月ビューは表示範囲の開始月・終了月をそれぞれ `formatMonthTitle` で整形し、「2026年7月〜2026年9月」のように連結します。同一月なら単一表記。リソースビューは日ビューと同じ `formatDayTitle`。タイムラインビューは `timelineDays: 1` なら日ビューと同じ形式、複数日なら `formatRangeTitle` による範囲形式「2026年7月15日〜7月21日」）。`labels` で全ボタン文言を差し替えられます（i18n 対応）。ビュー切替ボタングループ（`toolbar-views`）の `aria-label` は `labels.viewsGroup` で差し替えられます（既定「表示切替」）。
 
 `labels` を含む各コンポーネントの `*Label` 系 props を英語文言でまとめて差し替えたい場合は、`enUsLabels` プリセットが使えます（詳細は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照）。
 
@@ -1229,12 +1248,37 @@ type EnUsLabels = {
     today: string;
     prev: string;
     next: string;
+    viewsGroup: string;
   };
-  list: { allDayLabel: string; emptyLabel: string };
-  month: { overflowLabel: (count: number) => ReactNode };
-  multiMonth: { overflowLabel: (count: number) => ReactNode };
-  resource: { unassignedLabel: string; emptyLabel: string };
-  timeline: { unassignedLabel: string; emptyLabel: string; cornerLabel: string };
+  list: {
+    allDayLabel: string;
+    emptyLabel: string;
+    eventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
+    dayAriaLabel: (day: ListDay, defaultLabel: string) => string;
+  };
+  month: {
+    overflowLabel: (count: number) => ReactNode;
+    eventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
+  };
+  multiMonth: {
+    overflowLabel: (count: number) => ReactNode;
+    eventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
+  };
+  resource: {
+    unassignedLabel: string;
+    emptyLabel: string;
+    eventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
+  };
+  timeline: {
+    unassignedLabel: string;
+    emptyLabel: string;
+    cornerLabel: string;
+    eventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
+  };
+  year: {
+    dayCountLabel: (count: number) => string;
+    dayAriaLabel: (day: YearDay, defaultLabel: string) => string;
+  };
   calendarView: {
     listAllDayLabel: string;
     listEmptyLabel: string;
@@ -1245,11 +1289,20 @@ type EnUsLabels = {
     timelineUnassignedLabel: string;
     timelineEmptyLabel: string;
     timelineCornerLabel: string;
+    monthEventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
+    timeGridEventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
+    listEventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
+    listDayAriaLabel: (day: ListDay, defaultLabel: string) => string;
+    multiMonthEventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
+    resourceEventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
+    timelineEventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
+    yearDayCountLabel: (count: number) => string;
+    yearDayAriaLabel: (day: YearDay, defaultLabel: string) => string;
   };
 };
 ```
 
-各コンポーネントが持つ `*Label` 系 props（既定値は日本語）を英語化したプリセットです。`toolbar` / `list` / `month` / `multiMonth` / `resource` / `timeline` はそれぞれ同名のビルトインコンポーネント（`VirtualListView` 等の仮想化版も含む）の props にそのままスプレッドできます。`calendarView` だけは `CalendarView` が転送用に持つプレフィックス付き props（`listAllDayLabel` 等）向けの形です。既定値（日本語）自体は変更されないため、渡さない限り既存の見た目は変わりません。使用例は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照してください。
+各コンポーネントが持つ `*Label` 系 props（既定値は日本語）を英語化したプリセットです。`toolbar` / `list` / `month` / `multiMonth` / `resource` / `timeline` / `year` はそれぞれ同名のビルトインコンポーネント（`VirtualListView` 等の仮想化版も含む）の props にそのままスプレッドできます。`calendarView` だけは `CalendarView` が転送用に持つプレフィックス付き props（`listAllDayLabel` 等）向けの形です。`eventAriaLabel` 系は、既定 aria-label 文字列が使う日本語の区切り記号（読点「、」・波ダッシュ「〜」）を英語表記（カンマ・en dash）に置き換えます（日付・時刻自体は `locale` オプションにより Intl で整形済みのため触れません）。既定値（日本語）自体は変更されないため、渡さない限り既存の見た目は変わりません。使用例は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照してください。
 
 ## 関連ページ
 

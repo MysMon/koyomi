@@ -31,6 +31,22 @@ export interface YearViewProps {
    * @param defaultContent - 既定の内容
    */
   renderDayCell?: (day: YearDay, defaultContent: ReactNode) => ReactNode;
+  /**
+   * 日セルの aria-label に含める件数文言（「予定N件」部分）をカスタマイズする関数。
+   * 既定は `'予定N件'`。予定が 0 件の場合は呼ばれない（既定文言と同じく件数部分自体が
+   * 省略される）。この結果は `dayAriaLabel` に渡す既定 aria-label 文字列の組み立てに使う。
+   * @param count - その日の予定件数（1 件以上）
+   */
+  dayCountLabel?: (count: number) => string;
+  /**
+   * 日セル（ボタン）の aria-label 全体をカスタマイズする関数。
+   * 第 2 引数に既定の aria-label 文字列（`dayCountLabel` 適用後の結果、例:
+   * 「7月10日 予定3件」）を渡すので、それを加工・置換して返せる。
+   * 省略時は既定文字列をそのまま使う。
+   * @param day - 対象の日
+   * @param defaultLabel - 既定の aria-label 文字列
+   */
+  dayAriaLabel?: (day: YearDay, defaultLabel: string) => string;
 }
 
 /** `Intl.DateTimeFormat` インスタンスのキャッシュ（`locale|timeZone|種別` をキーにする）。 */
@@ -83,13 +99,24 @@ function formatMonthDayLabel(date: Date, timeZone: TimeZoneId, locale: string): 
   }).format(date);
 }
 
+/** `dayCountLabel` 省略時の既定の件数文言（例: `'予定3件'`）。 */
+function defaultDayCountLabel(count: number): string {
+  return `予定${count}件`;
+}
+
 /**
- * 日セルの aria-label（例: `'7月10日 予定3件'`）を組み立てる。
- * 予定が 0 件の場合は件数部分を省略する。
+ * 日セルの既定 aria-label（例: `'7月10日 予定3件'`）を組み立てる。
+ * 予定が 0 件の場合は件数部分を省略する。件数文言は `dayCountLabel` で差し替えられる
+ * （省略時は `defaultDayCountLabel`）。
  */
-function formatDayAriaLabel(day: YearDay, timeZone: TimeZoneId, locale: string): string {
+function formatDayAriaLabel(
+  day: YearDay,
+  timeZone: TimeZoneId,
+  locale: string,
+  dayCountLabel: (count: number) => string,
+): string {
   const dateLabel = formatMonthDayLabel(day.date, timeZone, locale);
-  return day.eventCount > 0 ? `${dateLabel} 予定${day.eventCount}件` : dateLabel;
+  return day.eventCount > 0 ? `${dateLabel} ${dayCountLabel(day.eventCount)}` : dateLabel;
 }
 
 // 条件付きスプレッドで付与する data / ARIA 属性。明示的な型注釈でリテラル型を確定させ、
@@ -118,7 +145,12 @@ const HAS_EVENTS_BUTTON_ATTRS: { 'data-has-events': 'true' } = { 'data-has-event
  * ```
  */
 export function YearView(props: YearViewProps): ReactElement | null {
-  const { renderMonthHeader, renderDayCell } = props;
+  const {
+    renderMonthHeader,
+    renderDayCell,
+    dayCountLabel = defaultDayCountLabel,
+    dayAriaLabel,
+  } = props;
   const { api, state, viewModel, callbacks } = useCalendarContext();
 
   /** 指定日の day ビューへ切り替える（月ビューの日番号ボタンと同じ挙動）。 */
@@ -162,6 +194,8 @@ export function YearView(props: YearViewProps): ReactElement | null {
           locale={locale}
           renderMonthHeader={renderMonthHeader}
           renderDayCell={renderDayCell}
+          dayCountLabel={dayCountLabel}
+          dayAriaLabel={dayAriaLabel}
           onDayClick={handleDayClick}
         />
       ))}
@@ -177,9 +211,21 @@ const YearMonthSection = memo(function YearMonthSection(props: {
   locale: string;
   renderMonthHeader: ((month: YearMonth, defaultContent: ReactNode) => ReactNode) | undefined;
   renderDayCell: ((day: YearDay, defaultContent: ReactNode) => ReactNode) | undefined;
+  dayCountLabel: (count: number) => string;
+  dayAriaLabel: ((day: YearDay, defaultLabel: string) => string) | undefined;
   onDayClick: (date: Date) => void;
 }): ReactElement {
-  const { month, weekdays, timeZone, locale, renderMonthHeader, renderDayCell, onDayClick } = props;
+  const {
+    month,
+    weekdays,
+    timeZone,
+    locale,
+    renderMonthHeader,
+    renderDayCell,
+    dayCountLabel,
+    dayAriaLabel,
+    onDayClick,
+  } = props;
 
   const defaultHeaderContent = (
     <div data-koyomi="year-month-title">{formatMonthName(month.anchor, timeZone, locale)}</div>
@@ -214,6 +260,8 @@ const YearMonthSection = memo(function YearMonthSection(props: {
                   timeZone={timeZone}
                   locale={locale}
                   renderDayCell={renderDayCell}
+                  dayCountLabel={dayCountLabel}
+                  dayAriaLabel={dayAriaLabel}
                   onDayClick={onDayClick}
                 />
               ))}
@@ -231,9 +279,12 @@ const YearDayCell = memo(function YearDayCell(props: {
   timeZone: TimeZoneId;
   locale: string;
   renderDayCell: ((day: YearDay, defaultContent: ReactNode) => ReactNode) | undefined;
+  dayCountLabel: (count: number) => string;
+  dayAriaLabel: ((day: YearDay, defaultLabel: string) => string) | undefined;
   onDayClick: (date: Date) => void;
 }): ReactElement {
-  const { day, timeZone, locale, renderDayCell, onDayClick } = props;
+  const { day, timeZone, locale, renderDayCell, dayCountLabel, dayAriaLabel, onDayClick } = props;
+  const defaultAriaLabel = formatDayAriaLabel(day, timeZone, locale, dayCountLabel);
 
   const defaultButtonContent = (
     <>
@@ -252,7 +303,7 @@ const YearDayCell = memo(function YearDayCell(props: {
         type="button"
         data-koyomi="year-day"
         data-koyomi-date={day.key}
-        aria-label={formatDayAriaLabel(day, timeZone, locale)}
+        aria-label={dayAriaLabel ? dayAriaLabel(day, defaultAriaLabel) : defaultAriaLabel}
         {...(day.isToday ? TODAY_BUTTON_ATTRS : {})}
         {...(!day.inCurrentMonth ? OUTSIDE_BUTTON_ATTRS : {})}
         {...(day.eventCount > 0 ? HAS_EVENTS_BUTTON_ATTRS : {})}

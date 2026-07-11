@@ -19,12 +19,26 @@ import type {
 } from 'react';
 import { formatSlotLabel, minutesOfDayInZone } from '../../core/timezone';
 import type { EventOccurrence, ListDay, TimeZoneId } from '../../core/types';
+import { formatEventAriaLabel, resolveEventAriaLabel } from './month-view-parts';
 
 /** `allDayLabel` 省略時の既定表示（終日イベントの時刻ラベル）。 */
 export const DEFAULT_ALL_DAY_LABEL = '終日';
 
 /** `emptyLabel` 省略時の既定表示（予定が 1 件もない場合のメッセージ）。 */
 export const DEFAULT_EMPTY_LABEL = '予定はありません';
+
+/**
+ * 日セクションの既定 aria-label（例: `'7月16日(木) 予定2件'`）を組み立てる。
+ * `ListView` / `VirtualListView` の両方で使う共通の既定文字列。予定が 0 件でも
+ * 「予定0件」を含める（`VirtualListView` の既存挙動を踏襲）。
+ *
+ * @param defaultDayHeader - 日付見出しの既定内容（`'M月d日(曜)'` 形式）
+ * @param occurrenceCount - その日の予定件数
+ * @returns 既定の aria-label 文字列
+ */
+export function defaultListDayAriaLabel(defaultDayHeader: string, occurrenceCount: number): string {
+  return `${defaultDayHeader} 予定${occurrenceCount}件`;
+}
 
 /**
  * 時間指定イベントの時刻ラベルを作る（表示タイムゾーンにおける `'HH:mm〜HH:mm'`）。
@@ -66,6 +80,8 @@ export interface ListDaySectionProps {
   day: ListDay;
   /** 表示タイムゾーン。 */
   timeZone: TimeZoneId;
+  /** 書式ロケール（イベント行の aria-label 生成に使う）。 */
+  locale: string;
   /** 日付見出しの既定内容（`'M月d日(曜)'` 形式。呼び出し側で整形済み）。 */
   defaultDayHeader: string;
   /** 終日イベントの時刻ラベル。 */
@@ -76,6 +92,12 @@ export interface ListDaySectionProps {
   onEventKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => void;
   /** イベント行の内容をカスタム描画する関数。 */
   renderEvent?: (occurrence: EventOccurrence) => ReactNode;
+  /**
+   * イベント行の aria-label をカスタマイズする関数。
+   * 第 2 引数に既定の aria-label 文字列（`formatEventAriaLabel` の結果）を渡すので、
+   * それを加工・置換して返せる。省略時は既定文字列をそのまま使う。
+   */
+  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
   /** 日付見出しの内容をカスタム描画する関数（第 2 引数に既定内容）。 */
   renderDayHeader?: (day: ListDay, defaultContent: ReactNode) => ReactNode;
   /** 仮想化: 高さ実測用の ref コールバック。 */
@@ -111,11 +133,13 @@ export function ListDaySection(props: ListDaySectionProps): ReactElement {
   const {
     day,
     timeZone,
+    locale,
     defaultDayHeader,
     allDayLabel,
     onEventClick,
     onEventKeyDown,
     renderEvent,
+    eventAriaLabel,
     renderDayHeader,
     sectionRef,
     role,
@@ -147,6 +171,11 @@ export function ListDaySection(props: ListDaySectionProps): ReactElement {
           data-koyomi="list-event"
           onClick={(event) => onEventClick(occurrence, event)}
           onKeyDown={onEventKeyDown}
+          aria-label={resolveEventAriaLabel(
+            occurrence,
+            formatEventAriaLabel(occurrence, timeZone, locale),
+            eventAriaLabel,
+          )}
           {...(eventTabbable === false ? { tabIndex: -1 } : {})}
         >
           {renderEvent !== undefined ? (

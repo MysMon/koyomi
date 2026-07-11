@@ -53,6 +53,7 @@ function Harness(props: {
     day: MonthDay,
     hiddenOccurrences: readonly EventOccurrence[],
   ) => MonthOverflowButtonProps;
+  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
   apiRef?: { current: CalendarApi | null };
 }): ReactElement {
   const calendar = useCalendar({
@@ -85,6 +86,7 @@ function Harness(props: {
         {...(props.overflowButtonProps !== undefined
           ? { overflowButtonProps: props.overflowButtonProps }
           : {})}
+        {...(props.eventAriaLabel !== undefined ? { eventAriaLabel: props.eventAriaLabel } : {})}
       />
     </CalendarProvider>
   );
@@ -249,6 +251,29 @@ describe('MultiMonthView - カスタム描画 props', () => {
     );
     const segment = container.querySelector('[data-koyomi="month-event"]');
     expect(segment?.textContent).toBe('CUSTOM:朝会');
+  });
+
+  it('eventAriaLabel は既定の aria-label 文字列を defaultLabel として受け取り、返り値に置き換わる（省略時は既定文字列のまま）', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '朝会', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+    ];
+    const { container: withoutOverride } = render(<Harness events={events} />);
+    expect(
+      withoutOverride.querySelector('[data-koyomi="month-event"]')?.getAttribute('aria-label'),
+    ).toBe('朝会、7月8日 9:00〜9:30');
+
+    const eventAriaLabel = vi.fn(
+      (_occurrence: EventOccurrence, defaultLabel: string) => `カスタム:${defaultLabel}`,
+    );
+    const { container } = render(<Harness events={events} eventAriaLabel={eventAriaLabel} />);
+    expect(eventAriaLabel).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: 'e1' }),
+      '朝会、7月8日 9:00〜9:30',
+    );
+    expect(container.querySelector('[data-koyomi="month-event"]')).toHaveAttribute(
+      'aria-label',
+      'カスタム:朝会、7月8日 9:00〜9:30',
+    );
   });
 
   it('overflowLabel で「+N 件」の文言をカスタマイズできる', () => {

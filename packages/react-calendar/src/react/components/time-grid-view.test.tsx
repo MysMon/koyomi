@@ -7,7 +7,12 @@
 import { act, fireEvent, render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import type { BusinessHoursRule, CalendarEvent, CalendarViewType } from '../../core/types';
+import type {
+  BusinessHoursRule,
+  CalendarEvent,
+  CalendarViewType,
+  EventOccurrence,
+} from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
@@ -111,6 +116,27 @@ describe('TimeGridView', () => {
     const segment = container.querySelector('[data-koyomi="allday-event"]');
     const label = segment?.getAttribute('aria-label') ?? '';
     expect(label).toBe('合宿、7月15日〜7月16日');
+  });
+
+  it('eventAriaLabel は既定の aria-label 文字列を defaultLabel として受け取り、返り値に置き換わる（終日行・時間指定行の両方）', () => {
+    const events: CalendarEvent[] = [
+      { id: 'allday', title: '合宿', start: '2026-07-15', end: '2026-07-17', allDay: true },
+      { id: 'timed', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+    ];
+    const eventAriaLabel = vi.fn(
+      (_occurrence: EventOccurrence, defaultLabel: string) => `カスタム:${defaultLabel}`,
+    );
+    const { container } = render(
+      <Harness initialView="week" events={events} viewProps={{ eventAriaLabel }} />,
+    );
+
+    const alldaySegment = container.querySelector('[data-koyomi="allday-event"]');
+    expect(alldaySegment).toHaveAttribute('aria-label', 'カスタム:合宿、7月15日〜7月16日');
+
+    const timedEvent = container.querySelector('[data-koyomi="timegrid-event"]');
+    expect(timedEvent).toHaveAttribute('aria-label', 'カスタム:会議、7月15日 10:00〜11:00');
+
+    expect(eventAriaLabel).toHaveBeenCalledTimes(2);
   });
 
   it('時間指定イベントの top/height が %（分/1440）で計算される', () => {

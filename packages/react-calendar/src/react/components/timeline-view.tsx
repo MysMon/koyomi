@@ -23,13 +23,23 @@
 
 import type { ReactElement, ReactNode } from 'react';
 import { memo } from 'react';
-import type { BusinessHourRange, TimelineItem, TimelineRow, TimeZoneId } from '../../core/types';
+import type {
+  BusinessHourRange,
+  EventOccurrence,
+  TimelineItem,
+  TimelineRow,
+  TimeZoneId,
+} from '../../core/types';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
 import type { TimelinePreviewSegment } from '../use-timeline-drag';
 import { useTimelineDrag } from '../use-timeline-drag';
 import { formatDayHeader } from './format';
-import { formatEventAriaLabel, withEventColorStyle } from './month-view-parts';
+import {
+  formatEventAriaLabel,
+  resolveEventAriaLabel,
+  withEventColorStyle,
+} from './month-view-parts';
 import type { TimelineRowDragHandlers } from './timeline-view-parts';
 import {
   DEFAULT_CORNER_LABEL,
@@ -71,6 +81,14 @@ export interface TimelineViewProps {
    * `columnheader` として支援技術に公開される（列対応のずれを防ぐため）。
    */
   cornerLabel?: string;
+  /**
+   * 帯（タイムラインアイテム）の aria-label をカスタマイズする関数。
+   * 第 2 引数に既定の aria-label 文字列（日時＋リソース名）を渡すので、
+   * それを加工・置換して返せる。省略時は既定文字列をそのまま使う。
+   * @param occurrence - 対象のオカレンス
+   * @param defaultLabel - 既定の aria-label 文字列
+   */
+  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
 }
 
 /** 目盛り数の警告を出したかどうか（モジュールで一度だけ）。 */
@@ -100,6 +118,7 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
     unassignedLabel = DEFAULT_UNASSIGNED_LABEL,
     emptyLabel = DEFAULT_EMPTY_LABEL,
     cornerLabel = DEFAULT_CORNER_LABEL,
+    eventAriaLabel,
   } = props;
   const { api, state, viewModel, callbacks } = useCalendarContext();
   const calendar = { api, state, viewModel };
@@ -195,6 +214,7 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
             drag={stableDrag}
             isDragging={drag.isDragging}
             preview={drag.previewFor(row)}
+            eventAriaLabel={eventAriaLabel}
           />
         ))}
       </div>
@@ -218,6 +238,8 @@ interface TimelineRowGroupProps {
   /** ドラッグ操作が進行中か（memo 判定に使う。詳細は {@link TimelineRowGroup} 参照）。 */
   isDragging: boolean;
   preview: TimelinePreviewSegment | null;
+  /** 帯の aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
+  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
 }
 
 /** タイムラインの 1 行分（行見出し + 帯トラック）。 */
@@ -234,6 +256,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
     renderRowHeader,
     drag,
     preview,
+    eventAriaLabel,
   } = props;
   const { ref, ...rowProps } = drag.getRowProps(row);
   const headerContent = row.resource?.title ?? unassignedLabel;
@@ -284,7 +307,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
             },
             occurrence.event.color ?? row.resource?.color,
           );
-          const ariaLabel =
+          const defaultAriaLabel =
             row.resource === null
               ? formatEventAriaLabel(occurrence, timeZone, locale)
               : `${formatEventAriaLabel(occurrence, timeZone, locale)}、${row.resource.title}`;
@@ -299,7 +322,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
               data-continues-before={item.continuesBefore ? 'true' : undefined}
               data-continues-after={item.continuesAfter ? 'true' : undefined}
               style={style}
-              aria-label={ariaLabel}
+              aria-label={resolveEventAriaLabel(occurrence, defaultAriaLabel, eventAriaLabel)}
             >
               <div data-koyomi="timeline-item-content">
                 {renderEvent ? renderEvent(item) : occurrence.event.title}
@@ -368,6 +391,7 @@ const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
     prev.renderRowHeader === next.renderRowHeader &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&
-    samePreviewSegment(prev.preview, next.preview)
+    samePreviewSegment(prev.preview, next.preview) &&
+    prev.eventAriaLabel === next.eventAriaLabel
   );
 });
