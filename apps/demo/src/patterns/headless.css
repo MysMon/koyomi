@@ -1,0 +1,363 @@
+/*
+ * 「ヘッドレス」パターン専用スタイル。
+ * ============================================================================
+ * すべてのセレクタはこのパターンのルート要素（`.headless-pattern`）配下に
+ * スコープする。デフォルトテーマ（`@koyomi-cal/react/theme.css`）は既に
+ * `main.tsx` で読み込まれているため、ここでは
+ *   1. `--koyomi-*` CSS 変数の上書きによる「ブランドテーマ」
+ *   2. `[data-koyomi="..."]` 属性への追加スタイル
+ *   3. このファイルが自前で描き足す要素（絵文字バッジ・ポップオーバー・
+ *      詳細パネルなど）のスタイル
+ * の 3 段構えで見た目を組み立てる。
+ *
+ * 変数の上書きについて: デフォルトテーマは `[data-koyomi="root"]` 自身に
+ * 変数を再定義しており、さらにダーク/ライト強制時は
+ * `[data-koyomi-theme="dark"] [data-koyomi="root"]` のように祖先の属性と
+ * 組み合わせたセレクタ（詳細度 0,0,2,0）で上書きする。単に祖先要素
+ * （`.headless-pattern`）へ変数を書いても、`[data-koyomi="root"]` 自身の
+ * 再定義に負けて反映されない。そのため下の 1 箇所だけ、`[data-koyomi="root"]`
+ * 自身を対象にしつつ `[data-koyomi-view]`（常に存在する属性）を足して
+ * 詳細度を 0,0,3,0 に引き上げ、ソース順に依存せず確実に勝つようにしている。
+ */
+
+.headless-pattern {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.headless-lede {
+  margin: 0;
+  max-width: 640px;
+  font-size: 13px;
+  color: var(--demo-muted);
+}
+
+/* ---------------------------------------------------------------------------
+ * ブランドテーマ（CSS 変数の上書き）
+ * ------------------------------------------------------------------------ */
+
+.headless-pattern [data-koyomi="root"][data-koyomi-view] {
+  --koyomi-bg: #140e24;
+  --koyomi-fg: #f4f1ff;
+  --koyomi-border: #3a2c62;
+  --koyomi-muted: #a89bd9;
+  --koyomi-accent: #ff3d9a;
+  --koyomi-today-bg: #2a1c4d;
+  --koyomi-event-color: #7c4dff;
+  --koyomi-event-fg: #ffffff;
+  --koyomi-radius: 16px;
+  --koyomi-font-size: 13px;
+  --koyomi-month-header-height: 28px;
+  --koyomi-lane-height: 26px;
+  --koyomi-hour-height: 64px;
+  --koyomi-now-color: #21e6c1;
+  --koyomi-business-hours-bg: rgb(255 61 154 / 8%);
+  font-family: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", ui-rounded, system-ui, sans-serif;
+}
+
+/* ---------------------------------------------------------------------------
+ * カレンダーを囲む枠（`.demo-main` は overflow: hidden のため、はみ出して
+ * 描画するポップオーバーと相性が悪い。ここでは専用のシェルを用意し、
+ * overflow を hidden にしないことでポップオーバーがクリップされないようにする）
+ * ------------------------------------------------------------------------ */
+
+.headless-calendar-shell {
+  position: relative;
+  overflow: visible;
+  border-radius: 20px;
+  padding: 3px;
+  background: linear-gradient(135deg, rgb(255 61 154 / 45%), rgb(124 77 255 / 45%));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+}
+
+/* ---------------------------------------------------------------------------
+ * ツールバー・ボタン
+ * ------------------------------------------------------------------------ */
+
+.headless-pattern [data-koyomi="toolbar"] {
+  border-radius: calc(var(--koyomi-radius) - 4px);
+  background: linear-gradient(135deg, #2a1c4d, #140e24);
+}
+
+.headless-pattern [data-koyomi="title"] {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.headless-pattern [data-koyomi="button"] {
+  border: 1px solid var(--koyomi-border);
+  border-radius: 999px;
+  background-color: rgb(255 255 255 / 4%);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.headless-pattern [data-koyomi="button"]:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgb(255 61 154 / 25%);
+}
+
+.headless-pattern [data-koyomi="button"][aria-pressed="true"] {
+  border-color: transparent;
+  background: linear-gradient(135deg, #ff3d9a, #7c4dff);
+  color: #ffffff;
+  box-shadow: 0 0 0 2px rgb(255 61 154 / 35%);
+}
+
+/* ---------------------------------------------------------------------------
+ * イベントの帯（月・週ビュー共通で角丸と影を強める）
+ * ------------------------------------------------------------------------ */
+
+.headless-pattern [data-koyomi="month-event"],
+.headless-pattern [data-koyomi="timegrid-event"] {
+  border: none;
+  border-radius: calc(var(--koyomi-radius) - 8px);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 35%);
+}
+
+.headless-pattern [data-koyomi="month-day"][data-today] {
+  box-shadow: inset 0 0 0 1px var(--koyomi-accent);
+}
+
+/* ---------------------------------------------------------------------------
+ * renderDayCell: 月セルの絵文字バッジ
+ * 「日セルを positioned にしない」原則を守るため、position: relative は
+ * ここ（自前のラッパー `.headless-day-cell`）に当てる。month-day 自身には
+ * 一切 position を当てない。
+ * ------------------------------------------------------------------------ */
+
+.headless-day-cell {
+  position: relative;
+  display: block;
+  height: 100%;
+}
+
+.headless-day-cell[data-headless-open="true"] {
+  border-radius: 8px;
+  outline: 2px solid var(--koyomi-accent);
+  outline-offset: -2px;
+}
+
+.headless-day-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 13px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/*
+ * デフォルトテーマの [data-koyomi="month-overflow"] は通常フロー配置
+ * （day-number の直後、margin-top のみ）のため、絶対配置されるイベント帯の
+ * レーン 0 とちょうど重なり、DOM 順で後に来る帯の下に隠れてクリックできない
+ * （`month-days` の min-height 計算が確保している末尾 16px の余白は使われて
+ * いない）。このパターンでは `.headless-day-cell`（position: relative）を
+ * 基準に「+N 件」をセル最下部へ絶対配置し直し、常にクリックできるようにする。
+ */
+.headless-day-cell [data-koyomi="month-overflow"] {
+  position: absolute;
+  right: 2px;
+  bottom: 0;
+  left: 2px;
+  margin-top: 0;
+  border-radius: 999px;
+  background-color: rgb(20 14 36 / 85%);
+  text-align: right;
+}
+
+/* ---------------------------------------------------------------------------
+ * renderDayHeader: 週ビューの日ヘッダー装飾
+ * ------------------------------------------------------------------------ */
+
+.headless-day-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.headless-day-header-badge {
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------------------
+ * renderEvent: 時間グリッドのイベント内容
+ * ------------------------------------------------------------------------ */
+
+.headless-event-content {
+  display: flex;
+  overflow: hidden;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+}
+
+.headless-event-icon {
+  flex: none;
+}
+
+.headless-event-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.headless-event-time {
+  font-size: 0.75em;
+  opacity: 0.85;
+}
+
+.headless-event-title {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headless-event-resource {
+  overflow: hidden;
+  font-size: 0.7em;
+  opacity: 0.8;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+ * 「+N 件」の自前ポップオーバー
+ * ------------------------------------------------------------------------ */
+
+.headless-overflow-popover {
+  position: absolute;
+  z-index: 30;
+  width: min(260px, 80vw);
+  margin-top: 4px;
+  padding: 10px;
+  border: 1px solid #3a2c62;
+  border-radius: 14px;
+  background: linear-gradient(160deg, #1d1436, #2a1c4d);
+  box-shadow: 0 16px 32px rgb(0 0 0 / 45%);
+  color: #f4f1ff;
+}
+
+.headless-overflow-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 0.85em;
+  font-weight: 700;
+}
+
+.headless-overflow-popover-close {
+  padding: 2px 8px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.headless-overflow-popover-close:hover {
+  background-color: rgb(255 255 255 / 12%);
+}
+
+.headless-overflow-popover-list {
+  display: flex;
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.headless-overflow-popover-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85em;
+}
+
+.headless-overflow-popover-swatch {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 999px;
+}
+
+.headless-overflow-popover-time {
+  flex: none;
+  color: var(--koyomi-muted, #a89bd9);
+}
+
+.headless-overflow-popover-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headless-overflow-popover-resource {
+  flex: none;
+  margin-left: auto;
+  color: var(--koyomi-muted, #a89bd9);
+  font-size: 0.75em;
+}
+
+/* ---------------------------------------------------------------------------
+ * 予定クリック時の詳細パネル（onEventClick のカスタム UI）
+ * ------------------------------------------------------------------------ */
+
+.headless-detail-panel {
+  border: 1px solid #3a2c62;
+  border-radius: 16px;
+  background: linear-gradient(160deg, #1d1436, #2a1c4d);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
+  color: #f4f1ff;
+  padding: 14px 16px;
+}
+
+.headless-detail-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.headless-detail-panel-header h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.headless-detail-panel-close {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+.headless-detail-panel-close:hover {
+  background-color: rgb(255 255 255 / 12%);
+}
+
+.headless-detail-panel-time {
+  margin: 6px 0 0;
+  color: #cfc4ff;
+  font-size: 0.9em;
+}
+
+.headless-detail-panel-meta {
+  margin: 4px 0 0;
+  color: #cfc4ff;
+  font-size: 0.85em;
+}
