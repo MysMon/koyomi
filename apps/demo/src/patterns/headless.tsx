@@ -144,12 +144,25 @@ export function HeadlessPattern(): ReactElement {
 
   useCalendarShortcuts({ calendar, views: VIEWS });
 
-  /** 月セルのラッパー要素を登録・解除する（ポップオーバーの位置計算・外側クリック判定に使う）。 */
+  /**
+   * 月セル本体（`month-day`）を登録・解除する（ポップオーバーの位置計算・外側クリック判定に使う）。
+   *
+   * ref 自体はバッジ・アウトライン用の装飾ラッパー（`.headless-day-cell`、
+   * `renderMonthDayCell` 内で defaultContent とは別の兄弟要素として描画される）に
+   * 付けているが、ポップオーバーの基準にしたいのは月セル本体（`month-day`）の矩形
+   * なので、ここで `parentElement`（＝ `.headless-day-cell` と defaultContent の
+   * 共通の親、月セル本体）を登録する。「+N 件」ボタンも defaultContent 側の兄弟
+   * 要素なので、こうすることで「+N 件」クリックも「セル内側のクリック」として
+   * 正しく判定される。
+   */
   const registerDayCellRef = useCallback((key: string, element: HTMLDivElement | null) => {
     if (element === null) {
       dayCellRefs.current.delete(key);
-    } else {
-      dayCellRefs.current.set(key, element);
+      return;
+    }
+    const dayCell = element.parentElement;
+    if (dayCell instanceof HTMLDivElement) {
+      dayCellRefs.current.set(key, dayCell);
     }
   }, []);
 
@@ -249,7 +262,21 @@ export function HeadlessPattern(): ReactElement {
     [overflow],
   );
 
-  /** 月セルに絵文字バッジを差し込む（`renderDayCell`）。 */
+  /**
+   * 月セルに絵文字バッジ・「開いている」アウトラインを差し込む（`renderDayCell`）。
+   *
+   * 注意: `defaultContent`（`month-day-number` と `month-overflow` を含む）は
+   * `.headless-day-cell`（position: relative の装飾ラッパー）の**内側に入れない**。
+   * デフォルトテーマの「+N 件」ボタンはイベント帯（`month-event`）と同じ方式で
+   * 絶対配置され、positioned ancestor はセル（`month-day`）ではなく
+   * `month-week` を想定している。`defaultContent` を positioned な自前ラッパーで
+   * 丸ごと囲むと「+N 件」の絶対配置の基準がそのラッパーに変わり、% がセル 1 個分の
+   * 幅を基準に解決されてしまい配置が壊れる（`docs/theming.md` の「自前スタイルを
+   * ゼロから当てる場合の注意」参照）。ここでは `.headless-day-cell` を
+   * `defaultContent` とは別の兄弟要素として描画し、セル全体を覆う見た目
+   * （バッジ位置・アウトライン）は CSS Grid のセル重複配置（`headless.css`）で
+   * 実現する（`position` を使わないため、月セルを positioned にせずに済む）。
+   */
   const renderMonthDayCell = useCallback(
     (day: MonthDay, defaultContent: ReactNode): ReactNode => {
       const badge = decorativeBadge(
@@ -259,18 +286,20 @@ export function HeadlessPattern(): ReactElement {
       );
       const isOpen = overflow !== null && overflow.day.key === day.key;
       return (
-        <div
-          className="headless-day-cell"
-          data-headless-open={isOpen ? 'true' : undefined}
-          ref={(element) => registerDayCellRef(day.key, element)}
-        >
-          {badge !== null && (
-            <span className="headless-day-badge" aria-hidden="true">
-              {badge}
-            </span>
-          )}
+        <>
+          <div
+            className="headless-day-cell"
+            data-headless-open={isOpen ? 'true' : undefined}
+            ref={(element) => registerDayCellRef(day.key, element)}
+          >
+            {badge !== null && (
+              <span className="headless-day-badge" aria-hidden="true">
+                {badge}
+              </span>
+            )}
+          </div>
           {defaultContent}
-        </div>
+        </>
       );
     },
     [overflow, registerDayCellRef, state.timeZone],

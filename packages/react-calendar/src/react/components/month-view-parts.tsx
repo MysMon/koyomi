@@ -465,6 +465,19 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
                   type="button"
                   data-koyomi="month-overflow"
                   {...(overflowButtonProps?.(day, hiddenOccurrencesAt(dayCol)) ?? {})}
+                  // 通常フロー配置にすると、month-days が確保する末尾の予約領域
+                  // （オーバーフロー行の余白）を使わず日番号の直後に描画されてしまい、
+                  // 絶対配置のイベント帯（レーン0）が DOM 順で後にあるためクリックを
+                  // 奪ってしまう（既知バグの修正）。イベント帯（MonthEventButton）と
+                  // 同じ方式で絶対配置し、positioned ancestor の month-week を基準に
+                  // 最下部（bottom: 0）へ固定する。DOM 上の位置（gridcell の子）は
+                  // 変えない
+                  style={{
+                    position: 'absolute',
+                    insetInlineStart: `${(dayCol / columnCount) * 100}%`,
+                    width: `${(1 / columnCount) * 100}%`,
+                    bottom: 0,
+                  }}
                   onPointerDown={stopPropagation}
                   onKeyDown={handleOverflowKeyDown}
                   onClick={() =>
