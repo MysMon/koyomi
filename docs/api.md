@@ -10,7 +10,7 @@
 function createCalendar(options?: CalendarOptions): CalendarApi
 ```
 
-フレームワーク非依存のカレンダーエンジンを作成します。状態（ビュー・基準日・タイムゾーン・イベント・ドラッグプレビュー）を保持し、購読モデルで変更を通知します。React からは `useCalendar` 経由で使うのが基本ですが、`CalendarApi` 自体は React に依存しないため単体でも利用できます。
+フレームワーク非依存のカレンダーエンジンを作成します。状態（ビュー・基準日・タイムゾーン・イベント・ドラッグプレビュー）を保持し、購読モデルで変更を通知します。React からは `useCalendar` 経由で使うのが基本ですが、`CalendarApi` 自体は React に依存しないため単体でも利用できます。React を import しない単体利用には、React を一切含まない `@koyomi-cal/react/core` エントリを使ってください（詳細後述）。
 
 - `getState()` が返すスナップショットは、状態が変わらない限り同一のオブジェクト参照を返します（`useSyncExternalStore` との整合のため）。
 - `getViewModel()` の結果は、ビューモデルに影響する状態が変わるまでキャッシュされます。`setDragPreview` はキャッシュを無効化しません。
@@ -109,6 +109,20 @@ console.log(occurrences[0]?.event.title); // => '会議'
 値が実際に変わらない設定操作（同じ view / timeZone / 日時、同一のイベント配列参照、内容が同じオプションパッチなど）は通知自体を発生させません。`getState()` のスナップショットは状態が変わらない限り同一参照を返します（`useSyncExternalStore` と整合）。
 
 繰り返しイベントの `updateEvent` / `deleteEvent` におけるスコープの意味づけ、`moveOccurrenceIn` のような便利関数の詳細は [予定の管理](./events.md) と [繰り返し予定](./recurrence.md) を参照してください。
+
+### `@koyomi-cal/react/core`（React 非依存の単体エントリ）
+
+`createCalendar` / `CalendarApi` を含む `src/core/` 配下の公開 API は、`@koyomi-cal/react` のトップレベルエントリだけでなく、**React を一切 import しない**専用エントリ `@koyomi-cal/react/core` からも利用できます。`createCalendar`・`buildXxxViewModel`（月・週日・年・複数月・リソース・タイムライン・リストの全 7 種）・`expandEvents` / `occurrenceKey` / `resolveOccurrence`・繰り返しルールユーティリティ（`expandRecurrence` 等）・タイムゾーンユーティリティ（`fromWallClock` 等）・`applyPatch` や `*InWithChanges` 系のイベント変更関数・関連する公開型（`CalendarApi` / `CalendarEvent` / `EventChangeEntry` 等）を再エクスポートしており、`@koyomi-cal/react` のトップレベルエントリが `./core/*` から再エクスポートしている集合と一致します（React コンポーネント・フックは含まれません）。
+
+```ts
+import { createCalendar } from '@koyomi-cal/react/core';
+
+const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+calendar.setView('week');
+console.log(calendar.getState().view); // => 'week'
+```
+
+React を持たない Node.js 環境（サーバーサイドのバッチ処理・CLI ツール等）や他の UI フレームワークから使う場合に利用してください。`react` / `react-dom` は `package.json` の `peerDependencies` として宣言されていますが、`@koyomi-cal/react/core` のみを使う場合は未インストールでも実行時エラーにはなりません。インストール時に出るピア依存の警告は無視して問題ありません。
 
 ## React フック
 
