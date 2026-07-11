@@ -2,9 +2,14 @@
  * @packageDocumentation
  * `BasicPattern` — 「ベーシック」パターン。
  *
- * ヘッダーで表示タイムゾーン・週開始曜日・週末表示を切り替えられる、単一
- * カレンダーの基本デモ。全 8 ビューの切替、ドラッグ作成・移動・リサイズ、
- * 繰り返し予定の編集スコープ選択、キーボード操作を一通り確認できる。
+ * ヘッダーで表示タイムゾーン・週開始曜日・週末表示・月表示の最大件数
+ * （`dayMaxEvents`）を切り替え、日付ジャンプ入力（`<input type="date">` →
+ * `api.goTo`）で任意の日へ移動できる、単一カレンダーの基本デモ。全 8 ビューの
+ * 切替、ドラッグ作成・移動・リサイズ、繰り返し予定の編集スコープ選択、
+ * キーボード操作を一通り確認できる。サンプルデータ（`../sample-data`）には
+ * COUNT/UNTIL/月次 RRULE・EXDATE・繰り返しオーバーライド・extendedProps・
+ * `editable: false` を含む多様なイベントを揃え、これらの挙動が最初から
+ * 画面上で確認できるようにしている。
  * カレンダー本体上の操作のうち、範囲選択・予定クリックは `EventDialog` に、
  * 繰り返し予定の編集スコープ選択は `ScopeDialog` に委譲する。ドラッグ移動/リサイズ
  * による変更は `handleEventChange` が直接適用し、変更ログへ記録する。
@@ -27,6 +32,8 @@ import type {
 import {
   CalendarProvider,
   CalendarView,
+  dateFromKey,
+  dateKeyInZone,
   Toolbar,
   useCalendar,
   useCalendarShortcuts,
@@ -35,6 +42,7 @@ import { type ReactElement, useCallback, useMemo, useRef, useState } from 'react
 import { EventDialog, type EventDialogMode } from '../EventDialog';
 import { type ScopeAction, ScopeDialog, type ScopeRequest } from '../ScopeDialog';
 import { sampleEvents, sampleResources } from '../sample-data';
+import './basic.css';
 
 /** ツールバー・ショートカットで有効にするビュー（全 8 ビュー）。 */
 const ALL_VIEWS: readonly CalendarViewType[] = [
@@ -63,6 +71,9 @@ const WEEK_START_OPTIONS: readonly { value: Weekday; label: string }[] = [
   { value: 1, label: '月曜始まり' },
 ];
 
+/** ヘッダーの「月表示の最大件数」（`dayMaxEvents`）切替の選択肢。 */
+const DAY_MAX_EVENTS_OPTIONS: readonly number[] = [2, 4, 6];
+
 /** 変更ログの最大保持件数。 */
 const MAX_LOG_ENTRIES = 5;
 
@@ -86,6 +97,19 @@ function parseWeekday(value: string): Weekday {
     return parsed as Weekday;
   }
   throw new Error(`不正な週開始曜日の値です: '${value}'`);
+}
+
+/**
+ * `<select>` の「月表示の最大件数」の値を検証しつつ数値に変換する。
+ *
+ * @throws `DAY_MAX_EVENTS_OPTIONS` にない値の場合は `Error`
+ */
+function parseDayMaxEvents(value: string): number {
+  const parsed = Number(value);
+  if (DAY_MAX_EVENTS_OPTIONS.includes(parsed)) {
+    return parsed;
+  }
+  throw new Error(`不正な dayMaxEvents の値です: '${value}'`);
 }
 
 /**
@@ -202,7 +226,7 @@ export function BasicPattern(): ReactElement {
   });
 
   return (
-    <div className="demo-app">
+    <div className="demo-app demo-app-basic">
       <header className="demo-header">
         <h2 className="demo-title">ベーシック操作デモ</h2>
         <div className="demo-controls">
@@ -252,6 +276,39 @@ export function BasicPattern(): ReactElement {
               }}
             />
             <span>週末を隠す</span>
+          </label>
+          <label className="demo-control" htmlFor="demo-day-max-events-select">
+            <span>月表示の最大件数</span>
+            <select
+              id="demo-day-max-events-select"
+              name="dayMaxEvents"
+              value={state.options.dayMaxEvents}
+              onChange={(event) =>
+                api.updateOptions({ dayMaxEvents: parseDayMaxEvents(event.target.value) })
+              }
+            >
+              {DAY_MAX_EVENTS_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}件
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="demo-control" htmlFor="demo-goto-date">
+            <span>日付へ移動</span>
+            <input
+              id="demo-goto-date"
+              type="date"
+              name="gotoDate"
+              value={dateKeyInZone(state.currentDate, state.timeZone)}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (value === '') {
+                  return;
+                }
+                api.goTo(dateFromKey(value, state.timeZone));
+              }}
+            />
           </label>
         </div>
       </header>
