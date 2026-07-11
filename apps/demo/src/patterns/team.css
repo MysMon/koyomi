@@ -1,0 +1,220 @@
+/*
+ * 「チーム」パターン（`team.tsx`）専用スタイル。
+ *
+ * 全セレクタをこのパターンのルート要素（`.team-pattern`）配下にスコープし、
+ * demo.css や他パターンに影響しないようにする。カレンダー本体
+ * （[data-koyomi="..."]）の基本的な見た目は @koyomi-cal/react/theme.css に
+ * 委ね、ここでは仮想化コンテナの境界寸法・レイアウト・営業時間ハイライトの
+ * 補完表示のみを定義する。
+ */
+
+.team-pattern {
+  --team-business-bg: rgba(26, 115, 232, 0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+  .team-pattern {
+    --team-business-bg: rgba(138, 180, 248, 0.18);
+  }
+}
+
+:root[data-koyomi-theme="dark"] .team-pattern {
+  --team-business-bg: rgba(138, 180, 248, 0.18);
+}
+
+:root[data-koyomi-theme="light"] .team-pattern {
+  --team-business-bg: rgba(26, 115, 232, 0.1);
+}
+
+/* ---------------------------------------------------------------------------
+ * ヘッダー内の追加コントロール（ビュー切替タブ・期間ナビゲーション）
+ * ------------------------------------------------------------------------ */
+
+.team-pattern .team-view-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.team-pattern .team-view-tab {
+  font: inherit;
+  font-size: 13px;
+  color: var(--demo-fg);
+  background-color: var(--demo-surface);
+  border: 1px solid var(--demo-border);
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.team-pattern .team-view-tab:hover {
+  border-color: var(--demo-accent);
+}
+
+.team-pattern .team-view-tab[aria-current="page"] {
+  border-color: var(--demo-accent);
+  background-color: color-mix(in srgb, var(--demo-accent) 14%, var(--demo-surface));
+  font-weight: 600;
+}
+
+.team-pattern .team-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.team-pattern .team-nav-button {
+  font: inherit;
+  font-size: 13px;
+  color: var(--demo-fg);
+  background-color: var(--demo-surface);
+  border: 1px solid var(--demo-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.team-pattern .team-nav-button:hover {
+  border-color: var(--demo-accent);
+}
+
+.team-pattern .team-nav-date {
+  font-size: 12px;
+  color: var(--demo-muted);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+ * 本体レイアウト（サイドバー + カレンダー）
+ * ------------------------------------------------------------------------ */
+
+.team-pattern .team-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
+}
+
+.team-pattern .team-sidebar {
+  flex: 0 0 230px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background-color: var(--demo-surface);
+  border: 1px solid var(--demo-border);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.team-pattern .team-sidebar-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.team-pattern .team-sidebar-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--demo-muted);
+}
+
+.team-pattern .team-task-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--demo-muted);
+}
+
+.team-pattern .team-task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.team-pattern .team-task {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--demo-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background-color: var(--demo-bg);
+  cursor: grab;
+  user-select: none;
+  /* ポインタドラッグ（useExternalDrag）をタッチのスクロールに奪われないようにする */
+  touch-action: none;
+}
+
+.team-pattern .team-task:active {
+  cursor: grabbing;
+}
+
+.team-pattern .team-task-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.team-pattern .team-task-duration {
+  font-size: 11px;
+  color: var(--demo-muted);
+}
+
+/* ---------------------------------------------------------------------------
+ * カレンダー表示エリアと仮想化コンテナの境界寸法
+ *
+ * VirtualResourceView / VirtualTimelineView / VirtualListView はいずれも
+ * 寸法を持たないヘッドレスなコンポーネントで、境界寸法が無いと仮想化は
+ * 無害に無効化される（docs/views.md 参照）。ここで各ビューのスクロール
+ * コンテナに明示的な境界寸法を与える。
+ * ------------------------------------------------------------------------ */
+
+.team-pattern .team-calendar-frame {
+  flex: 1 1 auto;
+  min-width: 0;
+  background-color: var(--demo-surface);
+  border: 1px solid var(--demo-border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(32, 33, 36, 0.08);
+}
+
+/* VirtualResourceView: 横方向（列 = リソース）の仮想化のための境界幅。
+   .team-calendar-frame 自身が flex アイテムとして幅を制限されるため、
+   ここでは [data-koyomi="resource"] にその幅いっぱいを明示的に与える。 */
+.team-pattern .team-calendar-frame [data-koyomi="resource"] {
+  width: 100%;
+}
+
+/* VirtualTimelineView: 縦方向（行 = リソース）の仮想化のための境界高。 */
+.team-pattern .team-calendar-frame [data-koyomi="timeline-body"] {
+  max-height: 520px;
+}
+
+/* VirtualListView: 縦方向（日セクション）の仮想化のための境界高
+   （--koyomi-virtual-list-max-height、既定は無指定のため必須）。 */
+.team-pattern .team-calendar-frame {
+  --koyomi-virtual-list-max-height: 520px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 営業時間ハイライトの補完表示（リソースビュー限定）
+ *
+ * ライブラリの businessHours は週/日ビュー専用で、リソースビューの
+ * ViewModel には対応する属性が無い（team.tsx 冒頭の @remarks 参照）。
+ * ここでは team.tsx が算出した帯（CSS カスタムプロパティ）を、リソース列
+ * （[data-koyomi="resource-column"]、position: relative 済み）の背後に
+ * ::before で重ねるだけの純粋な CSS 表現に留める。
+ * ------------------------------------------------------------------------ */
+
+.team-pattern .team-calendar-frame[data-team-business-hours="true"]
+  [data-koyomi="resource-column"]::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: var(--team-business-top, 0%);
+  height: var(--team-business-height, 0%);
+  background-color: var(--team-business-bg);
+  pointer-events: none;
+}
