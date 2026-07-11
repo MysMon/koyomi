@@ -454,9 +454,18 @@ describe('VirtualResourceView - businessHours（営業時間）', () => {
     expect(container.querySelectorAll('[data-koyomi-business-hours]')).toHaveLength(0);
   });
 
-  it('省略時（既定 []）は timegrid-slot 罫線 div 自体を描画しない（businessHours 導入前の DOM と一致させる）', () => {
+  it('businessHours 省略時も timegrid-slot 罫線は常時描画される（非仮想化の ResourceView と同一の DOM）', () => {
+    // 以前は businessHours 指定時のみ罫線を描画していたが、「営業時間を付けたら
+    // 罫線まで増える」という非仮想版との視覚的な非対称を解消し、常時描画に統一した
     const { container } = render(<Harness resources={makeResources(2)} />);
-    expect(container.querySelectorAll('[data-koyomi="timegrid-slot"]')).toHaveLength(0);
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+    expect(columns.length).toBeGreaterThan(0);
+    for (const column of columns) {
+      // slotMinutes 既定 60 分 → 24 本
+      expect(column.querySelectorAll('[data-koyomi="timegrid-slot"]')).toHaveLength(24);
+    }
+    // 属性は businessHours 指定時のみ（既定では 1 つも付かない）
+    expect(container.querySelectorAll('[data-koyomi-business-hours]')).toHaveLength(0);
   });
 
   it('指定した時間帯のスロットにのみ data-koyomi-business-hours 属性が付き、可視列全てに共通で反映される（2026-07-15 は水曜）', () => {

@@ -22,6 +22,7 @@ import {
   formatWeekdayLabel,
   MonthWeekRow,
   useStableDayDrag,
+  withMonthLanesStyle,
 } from './month-view-parts';
 
 /** `MonthView` の props。 */
@@ -148,7 +149,7 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: DOM 仕様（components-dom.md）が定める div ベースの ARIA grid（<table> はテーマ CSS と噛み合わないため不採用）
-    <div data-koyomi="month" role="grid">
+    <div data-koyomi="month" role="grid" style={withMonthLanesStyle(options.dayMaxEvents)}>
       {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA row */}
       {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない（フォーカスは各 gridcell が担う） */}
       <div data-koyomi="month-weekdays" role="row">

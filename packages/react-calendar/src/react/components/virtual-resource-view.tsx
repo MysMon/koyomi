@@ -373,14 +373,6 @@ interface ResourceColumnBodyProps {
   slots: readonly TimeSlot[];
   /** {@link ResourceViewModel.businessHourSlots}（全列共通の 1 本）。 */
   businessHourSlots: readonly BusinessHourSlot[];
-  /**
-   * `businessHours`（{@link CalendarOptions.businessHours}）が指定されているか。
-   * `false`（未指定）のときは `timegrid-slot` 罫線 div 自体を描画しない
-   * （`businessHours` 拡張前の `VirtualResourceView` は列本文にスロット罫線を
-   * 持たなかったため、既定出力を旧版と一致させるための分岐。`ResourceView` は
-   * 元々スロット罫線を無条件描画していたため、この分岐を持たない）。
-   */
-  showBusinessHourSlots: boolean;
   timeZone: TimeZoneId;
   locale: string;
   isToday: boolean;
@@ -401,7 +393,6 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
     column,
     slots,
     businessHourSlots,
-    showBusinessHourSlots,
     timeZone,
     locale,
     isToday,
@@ -438,30 +429,29 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
       {...(pinned === true ? { 'data-koyomi-pinned': 'true' } : {})}
       style={style}
     >
-      {showBusinessHourSlots &&
-        slots.map((slot, index) => {
-          // isBusinessHours なスロットのみ、次のスロット（無ければ 24:00）までの
-          // 高さを追加で持たせて背景を敷ける（`ResourceView` / 週/日ビューと同じ規則。
-          // ここに来る時点で showBusinessHourSlots は true（businessHours 指定あり）
-          // なので、isBusinessHours 自体は該当曜日でなければ false になりうる）
-          const isBusinessHours = businessHourSlots[index]?.isBusinessHours ?? false;
-          const nextMinutes = slots[index + 1]?.minutes ?? MINUTES_PER_DAY;
-          return (
-            <div
-              key={slot.minutes}
-              data-koyomi="timegrid-slot"
-              data-koyomi-business-hours={isBusinessHours ? 'true' : undefined}
-              style={
-                isBusinessHours
-                  ? {
-                      top: `${(slot.minutes / MINUTES_PER_DAY) * 100}%`,
-                      height: `${((nextMinutes - slot.minutes) / MINUTES_PER_DAY) * 100}%`,
-                    }
-                  : { top: `${(slot.minutes / MINUTES_PER_DAY) * 100}%` }
-              }
-            />
-          );
-        })}
+      {slots.map((slot, index) => {
+        // 罫線は非仮想化の ResourceView と同じく常時描画する（businessHours の
+        // 有無で見た目が分岐しないよう統一）。isBusinessHours なスロットのみ、
+        // 次のスロット（無ければ 24:00）までの高さを追加で持たせて背景を敷ける
+        // （週/日ビューと同じ規則）
+        const isBusinessHours = businessHourSlots[index]?.isBusinessHours ?? false;
+        const nextMinutes = slots[index + 1]?.minutes ?? MINUTES_PER_DAY;
+        return (
+          <div
+            key={slot.minutes}
+            data-koyomi="timegrid-slot"
+            data-koyomi-business-hours={isBusinessHours ? 'true' : undefined}
+            style={
+              isBusinessHours
+                ? {
+                    top: `${(slot.minutes / MINUTES_PER_DAY) * 100}%`,
+                    height: `${((nextMinutes - slot.minutes) / MINUTES_PER_DAY) * 100}%`,
+                  }
+                : { top: `${(slot.minutes / MINUTES_PER_DAY) * 100}%` }
+            }
+          />
+        );
+      })}
       {column.items.map((item) => {
         const eventProps = drag.getEventProps(item);
         const isEditable = item.occurrence.event.editable !== false;
@@ -550,7 +540,6 @@ const ResourceColumnBody = memo(ResourceColumnBodyImpl, (prev, next) => {
     sameResourceColumnForBody(prev.column, next.column) &&
     sameSlots(prev.slots, next.slots) &&
     sameBusinessHourSlots(prev.businessHourSlots, next.businessHourSlots) &&
-    prev.showBusinessHourSlots === next.showBusinessHourSlots &&
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
     prev.isToday === next.isToday &&
@@ -715,7 +704,6 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
     // businessHours 未指定（既定 []）のときは `timegrid-slot` 罫線 div 自体を描画しない
     // （businessHours 拡張前の VirtualResourceView は列本文にスロット罫線を持たなかった
     // ため、既定出力を旧版と一致させる。ResourceView は元々無条件描画のためこの分岐は不要）。
-    const showBusinessHourSlots = options.businessHours.length > 0;
 
     if (isEmpty) {
       return (
@@ -863,7 +851,6 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
                   column={column}
                   slots={slots}
                   businessHourSlots={businessHourSlots}
-                  showBusinessHourSlots={showBusinessHourSlots}
                   timeZone={timeZone}
                   locale={locale}
                   isToday={isToday}
@@ -890,7 +877,6 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
                   column={column}
                   slots={slots}
                   businessHourSlots={businessHourSlots}
-                  showBusinessHourSlots={showBusinessHourSlots}
                   timeZone={timeZone}
                   locale={locale}
                   isToday={isToday}

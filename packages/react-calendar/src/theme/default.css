@@ -258,11 +258,18 @@
   /* 列数は子要素数に追従する（hiddenWeekdays で 7 未満になりうる） */
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
-  /* 日番号行 + dayMaxEvents 既定値（4 レーン）+ 「+N 件」の 1 行分（16px、
+  /* 日番号行 + dayMaxEvents のレーン数 + 「+N 件」の 1 行分（16px、
      month-overflow の height と揃える）を目安にした最小高さ。「+N 件」は
      position: absolute; bottom: 0 でこの末尾領域に固定されるため、
-     min-height が確保していないと帯（レーン）と重なってしまう */
-  min-height: calc(var(--koyomi-month-header-height) + var(--koyomi-lane-height) * 4 + 16px);
+     min-height が確保していないと帯（レーン）と重なってしまう。
+     --koyomi-month-lanes は MonthView / MultiMonthView が dayMaxEvents の
+     実際の値を inline で自動設定する内部変数（--koyomi-timeline-lanes と同じ方式） */
+  min-height: calc(
+    var(--koyomi-month-header-height) +
+    var(--koyomi-lane-height) *
+    var(--koyomi-month-lanes, 4) +
+    16px
+  );
 }
 
 [data-koyomi="month-day"] {
