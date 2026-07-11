@@ -42,6 +42,21 @@
 - **パフォーマンス**: `Intl.DateTimeFormat` のキャッシュ、ビュー行・列・イベントの `memo` 化。時間グリッド（`time-grid-layout.ts`）・帯（`band-layout.ts`）のレーン/列割当アルゴリズムを、同一時間帯に多数の予定が重なる場合の計算量 O(n²) からほぼ線形に改善。週ビューの日別振り分け（`time-grid-view.ts`）も二分探索によるスイープに変更し重複走査を削減（出力結果・挙動は変更なし）
 - **公開 API 追加**: `SegmentResizeHandleProps`（`useDayDrag` の帯リサイズハンドル props 型）、`timeAtTimelineOffset`（タイムラインの表示分→日時変換）、`startOfMonthInZone` / `addMonthsInZone`（月単位の日付ユーティリティ）
 - **テーマ**: CSS 変数 `--koyomi-now-color`（現在時刻線の色。既定 `#ea4335`）を追加。週/日ビューの曜日ラベルに `data-koyomi="timegrid-weekday"` を追加（月・年ビューの曜日ラベルと同様のスタイルフック）。ボタン/見出しのブラウザ既定リセットのセレクタを `data-koyomi` 属性を持つ要素に限定し、`renderDayCell` 等でユーザーが差し込む独自の button/見出し要素へ波及しないようにした（見た目・詳細度は変更なし）
+- **複数タイムゾーン軸**: `timeAxisZones` オプションで週/日ビューにセカンダリタイムゾーンの時間軸を並べて表示（Google カレンダー相当。DST 切替日も日単位で正確）
+- **「+N 件」のポップオーバー基盤**: `onOverflowClick` に表示中オカレンス一覧（第 3 引数）を追加、`overflowButtonProps` で `aria-haspopup` / `aria-expanded` 等を付与可能に（ポップオーバー UI 自体はアプリ側実装）
+- **外部ドラッグ受け入れ**: `useExternalDrag` フックと `ExternalDropInfo` 型を追加。カレンダー外の DOM 要素からのドラッグを日時・リソースへ解決して `onExternalDrop` で通知（FullCalendar の Draggable 相当。イベント作成はアプリ側）
+- **リソース/タイムラインの仮想化**: `VirtualResourceView` / `VirtualTimelineView` を追加（可視レーンのみ描画、フォーカス保持、`scrollToResource` / `scrollToRow`）。`useVirtualizer` を水平軸・`viewportPadding` 対応に拡張
+- **ISO 週番号**: `showWeekNumbers` オプションで月・週ビューに `data-koyomi-week-number` 属性を出力（`isoWeekNumberInZone` / `isoWeekNumberOfWeek` / `parseTimeOfDay` を公開）
+- **営業時間**: `businessHours` オプションで週/日・リソースビューのスロットに `data-koyomi-business-hours` 属性、タイムラインに `timeline-business-hours` 帯を出力
+- **英語文言プリセット**: `enUsLabels`（Toolbar / 各ビューの `*Label` props をコンポーネント単位でまとめた en-US プリセット）
+- **undo 基盤**: `onEventChange` / `onEventDelete` に影響イベントの before/after 一覧（`changes: EventChangeEntry[]`）を追加。`updateEventInWithChanges` 等の core 関数と `CalendarApi.updateEvent/deleteEvent` の戻り値でも取得可能
+- **適用前フック**: `onBeforeEventChange` / `onBeforeSelectRange` / `onBeforeEventDelete`（`boolean | Promise<boolean>`、false で不適用・通知なし。FullCalendar の eventAllow/selectAllow 相当＋キーボード削除の確認用途）。`EventChangeProposal` 型を公開
+- **既定挙動の差し替え**: `onDayNumberClick`（日番号クリックの day ビュー遷移を置き換え。省略時は従来どおり）
+- **読み上げ文言のカスタマイズ**: 全イベントビューに `eventAriaLabel`、`YearView.dayCountLabel/dayAriaLabel`、`ListView`/`VirtualListView.dayAriaLabel`、`ToolbarLabels.viewsGroup` を追加（固定日本語文言を解消し enUsLabels で網羅）
+- **通知の拡充**: `onEventDoubleClick` / `onEventContextMenu` / `onEventHover` / `onEventHoverEnd`（未指定時はリスナー自体を付けない）、core の `onRangeChange`（表示範囲変更通知。FullCalendar の datesSet 相当）
+- **React 非依存エントリ**: `@koyomi-cal/react/core`（`createCalendar`・ビューモデルビルダー・タイムゾーン/繰り返しユーティリティを React なしで利用可能）
+- **ビュー利便性**: `CalendarView` に `virtualizeResource` / `virtualizeTimeline`、`TimeGridView.renderAllDayEvent`、`ResourceView`/`VirtualResourceView.renderAllDayItem`、`TimelineView.cornerLabel` を追加
+- **月ビューの修正**: 「+N 件」ボタンを帯と重ならない最下部の予約領域へ配置（クリック不能バグの解消）、週行の高さが `dayMaxEvents` に追従（`--koyomi-month-lanes`）
 
 ### 変更
 

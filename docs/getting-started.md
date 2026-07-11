@@ -177,7 +177,7 @@ const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
 console.log(calendar.getViewModel().type); // => 'month'
 ```
 
-`react` / `react-dom` は `package.json` の `peerDependencies` ですが、`@koyomi-cal/react/core` のみを使う場合は未インストールでも実行時エラーにはなりません（インストール時のピア依存の警告は無視できます）。詳細は [API リファレンス](./api.md#koyomi-calreactcorereact-非依存の単体エントリ) を参照してください。
+`react` / `react-dom` は `package.json` の `peerDependencies` ですが、`@koyomi-cal/react/core` のみを使う場合は未インストールでも実行時エラーにはなりません（インストール時のピア依存の警告は無視できます。pnpm の `strict-peer-dependencies=true` 設定下ではエラーになるため、その場合は設定の緩和か react のインストールが必要です）。詳細は [API リファレンス](./api.md#koyomi-calreactcorereact-非依存の単体エントリ) を参照してください。
 
 ## 次に読む
 
