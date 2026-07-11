@@ -80,6 +80,30 @@ export interface EventChange {
 }
 
 /**
+ * 適用前フック `onBeforeEventChange` に渡される、これから適用しようとしている
+ * 変更（移動・リサイズ・終日⇔時間指定変換）の内容。
+ *
+ * FullCalendar の `eventAllow` に相当する。ドラッグ確定・キーボード操作いずれの
+ * 経路でも、`resolveRecurringScope` による繰り返しスコープの問い合わせより
+ * **前**に判定される。
+ */
+export interface EventChangeProposal {
+  /** 変更しようとしている対象のオカレンス。 */
+  occurrence: EventOccurrence;
+  /** 適用しようとしている日時範囲。 */
+  range: DateRange;
+  /** 適用後に終日イベントになるか。 */
+  allDay: boolean;
+  /**
+   * 適用後の割当先リソース ID。リソース/タイムラインビューでの変更時のみ
+   * 設定される（`null` は未割り当てへの移動）。既存ビューでは省略。
+   */
+  resourceId?: string | null;
+  /** 操作の種類。`'convert'` は終日 ⇔ 時間指定イベントの変換。 */
+  action: 'move' | 'resize' | 'convert';
+}
+
+/**
  * キーボード操作（Delete/Backspace）によるイベント削除の内容。
  */
 export interface EventDelete {
@@ -141,6 +165,9 @@ export interface MonthOverflowButtonProps {
  * - `onEventDelete` — 通知のみの用途（削除の適用はライブラリが行う）
  * - `onError` — console.error に出力する
  * - `onOverflowClick` — その日の日ビューに切り替える
+ * - `onBeforeEventChange` — 常に許可する（`true`）
+ * - `onBeforeSelectRange` — 常に許可する（`true`）
+ * - `onBeforeEventDelete` — 常に許可する（`true`）
  */
 export interface CalendarInteractionCallbacks {
   /**
@@ -154,14 +181,62 @@ export interface CalendarInteractionCallbacks {
    */
   onSelectRange?: (selection: RangeSelection) => void;
   /**
+   * 空き領域のクリック・ドラッグによる範囲選択の適用前に呼ばれる
+   * （FullCalendar の `selectAllow` に相当）。
+   *
+   * `false`（または `Promise<false>`）を返すと `onSelectRange` は呼ばれない
+   * （省略時の既定の即時作成も行われない）。`true` または省略時は従来どおり
+   * 選択が確定する。
+   *
+   * ドラッグ中のプレビュー表示はこの判定結果を反映しない（`pointerup` などで
+   * 選択が確定するタイミングでのみ判定する）。
+   *
+   * @param selection - 選択された範囲
+   */
+  onBeforeSelectRange?: (selection: RangeSelection) => boolean | Promise<boolean>;
+  /**
    * ドラッグ移動・リサイズが確定し、変更が適用された後に呼ばれる。
    */
   onEventChange?: (change: EventChange) => void;
+  /**
+   * ドラッグ移動・リサイズ・終日⇔時間指定変換の適用前に呼ばれる
+   * （FullCalendar の `eventAllow` に相当）。
+   *
+   * `false`（または `Promise<false>`）を返すと変更は適用されず、
+   * `onEventChange` も呼ばれない。ドラッグ操作はその場で静かに終了し、
+   * キーボード操作（矢印キー等）では何も起きない。`true` または省略時は
+   * 従来どおり変更が適用される。
+   *
+   * 繰り返しイベントの場合は `resolveRecurringScope` による適用範囲の
+   * 問い合わせより**前**に判定される（拒否された場合はスコープの問い合わせ
+   * 自体を行わない）。
+   *
+   * ドラッグ中のプレビュー表示はこの判定結果を反映しない（確定時にのみ
+   * 判定する）。
+   *
+   * @param proposal - 適用しようとしている変更の内容
+   */
+  onBeforeEventChange?: (proposal: EventChangeProposal) => boolean | Promise<boolean>;
   /**
    * キーボード操作（Delete/Backspace）による削除が適用された後に呼ばれる。
    * undo（元に戻す）UI やトースト表示の起点に使う。
    */
   onEventDelete?: (deletion: EventDelete) => void;
+  /**
+   * キーボード操作（Delete/Backspace）による削除の適用前に呼ばれる。
+   *
+   * `false`（または `Promise<false>`）を返すと削除は適用されず、
+   * `onEventDelete` も呼ばれない。確認ダイアログなど、ユーザーの応答を
+   * 待つ必要がある UI 向けに `Promise` を返せる。`true` または省略時は
+   * 従来どおり削除が適用される。
+   *
+   * 繰り返しイベントの場合は `resolveRecurringScope` による適用範囲の
+   * 問い合わせより**前**に判定される（拒否された場合はスコープの問い合わせ
+   * 自体を行わない）。
+   *
+   * @param occurrence - 削除しようとしているオカレンス
+   */
+  onBeforeEventDelete?: (occurrence: EventOccurrence) => boolean | Promise<boolean>;
   /**
    * インタラクション中の非同期処理（`resolveRecurringScope` や変更の適用）が
    * 例外を投げた場合に呼ばれる。省略時は console.error に出力される。

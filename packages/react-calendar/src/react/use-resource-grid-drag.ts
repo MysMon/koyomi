@@ -45,6 +45,9 @@ import type {
 import {
   attachDragSessionListeners,
   autoScrollVelocity,
+  checkBeforeEventChange,
+  checkBeforeEventDelete,
+  checkBeforeSelectRange,
   createAutoScrollLoop,
   laneResourceIdOf,
   resolveScopeForRecurring,
@@ -300,12 +303,25 @@ export function useResourceGridDrag(params: {
   }
 
   /**
-   * 作成（時間指定・終日共通）を確定する。`onSelectRange` があればそれを呼び、
-   * なければ選択レーンの `resourceId` を含めて既定作成する
-   * （未割り当てレーンでは `resourceId` を付けない）。
+   * 作成（時間指定・終日共通）を確定する。`onBeforeSelectRange` で拒否されなければ、
+   * `onSelectRange` があればそれを呼び、なければ選択レーンの `resourceId` を含めて
+   * 既定作成する（未割り当てレーンでは `resourceId` を付けない）。
    */
-  function commitCreateRange(range: DateRange, allDay: boolean, resourceId: string | null): void {
+  async function commitCreateRange(
+    range: DateRange,
+    allDay: boolean,
+    resourceId: string | null,
+  ): Promise<void> {
     try {
+      const gate = checkBeforeSelectRange(paramsRef.current.callbacks, {
+        range,
+        allDay,
+        resourceId,
+      });
+      const allowed = typeof gate === 'boolean' ? gate : await gate;
+      if (!allowed) {
+        return;
+      }
       const { calendar, callbacks } = paramsRef.current;
       if (callbacks?.onSelectRange) {
         callbacks.onSelectRange({ range, allDay, resourceId });
@@ -386,6 +402,17 @@ export function useResourceGridDrag(params: {
         if (session.targetResourceId === session.initialResourceId) {
           return;
         }
+        const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
+          occurrence,
+          range: { start: occurrence.start, end: occurrence.end },
+          allDay: occurrence.allDay,
+          resourceId: session.targetResourceId,
+          action: 'move',
+        });
+        const allowed = typeof gate === 'boolean' ? gate : await gate;
+        if (!allowed) {
+          return;
+        }
         let scope: RecurringEditScope | null = null;
         if (occurrence.isRecurring) {
           const resolved = await resolveScopeForRecurring(
@@ -407,6 +434,17 @@ export function useResourceGridDrag(params: {
         return;
       }
       const action: 'move' | 'resize' = session.mode === 'move' ? 'move' : 'resize';
+      const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
+        occurrence,
+        range,
+        allDay: false,
+        resourceId: session.targetResourceId,
+        action,
+      });
+      const allowed = typeof gate === 'boolean' ? gate : await gate;
+      if (!allowed) {
+        return;
+      }
       let recurringScope: RecurringEditScope | null = null;
       if (occurrence.isRecurring) {
         const resolved = await resolveScopeForRecurring(
@@ -428,18 +466,21 @@ export function useResourceGridDrag(params: {
   /** セッションの種類に応じて確定処理を振り分ける。 */
   function commitSession(session: DragSession, nativeEvent: MouseEvent): void {
     if (session.mode === 'create') {
+      let range: DateRange | null;
       try {
-        const range = session.hasMoved
+        range = session.hasMoved
           ? computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY)
           : clickRangeForCreate(session.anchor);
-        if (range !== null) {
-          commitCreateRange(range, false, session.targetResourceId);
-          return;
-        }
       } catch (error) {
         reportError(error);
+        paramsRef.current.calendar.api.setDragPreview(null);
+        return;
       }
-      paramsRef.current.calendar.api.setDragPreview(null);
+      if (range === null) {
+        paramsRef.current.calendar.api.setDragPreview(null);
+        return;
+      }
+      void commitCreateRange(range, false, session.targetResourceId).catch(reportError);
       return;
     }
     void commitMoveOrResize(session, nativeEvent).catch(reportError);
@@ -668,6 +709,11 @@ export function useResourceGridDrag(params: {
     if (occurrence.event.editable === false) {
       return;
     }
+    const gate = checkBeforeEventDelete(paramsRef.current.callbacks, occurrence);
+    const allowed = typeof gate === 'boolean' ? gate : await gate;
+    if (!allowed) {
+      return;
+    }
     if (!occurrence.isRecurring) {
       const changes = paramsRef.current.calendar.api.deleteEvent(occurrence.eventId);
       paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope: null, changes });
@@ -712,6 +758,17 @@ export function useResourceGridDrag(params: {
     resourceId: string | null,
     allDay: boolean,
   ): Promise<void> {
+    const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
+      occurrence,
+      range: range ?? { start: occurrence.start, end: occurrence.end },
+      allDay,
+      resourceId,
+      action,
+    });
+    const allowed = typeof gate === 'boolean' ? gate : await gate;
+    if (!allowed) {
+      return;
+    }
     let recurringScope: RecurringEditScope | null = null;
     if (occurrence.isRecurring) {
       const resolved = await resolveScopeForRecurring(
@@ -820,7 +877,7 @@ export function useResourceGridDrag(params: {
       start: day,
       end: startOfDayInZone(addDaysInZone(day, 1, state.timeZone), state.timeZone),
     };
-    commitCreateRange(range, true, column.resource?.id ?? null);
+    void commitCreateRange(range, true, column.resource?.id ?? null).catch(reportError);
   }
 
   function getColumnProps(column: ResourceColumn): ResourceColumnProps {

@@ -42,6 +42,9 @@ import type {
 import {
   attachDragSessionListeners,
   autoScrollVelocity,
+  checkBeforeEventChange,
+  checkBeforeEventDelete,
+  checkBeforeSelectRange,
   createAutoScrollLoop,
   laneResourceIdOf,
   resolveScopeForRecurring,
@@ -324,9 +327,21 @@ export function useTimelineDrag(params: {
     };
   }
 
-  /** 作成を確定する（`onSelectRange` があればそれを呼び、なければ既定作成する）。 */
-  function commitCreateRange(range: DateRange, resourceId: string | null): void {
+  /**
+   * 作成を確定する（`onBeforeSelectRange` で拒否されなければ、`onSelectRange` が
+   * あればそれを呼び、なければ既定作成する）。
+   */
+  async function commitCreateRange(range: DateRange, resourceId: string | null): Promise<void> {
     try {
+      const gate = checkBeforeSelectRange(paramsRef.current.callbacks, {
+        range,
+        allDay: false,
+        resourceId,
+      });
+      const allowed = typeof gate === 'boolean' ? gate : await gate;
+      if (!allowed) {
+        return;
+      }
       const { calendar, callbacks } = paramsRef.current;
       if (callbacks?.onSelectRange) {
         callbacks.onSelectRange({ range, allDay: false, resourceId });
@@ -407,6 +422,17 @@ export function useTimelineDrag(params: {
       }
       const action: 'move' | 'resize' =
         session.mode === 'move' || session.mode === 'allday-move' ? 'move' : 'resize';
+      const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
+        occurrence,
+        range: timeChanged ? range : { start: occurrence.start, end: occurrence.end },
+        allDay: occurrence.allDay,
+        resourceId: session.targetResourceId,
+        action,
+      });
+      const allowed = typeof gate === 'boolean' ? gate : await gate;
+      if (!allowed) {
+        return;
+      }
       let recurringScope: RecurringEditScope | null = null;
       if (occurrence.isRecurring) {
         const resolved = await resolveScopeForRecurring(
@@ -434,18 +460,21 @@ export function useTimelineDrag(params: {
   /** セッションの種類に応じて確定処理を振り分ける。 */
   function commitSession(session: DragSession, nativeEvent: MouseEvent): void {
     if (session.mode === 'create') {
+      let range: DateRange | null;
       try {
-        const range = session.hasMoved
+        range = session.hasMoved
           ? computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY)
           : clickRangeForCreate(session.anchor);
-        if (range !== null) {
-          commitCreateRange(range, session.targetResourceId);
-          return;
-        }
       } catch (error) {
         reportError(error);
+        paramsRef.current.calendar.api.setDragPreview(null);
+        return;
       }
-      paramsRef.current.calendar.api.setDragPreview(null);
+      if (range === null) {
+        paramsRef.current.calendar.api.setDragPreview(null);
+        return;
+      }
+      void commitCreateRange(range, session.targetResourceId).catch(reportError);
       return;
     }
     void commitMoveOrResize(session, nativeEvent).catch(reportError);
@@ -658,6 +687,11 @@ export function useTimelineDrag(params: {
     if (occurrence.event.editable === false) {
       return;
     }
+    const gate = checkBeforeEventDelete(paramsRef.current.callbacks, occurrence);
+    const allowed = typeof gate === 'boolean' ? gate : await gate;
+    if (!allowed) {
+      return;
+    }
     if (!occurrence.isRecurring) {
       const changes = paramsRef.current.calendar.api.deleteEvent(occurrence.eventId);
       paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope: null, changes });
@@ -701,6 +735,17 @@ export function useTimelineDrag(params: {
     range: DateRange | null,
     resourceId: string | null,
   ): Promise<void> {
+    const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
+      occurrence,
+      range: range ?? { start: occurrence.start, end: occurrence.end },
+      allDay: occurrence.allDay,
+      resourceId,
+      action,
+    });
+    const allowed = typeof gate === 'boolean' ? gate : await gate;
+    if (!allowed) {
+      return;
+    }
     let recurringScope: RecurringEditScope | null = null;
     if (occurrence.isRecurring) {
       const resolved = await resolveScopeForRecurring(
