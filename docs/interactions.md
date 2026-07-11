@@ -129,6 +129,63 @@ function App() {
 
 undo（元に戻す）UI の実装方法は [予定の管理](./events.md#undo元に戻すを実装する) を参照してください。
 
+## 予定要素への追加通知（ダブルクリック・コンテキストメニュー・ホバー）
+
+`onEventClick` / `onEventChange` に加えて、予定要素に対する次の 4 つの通知を受け取れます。すべてのイベントビュー（月・複数月ビューの帯セグメント、週/日ビュー、リソースビュー、タイムラインビュー、リストビュー）の予定要素に配線されます。
+
+| コールバック | 呼ばれるタイミング（DOM イベント） |
+| --- | --- |
+| `onEventDoubleClick` | 予定要素がダブルクリックされたとき（`dblclick`） |
+| `onEventContextMenu` | 予定要素で右クリック等のコンテキストメニュー操作をしたとき（`contextmenu`） |
+| `onEventHover` | ポインタが予定要素に乗ったとき（`pointerenter`） |
+| `onEventHoverEnd` | ポインタが予定要素から離れたとき（`pointerleave`） |
+
+```tsx
+import { CalendarProvider, MonthView, useCalendar } from '@koyomi-cal/react';
+import type { CalendarEvent, EventOccurrence } from '@koyomi-cal/react';
+
+const events: CalendarEvent[] = [
+  { id: '1', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+];
+
+function App() {
+  const calendar = useCalendar({ initialView: 'month', events });
+
+  return (
+    <CalendarProvider
+      value={calendar}
+      callbacks={{
+        onEventDoubleClick: (occurrence: EventOccurrence) => {
+          // 詳細表示や編集ダイアログを直接開く
+        },
+        onEventContextMenu: (occurrence: EventOccurrence, nativeEvent: MouseEvent) => {
+          // 独自のコンテキストメニューを出す場合は自分で preventDefault する
+          nativeEvent.preventDefault();
+        },
+        onEventHover: (occurrence: EventOccurrence) => {
+          // ツールチップを表示する
+        },
+        onEventHoverEnd: (occurrence: EventOccurrence) => {
+          // ツールチップを閉じる
+        },
+      }}
+    >
+      <MonthView />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - 「会議」をダブルクリックすると onEventDoubleClick が呼ばれる
+// - 「会議」を右クリックしてもブラウザ既定のコンテキストメニューは自動では消えない
+//   （nativeEvent.preventDefault() を呼ぶかどうかはアプリ側が決める）
+// - ポインタが「会議」に乗ると onEventHover、離れると onEventHoverEnd が呼ばれる
+```
+
+**`onEventContextMenu` は `preventDefault` しません**: ライブラリはコールバックを呼ぶだけで、ブラウザ既定のコンテキストメニューの抑制は行いません。カスタムメニューを出す場合はアプリ側で `nativeEvent.preventDefault()` を呼んでください。
+
+**未指定時は DOM リスナー自体を付けない**: これら 4 つはいずれも省略可能で、省略した場合は対応する要素に `onDoubleClick` / `onContextMenu` / `onPointerEnter` / `onPointerLeave` の DOM props 自体が付きません（省略時の DOM 構造が従来と完全に一致します）。
+
 ## リソースビュー・タイムラインビューのドラッグ操作
 
 リソースビュー（`useResourceGridDrag`）・タイムラインビュー（`useTimelineDrag`）は、時間の変更に加えて**リソース間の移動**をドラッグで行えます。それぞれ次の 2 軸を同時に扱います。
@@ -269,6 +326,10 @@ function App() {
 | `resolveRecurringScope` | 繰り返し予定の移動・リサイズ・削除・更新の適用範囲を決めるとき | 常に `'this'`（この予定のみ） |
 | `onOverflowClick` | 月ビューの「+N 件」がクリックされたとき。第 2 引数で非表示のオカレンス一覧（`hiddenOccurrences`）、第 3 引数（`details`）で表示中のオカレンス一覧（`visibleOccurrences`）を受け取れる | その日の日ビューに切り替える |
 | `onDayNumberClick` | 月ビュー・複数月ビュー・年ビュー・週/日ビューの日番号ボタンがクリックされたとき | その日の日ビューに切り替える |
+| `onEventDoubleClick` | 予定要素がダブルクリックされたとき | 何もしない（未指定時は `onDoubleClick` リスナー自体を付けない） |
+| `onEventContextMenu` | 予定要素でコンテキストメニュー操作をしたとき（`preventDefault` はしない） | 何もしない（未指定時は `onContextMenu` リスナー自体を付けない） |
+| `onEventHover` | ポインタが予定要素に乗ったとき（`pointerenter`） | 何もしない（未指定時は `onPointerEnter` リスナー自体を付けない） |
+| `onEventHoverEnd` | ポインタが予定要素から離れたとき（`pointerleave`） | 何もしない（未指定時は `onPointerLeave` リスナー自体を付けない） |
 
 ## キーボードショートカット
 

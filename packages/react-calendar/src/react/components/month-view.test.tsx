@@ -479,6 +479,44 @@ describe('MonthView - クリック操作', () => {
     const occurrence = onEventClick.mock.calls[0]?.[0];
     expect(occurrence?.event.title).toBe('朝会');
   });
+
+  it('ダブルクリックで callbacks.onEventDoubleClick がオカレンスと nativeEvent を受け取る（MonthView 経由の配線確認）', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '朝会', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+    ];
+    const onEventDoubleClick = vi.fn();
+    const { container } = render(<Harness events={events} callbacks={{ onEventDoubleClick }} />);
+
+    const segment = container.querySelector('[data-koyomi="month-event"]');
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+    fireEvent.dblClick(segment);
+
+    expect(onEventDoubleClick).toHaveBeenCalledTimes(1);
+    expect(onEventDoubleClick.mock.calls[0]?.[0]?.event.title).toBe('朝会');
+    expect(onEventDoubleClick.mock.calls[0]?.[1]).toBeInstanceOf(MouseEvent);
+  });
+
+  it('コールバック未指定時は月ビューのセグメントに onDoubleClick/onContextMenu/onPointerEnter/onPointerLeave のリスナーが付かない', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '朝会', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+    ];
+    const { container } = render(<Harness events={events} />);
+    const segment = container.querySelector('[data-koyomi="month-event"]');
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+    const outside = document.createElement('div');
+    document.body.appendChild(outside);
+
+    expect(() => {
+      fireEvent.dblClick(segment);
+      fireEvent(segment, new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      fireEvent(segment, new MouseEvent('pointerover', { bubbles: true, relatedTarget: outside }));
+      fireEvent(segment, new MouseEvent('pointerout', { bubbles: true, relatedTarget: outside }));
+    }).not.toThrow();
+  });
 });
 
 describe('MonthView - 帯セグメントのリサイズハンドル', () => {

@@ -1171,6 +1171,80 @@ describe('useTimeGridDrag', () => {
   });
 });
 
+describe('useTimeGridDrag - 追加通知（onEventDoubleClick / onEventContextMenu / onEventHover / onEventHoverEnd）', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const EVENT: CalendarEvent = {
+    id: 'ev-notify',
+    title: '会議',
+    start: `${WED}T09:00`,
+    end: `${WED}T09:30`,
+  };
+
+  function renderNotifyHarness(callbacks: CalendarInteractionCallbacks): HTMLElement {
+    renderHarness({ events: [EVENT], callbacks });
+    const occurrenceKey = `ev-notify@${at(`${WED}T09:00`).toISOString()}`;
+    return screen.getByTestId(`event-${occurrenceKey}`);
+  }
+
+  it('ダブルクリックで onEventDoubleClick がオカレンスと nativeEvent を受け取る', () => {
+    const onEventDoubleClick = vi.fn();
+    const eventEl = renderNotifyHarness({ onEventDoubleClick });
+
+    fireEvent.dblClick(eventEl);
+
+    expect(onEventDoubleClick).toHaveBeenCalledTimes(1);
+    expect(onEventDoubleClick.mock.calls[0]?.[0]?.event.title).toBe('会議');
+    expect(onEventDoubleClick.mock.calls[0]?.[1]).toBeInstanceOf(MouseEvent);
+  });
+
+  it('コンテキストメニュー操作で onEventContextMenu が呼ばれ、ライブラリは preventDefault しない', () => {
+    const onEventContextMenu = vi.fn();
+    const eventEl = renderNotifyHarness({ onEventContextMenu });
+
+    const contextMenuEvent = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    const preventDefaultSpy = vi.spyOn(contextMenuEvent, 'preventDefault');
+    fireEvent(eventEl, contextMenuEvent);
+
+    expect(onEventContextMenu).toHaveBeenCalledTimes(1);
+    expect(preventDefaultSpy).not.toHaveBeenCalled();
+  });
+
+  it('pointerover/pointerout（外部要素からの出入り）で onEventHover / onEventHoverEnd が呼ばれる', () => {
+    const onEventHover = vi.fn();
+    const onEventHoverEnd = vi.fn();
+    const eventEl = renderNotifyHarness({ onEventHover, onEventHoverEnd });
+    const outside = document.createElement('div');
+    document.body.appendChild(outside);
+
+    fireEvent(eventEl, new MouseEvent('pointerover', { bubbles: true, relatedTarget: outside }));
+    expect(onEventHover).toHaveBeenCalledTimes(1);
+
+    fireEvent(eventEl, new MouseEvent('pointerout', { bubbles: true, relatedTarget: outside }));
+    expect(onEventHoverEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('コールバック未指定時は getEventProps() のキー集合が従来と完全一致する（追加通知系のキーを含まない）', () => {
+    const { sink } = renderHarness({ events: [EVENT] });
+    if (sink.current === null) {
+      throw new Error('sink が設定されていません');
+    }
+    const days = getTimeGridDays(sink.current);
+    const item = days
+      .flatMap((day) => day.items)
+      .find((positioned) => positioned.occurrence.eventId === 'ev-notify');
+    if (item === undefined) {
+      throw new Error('アイテムが見つかりません');
+    }
+    const props = sink.current.drag.getEventProps(item);
+    expect(Object.keys(props).sort()).toEqual(
+      ['data-koyomi-occurrence', 'onClick', 'onKeyDown', 'onPointerDown', 'tabIndex'].sort(),
+    );
+  });
+});
+
 describe('useTimeGridDrag - 終日行への変換ドラッグ', () => {
   afterEach(() => {
     vi.restoreAllMocks();

@@ -19,6 +19,8 @@ import type {
 } from 'react';
 import { formatSlotLabel, minutesOfDayInZone } from '../../core/timezone';
 import type { EventOccurrence, ListDay, TimeZoneId } from '../../core/types';
+import { eventNotificationProps } from '../drag-common';
+import type { CalendarInteractionCallbacks } from '../types';
 import { formatEventAriaLabel, resolveEventAriaLabel } from './month-view-parts';
 
 /** `allDayLabel` 省略時の既定表示（終日イベントの時刻ラベル）。 */
@@ -90,6 +92,13 @@ export interface ListDaySectionProps {
   onEventClick: (occurrence: EventOccurrence, event: ReactMouseEvent<HTMLButtonElement>) => void;
   /** イベント行キーダウン時のハンドラ（Enter / Space をクリック相当に橋渡し）。 */
   onEventKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => void;
+  /**
+   * インタラクションコールバック（追加通知系の配線に使う）。
+   * `onEventDoubleClick` / `onEventContextMenu` / `onEventHover` / `onEventHoverEnd` が
+   * 指定されている場合のみ、対応する DOM リスナーをイベント行に付ける
+   * （{@link eventNotificationProps} 参照）。
+   */
+  callbacks: CalendarInteractionCallbacks;
   /** イベント行の内容をカスタム描画する関数。 */
   renderEvent?: (occurrence: EventOccurrence) => ReactNode;
   /**
@@ -138,6 +147,7 @@ export function ListDaySection(props: ListDaySectionProps): ReactElement {
     allDayLabel,
     onEventClick,
     onEventKeyDown,
+    callbacks,
     renderEvent,
     eventAriaLabel,
     renderDayHeader,
@@ -177,6 +187,7 @@ export function ListDaySection(props: ListDaySectionProps): ReactElement {
             eventAriaLabel,
           )}
           {...(eventTabbable === false ? { tabIndex: -1 } : {})}
+          {...eventNotificationProps(callbacks, occurrence)}
         >
           {renderEvent !== undefined ? (
             renderEvent(occurrence)

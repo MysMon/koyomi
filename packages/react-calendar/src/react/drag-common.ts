@@ -20,6 +20,9 @@
  *   軸（縦/横）だけが違う）
  * - {@link attachDragSessionListeners} — pointermove/pointerup/pointercancel/keydown の
  *   document リスナー配線・解除（3フック共通）
+ * - {@link eventNotificationProps} — 追加通知系ハンドラ（`onEventDoubleClick` /
+ *   `onEventContextMenu` / `onEventHover` / `onEventHoverEnd`）の配線
+ *   （3フックに加え `use-day-drag.ts` と `list-view-parts.tsx` も含む 5 箇所共通）
  *
  * 逆に、`startSession` 本体（`DragSession` の構造・pointermove 時の座標→日時変換や
  * レーン追従ロジック・`cancelSession`/`commitSession` の中身）は意図的に共通化して
@@ -29,6 +32,7 @@
  * オプション引数が増殖してしまうため（このプロジェクトが避けたい過剰抽象化）。
  */
 
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import type { EventOccurrence, RecurringEditScope } from '../core/types';
 import type { CalendarInteractionCallbacks, EventChangeProposal, RangeSelection } from './types';
 
@@ -314,4 +318,67 @@ export function attachDragSessionListeners(handlers: DragSessionListenerHandlers
     document.removeEventListener('pointercancel', handlers.pointercancel);
     document.removeEventListener('keydown', handlers.keydown);
   };
+}
+
+/**
+ * イベント要素に付与する追加通知系ハンドラ（`onDoubleClick` / `onContextMenu` /
+ * `onPointerEnter` / `onPointerLeave`）。対応するコールバック
+ * （`onEventDoubleClick` 等）が未指定のキーは {@link eventNotificationProps} の
+ * 戻り値に含まれない。
+ */
+export interface EventNotificationProps {
+  /** ダブルクリックで `onEventDoubleClick` を呼ぶ。 */
+  onDoubleClick?: (event: ReactMouseEvent<HTMLElement>) => void;
+  /** コンテキストメニュー操作で `onEventContextMenu` を呼ぶ（`preventDefault` はしない）。 */
+  onContextMenu?: (event: ReactMouseEvent<HTMLElement>) => void;
+  /** `pointerenter` で `onEventHover` を呼ぶ。 */
+  onPointerEnter?: (event: ReactPointerEvent<HTMLElement>) => void;
+  /** `pointerleave` で `onEventHoverEnd` を呼ぶ。 */
+  onPointerLeave?: (event: ReactPointerEvent<HTMLElement>) => void;
+}
+
+/**
+ * イベント要素に付与する追加通知系ハンドラ（`onEventDoubleClick` /
+ * `onEventContextMenu` / `onEventHover` / `onEventHoverEnd`）を、対応する
+ * コールバックが指定されている場合のみ含むオブジェクトとして返す。
+ *
+ * コールバック未指定時はキー自体を含めない。月ビュー（帯セグメント）・週/日ビュー・
+ * リソースビュー・タイムライン・リストビューの `getEventProps` 系の戻り値に
+ * スプレッドすることで、各ビューの「省略時の DOM props が従来と完全に一致する」
+ * という仕様を 1 箇所の実装で保証する。
+ *
+ * @param callbacks - インタラクションコールバック
+ * @param occurrence - 対象のオカレンス
+ * @returns 追加通知系ハンドラ（該当コールバック未指定のキーは含まない）
+ */
+export function eventNotificationProps(
+  callbacks: CalendarInteractionCallbacks | undefined,
+  occurrence: EventOccurrence,
+): EventNotificationProps {
+  const props: EventNotificationProps = {};
+  const onEventDoubleClick = callbacks?.onEventDoubleClick;
+  if (onEventDoubleClick !== undefined) {
+    props.onDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
+      onEventDoubleClick(occurrence, event.nativeEvent);
+    };
+  }
+  const onEventContextMenu = callbacks?.onEventContextMenu;
+  if (onEventContextMenu !== undefined) {
+    props.onContextMenu = (event: ReactMouseEvent<HTMLElement>) => {
+      onEventContextMenu(occurrence, event.nativeEvent);
+    };
+  }
+  const onEventHover = callbacks?.onEventHover;
+  if (onEventHover !== undefined) {
+    props.onPointerEnter = (event: ReactPointerEvent<HTMLElement>) => {
+      onEventHover(occurrence, event.nativeEvent);
+    };
+  }
+  const onEventHoverEnd = callbacks?.onEventHoverEnd;
+  if (onEventHoverEnd !== undefined) {
+    props.onPointerLeave = (event: ReactPointerEvent<HTMLElement>) => {
+      onEventHoverEnd(occurrence, event.nativeEvent);
+    };
+  }
+  return props;
 }

@@ -9,7 +9,7 @@
  * 列の幅 100px・高さ 1440px（= 1 分 1px）として、clientX で列、clientY で
  * 日内の分を指定できるようにする（`use-time-grid-drag.test.tsx` の手法を踏襲）。
  */
-import { act, fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render, renderHook } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { parseDateValue } from '../core/timezone';
@@ -18,6 +18,7 @@ import { ResourceView } from './components/resource-view';
 import { CalendarProvider } from './context';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 import { useCalendar } from './use-calendar';
+import { useResourceGridDrag } from './use-resource-grid-drag';
 
 /** 表示タイムゾーン。 */
 const TOKYO = 'Asia/Tokyo';
@@ -364,6 +365,100 @@ describe('useResourceGridDrag - 移動・リサイズ', () => {
       resourceId: 'room-a',
     });
     expect(sink.current?.state.dragPreview).toBeNull();
+  });
+});
+
+describe('useResourceGridDrag - 追加通知（onEventDoubleClick / onEventContextMenu / onEventHover / onEventHoverEnd）', () => {
+  const EVENT: CalendarEvent = {
+    id: 'ev-notify',
+    title: '会議',
+    start: `${DAY}T10:00`,
+    end: `${DAY}T11:00`,
+    resourceId: 'room-a',
+  };
+
+  it('ダブルクリックで onEventDoubleClick がオカレンスと nativeEvent を受け取る', () => {
+    const onEventDoubleClick = vi.fn();
+    const { container } = renderHarness({
+      resources: [ROOM_A],
+      events: [EVENT],
+      callbacks: { onEventDoubleClick },
+    });
+    const eventEl = getEventElement(container, 'ev-notify', `${DAY}T10:00`);
+
+    fireEvent.dblClick(eventEl);
+
+    expect(onEventDoubleClick).toHaveBeenCalledTimes(1);
+    expect(onEventDoubleClick.mock.calls[0]?.[0]?.event.title).toBe('会議');
+    expect(onEventDoubleClick.mock.calls[0]?.[1]).toBeInstanceOf(MouseEvent);
+  });
+
+  it('コンテキストメニュー操作で onEventContextMenu が呼ばれ、ライブラリは preventDefault しない', () => {
+    const onEventContextMenu = vi.fn();
+    const { container } = renderHarness({
+      resources: [ROOM_A],
+      events: [EVENT],
+      callbacks: { onEventContextMenu },
+    });
+    const eventEl = getEventElement(container, 'ev-notify', `${DAY}T10:00`);
+
+    const contextMenuEvent = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    const preventDefaultSpy = vi.spyOn(contextMenuEvent, 'preventDefault');
+    fireEvent(eventEl, contextMenuEvent);
+
+    expect(onEventContextMenu).toHaveBeenCalledTimes(1);
+    expect(preventDefaultSpy).not.toHaveBeenCalled();
+  });
+
+  it('pointerover/pointerout（外部要素からの出入り）で onEventHover / onEventHoverEnd が呼ばれる', () => {
+    const onEventHover = vi.fn();
+    const onEventHoverEnd = vi.fn();
+    const { container } = renderHarness({
+      resources: [ROOM_A],
+      events: [EVENT],
+      callbacks: { onEventHover, onEventHoverEnd },
+    });
+    const eventEl = getEventElement(container, 'ev-notify', `${DAY}T10:00`);
+    const outside = document.createElement('div');
+    document.body.appendChild(outside);
+
+    fireEvent(eventEl, new MouseEvent('pointerover', { bubbles: true, relatedTarget: outside }));
+    expect(onEventHover).toHaveBeenCalledTimes(1);
+
+    fireEvent(eventEl, new MouseEvent('pointerout', { bubbles: true, relatedTarget: outside }));
+    expect(onEventHoverEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('コールバック未指定時は getEventProps() のキー集合が従来と完全一致する（追加通知系のキーを含まない）', () => {
+    const { result } = renderHook(() => {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'resource',
+        events: [EVENT],
+        resources: [ROOM_A],
+      });
+      const drag = useResourceGridDrag({ calendar });
+      return { calendar, drag };
+    });
+
+    const { viewModel } = result.current.calendar;
+    if (viewModel.type !== 'resource') {
+      throw new Error('テストはリソースビューを前提とする');
+    }
+    const item = viewModel.columns
+      .flatMap((column) => column.items)
+      .find((positioned) => positioned.occurrence.eventId === 'ev-notify');
+    if (item === undefined) {
+      throw new Error('アイテムが見つかりません');
+    }
+
+    const props = result.current.drag.getEventProps(item);
+
+    expect(Object.keys(props).sort()).toEqual(
+      ['data-koyomi-occurrence', 'onClick', 'onKeyDown', 'onPointerDown', 'tabIndex'].sort(),
+    );
   });
 });
 

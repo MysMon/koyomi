@@ -49,6 +49,8 @@ import {
   checkBeforeEventDelete,
   checkBeforeSelectRange,
   createAutoScrollLoop,
+  type EventNotificationProps,
+  eventNotificationProps,
   laneResourceIdOf,
   resolveScopeForRecurring,
 } from './drag-common';
@@ -73,7 +75,7 @@ export interface ResourceAllDayCellProps {
 }
 
 /** イベントブロック要素に付与する props。 */
-export interface ResourceEventProps {
+export interface ResourceEventProps extends EventNotificationProps {
   /** 移動ドラッグを開始する（`editable: false` の場合は何もしない）。 */
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   /** クリック（ドラッグに至らなかった場合）で `onEventClick` を呼ぶ。 */
@@ -925,6 +927,7 @@ export function useResourceGridDrag(params: {
       },
       tabIndex: 0,
       'data-koyomi-occurrence': occurrence.key,
+      ...eventNotificationProps(paramsRef.current.callbacks, occurrence),
     };
     if (dragSessionRef.current?.occurrence?.key === occurrence.key) {
       return { ...base, 'data-koyomi-dragging': 'true' };

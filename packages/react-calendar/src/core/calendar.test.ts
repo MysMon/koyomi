@@ -769,4 +769,147 @@ describe('createCalendar', () => {
       expect(occurrences).toHaveLength(2);
     });
   });
+
+  describe('onRangeChange', () => {
+    it('作成時に 1 回発火し、現在のビュー・基準日・表示範囲を渡す（FullCalendar の datesSet 相当）', () => {
+      const onRangeChange = vi.fn();
+      const calendar = makeCalendar({ onRangeChange });
+
+      expect(onRangeChange).toHaveBeenCalledTimes(1);
+      const info = onRangeChange.mock.calls[0]?.[0];
+      const range = calendar.getVisibleRange();
+      expect(info).toEqual({
+        view: 'month',
+        currentDate: calendar.getState().currentDate,
+        rangeStart: range.start,
+        rangeEnd: range.end,
+      });
+    });
+
+    it('setView でビューが変わるたびに発火する', () => {
+      const onRangeChange = vi.fn();
+      const calendar = makeCalendar({ onRangeChange });
+      onRangeChange.mockClear();
+
+      calendar.setView('week');
+      expect(onRangeChange).toHaveBeenCalledTimes(1);
+      expect(onRangeChange.mock.calls[0]?.[0]).toMatchObject({ view: 'week' });
+    });
+
+    it('goTo で基準日が変わるたびに発火する', () => {
+      const onRangeChange = vi.fn();
+      const calendar = makeCalendar({ onRangeChange });
+      onRangeChange.mockClear();
+
+      const target = new Date('2026-08-01T00:00:00Z');
+      calendar.goTo(target);
+      expect(onRangeChange).toHaveBeenCalledTimes(1);
+      expect(onRangeChange.mock.calls[0]?.[0]?.currentDate.getTime()).toBe(target.getTime());
+    });
+
+    it('next / prev で表示範囲が変わるたびに発火する', () => {
+      const onRangeChange = vi.fn();
+      const calendar = makeCalendar({ onRangeChange });
+      onRangeChange.mockClear();
+
+      calendar.next();
+      expect(onRangeChange).toHaveBeenCalledTimes(1);
+      calendar.prev();
+      expect(onRangeChange).toHaveBeenCalledTimes(2);
+    });
+
+    it('同じ view への setView など、実質的に無変化な呼び出しでは発火しない', () => {
+      const onRangeChange = vi.fn();
+      const calendar = makeCalendar({ onRangeChange });
+      onRangeChange.mockClear();
+
+      calendar.setView('month'); // 既に month のため無効
+      const same = calendar.getState().currentDate;
+      calendar.goTo(same); // 同一時刻のため無効
+      expect(onRangeChange).not.toHaveBeenCalled();
+    });
+
+    it('イベント CRUD・setEvents・setResources・setDragPreview・refresh など範囲に無関係な更新では発火しない', () => {
+      const onRangeChange = vi.fn();
+      const calendar = makeCalendar({ onRangeChange });
+      onRangeChange.mockClear();
+
+      const created = calendar.createEvent({ title: '追加', start: '2026-07-15T13:00' });
+      calendar.updateEvent(created.id, { title: '変更後' });
+      calendar.deleteEvent(created.id);
+      calendar.setEvents([MEETING]);
+      calendar.setResources([ROOM]);
+      calendar.setDragPreview({
+        kind: 'create',
+        occurrenceKey: null,
+        range: { start: NOW, end: NOW },
+        allDay: true,
+      });
+      calendar.setDragPreview(null);
+      calendar.refresh();
+
+      expect(onRangeChange).not.toHaveBeenCalled();
+    });
+
+    it('setTimeZone で表示範囲が変わると発火する', () => {
+      const onRangeChange = vi.fn();
+      const calendar = makeCalendar({ onRangeChange });
+      onRangeChange.mockClear();
+
+      calendar.setTimeZone('America/New_York');
+      expect(onRangeChange).toHaveBeenCalledTimes(1);
+    });
+
+    it('updateOptions({ weekStartsOn }) など表示範囲を変える指定では発火し、dayMaxEvents など無関係な指定では発火しない', () => {
+      const onRangeChange = vi.fn();
+      const calendar = makeCalendar({ initialView: 'week', onRangeChange });
+      onRangeChange.mockClear();
+
+      calendar.updateOptions({ dayMaxEvents: 10 });
+      expect(onRangeChange).not.toHaveBeenCalled();
+
+      calendar.updateOptions({ weekStartsOn: 1 });
+      expect(onRangeChange).toHaveBeenCalledTimes(1);
+    });
+
+    it('updateOptions({ onRangeChange }) でコールバックを差し替えられる（差し替え自体では発火しない）', () => {
+      const first = vi.fn();
+      const second = vi.fn();
+      const calendar = makeCalendar({ onRangeChange: first });
+      first.mockClear();
+
+      calendar.updateOptions({ onRangeChange: second });
+      expect(first).not.toHaveBeenCalled();
+      expect(second).not.toHaveBeenCalled();
+
+      calendar.next();
+      expect(first).not.toHaveBeenCalled();
+      expect(second).toHaveBeenCalledTimes(1);
+    });
+
+    it('onRangeChange 未指定時は何も起きない（既定動作）', () => {
+      const calendar = makeCalendar();
+      expect(() => {
+        calendar.next();
+        calendar.setView('week');
+      }).not.toThrow();
+    });
+
+    it('onRangeChange は subscribe リスナー通知の後に呼ばれる（onEventsChange と同じ発火タイミングの規約）', () => {
+      const order: string[] = [];
+      const onRangeChange = vi.fn(() => {
+        order.push('onRangeChange');
+      });
+      const calendar = makeCalendar({ onRangeChange });
+      onRangeChange.mockClear();
+      order.length = 0; // 作成時（初期化）の 1 回分の発火はここでは対象外
+      calendar.subscribe(() => {
+        order.push('listener');
+      });
+
+      calendar.next();
+
+      expect(order).toEqual(['listener', 'onRangeChange']);
+    });
+  });
 });

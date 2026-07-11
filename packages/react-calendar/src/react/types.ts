@@ -169,6 +169,8 @@ export interface MonthOverflowButtonProps {
  * - `onBeforeEventChange` — 常に許可する（`true`）
  * - `onBeforeSelectRange` — 常に許可する（`true`）
  * - `onBeforeEventDelete` — 常に許可する（`true`）
+ * - `onEventDoubleClick` / `onEventContextMenu` / `onEventHover` / `onEventHoverEnd` —
+ *   何もしない（未指定時は対応する DOM イベントリスナー自体を要素に付けない）
  */
 export interface CalendarInteractionCallbacks {
   /**
@@ -176,6 +178,43 @@ export interface CalendarInteractionCallbacks {
    * 詳細表示や編集ダイアログの起点に使う。
    */
   onEventClick?: (occurrence: EventOccurrence, domEvent: MouseEvent) => void;
+  /**
+   * 予定がダブルクリックされたときに呼ばれる。
+   * 詳細表示や編集ダイアログを直接開く起点に使う。
+   *
+   * 未指定の場合、対応する要素に `onDoubleClick` リスナー自体を付けない
+   * （省略時の DOM props が従来と完全に一致する）。
+   */
+  onEventDoubleClick?: (occurrence: EventOccurrence, nativeEvent: MouseEvent) => void;
+  /**
+   * 予定が右クリック等でコンテキストメニュー操作されたときに呼ばれる
+   * （`contextmenu` イベント）。
+   *
+   * ライブラリはこのコールバックを呼ぶだけで、ブラウザ既定のコンテキストメニューの
+   * 抑制（`preventDefault`）は行わない。カスタムメニューを出す場合はアプリ側で
+   * `nativeEvent.preventDefault()` を呼ぶこと。
+   *
+   * 未指定の場合、対応する要素に `onContextMenu` リスナー自体を付けない
+   * （省略時の DOM props が従来と完全に一致する）。
+   */
+  onEventContextMenu?: (occurrence: EventOccurrence, nativeEvent: MouseEvent) => void;
+  /**
+   * ポインタが予定の要素に乗ったときに呼ばれる（`pointerenter` イベント）。
+   * ツールチップ表示の起点に使う。
+   *
+   * 未指定の場合、対応する要素に `onPointerEnter` リスナー自体を付けない
+   * （省略時の DOM props が従来と完全に一致する）。
+   */
+  onEventHover?: (occurrence: EventOccurrence, nativeEvent: MouseEvent) => void;
+  /**
+   * ポインタが予定の要素から離れたときに呼ばれる（`pointerleave` イベント）。
+   * {@link CalendarInteractionCallbacks.onEventHover} で表示したツールチップを
+   * 閉じる起点に使う。
+   *
+   * 未指定の場合、対応する要素に `onPointerLeave` リスナー自体を付けない
+   * （省略時の DOM props が従来と完全に一致する）。
+   */
+  onEventHoverEnd?: (occurrence: EventOccurrence, nativeEvent: MouseEvent) => void;
   /**
    * 空き領域のクリック・ドラッグで範囲が選択されたときに呼ばれる。
    * 作成ダイアログの起点に使う。指定した場合、既定の即時作成は行われない。

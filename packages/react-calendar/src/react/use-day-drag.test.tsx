@@ -6,7 +6,7 @@
  * ここでは `createCalendar` を `useSyncExternalStore` で購読する簡易ハーネスを
  * 用意し、`UseCalendarResult` を自前で構築してテストする。
  */
-import { act, render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import type { ReactElement, Ref } from 'react';
 import { useSyncExternalStore } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -978,6 +978,101 @@ describe('useDayDrag - セグメントのクリックと onEventClick', () => {
     expect(updated?.start).toBe('2026-07-08');
     // クリックとして扱われ onEventClick が呼ばれる
     expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useDayDrag - 追加通知（onEventDoubleClick / onEventContextMenu / onEventHover / onEventHoverEnd）', () => {
+  /** 通知系テスト用に、終日イベント 1 件のセグメントを描画するハーネスを作る。 */
+  function renderNotifyHarness(callbacks: CalendarInteractionCallbacks): {
+    segmentEl: HTMLElement;
+    resultRef: { current: DayDragHandlers | null };
+  } {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={callbacks}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+    const segmentEl = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segmentEl instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+    return { segmentEl, resultRef };
+  }
+
+  it('ダブルクリックで onEventDoubleClick がオカレンスと nativeEvent を受け取る', () => {
+    const onEventDoubleClick = vi.fn();
+    const { segmentEl } = renderNotifyHarness({ onEventDoubleClick });
+
+    fireEvent.dblClick(segmentEl);
+
+    expect(onEventDoubleClick).toHaveBeenCalledTimes(1);
+    expect(onEventDoubleClick.mock.calls[0]?.[0]?.event.title).toBe('出張');
+    expect(onEventDoubleClick.mock.calls[0]?.[1]).toBeInstanceOf(MouseEvent);
+  });
+
+  it('コンテキストメニュー操作で onEventContextMenu が呼ばれ、ライブラリは preventDefault しない', () => {
+    const onEventContextMenu = vi.fn();
+    const { segmentEl } = renderNotifyHarness({ onEventContextMenu });
+
+    const contextMenuEvent = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    const preventDefaultSpy = vi.spyOn(contextMenuEvent, 'preventDefault');
+    fireEvent(segmentEl, contextMenuEvent);
+
+    expect(onEventContextMenu).toHaveBeenCalledTimes(1);
+    expect(preventDefaultSpy).not.toHaveBeenCalled();
+  });
+
+  it('pointerover/pointerout（外部要素からの出入り）で onEventHover / onEventHoverEnd が呼ばれる', () => {
+    const onEventHover = vi.fn();
+    const onEventHoverEnd = vi.fn();
+    const { segmentEl } = renderNotifyHarness({ onEventHover, onEventHoverEnd });
+    const outside = document.createElement('div');
+    document.body.appendChild(outside);
+
+    fireEvent(segmentEl, new MouseEvent('pointerover', { bubbles: true, relatedTarget: outside }));
+    expect(onEventHover).toHaveBeenCalledTimes(1);
+
+    fireEvent(segmentEl, new MouseEvent('pointerout', { bubbles: true, relatedTarget: outside }));
+    expect(onEventHoverEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('コールバック未指定時は getSegmentProps() のキー集合が従来と完全一致する（追加通知系のキーを含まない）', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    render(<TestGrid api={api} segments={[makeSegment(occurrence)]} resultRef={resultRef} />);
+    if (resultRef.current === null) {
+      throw new Error('handlers が設定されていません');
+    }
+    const props = resultRef.current.getSegmentProps(makeSegment(occurrence));
+    expect(Object.keys(props).sort()).toEqual(
+      ['data-koyomi-occurrence', 'onClick', 'onKeyDown', 'onPointerDown', 'tabIndex'].sort(),
+    );
   });
 });
 

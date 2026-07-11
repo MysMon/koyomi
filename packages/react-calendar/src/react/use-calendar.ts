@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { createCalendar } from '../core/calendar';
-import type { CalendarEvent, CalendarOptions } from '../core/types';
+import type { CalendarEvent, CalendarOptions, CalendarRangeChangeInfo } from '../core/types';
 import { isDevBuild } from './is-dev-build';
 import type { UseCalendarResult } from './types';
 
@@ -32,8 +32,8 @@ export interface UseCalendarOptions extends CalendarOptions {
  * @param options - カレンダーのオプション。**初期値として一度だけ** 使われる
  *   （後から変更しても反映されない。動的に変更する場合は
  *   `api.updateOptions` / `api.setEvents` / `api.setTimeZone` を使う）。
- *   ただし `onEventsChange` コールバックと `refreshSeconds` は例外で、
- *   常に最新の値が反映される。
+ *   ただし `onEventsChange` / `onRangeChange` コールバックと `refreshSeconds` は
+ *   例外で、常に最新の値が反映される。
  * @returns {@link UseCalendarResult}
  *
  * @example
@@ -59,10 +59,14 @@ export function useCalendar(options?: UseCalendarOptions): UseCalendarResult {
   const onEventsChangeRef = useRef(options?.onEventsChange);
   onEventsChangeRef.current = options?.onEventsChange;
 
+  /** 最新の `onRangeChange` を保持する参照。エンジンには安定ラッパのみを渡す。 */
+  const onRangeChangeRef = useRef(options?.onRangeChange);
+  onRangeChangeRef.current = options?.onRangeChange;
+
   /**
    * エンジンをマウント時に一度だけ生成する。
    * `options` は初回値のみが使われ、以後の変更は無視する
-   * （`onEventsChange` だけは安定ラッパ経由で常に最新を呼ぶ）。
+   * （`onEventsChange` / `onRangeChange` だけは安定ラッパ経由で常に最新を呼ぶ）。
    */
   const apiRef = useRef<ReturnType<typeof createCalendar> | null>(null);
   if (apiRef.current === null) {
@@ -70,6 +74,9 @@ export function useCalendar(options?: UseCalendarOptions): UseCalendarResult {
       ...options,
       onEventsChange: (events: readonly CalendarEvent[]) => {
         onEventsChangeRef.current?.(events);
+      },
+      onRangeChange: (info: CalendarRangeChangeInfo) => {
+        onRangeChangeRef.current?.(info);
       },
     });
   }

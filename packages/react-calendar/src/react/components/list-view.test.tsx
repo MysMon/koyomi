@@ -237,6 +237,91 @@ describe('ListView', () => {
     expect(onEventClick).toHaveBeenCalledTimes(1);
   });
 
+  it('ダブルクリックで onEventDoubleClick がオカレンスと nativeEvent を受け取る', () => {
+    const onEventDoubleClick = vi.fn();
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const { container } = render(
+      <TestListView events={events} callbacks={{ onEventDoubleClick }} />,
+    );
+
+    const button = container.querySelector('[data-koyomi="list-event"]');
+    if (button === null) {
+      throw new Error('list-event ボタンが見つかりません');
+    }
+    fireEvent.dblClick(button);
+
+    expect(onEventDoubleClick).toHaveBeenCalledTimes(1);
+    expect(onEventDoubleClick.mock.calls[0]?.[0]?.event.title).toBe('会議');
+    expect(onEventDoubleClick.mock.calls[0]?.[1]).toBeInstanceOf(MouseEvent);
+  });
+
+  it('コンテキストメニュー操作で onEventContextMenu が呼ばれ、ライブラリは preventDefault しない', () => {
+    const onEventContextMenu = vi.fn();
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const { container } = render(
+      <TestListView events={events} callbacks={{ onEventContextMenu }} />,
+    );
+
+    const button = container.querySelector('[data-koyomi="list-event"]');
+    if (button === null) {
+      throw new Error('list-event ボタンが見つかりません');
+    }
+    const contextMenuEvent = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    const preventDefaultSpy = vi.spyOn(contextMenuEvent, 'preventDefault');
+    fireEvent(button, contextMenuEvent);
+
+    expect(onEventContextMenu).toHaveBeenCalledTimes(1);
+    expect(preventDefaultSpy).not.toHaveBeenCalled();
+  });
+
+  it('pointerover/pointerout（外部要素からの出入り）で onEventHover / onEventHoverEnd が呼ばれる', () => {
+    const onEventHover = vi.fn();
+    const onEventHoverEnd = vi.fn();
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const { container } = render(
+      <TestListView events={events} callbacks={{ onEventHover, onEventHoverEnd }} />,
+    );
+    const button = container.querySelector('[data-koyomi="list-event"]');
+    if (button === null) {
+      throw new Error('list-event ボタンが見つかりません');
+    }
+    const outside = document.createElement('div');
+    document.body.appendChild(outside);
+
+    fireEvent(button, new MouseEvent('pointerover', { bubbles: true, relatedTarget: outside }));
+    expect(onEventHover).toHaveBeenCalledTimes(1);
+
+    fireEvent(button, new MouseEvent('pointerout', { bubbles: true, relatedTarget: outside }));
+    expect(onEventHoverEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('コールバック未指定時、イベント行に onDoubleClick/onContextMenu/onPointerEnter/onPointerLeave のリスナーが付かない', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const { container } = render(<TestListView events={events} />);
+    const button = container.querySelector('[data-koyomi="list-event"]');
+    if (button === null) {
+      throw new Error('list-event ボタンが見つかりません');
+    }
+    const outside = document.createElement('div');
+    document.body.appendChild(outside);
+
+    // リスナーが付いていなければ、これらのディスパッチは単に何も起こさず例外も投げない
+    expect(() => {
+      fireEvent.dblClick(button);
+      fireEvent(button, new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      fireEvent(button, new MouseEvent('pointerover', { bubbles: true, relatedTarget: outside }));
+      fireEvent(button, new MouseEvent('pointerout', { bubbles: true, relatedTarget: outside }));
+    }).not.toThrow();
+  });
+
   it('イベント行には既定の aria-label（formatEventAriaLabel と同じ形式）が付く（仮想化の有無で読み上げが変わらない）', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },

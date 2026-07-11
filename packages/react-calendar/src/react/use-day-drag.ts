@@ -39,6 +39,8 @@ import {
   checkBeforeEventChange,
   checkBeforeEventDelete,
   checkBeforeSelectRange,
+  type EventNotificationProps,
+  eventNotificationProps,
 } from './drag-common';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 
@@ -57,7 +59,7 @@ export interface DayCellProps {
 }
 
 /** 帯セグメント要素に付与する props。 */
-export interface SegmentProps {
+export interface SegmentProps extends EventNotificationProps {
   /** 移動ドラッグを開始する（`editable: false` の場合は何もしない）。 */
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   /** クリック（ドラッグに至らなかった場合）で `onEventClick` を呼ぶ。 */
@@ -785,6 +787,7 @@ export function useDayDrag(params: {
       },
       tabIndex: 0,
       'data-koyomi-occurrence': occurrence.key,
+      ...eventNotificationProps(callbacksRef.current, occurrence),
     };
     return isDraggingThis ? { ...base, 'data-koyomi-dragging': 'true' } : base;
   }

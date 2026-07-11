@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CalendarEvent, CalendarResource } from '../core/types';
+import type { CalendarEvent, CalendarRangeChangeInfo, CalendarResource } from '../core/types';
 import { useCalendar } from './use-calendar';
 
 /** テスト用の固定「現在時刻」。東京の 2026-07-15 10:00。 */
@@ -101,6 +101,34 @@ describe('useCalendar', () => {
 
     act(() => {
       result.current.api.createEvent({ title: '新規予定', start: '2026-07-15T10:00' });
+    });
+
+    expect(firstHandler).not.toHaveBeenCalled();
+    expect(secondHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it('onRangeChange は常に最新のクロージャで呼ばれる', () => {
+    const firstHandler = vi.fn();
+    const secondHandler = vi.fn();
+
+    const { result, rerender } = renderHook(
+      (props: { onRangeChange: (info: CalendarRangeChangeInfo) => void }) =>
+        useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          onRangeChange: props.onRangeChange,
+        }),
+      { initialProps: { onRangeChange: firstHandler } },
+    );
+
+    // マウント時に 1 回発火するため、差し替え前の呼び出し回数をクリアしておく
+    firstHandler.mockClear();
+
+    rerender({ onRangeChange: secondHandler });
+
+    act(() => {
+      result.current.api.next();
     });
 
     expect(firstHandler).not.toHaveBeenCalled();

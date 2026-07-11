@@ -170,6 +170,7 @@ export function ListView(props: ListViewProps): ReactElement | null {
             allDayLabel={allDayLabel}
             onEventClick={handleEventClick}
             onEventKeyDown={handleEventKeyDown}
+            callbacks={callbacks}
             ariaLabel={dayAriaLabel ? dayAriaLabel(day, defaultDayAriaLabel) : defaultDayAriaLabel}
             {...(renderEvent !== undefined ? { renderEvent } : {})}
             {...(eventAriaLabel !== undefined ? { eventAriaLabel } : {})}
