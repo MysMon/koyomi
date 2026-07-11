@@ -200,12 +200,17 @@ div[data-koyomi="list"][data-koyomi-virtualized="true"][role="list"][tabindex="0
   div[data-koyomi="list-spacer"][data-edge="before"][role="presentation"][aria-hidden]   … 上スペーサ（inline: height）
   section[data-koyomi="list-day"][role="listitem"][aria-label] × 可視分            … 窓内の日セクション
   div[data-koyomi="list-spacer"][data-edge="after"][role="presentation"][aria-hidden]    … 下スペーサ（inline: height）
-  section[data-koyomi="list-day"][data-koyomi-pinned="true"][role="listitem"] × 0〜1     … 窓外のフォーカス保持（inline: top）
+  section[data-koyomi="list-day"][data-koyomi-pinned="true"][role="listitem"] × 0〜1     … 窓外のフォーカス保持
+                                                              （inline: position/insetInlineStart/width/top）
 ```
 
 - `data-koyomi-virtualized` に対して `overflow-y:auto` / `position:relative` / `max-height`
   （`--koyomi-virtual-list-max-height`、既定 none）をデフォルトテーマが当てる。**高さは利用者 CSS が所有**する。
-- inline style として出力するのはスペーサの `height`・pinned の `top` の数値のみ（既存の %/calc と同カテゴリ）。
+- inline style として出力するのはスペーサの `height` と、pinned セクションの
+  `position: absolute` ＋ `insetInlineStart: 0` ＋ `width: 100%` ＋ `top`。
+  テーマ CSS を読み込まない利用者でも pinned セクションが通常フローへ割り込んで日セクションの
+  重複表示・高さ跳ねを起こさないための位置決め（`VirtualResourceView` の columnPositionStyle /
+  `VirtualTimelineView` の pinned style と同方針）。
 - 日セクションの `aria-label` は「7月16日(木) 予定3件」形式で件数を伝える。
 - 仮想化のプリミティブは `useVirtualizer`（ビュー非依存）。`VirtualListView` はその薄いラッパ。
 

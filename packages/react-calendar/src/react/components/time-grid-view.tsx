@@ -24,7 +24,7 @@
  * aria-hidden で除外。判断根拠・既知の制限の詳細は `docs/accessibility.md` 参照）。
  */
 
-import type { CSSProperties, ReactElement, ReactNode, Ref } from 'react';
+import type { ReactElement, ReactNode, Ref } from 'react';
 import { memo, useCallback, useRef, useState } from 'react';
 import { addDaysInZone, startOfDayInZone } from '../../core/timezone';
 import type {
@@ -44,6 +44,7 @@ import { useDayDrag } from '../use-day-drag';
 import type { TimeGridDragHandlers, TimeGridPreviewSegment } from '../use-time-grid-drag';
 import { useTimeGridDrag } from '../use-time-grid-drag';
 import { formatWeekday } from './format';
+import { withEventColorStyle } from './month-view-parts';
 
 /** 1 日の分（24:00）。 */
 const MINUTES_PER_DAY = 1440;
@@ -190,21 +191,6 @@ function formatOccurrenceAriaLabel(
   return startDateLabel === endDateLabel
     ? `${title}、${startDateLabel} ${startTime}〜${endTime}`
     : `${title}、${startDateLabel} ${startTime}〜${endDateLabel} ${endTime}`;
-}
-
-/**
- * イベント色を CSS 変数 `--koyomi-event-color` として style に加える。
- *
- * `CSSProperties` の型定義にはカスタムプロパティが含まれないため、ここでのみ
- * `as` によるキャストを行う（CLAUDE.md に記載された唯一の許容箇所）。
- */
-function withEventColorStyle(style: CSSProperties, color: string | undefined): CSSProperties {
-  if (color === undefined) {
-    return style;
-  }
-  // 'as' 使用理由: CSS カスタムプロパティ（--koyomi-event-color）は CSSProperties の
-  // 型定義に含まれないため、ここでのみ許容されたキャストを行う（CLAUDE.md 参照）。
-  return { ...style, '--koyomi-event-color': color } as CSSProperties;
 }
 
 /**

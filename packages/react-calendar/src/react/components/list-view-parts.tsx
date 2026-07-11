@@ -86,7 +86,11 @@ export interface ListDaySectionProps {
   ariaLabel?: string;
   /** 仮想化: 窓外フォーカス保持アイテム（`data-koyomi-pinned="true"`）。 */
   pinned?: boolean;
-  /** 仮想化: 絶対配置の `top` など、位置決めの数値のみを持つ inline style。 */
+  /**
+   * 仮想化: pinned セクションの絶対配置 inline style（`position`/`insetInlineStart`/
+   * `width`/`top`）。窓外でフォーカスを保持する pinned セクションが通常フローへ割り込まない
+   * よう、位置決めに必須のスタイルを丸ごと inline で出力する（`VirtualListView` 参照）。
+   */
   style?: CSSProperties;
   /**
    * イベント行をタブ順に含めるか。既定 `true`。
