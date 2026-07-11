@@ -177,6 +177,50 @@ describe('VirtualResourceView', () => {
     );
   });
 
+  it('renderAllDayItem で終日アイテムの内容をカスタマイズできる（renderEvent は影響しない）', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'ad',
+        title: '休暇',
+        start: '2026-07-15',
+        end: '2026-07-16',
+        allDay: true,
+        resourceId: 'r0',
+      },
+    ];
+    const { container } = render(
+      <Harness
+        resources={makeResources(2)}
+        events={events}
+        viewProps={{
+          renderEvent: () => <span data-testid="timed">時間指定用</span>,
+          renderAllDayItem: (occurrence) => (
+            <span data-testid="custom-allday">{occurrence.event.title}★</span>
+          ),
+        }}
+      />,
+    );
+    const alldayEvent = container.querySelector('[data-koyomi="allday-event"]');
+    expect(alldayEvent?.querySelector('[data-testid="custom-allday"]')?.textContent).toBe('休暇★');
+    expect(alldayEvent?.querySelector('[data-testid="timed"]')).toBeNull();
+  });
+
+  it('renderAllDayItem 省略時は既定どおりタイトルのみが表示される', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'ad',
+        title: '休暇',
+        start: '2026-07-15',
+        end: '2026-07-16',
+        allDay: true,
+        resourceId: 'r0',
+      },
+    ];
+    const { container } = render(<Harness resources={makeResources(2)} events={events} />);
+    const alldayEvent = container.querySelector('[data-koyomi="allday-event"]');
+    expect(alldayEvent?.textContent).toBe('休暇');
+  });
+
   it('大量リソース時、境界幅を与えると可視範囲のみ描画される', async () => {
     const { container } = render(<Harness resources={makeResources(200)} />);
     await setViewport(container, 200, 0);

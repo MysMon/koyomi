@@ -26,6 +26,8 @@ import { ResourceView } from './resource-view';
 import { TimeGridView } from './time-grid-view';
 import { TimelineView } from './timeline-view';
 import { VirtualListView } from './virtual-list-view';
+import { VirtualResourceView } from './virtual-resource-view';
+import { VirtualTimelineView } from './virtual-timeline-view';
 import { YearView } from './year-view';
 
 /**
@@ -46,6 +48,11 @@ export interface CalendarViewProps {
   monthEventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
   /** 週/日ビューのイベントブロックのカスタム描画。`TimeGridView` の `renderEvent` に転送する。 */
   renderTimeGridEvent?: (item: PositionedOccurrence) => ReactNode;
+  /**
+   * 週/日ビューの終日行の帯のカスタム描画。`TimeGridView` の `renderAllDayEvent` に転送する。
+   * 省略時はタイトルのみ。
+   */
+  renderTimeGridAllDayEvent?: (segment: EventSegment) => ReactNode;
   /**
    * 週/日ビューのイベントブロック（終日行含む）の aria-label。既定文字列を受け取って
    * 加工・置換できる。`TimeGridView` の `eventAriaLabel` に転送する。
@@ -141,25 +148,44 @@ export interface CalendarViewProps {
     day: MonthDay,
     hiddenOccurrences: readonly EventOccurrence[],
   ) => MonthOverflowButtonProps;
-  /** リソースビューのイベントブロックのカスタム描画。`ResourceView` の `renderEvent` に転送する。 */
+  /**
+   * リソースビューのイベントブロックのカスタム描画。`ResourceView` / `VirtualResourceView` の
+   * `renderEvent` に転送する（時間指定のみ。終日は `renderResourceAllDayItem` を使う）。
+   */
   renderResourceEvent?: (item: PositionedOccurrence) => ReactNode;
-  /** リソースビューの列見出しのカスタム描画。`ResourceView` の `renderColumnHeader` に転送する。 */
+  /**
+   * リソースビューの終日アイテムのカスタム描画。`ResourceView` / `VirtualResourceView` の
+   * `renderAllDayItem` に転送する。省略時はタイトルのみ。
+   */
+  renderResourceAllDayItem?: (occurrence: EventOccurrence) => ReactNode;
+  /**
+   * リソースビューの列見出しのカスタム描画。`ResourceView` / `VirtualResourceView` の
+   * `renderColumnHeader` に転送する。
+   */
   renderResourceColumnHeader?: (column: ResourceColumn, defaultContent: ReactNode) => ReactNode;
   /**
-   * リソースビューの未割り当て列ラベル。`ResourceView` の `unassignedLabel` に転送する。
-   * 省略時は「未割り当て」。
+   * リソースビューの未割り当て列ラベル。`ResourceView` / `VirtualResourceView` の
+   * `unassignedLabel` に転送する。省略時は「未割り当て」。
    */
   resourceUnassignedLabel?: ReactNode;
   /**
-   * リソースビューの空状態メッセージ。`ResourceView` の `emptyLabel` に転送する。
-   * 省略時は「リソースがありません」。
+   * リソースビューの空状態メッセージ。`ResourceView` / `VirtualResourceView` の `emptyLabel` に
+   * 転送する。省略時は「リソースがありません」。
    */
   resourceEmptyLabel?: ReactNode;
   /**
    * リソースビューのイベントブロックの aria-label。既定文字列を受け取って加工・置換できる。
-   * `ResourceView` の `eventAriaLabel` に転送する。
+   * `ResourceView` / `VirtualResourceView` の `eventAriaLabel` に転送する。
    */
   resourceEventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
+  /**
+   * リソースビューを仮想化する（`ResourceView` の代わりに `VirtualResourceView` を使う）。
+   * 数百列規模のリソースでの DOM 肥大を抑える。既定 `false`（全件描画の `ResourceView`）。
+   * 有効時はスクロールコンテナに境界幅を CSS で与えること
+   * （`[data-koyomi="resource"][data-koyomi-virtualized]`）。詳細は `VirtualResourceView` を参照。
+   * リソース系のカスタム描画・ラベル（`renderResourceEvent` 等）はそのまま転送される。
+   */
+  virtualizeResource?: boolean;
   /** タイムラインの帯のカスタム描画。`TimelineView` の `renderEvent` に転送する。 */
   renderTimelineEvent?: (item: TimelineItem) => ReactNode;
   /** タイムラインの行見出しのカスタム描画。`TimelineView` の `renderRowHeader` に転送する。 */
@@ -181,9 +207,17 @@ export interface CalendarViewProps {
   timelineCornerLabel?: string;
   /**
    * タイムラインの帯の aria-label。既定文字列を受け取って加工・置換できる。
-   * `TimelineView` の `eventAriaLabel` に転送する。
+   * `TimelineView` / `VirtualTimelineView` の `eventAriaLabel` に転送する。
    */
   timelineEventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
+  /**
+   * タイムラインを仮想化する（`TimelineView` の代わりに `VirtualTimelineView` を使う）。
+   * 数百行規模のリソースでの DOM 肥大を抑える。既定 `false`（全件描画の `TimelineView`）。
+   * 有効時はスクロールコンテナに境界高を CSS で与えること（`[data-koyomi="timeline-body"]`）。
+   * 詳細は `VirtualTimelineView` を参照。タイムライン系のカスタム描画・ラベル
+   * （`renderTimelineEvent` 等）はそのまま転送される。
+   */
+  virtualizeTimeline?: boolean;
 }
 
 /**
@@ -228,6 +262,9 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
         return (
           <TimeGridView
             {...(props.renderTimeGridEvent ? { renderEvent: props.renderTimeGridEvent } : {})}
+            {...(props.renderTimeGridAllDayEvent
+              ? { renderAllDayEvent: props.renderTimeGridAllDayEvent }
+              : {})}
             {...(props.renderTimeGridDayHeader
               ? { renderDayHeader: props.renderTimeGridDayHeader }
               : {})}
@@ -288,45 +325,52 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
               : {})}
           />
         );
-      case 'resource':
-        return (
-          <ResourceView
-            {...(props.renderResourceEvent ? { renderEvent: props.renderResourceEvent } : {})}
-            {...(props.renderResourceColumnHeader
-              ? { renderColumnHeader: props.renderResourceColumnHeader }
-              : {})}
-            {...(props.resourceUnassignedLabel !== undefined
-              ? { unassignedLabel: props.resourceUnassignedLabel }
-              : {})}
-            {...(props.resourceEmptyLabel !== undefined
-              ? { emptyLabel: props.resourceEmptyLabel }
-              : {})}
-            {...(props.resourceEventAriaLabel
-              ? { eventAriaLabel: props.resourceEventAriaLabel }
-              : {})}
-          />
-        );
-      case 'timeline':
-        return (
-          <TimelineView
-            {...(props.renderTimelineEvent ? { renderEvent: props.renderTimelineEvent } : {})}
-            {...(props.renderTimelineRowHeader
-              ? { renderRowHeader: props.renderTimelineRowHeader }
-              : {})}
-            {...(props.timelineUnassignedLabel !== undefined
-              ? { unassignedLabel: props.timelineUnassignedLabel }
-              : {})}
-            {...(props.timelineCornerLabel !== undefined
-              ? { cornerLabel: props.timelineCornerLabel }
-              : {})}
-            {...(props.timelineEmptyLabel !== undefined
-              ? { emptyLabel: props.timelineEmptyLabel }
-              : {})}
-            {...(props.timelineEventAriaLabel
-              ? { eventAriaLabel: props.timelineEventAriaLabel }
-              : {})}
-          />
-        );
+      case 'resource': {
+        // 共通のリソース系 props（ResourceView / VirtualResourceView で同じ）。
+        const resourceProps = {
+          ...(props.renderResourceEvent ? { renderEvent: props.renderResourceEvent } : {}),
+          ...(props.renderResourceAllDayItem
+            ? { renderAllDayItem: props.renderResourceAllDayItem }
+            : {}),
+          ...(props.renderResourceColumnHeader
+            ? { renderColumnHeader: props.renderResourceColumnHeader }
+            : {}),
+          ...(props.resourceUnassignedLabel !== undefined
+            ? { unassignedLabel: props.resourceUnassignedLabel }
+            : {}),
+          ...(props.resourceEmptyLabel !== undefined
+            ? { emptyLabel: props.resourceEmptyLabel }
+            : {}),
+          ...(props.resourceEventAriaLabel ? { eventAriaLabel: props.resourceEventAriaLabel } : {}),
+        };
+        if (props.virtualizeResource === true) {
+          return <VirtualResourceView {...resourceProps} />;
+        }
+        return <ResourceView {...resourceProps} />;
+      }
+      case 'timeline': {
+        // 共通のタイムライン系 props（TimelineView / VirtualTimelineView で同じ）。
+        const timelineProps = {
+          ...(props.renderTimelineEvent ? { renderEvent: props.renderTimelineEvent } : {}),
+          ...(props.renderTimelineRowHeader
+            ? { renderRowHeader: props.renderTimelineRowHeader }
+            : {}),
+          ...(props.timelineUnassignedLabel !== undefined
+            ? { unassignedLabel: props.timelineUnassignedLabel }
+            : {}),
+          ...(props.timelineCornerLabel !== undefined
+            ? { cornerLabel: props.timelineCornerLabel }
+            : {}),
+          ...(props.timelineEmptyLabel !== undefined
+            ? { emptyLabel: props.timelineEmptyLabel }
+            : {}),
+          ...(props.timelineEventAriaLabel ? { eventAriaLabel: props.timelineEventAriaLabel } : {}),
+        };
+        if (props.virtualizeTimeline === true) {
+          return <VirtualTimelineView {...timelineProps} />;
+        }
+        return <TimelineView {...timelineProps} />;
+      }
     }
   }
 

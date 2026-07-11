@@ -54,6 +54,7 @@ import {
   ariaLabelWithResource,
   DEFAULT_EMPTY_LABEL,
   DEFAULT_UNASSIGNED_LABEL,
+  defaultAllDayContent,
   defaultTimedContent,
   MINUTES_PER_DAY,
   sameBusinessHourSlots,
@@ -74,10 +75,20 @@ const DEFAULT_COLUMN_WIDTH = 160;
  */
 const VIRTUALIZE_WARN_THRESHOLD = 40;
 
-/** `VirtualResourceView` の props。`ResourceView` のカスタマイズ props に仮想化固有の設定を加える。 */
+/**
+ * `VirtualResourceView` の props。`ResourceView` のカスタマイズ props に仮想化固有の設定を加える。
+ *
+ * 時間指定イベントの表示内容は `renderEvent`、終日アイテムの表示内容は
+ * `renderAllDayItem` でそれぞれ独立にカスタマイズする（`ResourceView` と同じ）。
+ */
 export interface VirtualResourceViewProps {
-  /** 時間指定イベントブロックの表示内容をカスタマイズする関数。 */
+  /**
+   * 時間指定イベントブロックの表示内容をカスタマイズする関数。終日アイテムには
+   * 適用されない（終日アイテムの内容は {@link VirtualResourceViewProps.renderAllDayItem} を使う）。
+   */
   renderEvent?: (item: PositionedOccurrence) => ReactNode;
+  /** 終日アイテムの表示内容をカスタマイズする関数。省略時はタイトルのみを表示する。 */
+  renderAllDayItem?: (occurrence: EventOccurrence) => ReactNode;
   /** 列見出しの内容をカスタマイズする関数（第 2 引数に既定内容）。 */
   renderColumnHeader?: (column: ResourceColumn, defaultContent: ReactNode) => ReactNode;
   /** 未割り当て列の見出しラベル。省略時は「未割り当て」。 */
@@ -243,6 +254,8 @@ interface AllDayCellProps {
   left?: number;
   /** 仮想化: 終日アイテムをタブ順に含めるか。既定 `true`（`false` で `tabIndex=-1`）。 */
   itemTabbable?: boolean;
+  /** 終日アイテムの表示内容のカスタマイズ関数（省略時はタイトルのみ）。 */
+  renderAllDayItem: ((occurrence: EventOccurrence) => ReactNode) | undefined;
   /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
   eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
 }
@@ -261,6 +274,7 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
     pinned,
     left,
     itemTabbable,
+    renderAllDayItem,
     eventAriaLabel,
   } = props;
   const style: CSSProperties = {
@@ -299,6 +313,7 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
           isDragging={isDragging}
           timeZone={timeZone}
           locale={locale}
+          renderAllDayItem={renderAllDayItem}
           eventAriaLabel={eventAriaLabel}
           {...(itemTabbable === false ? { tabbable: false } : {})}
         />
@@ -322,6 +337,7 @@ const AllDayCell = memo(AllDayCellImpl, (prev, next) => {
     prev.pinned === next.pinned &&
     prev.left === next.left &&
     prev.itemTabbable === next.itemTabbable &&
+    prev.renderAllDayItem === next.renderAllDayItem &&
     prev.eventAriaLabel === next.eventAriaLabel
   );
 });
@@ -339,13 +355,25 @@ interface AllDayItemButtonProps {
   locale: string;
   /** 仮想化: タブ順に含めるか。既定 `true`（`false` で `tabIndex=-1`。pinned 列で使う）。 */
   tabbable?: boolean;
+  /** 終日アイテムの表示内容のカスタマイズ関数（省略時はタイトルのみ）。 */
+  renderAllDayItem: ((occurrence: EventOccurrence) => ReactNode) | undefined;
   /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
   eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
 }
 
 /** リソースビューの終日アイテム 1 件分のボタン（列間移動のみ）。 */
 function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
-  const { occurrence, column, lane, drag, timeZone, locale, tabbable, eventAriaLabel } = props;
+  const {
+    occurrence,
+    column,
+    lane,
+    drag,
+    timeZone,
+    locale,
+    tabbable,
+    renderAllDayItem,
+    eventAriaLabel,
+  } = props;
   const style = withEventColorStyle(
     {
       top: `calc(${lane} * var(--koyomi-lane-height, 24px))`,
@@ -367,7 +395,7 @@ function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
       )}
       {...(tabbable === false ? { tabIndex: -1 } : {})}
     >
-      {occurrence.event.title}
+      {renderAllDayItem ? renderAllDayItem(occurrence) : defaultAllDayContent(occurrence)}
     </button>
   );
 }
@@ -382,6 +410,7 @@ const AllDayItemButton = memo(AllDayItemButtonImpl, (prev, next) => {
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
     prev.tabbable === next.tabbable &&
+    prev.renderAllDayItem === next.renderAllDayItem &&
     prev.eventAriaLabel === next.eventAriaLabel
   );
 });
@@ -600,6 +629,7 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
   function VirtualResourceView(props, ref): ReactElement | null {
     const {
       renderEvent,
+      renderAllDayItem,
       renderColumnHeader,
       unassignedLabel = DEFAULT_UNASSIGNED_LABEL,
       emptyLabel = DEFAULT_EMPTY_LABEL,
@@ -821,6 +851,7 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
                     isPreviewTarget={drag.isAllDayPreviewTarget(column)}
                     timeZone={timeZone}
                     locale={locale}
+                    renderAllDayItem={renderAllDayItem}
                     eventAriaLabel={eventAriaLabel}
                   />
                 ) : null;
@@ -847,6 +878,7 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
                     pinned
                     left={item.start}
                     itemTabbable={false}
+                    renderAllDayItem={renderAllDayItem}
                     eventAriaLabel={eventAriaLabel}
                   />
                 ) : null;

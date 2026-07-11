@@ -325,7 +325,8 @@ calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
 | `MonthView` | `overflowLabel`（`monthOverflowLabel`） | 「+N 件」の文言（`(count) => ReactNode`） |
 | `MonthView` | `overflowButtonProps`（`monthOverflowButtonProps`） | 「+N 件」ボタンに追加する props（`aria-haspopup` / `aria-expanded` 等）。自前のポップオーバーと連携する用途（詳細は[インタラクション](./interactions.md)） |
 | `MonthView` | `eventAriaLabel`（`monthEventAriaLabel`） | イベントボタンの aria-label（`(occurrence, defaultLabel) => string`）。省略時は既定文字列 |
-| `TimeGridView` | `renderEvent`（`renderTimeGridEvent`） | イベントブロックの表示内容 |
+| `TimeGridView` | `renderEvent`（`renderTimeGridEvent`） | 時間指定イベントブロックの表示内容（終日行は対象外。終日行は `renderAllDayEvent` を使う） |
+| `TimeGridView` | `renderAllDayEvent`（`renderTimeGridAllDayEvent`） | 終日行の帯の表示内容（既定はタイトルのみ） |
 | `TimeGridView` | `renderDayHeader`（`renderTimeGridDayHeader`） | 日ヘッダーの内容 |
 | `TimeGridView` | `eventAriaLabel`（`timeGridEventAriaLabel`） | イベントブロック（終日行含む）の aria-label（`(occurrence, defaultLabel) => string`） |
 | `ListView` | `renderEvent`（`renderListEvent`） | 予定行の表示内容 |
@@ -343,7 +344,8 @@ calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
 | `MultiMonthView` | `overflowLabel`（`multiMonthOverflowLabel`） | 「+N 件」の文言（`(count) => ReactNode`） |
 | `MultiMonthView` | `overflowButtonProps`（`multiMonthOverflowButtonProps`） | 「+N 件」ボタンに追加する props（`MonthView` と同じ） |
 | `MultiMonthView` | `eventAriaLabel`（`multiMonthEventAriaLabel`） | イベントボタンの aria-label（`(occurrence, defaultLabel) => string`）。`MonthView` と同じ |
-| `ResourceView` | `renderEvent`（`renderResourceEvent`） | 時間指定イベントブロックの表示内容 |
+| `ResourceView` | `renderEvent`（`renderResourceEvent`） | 時間指定イベントブロックの表示内容（時間指定は `renderEvent`・終日は `renderAllDayItem`） |
+| `ResourceView` | `renderAllDayItem`（`renderResourceAllDayItem`） | 終日アイテムの表示内容（既定はタイトルのみ）。`VirtualResourceView` にも同じ prop がある |
 | `ResourceView` | `renderColumnHeader`（`renderResourceColumnHeader`） | 列見出しの内容（リソース名、または未割り当て列は `unassignedLabel`）をラップ・置換（第 2 引数で既定内容を受け取る） |
 | `ResourceView` | `unassignedLabel`（`resourceUnassignedLabel`） | 未割り当て列の見出しラベル（既定「未割り当て」） |
 | `ResourceView` | `emptyLabel`（`resourceEmptyLabel`） | 空状態（列が 1 つもない）のメッセージ（既定「リソースがありません」） |
@@ -433,6 +435,7 @@ function CraneSchedule() {
 - どちらも **境界寸法は CSS で指定します**。`VirtualTimelineView` は `[data-koyomi="timeline-body"]` の `max-height`（既定テーマは 640px）、`VirtualResourceView` はルート `[data-koyomi="resource"]` の境界幅（横スクロールを担う要素）です。境界寸法が無い環境では仮想化は無害に無効化され、全件描画へフォールバックします（開発ビルドで一度警告します）。
 - フォーカス中のリソース（行・列）は、スクロールで可視窓の外に出ても DOM を保持し続けます（`VirtualListView` の pinned 日セクションと同じ方式）。`VirtualResourceView` は列見出し・終日セル・本文列の 3 箇所がまとめて保持されます。
 - `ref` 経由で `scrollToResource(resourceId, options?)`（`resourceId` は未割り当てへは `null`、`options.align` は `'auto' | 'start' | 'center'`）を呼べます。
+- `CalendarView` を使っている場合は、`<CalendarView virtualizeResource />` / `<CalendarView virtualizeTimeline />` でリソース・タイムラインビューだけを仮想化に切り替えられます。`renderResourceEvent` / `renderResourceAllDayItem` / `renderTimelineEvent` などの既存のカスタマイズ props はそのまま転送されます（`virtualizeList` と同じ方式）。
 
 ```tsx
 const handleRef = useRef<VirtualTimelineViewHandle>(null);
