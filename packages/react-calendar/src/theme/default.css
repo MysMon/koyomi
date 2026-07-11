@@ -257,7 +257,10 @@
   /* 列数は子要素数に追従する（hiddenWeekdays で 7 未満になりうる） */
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
-  /* 日番号行 + dayMaxEvents 既定値（4 レーン）+ 「+N 件」の 1 行分を目安にした最小高さ */
+  /* 日番号行 + dayMaxEvents 既定値（4 レーン）+ 「+N 件」の 1 行分（16px、
+     month-overflow の height と揃える）を目安にした最小高さ。「+N 件」は
+     position: absolute; bottom: 0 でこの末尾領域に固定されるため、
+     min-height が確保していないと帯（レーン）と重なってしまう */
   min-height: calc(var(--koyomi-month-header-height) + var(--koyomi-lane-height) * 4 + 16px);
 }
 
@@ -302,11 +305,22 @@
   color: var(--koyomi-event-fg);
 }
 
+/*
+ * 絶対配置（position: absolute は inline style 側、bottom: 0 で最下部固定）の
+ * 帯として扱う。高さ 16px は month-days の min-height 計算が確保する末尾の
+ * 予約領域（「+ 16px」の部分）と揃えている。イベント帯（month-event）と重ならず、
+ * 常にクリックできる専用の行として振る舞う
+ */
 [data-koyomi="month-overflow"] {
-  margin-top: 2px;
-  padding: 1px 4px;
+  display: flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 4px;
+  overflow: hidden;
   color: var(--koyomi-muted);
   font-size: 0.78em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 [data-koyomi="month-overflow"]:hover {

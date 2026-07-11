@@ -594,6 +594,44 @@ describe('MonthView - オーバーフロー基盤', () => {
     expect(overflowButton).not.toHaveAttribute('aria-haspopup');
     expect(overflowButton).not.toHaveAttribute('aria-expanded');
   });
+
+  it('「+N 件」ボタンは month-event と同じ方式（絶対配置・month-week 基準）の inline style を持つ', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+    ];
+    const { container } = render(<Harness events={events} dayMaxEvents={1} />);
+
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    expect(overflowButton).toBeInstanceOf(HTMLElement);
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('「+N件」ボタンが見つかりません');
+    }
+    // 2026-07-08（水）は週開始=日曜で 4 列目（dayCol=3）、可視列数は 7
+    // （month-event と同じ % 計算・positioned ancestor が month-week の配置方式）
+    expect(overflowButton.style.position).toBe('absolute');
+    expect(overflowButton.style.insetInlineStart).toBe(`${(3 / 7) * 100}%`);
+    expect(overflowButton.style.width).toBe(`${(1 / 7) * 100}%`);
+    expect(overflowButton.style.bottom).toBe('0px');
+  });
+
+  it('hiddenWeekdays で可視列数が変わっても、「+N 件」ボタンの % は可視列数を基準に計算される', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+    ];
+    const { container } = render(
+      <Harness events={events} dayMaxEvents={1} hiddenWeekdays={[0, 6]} />,
+    );
+
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('「+N件」ボタンが見つかりません');
+    }
+    // 7/8（水）は日・土を除いた可視列で 3 番目（月=0, 火=1, 水=2）、可視列数は 5
+    expect(overflowButton.style.insetInlineStart).toBe(`${(2 / 5) * 100}%`);
+    expect(overflowButton.style.width).toBe(`${(1 / 5) * 100}%`);
+  });
 });
 
 describe('MonthView - ARIA', () => {

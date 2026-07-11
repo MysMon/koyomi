@@ -122,16 +122,49 @@
 }
 
 /* ---------------------------------------------------------------------------
- * renderDayCell: 月セルの絵文字バッジ
- * 「日セルを positioned にしない」原則を守るため、position: relative は
- * ここ（自前のラッパー `.headless-day-cell`）に当てる。month-day 自身には
- * 一切 position を当てない。
+ * renderDayCell: 月セルの絵文字バッジ・「開いている」アウトライン
+ *
+ * デフォルトテーマの「+N 件」ボタン（[data-koyomi="month-overflow"]）は
+ * イベント帯（month-event）と同じ方式で絶対配置され、positioned ancestor は
+ * セル（month-day）ではなく month-week になる。そのため、renderDayCell の
+ * defaultContent（month-day-number と month-overflow を含む）を
+ * position: relative な自前ラッパーで丸ごと囲んではいけない（囲むと「+N 件」の
+ * 絶対配置の基準がそのラッパーに変わり、% がセル 1 個分の幅を基準に解決されて
+ * しまい配置が壊れる。docs/theming.md の「自前スタイルをゼロから当てる場合の
+ * 注意」参照）。headless.tsx の renderMonthDayCell では、この
+ * `.headless-day-cell` を defaultContent とは別の兄弟要素として描画している。
+ *
+ * バッジ・「開いている」アウトラインをセル全体に重ねて表示するための overlap は
+ * position ではなく CSS Grid のセル重複配置（同じ grid-row/grid-column に
+ * 複数アイテムを置く）で実現する。position を使わないため、month-day を
+ * positioned にせずに済み、帯・「+N 件」の絶対配置の基準に影響しない。
  * ------------------------------------------------------------------------ */
+
+.headless-pattern [data-koyomi="month-day"] {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+
+/* ライブラリ側の日番号ボタンを .headless-day-cell と同じ grid セルに重ねる
+   （これをしないと、grid の自動配置が .headless-day-cell と衝突しないよう
+   日番号ボタンを別セルへ押し出してしまう）。grid item の既定 stretch では
+   セル全体まで引き伸ばされてしまうため、本来の位置（左上）に合わせて
+   justify-self/align-self を start にする */
+.headless-pattern [data-koyomi="month-day-number"] {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+  align-self: start;
+}
 
 .headless-day-cell {
   position: relative;
-  display: block;
-  height: 100%;
+  grid-column: 1;
+  grid-row: 1;
+  /* セル全体に重なる装飾レイヤーなので、下の日番号・「+N 件」・イベント帯への
+     クリックを妨げないようにする */
+  pointer-events: none;
 }
 
 .headless-day-cell[data-headless-open="true"] {
@@ -147,25 +180,6 @@
   font-size: 13px;
   line-height: 1;
   pointer-events: none;
-}
-
-/*
- * デフォルトテーマの [data-koyomi="month-overflow"] は通常フロー配置
- * （day-number の直後、margin-top のみ）のため、絶対配置されるイベント帯の
- * レーン 0 とちょうど重なり、DOM 順で後に来る帯の下に隠れてクリックできない
- * （`month-days` の min-height 計算が確保している末尾 16px の余白は使われて
- * いない）。このパターンでは `.headless-day-cell`（position: relative）を
- * 基準に「+N 件」をセル最下部へ絶対配置し直し、常にクリックできるようにする。
- */
-.headless-day-cell [data-koyomi="month-overflow"] {
-  position: absolute;
-  right: 2px;
-  bottom: 0;
-  left: 2px;
-  margin-top: 0;
-  border-radius: 999px;
-  background-color: rgb(20 14 36 / 85%);
-  text-align: right;
 }
 
 /* ---------------------------------------------------------------------------

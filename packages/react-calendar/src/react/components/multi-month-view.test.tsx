@@ -257,6 +257,24 @@ describe('MultiMonthView - カスタム描画 props', () => {
     expect(overflowButton?.textContent).toBe('他1件');
   });
 
+  it('複数月ビューでも「+N 件」ボタンは MonthView と同じ絶対配置の inline style を持つ（実装共有の確認）', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+    ];
+    const { container } = render(<Harness events={events} dayMaxEvents={1} />);
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    expect(overflowButton).toBeInstanceOf(HTMLElement);
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('「+N件」ボタンが見つかりません');
+    }
+    // 2026-07-08（水）は週開始=日曜で 4 列目（dayCol=3）、可視列数は 7
+    expect(overflowButton.style.position).toBe('absolute');
+    expect(overflowButton.style.insetInlineStart).toBe(`${(3 / 7) * 100}%`);
+    expect(overflowButton.style.width).toBe(`${(1 / 7) * 100}%`);
+    expect(overflowButton.style.bottom).toBe('0px');
+  });
+
   it('renderDayCell で日セルの内容を拡張できる（既定内容はそのまま利用可能）', () => {
     const { container } = render(
       <Harness

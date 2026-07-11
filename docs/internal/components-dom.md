@@ -74,6 +74,13 @@ div[data-koyomi="month"] (role="grid")
                                                         Enter/Space でも onClick 相当が発火。
                                                         overflowButtonProps で
                                                         aria-haspopup/aria-expanded 等を追加可）
+               DOM 上の位置は month-day の子（日番号の直後）のままだが、
+               month-event と同じ方式で絶対配置される（positioned ancestor は
+               セルではなく month-week）。month-days の min-height が確保する
+               末尾の予約領域（「+N 件」の 1 行分）に bottom: 0 で固定され、
+               絶対配置のイベント帯（レーン0）と重ならない
+               style: insetInlineStart/width は %（可視列数基準、month-event と
+                      同じ計算）、bottom: 0
           button[data-koyomi="month-event"] × n      … useDayDrag.getSegmentProps を展開。
                その週のセグメントのうち開始列がこのセルのものを DOM 上このセルが所有する
                （positioned ancestor は month-week のため、複数列スパンの座標は列レイヤー
