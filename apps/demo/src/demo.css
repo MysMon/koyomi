@@ -67,10 +67,91 @@ body {
     "Noto Sans JP", sans-serif;
 }
 
-.demo-app {
+/* ---------------------------------------------------------------------------
+ * シェル（パターン切替タブ・ダークモード切替）
+ * ------------------------------------------------------------------------ */
+
+.demo-shell {
   max-width: 1080px;
   margin: 0 auto;
   padding: 24px 20px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.demo-shell-header {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.demo-shell-titlebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.demo-pattern-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.demo-pattern-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+  padding: 8px 12px;
+  border: 1px solid var(--demo-border);
+  border-radius: 8px;
+  background-color: var(--demo-surface);
+  color: var(--demo-fg);
+  text-decoration: none;
+}
+
+.demo-pattern-tab:hover {
+  border-color: var(--demo-accent);
+}
+
+.demo-pattern-tab[aria-current="page"] {
+  border-color: var(--demo-accent);
+  background-color: color-mix(in srgb, var(--demo-accent) 14%, var(--demo-surface));
+}
+
+.demo-pattern-tab-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.demo-pattern-tab-description {
+  font-size: 11px;
+  color: var(--demo-muted);
+}
+
+/* ---------------------------------------------------------------------------
+ * パターン共通の準備中プレースホルダー
+ * ------------------------------------------------------------------------ */
+
+.demo-placeholder {
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.demo-placeholder-text {
+  margin: 0;
+  color: var(--demo-muted);
+  font-size: 14px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 各パターン本体の内部レイアウト（.demo-app）
+ * ------------------------------------------------------------------------ */
+
+.demo-app {
   display: flex;
   flex-direction: column;
   gap: 20px;
