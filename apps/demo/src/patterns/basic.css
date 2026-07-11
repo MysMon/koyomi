@@ -1,0 +1,55 @@
+/*
+ * 「ベーシック」パターン専用のスタイル。
+ *
+ * 共通レイアウト（ヘッダー・カレンダー枠・ダイアログ枠・フォーム部品など）は
+ * `../demo.css` に委ね、ここではこのパターンだけが持つ要素
+ * （日付ジャンプ入力・EventDialog の extendedProps 読み取り専用表示）だけを
+ * 定義する。すべて `.demo-app-basic`（このパターンのルート要素）配下に
+ * スコープし、他パターンへ影響しないようにする。
+ */
+
+/* ---------------------------------------------------------------------------
+ * 日付ジャンプ入力（<input type="date">）
+ * ヘッダーの他のコントロール（タイムゾーン・週開始などの <select>）と
+ * 見た目を揃える。
+ * ------------------------------------------------------------------------ */
+
+.demo-app-basic .demo-control input[type="date"] {
+  font: inherit;
+  font-size: 13px;
+  color: var(--demo-fg);
+  background-color: var(--demo-surface);
+  border: 1px solid var(--demo-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+/* ---------------------------------------------------------------------------
+ * EventDialog: extendedProps の読み取り専用表示
+ * ------------------------------------------------------------------------ */
+
+.demo-app-basic .demo-extended-props-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.demo-app-basic .demo-extended-props-row {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  align-items: baseline;
+}
+
+.demo-app-basic .demo-extended-props-row dt {
+  min-width: 96px;
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--demo-muted);
+}
+
+.demo-app-basic .demo-extended-props-row dd {
+  margin: 0;
+  word-break: break-word;
+}

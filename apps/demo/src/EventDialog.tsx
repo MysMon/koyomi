@@ -5,6 +5,7 @@
  * `<dialog>` 要素をネイティブモーダルとして使用する。新規作成（範囲選択から）と
  * 編集（オカレンスクリックから）の両方をこのコンポーネントで扱う。繰り返し予定の
  * 変更・削除は、保存・削除の直前に `resolveRecurringScope` で適用範囲を確認する。
+ * 編集対象イベントが `extendedProps` を持つ場合、その内容を読み取り専用で表示する。
  */
 
 import type {
@@ -197,6 +198,28 @@ function isRecurrenceOption(value: string): value is RecurrenceOption {
   return RECURRENCE_OPTIONS.some((option) => option.value === value);
 }
 
+/**
+ * `extendedProps` の値（型不明）を読み取り専用表示用の文字列にする。
+ * ライブラリは内容に関知しないため、プリミティブはそのまま文字列化し、
+ * それ以外（オブジェクト・配列など）は JSON 表現にフォールバックする。
+ */
+function formatExtendedPropValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (value === null || value === undefined) {
+    return '(なし)';
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 /** モードに応じた初期フォーム状態を組み立てる。 */
 function buildFormState(mode: EventDialogMode): FormState {
   if (mode.type === 'create') {
@@ -247,6 +270,7 @@ function withRRule(patch: CalendarEventPatch, rrule: string | undefined): Calend
  *   確認する。キャンセル（`null`）の場合は何もせずダイアログを開いたままにする。
  *   繰り返しルール自体の変更は `scope: 'all'` のときのみ反映する
  * - `editable: false` の予定は読み取り専用として表示する
+ * - `extendedProps` を持つ予定は、その内容を編集不可の一覧として表示する
  *
  * @example
  * ```tsx
@@ -592,6 +616,25 @@ export function EventDialog(props: EventDialogProps): ReactElement {
             </p>
           )}
         </div>
+
+        {occurrence !== null && occurrence.event.extendedProps !== undefined && (
+          <div className="demo-form-field">
+            <span className="demo-field-label" id={`${baseId}-extended-props-label`}>
+              追加情報（extendedProps、読み取り専用）
+            </span>
+            <dl
+              className="demo-extended-props-list"
+              aria-labelledby={`${baseId}-extended-props-label`}
+            >
+              {Object.entries(occurrence.event.extendedProps).map(([key, value]) => (
+                <div key={key} className="demo-extended-props-row">
+                  <dt>{key}</dt>
+                  <dd>{formatExtendedPropValue(value)}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        )}
 
         {error !== null && <p className="demo-error">{error}</p>}
 
