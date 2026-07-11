@@ -216,6 +216,35 @@ describe('VirtualListView', () => {
     expect(container.querySelector('[data-koyomi-pinned="true"]')).toBeNull();
   });
 
+  it('pinned セクションは絶対配置の inline style を持つ（テーマ CSS 非依存でも通常フローに割り込まない）', async () => {
+    const { container } = render(
+      <TestVirtualList events={makeDailyEvents(40)} listDays={60} estimateDayHeight={50} />,
+    );
+    await setViewport(container, 100, 0);
+
+    const firstButton = container.querySelector('[data-koyomi="list-event"]');
+    if (firstButton === null) {
+      throw new Error('list-event が見つかりません');
+    }
+    await act(async () => {
+      fireEvent.focus(firstButton);
+    });
+    await setViewport(container, 100, 1500);
+
+    const pinned = container.querySelector('[data-koyomi-pinned="true"]');
+    // 位置決めに必須のスタイルは inline で出力する（ヘッドレス原則）。テーマ CSS を
+    // 読み込まない利用者でも、pinned セクションが通常フローに割り込んで日セクションの
+    // 重複表示・高さ跳ねを起こさないよう、position: absolute を inline に持つ
+    // （VirtualTimelineView の pinned style / VirtualResourceView の columnPositionStyle と同じ方針）
+    if (!(pinned instanceof HTMLElement)) {
+      throw new Error('pinned セクションが見つかりません');
+    }
+    expect(pinned.style.position).toBe('absolute');
+    expect(pinned.style.insetInlineStart).toBe('0');
+    expect(pinned.style.width).toBe('100%');
+    expect(pinned.style.top).not.toBe('');
+  });
+
   it('pinned セクションのイベント行はタブ順から外れる（tabindex=-1）', async () => {
     const { container } = render(
       <TestVirtualList events={makeDailyEvents(40)} listDays={60} estimateDayHeight={50} />,

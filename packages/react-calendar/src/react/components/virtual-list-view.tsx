@@ -9,7 +9,9 @@
  * ヘッドレスの原則に従い、寸法はこのコンポーネントが持たない。スクロールコンテナの高さは
  * 利用者の CSS（`[data-koyomi="list"][data-koyomi-virtualized]`）が決め、`overflow`/`position`
  * などの構造 CSS はデフォルトテーマ（`@koyomi-cal/react/theme.css`）が `data-koyomi-virtualized`
- * 属性に対して当てる。inline style として出力するのはスペーサ高・pinned の `top` の数値のみ。
+ * 属性に対して当てる。ただし pinned セクションの絶対配置（`position`/`insetInlineStart`/`width`/
+ * `top`）はテーマ CSS を読み込まない利用者でも通常フローへ割り込まないよう inline で出力する
+ * （`VirtualTimelineView` の pinned style / `VirtualResourceView` の columnPositionStyle と同じ方針）。
  */
 
 import type { CSSProperties, ReactElement, FocusEvent as ReactFocusEvent, ReactNode } from 'react';
@@ -269,8 +271,20 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
       />
       {virtualizer.pinnedItems.map((item) => {
         const day = days[item.index];
+        // 位置決めに必須のスタイルは inline で出力する（ヘッドレス原則）。テーマ CSS を
+        // 読み込まない利用者でも、pinned セクションが通常フローへ割り込んで日セクションの
+        // 重複表示・高さ跳ねを起こさないよう、position: absolute を inline に持つ
+        // （VirtualResourceView の columnPositionStyle と同じ方針）
         return day !== undefined
-          ? renderDay(day, { pinned: true, style: { top: `${item.start}px` } })
+          ? renderDay(day, {
+              pinned: true,
+              style: {
+                position: 'absolute',
+                insetInlineStart: 0,
+                width: '100%',
+                top: `${item.start}px`,
+              },
+            })
           : null;
       })}
     </div>
