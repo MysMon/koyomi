@@ -1,0 +1,86 @@
+/*
+ * 「国際化」パターン専用スタイル。
+ *
+ * カレンダー本体の配色・レイアウトは @koyomi-cal/react/theme.css に委ね、
+ * ここではこのパターン固有の 2 点だけを定義する。
+ *
+ * 1. 週番号（showWeekNumbers）の可視化 — ヘッドレスな月/週ビューは
+ *    data-koyomi-week-number 属性を付けるだけで実際の描画はしないため
+ *    （docs/views.md の「週番号（showWeekNumbers）」参照）、月・週ビューの
+ *    左（RTL 時は右）にガター（余白列）を確保し、そこに CSS の
+ *    content: attr(...) で週番号バッジを表示する。
+ * 2. このパターン固有の操作パネル（言語切替ボタン・ヒント文）の見た目。
+ *
+ * すべて論理プロパティ（inset-inline-start / padding-inline-start 等）で
+ * 記述しているため、ルート要素に dir="rtl" を付けるとガターとバッジが
+ * 自動的に反転する（RTL 切替の確認用）。
+ *
+ * セレクタはすべてこのパターンのルート要素（.koyomi-demo-international）で
+ * スコープし、他パターン・共通シェルのスタイル（demo.css）には影響しない。
+ */
+
+.koyomi-demo-international {
+  /* 週番号バッジ用ガターの幅。月・週ビューの両方で共有する。 */
+  --intl-week-gutter: 34px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 週番号（showWeekNumbers）の可視化
+ * ------------------------------------------------------------------------ */
+
+/*
+ * month（月ビュー全体）・timegrid（週/日ビュー全体）の内包幅に対して
+ * ガター分の padding を確保する。month-weekdays/month-weeks、
+ * timegrid-grid/timegrid-body はいずれもこのコンテナの内包幅を均等に
+ * 列分割するため、ヘッダー行と本体行が揃って同じ分だけ右（RTL 時は左）へ
+ * シフトし、列の整合は崩れない。
+ */
+.koyomi-demo-international [data-koyomi="month"],
+.koyomi-demo-international [data-koyomi="timegrid"] {
+  padding-inline-start: var(--intl-week-gutter);
+}
+
+/* timegrid-header は既定で position 未指定のため、バッジの基準にするため付与する
+   （month-week はデフォルトテーマで既に position: relative）。 */
+.koyomi-demo-international [data-koyomi="timegrid-header"] {
+  position: relative;
+}
+
+.koyomi-demo-international [data-koyomi="month-week"][data-koyomi-week-number]::before,
+.koyomi-demo-international [data-koyomi="timegrid-header"][data-koyomi-week-number]::before {
+  content: attr(data-koyomi-week-number);
+  position: absolute;
+  inset-inline-start: calc(-1 * var(--intl-week-gutter));
+  top: 6px;
+  width: calc(var(--intl-week-gutter) - 8px);
+  padding: 1px 0;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--demo-muted);
+  background-color: var(--demo-surface);
+  border: 1px solid var(--demo-border);
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * 操作パネル・ヒント文
+ * ------------------------------------------------------------------------ */
+
+.international-language-toggle {
+  white-space: nowrap;
+}
+
+.international-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--demo-muted);
+}
+
+.international-hint code {
+  padding: 0 3px;
+  border-radius: 3px;
+  background-color: var(--demo-border);
+  font-size: 0.95em;
+}
