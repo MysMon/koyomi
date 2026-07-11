@@ -372,6 +372,50 @@ describe('ResourceView - 終日アイテム', () => {
     const alldayEvent = container.querySelector('[data-koyomi="allday-event"]');
     expect(alldayEvent?.getAttribute('aria-label')).toBe('カスタム:休暇、7月15日、会議室A');
   });
+
+  it('renderAllDayItem で終日アイテムの内容をカスタマイズできる（renderEvent は影響しない）', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'ad1',
+        title: '休暇',
+        start: '2026-07-15',
+        end: '2026-07-16',
+        allDay: true,
+        resourceId: 'room-a',
+      },
+    ];
+    const { container } = render(
+      <Harness
+        resources={[ROOM_A]}
+        events={events}
+        viewProps={{
+          renderEvent: () => <span data-testid="timed">時間指定用</span>,
+          renderAllDayItem: (occurrence) => (
+            <span data-testid="custom-allday">{occurrence.event.title}★</span>
+          ),
+        }}
+      />,
+    );
+    const alldayEvent = container.querySelector('[data-koyomi="allday-event"]');
+    expect(alldayEvent?.querySelector('[data-testid="custom-allday"]')?.textContent).toBe('休暇★');
+    expect(alldayEvent?.querySelector('[data-testid="timed"]')).toBeNull();
+  });
+
+  it('renderAllDayItem 省略時は既定どおりタイトルのみが表示される', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'ad1',
+        title: '休暇',
+        start: '2026-07-15',
+        end: '2026-07-16',
+        allDay: true,
+        resourceId: 'room-a',
+      },
+    ];
+    const { container } = render(<Harness resources={[ROOM_A]} events={events} />);
+    const alldayEvent = container.querySelector('[data-koyomi="allday-event"]');
+    expect(alldayEvent?.textContent).toBe('休暇');
+  });
 });
 
 describe('ResourceView - Codex レビュー回帰（終日アイテム）', () => {

@@ -85,6 +85,11 @@ export function defaultTimedContent(
   return `${formatTimeLabel(item.occurrence.start, timeZone, locale)} ${item.occurrence.event.title}`;
 }
 
+/** 終日アイテムの既定の表示内容（タイトルのみ）。 */
+export function defaultAllDayContent(occurrence: EventOccurrence): ReactNode {
+  return occurrence.event.title;
+}
+
 /** `CalendarResource | null` の、表示に影響する内容が等しいかどうかを比較する。 */
 export function sameResource(a: CalendarResource | null, b: CalendarResource | null): boolean {
   if (a === b) {

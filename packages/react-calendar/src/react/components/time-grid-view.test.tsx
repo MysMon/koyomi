@@ -184,6 +184,36 @@ describe('TimeGridView', () => {
     expect(style.width).toBe(`${(1 / 7) * 100}%`);
   });
 
+  it('renderAllDayEvent で終日行の帯の内容をカスタマイズできる（renderEvent は影響しない）', () => {
+    const events: CalendarEvent[] = [
+      { id: 'ad1', title: '休暇', start: '2026-07-14', end: '2026-07-15', allDay: true },
+    ];
+    const { container } = render(
+      <Harness
+        initialView="week"
+        events={events}
+        viewProps={{
+          renderEvent: () => <span data-testid="timed">時間指定用</span>,
+          renderAllDayEvent: (segment) => (
+            <span data-testid="custom-allday">{segment.occurrence.event.title}★</span>
+          ),
+        }}
+      />,
+    );
+    const segment = container.querySelector('[data-koyomi="allday-event"]');
+    expect(segment?.querySelector('[data-testid="custom-allday"]')?.textContent).toBe('休暇★');
+    expect(segment?.querySelector('[data-testid="timed"]')).toBeNull();
+  });
+
+  it('renderAllDayEvent 省略時は既定どおりタイトルのみが表示される', () => {
+    const events: CalendarEvent[] = [
+      { id: 'ad1', title: '休暇', start: '2026-07-14', end: '2026-07-15', allDay: true },
+    ];
+    const { container } = render(<Harness initialView="week" events={events} />);
+    const segment = container.querySelector('[data-koyomi="allday-event"]');
+    expect(segment?.textContent).toBe('休暇');
+  });
+
   it('24 時間未満で日をまたぐイベント（22:00〜翌2:00）は allday-row に出ず、時間グリッド側で両日に分割され continues 属性が付く', () => {
     const events: CalendarEvent[] = [
       { id: 'cross', title: '夜間作業', start: '2026-07-14T22:00', end: '2026-07-15T02:00' },

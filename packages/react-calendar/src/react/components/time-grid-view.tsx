@@ -54,9 +54,15 @@ export interface TimeGridViewProps {
   /**
    * 時間グリッド上のイベント（時間指定）の表示内容をカスタマイズする。
    * 省略時は `'H:mm〜H:mm タイトル'` を表示する。
-   * 終日行（`allday-event`）の内容はこの prop では変更できない（既定でタイトルのみ）。
+   * 終日行（`allday-event`）の内容はこの prop では変更できない。終日行の内容を
+   * カスタマイズしたい場合は {@link TimeGridViewProps.renderAllDayEvent} を使う。
    */
   renderEvent?: (item: PositionedOccurrence) => ReactNode;
+  /**
+   * 終日行（`allday-event`）の帯の表示内容をカスタマイズする。
+   * 省略時はタイトルのみを表示する（既定のまま）。
+   */
+  renderAllDayEvent?: (segment: EventSegment) => ReactNode;
   /**
    * 日ヘッダー（曜日ラベル＋日番号ボタン）の表示内容をカスタマイズする。
    * `defaultContent` には省略時の内容（曜日ラベルと日番号ボタン）が渡されるので、
@@ -398,7 +404,7 @@ function samePreviewSegment(
  * ```
  */
 export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
-  const { renderEvent, renderDayHeader, eventAriaLabel } = props;
+  const { renderEvent, renderAllDayEvent, renderDayHeader, eventAriaLabel } = props;
   const { api, state, viewModel, callbacks } = useCalendarContext();
   const calendar = { api, state, viewModel };
   const dayDrag = useDayDrag({ calendar, callbacks });
@@ -540,6 +546,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
                         timeZone={timeZone}
                         locale={locale}
                         dayDrag={dayDrag}
+                        renderAllDayEvent={renderAllDayEvent}
                         eventAriaLabel={eventAriaLabel}
                       />
                     ))}
@@ -621,10 +628,13 @@ function AllDaySegmentButton(props: {
   timeZone: TimeZoneId;
   locale: string;
   dayDrag: DayDragHandlers;
+  /** 終日行の帯の表示内容のカスタマイズ関数（省略時はタイトルのみ）。 */
+  renderAllDayEvent: ((segment: EventSegment) => ReactNode) | undefined;
   /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
   eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
 }): ReactElement {
-  const { segment, columnCount, timeZone, locale, dayDrag, eventAriaLabel } = props;
+  const { segment, columnCount, timeZone, locale, dayDrag, renderAllDayEvent, eventAriaLabel } =
+    props;
   const occurrence = segment.occurrence;
   const segmentProps = dayDrag.getSegmentProps(segment);
   const isEditable = occurrence.event.editable !== false;
@@ -651,7 +661,7 @@ function AllDaySegmentButton(props: {
         eventAriaLabel,
       )}
     >
-      {occurrence.event.title}
+      {renderAllDayEvent ? renderAllDayEvent(segment) : occurrence.event.title}
       {isEditable && !segment.continuesBefore && (
         <span
           {...dayDrag.getSegmentResizeHandleProps(segment, 'start')}

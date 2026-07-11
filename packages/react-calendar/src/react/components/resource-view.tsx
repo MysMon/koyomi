@@ -39,6 +39,7 @@ import {
   ariaLabelWithResource,
   DEFAULT_EMPTY_LABEL,
   DEFAULT_UNASSIGNED_LABEL,
+  defaultAllDayContent,
   defaultTimedContent,
   MINUTES_PER_DAY,
   sameBusinessHourSlots,
@@ -50,13 +51,23 @@ import {
   toDivRef,
 } from './resource-view-parts';
 
-/** `ResourceView` の props。 */
+/**
+ * `ResourceView` の props。
+ *
+ * 時間指定イベントの表示内容は `renderEvent`、終日アイテムの表示内容は
+ * `renderAllDayItem` でそれぞれ独立にカスタマイズする。
+ */
 export interface ResourceViewProps {
   /**
    * 時間指定イベントブロックの表示内容をカスタマイズする関数。
-   * 省略時は開始〜終了時刻とタイトルを表示する。
+   * 省略時は開始〜終了時刻とタイトルを表示する。終日アイテムには適用されない
+   * （終日アイテムの内容は {@link ResourceViewProps.renderAllDayItem} を使う）。
    */
   renderEvent?: (item: PositionedOccurrence) => ReactNode;
+  /**
+   * 終日アイテムの表示内容をカスタマイズする関数。省略時はタイトルのみを表示する。
+   */
+  renderAllDayItem?: (occurrence: EventOccurrence) => ReactNode;
   /**
    * 列見出しの内容をカスタマイズする関数。
    * `defaultContent` は既定の内容（リソース名、未割り当て列は `unassignedLabel`）。
@@ -138,6 +149,7 @@ function useStableResourceDrag(drag: ResourceGridDragHandlers): ResourceColumnDr
 export function ResourceView(props: ResourceViewProps): ReactElement | null {
   const {
     renderEvent,
+    renderAllDayItem,
     renderColumnHeader,
     unassignedLabel = DEFAULT_UNASSIGNED_LABEL,
     emptyLabel = DEFAULT_EMPTY_LABEL,
@@ -230,6 +242,7 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
                     lane={lane}
                     timeZone={timeZone}
                     locale={locale}
+                    renderAllDayItem={renderAllDayItem}
                     drag={stableDrag}
                     isDragging={drag.isDragging}
                     eventAriaLabel={eventAriaLabel}
@@ -285,6 +298,8 @@ interface AllDayItemButtonProps {
   lane: number;
   timeZone: TimeZoneId;
   locale: string;
+  /** 終日アイテムの表示内容のカスタマイズ関数（省略時はタイトルのみ）。 */
+  renderAllDayItem: ((occurrence: EventOccurrence) => ReactNode) | undefined;
   drag: ResourceColumnDragHandlers;
   /** ドラッグ操作が進行中か（memo 判定に使う。詳細は {@link AllDayItemButton} 参照）。 */
   isDragging: boolean;
@@ -294,7 +309,8 @@ interface AllDayItemButtonProps {
 
 /** リソースビューの終日アイテム 1 件分のボタン（列間移動のみ）。 */
 function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
-  const { occurrence, column, lane, timeZone, locale, drag, eventAriaLabel } = props;
+  const { occurrence, column, lane, timeZone, locale, renderAllDayItem, drag, eventAriaLabel } =
+    props;
   const style = withEventColorStyle(
     // 週/日ビューの終日セグメントと同じ位置決め。列 = 1 日のため水平スパンは
     // 常に列幅いっぱい（週/日ビューの startCol/span に相当する % は 0%/100% 固定）
@@ -317,7 +333,7 @@ function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
         eventAriaLabel,
       )}
     >
-      {occurrence.event.title}
+      {renderAllDayItem ? renderAllDayItem(occurrence) : defaultAllDayContent(occurrence)}
     </button>
   );
 }
@@ -338,6 +354,7 @@ const AllDayItemButton = memo(AllDayItemButtonImpl, (prev, next) => {
     prev.lane === next.lane &&
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
+    prev.renderAllDayItem === next.renderAllDayItem &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&
     prev.eventAriaLabel === next.eventAriaLabel

@@ -117,6 +117,26 @@ describe('CalendarView', () => {
       expect(event?.getAttribute('aria-label')).toBe('カスタム:会議、7月15日 10:00〜11:00');
     });
 
+    it('renderTimeGridAllDayEvent が TimeGridView の renderAllDayEvent へ転送される', () => {
+      const events: CalendarEvent[] = [
+        { id: 'ad1', title: '休暇', start: '2026-07-14', end: '2026-07-15', allDay: true },
+      ];
+      const { container } = renderView(
+        'week',
+        {
+          renderTimeGridAllDayEvent: (segment) => (
+            <span data-testid="custom-allday">{segment.occurrence.event.title}カスタム</span>
+          ),
+        },
+        events,
+      );
+
+      const segment = container.querySelector('[data-koyomi="allday-event"]');
+      expect(segment?.querySelector('[data-testid="custom-allday"]')?.textContent).toBe(
+        '休暇カスタム',
+      );
+    });
+
     it('renderListEvent が ListView へ転送される', () => {
       const { container } = renderView('list', {
         renderListEvent: (occurrence) => (
@@ -413,6 +433,35 @@ describe('CalendarView', () => {
       );
     });
 
+    it('renderResourceAllDayItem が ResourceView の renderAllDayItem へ転送される', () => {
+      const events: CalendarEvent[] = [
+        {
+          id: 'ad1',
+          title: '休暇',
+          start: '2026-07-15',
+          end: '2026-07-16',
+          allDay: true,
+          resourceId: 'room-a',
+        },
+      ];
+      const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
+      const { container } = renderView(
+        'resource',
+        {
+          renderResourceAllDayItem: (occurrence) => (
+            <span data-testid="custom-resource-allday">{occurrence.event.title}カスタム</span>
+          ),
+        },
+        events,
+        resources,
+      );
+
+      const alldayEvent = container.querySelector('[data-koyomi="allday-event"]');
+      expect(
+        alldayEvent?.querySelector('[data-testid="custom-resource-allday"]')?.textContent,
+      ).toBe('休暇カスタム');
+    });
+
     it('resourceUnassignedLabel が ResourceView の unassignedLabel へ転送される', () => {
       const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
       // DEFAULT_EVENTS は resourceId 未指定 → unassignedLane 既定 'auto' でも
@@ -451,6 +500,38 @@ describe('CalendarView', () => {
       expect(event?.getAttribute('aria-label')).toBe(
         'カスタム:会議、7月15日 10:00〜11:00、会議室A',
       );
+    });
+
+    it('既定では resource は ResourceView（非仮想化）で描画される', () => {
+      const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
+      const { container } = renderView('resource', {}, DEFAULT_EVENTS, resources);
+      expect(container.querySelector('[data-koyomi="resource"]')).not.toBeNull();
+      expect(container.querySelector('[data-koyomi-virtualized]')).toBeNull();
+    });
+
+    it('virtualizeResource=true で VirtualResourceView（仮想化）に切り替わりリソース系 props も転送される', () => {
+      const events: CalendarEvent[] = [
+        {
+          id: 'e1',
+          title: '会議',
+          start: '2026-07-15T10:00',
+          end: '2026-07-15T11:00',
+          resourceId: 'room-a',
+        },
+      ];
+      const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
+      const { container } = renderView(
+        'resource',
+        {
+          virtualizeResource: true,
+          renderResourceEvent: (item) => <span data-testid="v">{item.occurrence.event.title}</span>,
+        },
+        events,
+        resources,
+      );
+      expect(container.querySelector('[data-koyomi-virtualized="true"]')).not.toBeNull();
+      // resource 系 props（renderResourceEvent）が VirtualResourceView へ転送される
+      expect(container.querySelector('[data-testid="v"]')?.textContent).toBe('会議');
     });
 
     it('renderTimelineEvent が TimelineView へ転送される', () => {
@@ -515,6 +596,38 @@ describe('CalendarView', () => {
 
       const empty = container.querySelector('[data-koyomi="timeline-empty"]');
       expect(empty?.textContent).toBe('担当者がいません');
+    });
+
+    it('既定では timeline は TimelineView（非仮想化）で描画される', () => {
+      const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
+      const { container } = renderView('timeline', {}, DEFAULT_EVENTS, resources);
+      expect(container.querySelector('[data-koyomi="timeline"]')).not.toBeNull();
+      expect(container.querySelector('[data-koyomi-virtualized]')).toBeNull();
+    });
+
+    it('virtualizeTimeline=true で VirtualTimelineView（仮想化）に切り替わりタイムライン系 props も転送される', () => {
+      const events: CalendarEvent[] = [
+        {
+          id: 'e1',
+          title: '会議',
+          start: '2026-07-15T10:00',
+          end: '2026-07-15T11:00',
+          resourceId: 'room-a',
+        },
+      ];
+      const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
+      const { container } = renderView(
+        'timeline',
+        {
+          virtualizeTimeline: true,
+          renderTimelineEvent: (item) => <span data-testid="v">{item.occurrence.event.title}</span>,
+        },
+        events,
+        resources,
+      );
+      expect(container.querySelector('[data-koyomi-virtualized="true"]')).not.toBeNull();
+      // timeline 系 props（renderTimelineEvent）が VirtualTimelineView へ転送される
+      expect(container.querySelector('[data-testid="v"]')?.textContent).toBe('会議');
     });
   });
 });

@@ -483,7 +483,8 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `monthOverflowLabel` | `(count: number) => ReactNode` | 月ビューの「+N 件」の文言（`MonthView.overflowLabel` へ転送） |
 | `monthOverflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 月ビューの「+N 件」ボタンに追加する props（`MonthView.overflowButtonProps` へ転送） |
 | `monthEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | 月ビューのイベントボタンの aria-label（`MonthView.eventAriaLabel` へ転送） |
-| `renderTimeGridEvent` | `(item: PositionedOccurrence) => ReactNode` | 週/日ビューのイベントブロックのカスタム描画 |
+| `renderTimeGridEvent` | `(item: PositionedOccurrence) => ReactNode` | 週/日ビューのイベントブロックのカスタム描画（時間指定のみ。終日行は `renderTimeGridAllDayEvent` へ） |
+| `renderTimeGridAllDayEvent` | `(segment: EventSegment) => ReactNode` | 週/日ビューの終日行の帯のカスタム描画（`TimeGridView.renderAllDayEvent` へ転送）。省略時はタイトルのみ |
 | `renderTimeGridDayHeader` | `(day: TimeGridDay, defaultContent: ReactNode) => ReactNode` | 週/日ビューの日ヘッダーのカスタム描画（`TimeGridView.renderDayHeader` へ転送） |
 | `timeGridEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | 週/日ビューのイベントブロック（終日行含む）の aria-label（`TimeGridView.eventAriaLabel` へ転送） |
 | `renderListEvent` | `(occurrence: EventOccurrence) => ReactNode` | リストビューのイベント行のカスタム描画 |
@@ -504,17 +505,20 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `multiMonthOverflowLabel` | `(count: number) => ReactNode` | 複数月ビューの「+N 件」の文言（`MultiMonthView.overflowLabel` へ転送） |
 | `multiMonthOverflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 複数月ビューの「+N 件」ボタンに追加する props（`MultiMonthView.overflowButtonProps` へ転送） |
 | `multiMonthEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | 複数月ビューのイベントボタンの aria-label（`MultiMonthView.eventAriaLabel` へ転送） |
-| `renderResourceEvent` | `(item: PositionedOccurrence) => ReactNode` | リソースビューのイベントブロックのカスタム描画（`ResourceView.renderEvent` へ転送） |
-| `renderResourceColumnHeader` | `(column: ResourceColumn, defaultContent: ReactNode) => ReactNode` | リソースビューの列見出しのカスタム描画（`ResourceView.renderColumnHeader` へ転送） |
-| `resourceUnassignedLabel` | `ReactNode` | リソースビューの未割り当て列ラベル（既定「未割り当て」。`ResourceView.unassignedLabel` へ転送） |
-| `resourceEmptyLabel` | `ReactNode` | リソースビューの空状態メッセージ（既定「リソースがありません」。`ResourceView.emptyLabel` へ転送） |
-| `resourceEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | リソースビューのイベントブロックの aria-label（`ResourceView.eventAriaLabel` へ転送） |
-| `renderTimelineEvent` | `(item: TimelineItem) => ReactNode` | タイムラインの帯のカスタム描画（`TimelineView.renderEvent` へ転送） |
-| `renderTimelineRowHeader` | `(row: TimelineRow, defaultContent: ReactNode) => ReactNode` | タイムラインの行見出しのカスタム描画（`TimelineView.renderRowHeader` へ転送） |
-| `timelineUnassignedLabel` | `ReactNode` | タイムラインの未割り当て行ラベル（既定「未割り当て」。`TimelineView.unassignedLabel` へ転送） |
-| `timelineEmptyLabel` | `ReactNode` | タイムラインの空状態メッセージ（既定「リソースがありません」。`TimelineView.emptyLabel` へ転送） |
-| `timelineCornerLabel` | `string` | タイムラインのヘッダー行の角セルの `aria-label`（既定「リソース」。`TimelineView.cornerLabel` へ転送） |
-| `timelineEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | タイムラインの帯の aria-label（`TimelineView.eventAriaLabel` へ転送） |
+| `renderResourceEvent` | `(item: PositionedOccurrence) => ReactNode` | リソースビューの時間指定イベントブロックのカスタム描画（`ResourceView` / `VirtualResourceView` の `renderEvent` へ転送。終日アイテムは `renderResourceAllDayItem` へ） |
+| `renderResourceAllDayItem` | `(occurrence: EventOccurrence) => ReactNode` | リソースビューの終日アイテムのカスタム描画（`ResourceView` / `VirtualResourceView` の `renderAllDayItem` へ転送）。省略時はタイトルのみ |
+| `renderResourceColumnHeader` | `(column: ResourceColumn, defaultContent: ReactNode) => ReactNode` | リソースビューの列見出しのカスタム描画（`ResourceView` / `VirtualResourceView` の `renderColumnHeader` へ転送） |
+| `resourceUnassignedLabel` | `ReactNode` | リソースビューの未割り当て列ラベル（既定「未割り当て」。`ResourceView` / `VirtualResourceView` の `unassignedLabel` へ転送） |
+| `resourceEmptyLabel` | `ReactNode` | リソースビューの空状態メッセージ（既定「リソースがありません」。`ResourceView` / `VirtualResourceView` の `emptyLabel` へ転送） |
+| `resourceEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | リソースビューのイベントブロックの aria-label（`ResourceView` / `VirtualResourceView` の `eventAriaLabel` へ転送） |
+| `virtualizeResource` | `boolean` | リソースビューを仮想化する（`ResourceView` の代わりに `VirtualResourceView`）。既定 `false` |
+| `renderTimelineEvent` | `(item: TimelineItem) => ReactNode` | タイムラインの帯のカスタム描画（`TimelineView` / `VirtualTimelineView` の `renderEvent` へ転送） |
+| `renderTimelineRowHeader` | `(row: TimelineRow, defaultContent: ReactNode) => ReactNode` | タイムラインの行見出しのカスタム描画（`TimelineView` / `VirtualTimelineView` の `renderRowHeader` へ転送） |
+| `timelineUnassignedLabel` | `ReactNode` | タイムラインの未割り当て行ラベル（既定「未割り当て」。`TimelineView` / `VirtualTimelineView` の `unassignedLabel` へ転送） |
+| `timelineEmptyLabel` | `ReactNode` | タイムラインの空状態メッセージ（既定「リソースがありません」。`TimelineView` / `VirtualTimelineView` の `emptyLabel` へ転送） |
+| `timelineCornerLabel` | `string` | タイムラインのヘッダー行の角セルの `aria-label`（既定「リソース」。`TimelineView` / `VirtualTimelineView` の `cornerLabel` へ転送） |
+| `timelineEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | タイムラインの帯の aria-label（`TimelineView` / `VirtualTimelineView` の `eventAriaLabel` へ転送） |
+| `virtualizeTimeline` | `boolean` | タイムラインを仮想化する（`TimelineView` の代わりに `VirtualTimelineView`）。既定 `false` |
 
 ### `MonthView`
 
@@ -544,7 +548,8 @@ function TimeGridView(props: TimeGridViewProps): ReactElement | null
 
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
-| `renderEvent` | `(item: PositionedOccurrence) => ReactNode` | 時間指定イベントの表示内容。省略時は `'H:mm〜H:mm タイトル'`。終日行の内容はこの prop では変更できない |
+| `renderEvent` | `(item: PositionedOccurrence) => ReactNode` | 時間指定イベントの表示内容。省略時は `'H:mm〜H:mm タイトル'`。終日行の内容はこの prop では変更できない（`renderAllDayEvent` を使う） |
+| `renderAllDayEvent` | `(segment: EventSegment) => ReactNode` | 終日行（`allday-event`）の帯の表示内容。省略時はタイトルのみ |
 | `renderDayHeader` | `(day: TimeGridDay, defaultContent: ReactNode) => ReactNode` | 日ヘッダー（曜日・日番号）の内容 |
 | `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | イベントボタン（時間指定・終日行の両方）の aria-label。`defaultLabel` に既定文字列を渡すので加工・置換できる。省略時は既定文字列のまま |
 
@@ -629,7 +634,8 @@ function ResourceView(props: ResourceViewProps): ReactElement | null
 
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
-| `renderEvent` | `(item: PositionedOccurrence) => ReactNode` | 時間指定イベントブロックの表示内容。省略時は開始時刻＋タイトル |
+| `renderEvent` | `(item: PositionedOccurrence) => ReactNode` | 時間指定イベントブロックの表示内容。省略時は開始時刻＋タイトル。終日アイテムには適用されない（`renderAllDayItem` を使う） |
+| `renderAllDayItem` | `(occurrence: EventOccurrence) => ReactNode` | 終日アイテムの表示内容。省略時はタイトルのみ |
 | `renderColumnHeader` | `(column: ResourceColumn, defaultContent: ReactNode) => ReactNode` | 列見出しの内容（`defaultContent` はリソース名、または未割り当て列は `unassignedLabel`）をラップ・置換する |
 | `unassignedLabel` | `ReactNode` | 未割り当て列の見出しラベル（既定「未割り当て」） |
 | `emptyLabel` | `ReactNode` | 空状態（列が 1 つもない）のメッセージ（既定「リソースがありません」） |
@@ -664,7 +670,7 @@ function VirtualResourceView(props: VirtualResourceViewProps): ReactElement | nu
 
 `ResourceView` の列（リソース列）を横方向に仮想化した opt-in の別コンポーネントです（`ResourceView` 自体は変更しません）。可視範囲のリソース列だけを描画し、数百列規模の DOM 肥大を抑えます。DOM 構造・ARIA（`role="grid"` / `row` / `columnheader` / `gridcell`）は `ResourceView` と同じです。内部で `useVirtualizer`（`axis: 'horizontal'`）を使用します。`ref` 経由で `VirtualResourceViewHandle` を公開します。
 
-`ResourceView` の props（`renderEvent` / `renderColumnHeader` / `unassignedLabel` / `emptyLabel` / `eventAriaLabel`）に加えて次を受け付けます。
+`ResourceView` の props（`renderEvent` / `renderAllDayItem` / `renderColumnHeader` / `unassignedLabel` / `emptyLabel` / `eventAriaLabel`）に加えて次を受け付けます。時間指定は `renderEvent`、終日アイテムは `renderAllDayItem` でそれぞれ独立にカスタマイズします（`ResourceView` と同じ）。
 
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
