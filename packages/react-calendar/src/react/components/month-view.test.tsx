@@ -235,6 +235,19 @@ describe('MonthView - イベントセグメント', () => {
     expect(second).not.toHaveAttribute('data-continues-after');
   });
 
+  it('ルート要素に --koyomi-month-lanes が dayMaxEvents の値で inline 設定される（テーマの min-height 計算用）', () => {
+    // テーマ CSS は月の週行の最小高さを var(--koyomi-month-lanes, 4) で計算する。
+    // 固定 4 レーン想定だと dayMaxEvents を 5 以上にしたとき帯が行から溢れるため、
+    // 実際の設定値をコンポーネントが CSS 変数として供給する（--koyomi-timeline-lanes と同じ方式）
+    const { container: defaultContainer } = render(<Harness />);
+    const defaultRoot = defaultContainer.querySelector('[data-koyomi="month"]');
+    expect(defaultRoot?.getAttribute('style')).toContain('--koyomi-month-lanes: 4');
+
+    const { container } = render(<Harness dayMaxEvents={6} />);
+    const root = container.querySelector('[data-koyomi="month"]');
+    expect(root?.getAttribute('style')).toContain('--koyomi-month-lanes: 6');
+  });
+
   it('hidden セグメントは DOM に描画されない（dayMaxEvents 超過分）', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },

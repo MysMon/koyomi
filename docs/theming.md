@@ -49,6 +49,7 @@ import '@koyomi-cal/react/theme.css';
 | `--koyomi-timeline-header-width` | タイムラインビューの行見出し列（左端固定列）の幅 | `120px` |
 | `--koyomi-now-color` | 現在時刻線（`now-indicator`）の色。週/日・リソース・タイムラインビュー共通 | `#ea4335` |
 | `--koyomi-timeline-lanes` | タイムライン行の高さ計算に使うレーン数。`--koyomi-event-color` と同様、`TimelineView` が行ごとに inline で自動設定する内部変数で、通常は利用者が直接上書きするものではない | `1`（フォールバック値） |
+| `--koyomi-month-lanes` | 月ビューの週行（`month-days`）の最小高さ計算に使うレーン数。`MonthView` / `MultiMonthView` が `dayMaxEvents` の実際の値をルート要素に inline で自動設定する内部変数で、通常は利用者が直接上書きするものではない | `4`（フォールバック値） |
 
 `--koyomi-month-header-height` / `--koyomi-lane-height` / `--koyomi-hour-height` はコンポーネント側の inline style（`calc()`）からも参照されるため、単なる見た目の変数ではなく実際のレイアウト寸法を決めます。値を変える場合は、対応する CSS（`min-height` など）も一緒に見直すことをおすすめします。
 

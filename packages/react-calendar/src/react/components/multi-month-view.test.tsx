@@ -138,6 +138,12 @@ describe('MultiMonthView - 月数と DOM 構造', () => {
     expect(container.querySelectorAll('[data-koyomi="month-weekdays"]')).toHaveLength(3);
   });
 
+  it('ルート要素に --koyomi-month-lanes が dayMaxEvents の値で inline 設定される（月ビューと同じ方式）', () => {
+    const { container } = render(<Harness dayMaxEvents={6} />);
+    const root = container.querySelector('[data-koyomi="multimonth"]');
+    expect(root?.getAttribute('style')).toContain('--koyomi-month-lanes: 6');
+  });
+
   it('multiMonthCount=1 では 1 ヶ月分のみ描画される', () => {
     const { container } = render(<Harness multiMonthCount={1} />);
     expect(container.querySelectorAll('[data-koyomi="multimonth-month"]')).toHaveLength(1);

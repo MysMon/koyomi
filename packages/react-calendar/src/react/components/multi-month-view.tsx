@@ -39,6 +39,7 @@ import {
   formatWeekdayLabel,
   MonthWeekRow,
   useStableDayDrag,
+  withMonthLanesStyle,
 } from './month-view-parts';
 
 /** `MultiMonthView` の props。 */
@@ -150,7 +151,7 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
   const previewRange = dayDrag.previewRange;
 
   return (
-    <div data-koyomi="multimonth">
+    <div data-koyomi="multimonth" style={withMonthLanesStyle(options.dayMaxEvents)}>
       {months.map((month) => (
         <MultiMonthMonthSection
           key={month.key}

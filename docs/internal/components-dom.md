@@ -52,7 +52,8 @@ div[data-koyomi="toolbar"]
 ## 月ビュー（MonthView）
 
 ```
-div[data-koyomi="month"] (role="grid")
+div[data-koyomi="month"] (role="grid", style: --koyomi-month-lanes=dayMaxEvents)
+                                                  … テーマが週行の min-height 計算に使う（MultiMonthView は multimonth ルートに設定）
   div[data-koyomi="month-weekdays"] (role="row")
     div[data-koyomi="month-weekday"] (role="columnheader") × 可視列数
                                                       … 曜日ラベル（Intl、週開始順、hiddenWeekdays 除外後）

@@ -192,6 +192,24 @@ function defaultSegmentContent(
 }
 
 /**
+ * `dayMaxEvents` を CSS 変数 `--koyomi-month-lanes` として返す
+ * （タイムラインの `--koyomi-timeline-lanes` と同じ方式）。
+ *
+ * テーマ CSS は月の週行（`month-days`）の最小高さを
+ * `var(--koyomi-month-lanes, 4)` で計算する。固定レーン数のままだと
+ * `dayMaxEvents` を既定より大きくしたとき帯が行から溢れるため、
+ * 実際の設定値をコンポーネントが供給する。
+ *
+ * @param dayMaxEvents - 月セルに表示する最大レーン数（{@link CalendarOptions.dayMaxEvents}）
+ * @returns ルート要素に付与する style オブジェクト
+ */
+export function withMonthLanesStyle(dayMaxEvents: number): CSSProperties {
+  // 'as' 使用理由: CSS カスタムプロパティ（--koyomi-month-lanes）は CSSProperties の
+  // 型定義に含まれないため（withEventColorStyle と同じ許容箇所）
+  return { '--koyomi-month-lanes': String(Math.max(1, dayMaxEvents)) } as CSSProperties;
+}
+
+/**
  * イベント色を CSS 変数 `--koyomi-event-color` として style に加える。
  *
  * `CSSProperties` の型定義にはカスタムプロパティが含まれないため、ここでのみ
