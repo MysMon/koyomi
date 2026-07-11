@@ -8,7 +8,12 @@ import { act, fireEvent, render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { createRef } from 'react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CalendarEvent, CalendarResource, CalendarViewType } from '../../core/types';
+import type {
+  BusinessHoursRule,
+  CalendarEvent,
+  CalendarResource,
+  CalendarViewType,
+} from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
@@ -49,6 +54,7 @@ interface HarnessProps {
   events?: readonly CalendarEvent[];
   resources?: readonly CalendarResource[];
   callbacks?: CalendarInteractionCallbacks;
+  businessHours?: readonly BusinessHoursRule[];
   viewProps?: VirtualResourceViewProps;
   sink?: { current: UseCalendarResult | null };
   handleRef?: React.Ref<VirtualResourceViewHandle>;
@@ -63,6 +69,7 @@ function Harness(props: HarnessProps): ReactElement {
     events: props.events ?? EMPTY_EVENTS,
     resources: props.resources ?? [],
     unassignedLane: 'auto',
+    ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -438,5 +445,35 @@ describe('VirtualResourceView', () => {
     const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
     expect(columns[0]?.querySelector('[data-koyomi="timegrid-preview"]')).not.toBeNull();
     expect(columns[1]?.querySelector('[data-koyomi="timegrid-preview"]')).toBeNull();
+  });
+});
+
+describe('VirtualResourceView - businessHours（営業時間）', () => {
+  it('省略時（既定 []）は data-koyomi-business-hours 属性が付かない', () => {
+    const { container } = render(<Harness resources={makeResources(2)} />);
+    expect(container.querySelectorAll('[data-koyomi-business-hours]')).toHaveLength(0);
+  });
+
+  it('省略時（既定 []）は timegrid-slot 罫線 div 自体を描画しない（businessHours 導入前の DOM と一致させる）', () => {
+    const { container } = render(<Harness resources={makeResources(2)} />);
+    expect(container.querySelectorAll('[data-koyomi="timegrid-slot"]')).toHaveLength(0);
+  });
+
+  it('指定した時間帯のスロットにのみ data-koyomi-business-hours 属性が付き、可視列全てに共通で反映される（2026-07-15 は水曜）', () => {
+    const businessHours: BusinessHoursRule[] = [
+      { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '17:00' },
+    ];
+    const { container } = render(
+      <Harness resources={makeResources(2)} businessHours={businessHours} />,
+    );
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+    expect(columns.length).toBeGreaterThan(0);
+    for (const column of columns) {
+      const slots = column.querySelectorAll('[data-koyomi="timegrid-slot"]');
+      // slotMinutes 既定 60 分: インデックス 9 = 9:00、17 = 17:00
+      expect(slots[9]).toHaveAttribute('data-koyomi-business-hours', 'true');
+      expect(slots[17]).not.toHaveAttribute('data-koyomi-business-hours');
+      expect(slots[8]).not.toHaveAttribute('data-koyomi-business-hours');
+    }
   });
 });

@@ -17,8 +17,10 @@ import {
   isSameDayInZone,
   minutesOfDayInZone,
   startOfDayInZone,
+  weekdayInZone,
 } from '../timezone';
 import type {
+  BusinessHoursRule,
   CalendarResource,
   EventOccurrence,
   ResourceColumn,
@@ -26,7 +28,12 @@ import type {
   TimeZoneId,
 } from '../types';
 import { laneKeyForResource, UNASSIGNED_LANE_KEY } from './lane-key';
-import { belongsToAllDayRow, buildDayItems, buildSlots } from './time-grid-view';
+import {
+  belongsToAllDayRow,
+  buildBusinessHourSlots,
+  buildDayItems,
+  buildSlots,
+} from './time-grid-view';
 
 /** 未割り当て列のキー（{@link UNASSIGNED_LANE_KEY} の別名。既存コードの可読性のため）。 */
 const UNASSIGNED_KEY = UNASSIGNED_LANE_KEY;
@@ -79,6 +86,9 @@ function compareAllDayItems(a: EventOccurrence, b: EventOccurrence): number {
  * @param params.unassignedLane - 未割り当てレーンの生成規則
  * @param params.slotMinutes - 時間軸の目盛り間隔（分）
  * @param params.now - 現在時刻（`isToday` 判定・現在時刻線に使用）
+ * @param params.businessHours - 営業時間の指定一覧（{@link ResourceViewModel.businessHourSlots}
+ *   を算出する）。リソースビューは表示日が単日のため、表示日の曜日を基準に 1 本だけ生成し
+ *   全列で共有する。省略時は `[]`（すべて `isBusinessHours: false`）
  * @returns リソースビューのビューモデル
  * @example
  * ```ts
@@ -102,9 +112,18 @@ export function buildResourceViewModel(params: {
   unassignedLane: 'auto' | 'always';
   slotMinutes: number;
   now: Date;
+  businessHours?: readonly BusinessHoursRule[];
 }): ResourceViewModel {
-  const { currentDate, timeZone, occurrences, resources, unassignedLane, slotMinutes, now } =
-    params;
+  const {
+    currentDate,
+    timeZone,
+    occurrences,
+    resources,
+    unassignedLane,
+    slotMinutes,
+    now,
+    businessHours = [],
+  } = params;
 
   const date = startOfDayInZone(currentDate, timeZone);
   const dateKey = dateKeyInZone(date, timeZone);
@@ -171,6 +190,16 @@ export function buildResourceViewModel(params: {
     });
   }
 
+  const slots = buildSlots(slotMinutes);
+  // リソースビューは表示日が単日のため、その日の曜日を基準に 1 本だけ生成し全列で共有する
+  // （列ごとの再計算はしない。businessHours 未指定時は buildBusinessHourSlots がすべて
+  // isBusinessHours: false の配列を返すため、追加の分岐なしで従来の出力と一致する）
+  const businessHourSlots = buildBusinessHourSlots(
+    slots,
+    weekdayInZone(date, timeZone),
+    businessHours,
+  );
+
   return {
     type: 'resource',
     date,
@@ -178,7 +207,8 @@ export function buildResourceViewModel(params: {
     isToday,
     columns,
     isEmpty: columns.length === 0,
-    slots: buildSlots(slotMinutes),
+    slots,
     nowIndicatorMinutes: isToday ? minutesOfDayInZone(now, timeZone) : null,
+    businessHourSlots,
   };
 }

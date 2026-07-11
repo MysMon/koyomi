@@ -286,7 +286,7 @@ function BareMonthGrid() {
 | `timelineDays` | `number` | `1` | タイムラインビューが表示する日数。`next()`/`prev()` の移動単位にもなる |
 | `unassignedLane` | `'auto' \| 'always'` | `'auto'` | リソース/タイムラインビューの未割り当てレーンの生成規則。`'auto'` は該当する予定があるときのみ末尾に生成、`'always'` は常に生成する（「未割り当てへ戻す」D&D を使う場合に必要。詳細は [新ビューを有効にする](#年ビューなど新ビューを有効にするopt-in) を参照） |
 | `showWeekNumbers` | `boolean` | `false` | 月ビューの週行・週ビューのヘッダーに ISO 8601 週番号を表示するか。詳細は [週番号](#週番号showweeknumbers) を参照 |
-| `businessHours` | `readonly BusinessHoursRule[]` | `[]` | 週/日ビューの営業時間の指定。詳細は [営業時間](#営業時間businesshours) を参照 |
+| `businessHours` | `readonly BusinessHoursRule[]` | `[]` | 週/日・リソース・タイムラインビューの営業時間の指定。詳細は [営業時間](#営業時間businesshours) を参照 |
 
 ## 週末などの曜日を隠す（hiddenWeekdays）
 
@@ -497,7 +497,7 @@ function App() {
 
 ## 営業時間（businessHours）
 
-`CalendarOptions.businessHours`（既定 `[]`）に曜日・時間帯の指定を渡すと、週/日ビュー（時間グリッド）の該当するスロットが営業時間内としてハイライトされます。
+`CalendarOptions.businessHours`（既定 `[]`）に曜日・時間帯の指定を渡すと、週/日・リソース・タイムラインビューの該当する時間帯が営業時間内としてハイライトされます。
 
 ```tsx
 import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
@@ -523,8 +523,6 @@ function App() {
 
 `daysOfWeek` に該当する曜日について、`startTime`〜`endTime`（ともに `'HH:mm'` 形式）を営業時間として扱います（`endTime` は排他的。`startTime` ちょうどは営業時間内、`endTime` ちょうどは営業時間外）。複数件を配列で渡すと OR 判定になるため、曜日ごとに異なる時間帯を指定できます。
 
-ハイライトの判定はスロット単位（各スロットの開始時刻が営業時間内かどうか）で行います。そのため `startTime` / `endTime` が `slotMinutes` の区切りに合っていない場合（例: `slotMinutes: 30` で `startTime: '09:15'`）、ハイライトは次のスロット境界（9:30）から始まります。スロットより細かい粒度の表現が必要な場合は、`TimeGridDay.businessHourSlots` を参照して独自に描画してください。
-
 ```tsx
 businessHours: [
   { daysOfWeek: [6], startTime: '10:00', endTime: '13:00' }, // 土曜だけ午前のみ
@@ -532,7 +530,21 @@ businessHours: [
 ]
 ```
 
+### 週/日ビュー（TimeGridView）
+
+ハイライトの判定はスロット単位（各スロットの開始時刻が営業時間内かどうか）で行います。そのため `startTime` / `endTime` が `slotMinutes` の区切りに合っていない場合（例: `slotMinutes: 30` で `startTime: '09:15'`）、ハイライトは次のスロット境界（9:30）から始まります。スロットより細かい粒度の表現が必要な場合は、`TimeGridDay.businessHourSlots` を参照して独自に描画してください。
+
 `TimeGridDay.businessHourSlots`（`slots` と同じ並びの `{ minutes, isBusinessHours }[]`）としてビューモデルからも参照できます。`businessHours` 未指定時（既定 `[]`）はすべてのスロットが `isBusinessHours: false` になり、DOM 属性も出力されません（従来どおりの出力）。`startTime` が `endTime` 以降、または `'HH:mm'` 形式でない値を指定すると `Error` になります。
+
+### リソースビュー（ResourceView / VirtualResourceView）
+
+リソースビューは表示日が単日のため、その日の曜日を基準に判定した 1 本のスロット列（`ResourceViewModel.businessHourSlots`）を全列で共有します。DOM 上は週/日ビューと同じ `[data-koyomi="timegrid-slot"][data-koyomi-business-hours]` が各列に描画され、デフォルトテーマの見た目も共通です。
+
+### タイムラインビュー（TimelineView / VirtualTimelineView）
+
+タイムラインは横軸が「表示分」（範囲先頭からの分、全日を等幅 1440 分として扱う座標系）のため、スロット単位ではなく区間そのものを描画します。表示日ごとに該当曜日のルールを日オフセット付きの表示分の区間へ変換し、隣接・重複する区間はマージしたうえで、各行の時間トラック内に `[data-koyomi="timeline-business-hours"]`（`aria-hidden`）という下敷きの帯を `insetInlineStart` / `width`（% 指定）で描画します。帯はイベントの帯（`timeline-item`）より背面に表示されます。
+
+`TimelineViewModel.businessHourRanges`（`{ startMinutes, endMinutes }[]`、開始分昇順・マージ済み）としてビューモデルからも参照できます。`businessHours` 未指定時（既定 `[]`）は空配列になり、DOM 要素も描画されません（従来どおりの出力）。
 
 ## 関連ページ
 

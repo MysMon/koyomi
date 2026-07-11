@@ -4,26 +4,32 @@
  * 全セレクタをこのパターンのルート要素（`.team-pattern`）配下にスコープし、
  * demo.css や他パターンに影響しないようにする。カレンダー本体
  * （[data-koyomi="..."]）の基本的な見た目は @koyomi-cal/react/theme.css に
- * 委ね、ここでは仮想化コンテナの境界寸法・レイアウト・営業時間ハイライトの
- * 補完表示のみを定義する。
+ * 委ね、ここでは仮想化コンテナの境界寸法・レイアウトのみを定義する。
+ *
+ * 営業時間ハイライト（businessHours）はライブラリのネイティブ表示
+ * （data-koyomi-business-hours / timeline-business-hours）にそのまま委ね、
+ * このパターン独自の CSS オーバーレイは持たない。既定の
+ * --koyomi-business-hours-bg は「今日」の背景（--koyomi-today-bg）と
+ * 色相が近く、リソースビューで重なると判別しづらいことがあるため、
+ * このパターンに限りアンバー系の色に上書きして視認性を確保する。
  */
 
 .team-pattern {
-  --team-business-bg: rgba(26, 115, 232, 0.1);
+  --koyomi-business-hours-bg: rgba(251, 188, 4, 0.16);
 }
 
 @media (prefers-color-scheme: dark) {
   .team-pattern {
-    --team-business-bg: rgba(138, 180, 248, 0.18);
+    --koyomi-business-hours-bg: rgba(253, 214, 99, 0.2);
   }
 }
 
 :root[data-koyomi-theme="dark"] .team-pattern {
-  --team-business-bg: rgba(138, 180, 248, 0.18);
+  --koyomi-business-hours-bg: rgba(253, 214, 99, 0.2);
 }
 
 :root[data-koyomi-theme="light"] .team-pattern {
-  --team-business-bg: rgba(26, 115, 232, 0.1);
+  --koyomi-business-hours-bg: rgba(251, 188, 4, 0.16);
 }
 
 /* ---------------------------------------------------------------------------
@@ -196,25 +202,4 @@
    （--koyomi-virtual-list-max-height、既定は無指定のため必須）。 */
 .team-pattern .team-calendar-frame {
   --koyomi-virtual-list-max-height: 520px;
-}
-
-/* ---------------------------------------------------------------------------
- * 営業時間ハイライトの補完表示（リソースビュー限定）
- *
- * ライブラリの businessHours は週/日ビュー専用で、リソースビューの
- * ViewModel には対応する属性が無い（team.tsx 冒頭の @remarks 参照）。
- * ここでは team.tsx が算出した帯（CSS カスタムプロパティ）を、リソース列
- * （[data-koyomi="resource-column"]、position: relative 済み）の背後に
- * ::before で重ねるだけの純粋な CSS 表現に留める。
- * ------------------------------------------------------------------------ */
-
-.team-pattern .team-calendar-frame[data-team-business-hours="true"]
-  [data-koyomi="resource-column"]::before {
-  content: "";
-  position: absolute;
-  inset-inline: 0;
-  top: var(--team-business-top, 0%);
-  height: var(--team-business-height, 0%);
-  background-color: var(--team-business-bg);
-  pointer-events: none;
 }

@@ -300,7 +300,12 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"]
     div[data-koyomi="resource-columns"]
       div[data-koyomi="resource-column"][data-koyomi-resource][data-today?] × columns
          … getColumnProps を展開。position: relative の基準
-        div[data-koyomi="timegrid-slot"] × slots           … 罫線。style: top %
+        div[data-koyomi="timegrid-slot"][data-koyomi-business-hours]? × slots
+                                                      … 罫線。style: top %。
+                                                        data-koyomi-business-hours は
+                                                        businessHours 該当スロットのみ付き、
+                                                        その場合 style に height（次スロットまで）も追加
+                                                        （表示日の曜日基準で判定し全列共通。週/日ビューと同じ規則）
         button[data-koyomi="timegrid-event"] × n           … getEventProps を展開
            [data-continues-before?][data-continues-after?][data-koyomi-dragging?]
            style: top/height/left/width すべて %
@@ -355,6 +360,7 @@ div[data-koyomi="resource"][data-koyomi-virtualized="true"][data-koyomi-columns=
     div[data-koyomi="resource-columns"]
       div[data-koyomi="resource-columns-spacer"][data-edge="before"][aria-hidden]   … 左スペーサ
       div[data-koyomi="resource-column"] × 可視列数
+        div[data-koyomi="timegrid-slot"][data-koyomi-business-hours]? × slots      … 非仮想化版と同一（罫線・営業時間の背景）
       div[data-koyomi="resource-columns-spacer"][data-edge="after"][aria-hidden]    … 右スペーサ
       div[data-koyomi="resource-column"][data-koyomi-pinned="true"] × 0〜1          … 窓外のフォーカス保持（inline: left）
         button[data-koyomi="timegrid-event"][tabindex="-1"] × n                    … pinned 列はタブ順から外す
@@ -410,6 +416,11 @@ div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"] (role="grid")
            style: --koyomi-event-color（resource.color 指定時のみ）。position: sticky（テーマ側）
       div[data-koyomi="timeline-row"][data-koyomi-resource] (role="gridcell") × rows
          … getRowProps を展開。position: relative の基準。style: --koyomi-timeline-lanes（行のレーン数）
+        div[data-koyomi="timeline-business-hours"] (aria-hidden) × businessHourRanges.length
+           … businessHours 該当区間の下敷き帯（全行共通。businessHours 未指定時は描画されない）。
+             style: insetInlineStart/width は %（表示分 / totalMinutes）。
+             timeline-item より前（DOM 順で先）に描画するため、絶対配置のスタッキング順で
+             自然に帯の背面へ回る
         button[data-koyomi="timeline-item"] × n             … getItemProps を展開
            [data-koyomi-lane][data-all-day?][data-continues-before?][data-continues-after?][data-koyomi-dragging?]
            style: insetInlineStart/width は %（表示分 / totalMinutes）、
@@ -432,6 +443,10 @@ div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"] (role="grid")
   開発ビルドで一度だけ `console.warn` する（`timelineDays × ceil(1440 / slotMinutes)` が大きい構成）
 - `now-indicator` は週/日ビュー・リソースビューと同じ部位名だが、こちらは縦線
   （`data-orientation="vertical"`）として描画される点が異なる
+- `timeline-business-hours` は表示日ごとに該当曜日のルールを日オフセット付きの表示分の区間へ
+  変換し、隣接・重複する区間をマージしたもの（`TimelineViewModel.businessHourRanges`）を
+  全行で共有して描画する。週/日・リソースビューの `data-koyomi-business-hours` 属性方式とは
+  異なり、タイムラインは % 幅の帯そのものとして表現する
 - a11y: 行＝リソース・列＝時間トラックという 2 列固定の構造なので、他ビューと異なり本文にも
   `role="grid"` を適用し grid/row/columnheader/rowheader/gridcell を完全に構成する（各行が
   「rowheader + gridcell 1 セル」の固定 2 セルで、日単位の離散列を持たないため）。帯自体は

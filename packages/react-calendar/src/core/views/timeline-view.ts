@@ -19,10 +19,13 @@ import {
   formatSlotLabel,
   isSameDayInZone,
   minutesOfDayInZone,
+  parseTimeOfDay,
   startOfDayInZone,
   weekdayInZone,
 } from '../timezone';
 import type {
+  BusinessHourRange,
+  BusinessHoursRule,
   CalendarResource,
   EventOccurrence,
   TimelineDay,
@@ -44,6 +47,13 @@ const MINUTES_PER_DAY = 1440;
  * ビルダー側の固定値（ドラッグ粒度の利用者設定 `snapMinutes` とは無関係）。
  */
 const ZERO_LENGTH_EFFECTIVE_MINUTES = 30;
+
+/**
+ * `businessHours` 未指定時に共有する空配列（{@link TimelineViewModel.businessHourRanges}）。
+ * 呼び出しのたびに新しい配列を割り当てないよう、モジュールで 1 本だけ保持する
+ * （`buildTimeGridViewModel` の `sharedBusinessHourSlots` と同じ短絡方針）。
+ */
+const EMPTY_BUSINESS_HOUR_RANGES: readonly BusinessHourRange[] = [];
 
 /** 未割り当て行のキー（{@link UNASSIGNED_LANE_KEY} の別名。既存コードの可読性のため）。 */
 const UNASSIGNED_KEY = UNASSIGNED_LANE_KEY;
@@ -79,6 +89,58 @@ function compareRowEntries(a: RowEntry, b: RowEntry): number {
 }
 
 /**
+ * 表示日ごとに営業時間ルールを表示分の区間へ変換し、開始分昇順にソート、
+ * 隣接・重複する区間をマージする（{@link TimelineViewModel.businessHourRanges}）。
+ *
+ * 各表示日について、その日の曜日 {@link TimelineDay.weekday} を `daysOfWeek` に含む
+ * ルールだけを対象に `startTime`/`endTime` を分換算し、日インデックス × 1440 を
+ * 加算して表示分座標系（{@link TimelineItem.startMinutes} と同じ座標系）へ変換する。
+ * 複数ルールが同一日・複数日にまたがって重なっても、マージ後は互いに重ならない
+ * 区間の一覧になる。
+ *
+ * @param days - 表示日一覧（週/日ビューと同じ曜日基準の判定に使う）
+ * @param businessHours - 営業時間の指定一覧。空配列なら `[]`（{@link EMPTY_BUSINESS_HOUR_RANGES}）を返す
+ * @returns 開始分昇順・マージ済みの区間一覧
+ */
+function buildBusinessHourRanges(
+  days: readonly TimelineDay[],
+  businessHours: readonly BusinessHoursRule[],
+): readonly BusinessHourRange[] {
+  if (businessHours.length === 0) {
+    return EMPTY_BUSINESS_HOUR_RANGES;
+  }
+
+  const raw: BusinessHourRange[] = [];
+  days.forEach((day, dayIndex) => {
+    for (const rule of businessHours) {
+      if (!rule.daysOfWeek.includes(day.weekday)) {
+        continue;
+      }
+      const dayOffset = dayIndex * MINUTES_PER_DAY;
+      raw.push({
+        startMinutes: dayOffset + parseTimeOfDay(rule.startTime),
+        endMinutes: dayOffset + parseTimeOfDay(rule.endTime),
+      });
+    }
+  });
+  if (raw.length === 0) {
+    return EMPTY_BUSINESS_HOUR_RANGES;
+  }
+
+  raw.sort((a, b) => a.startMinutes - b.startMinutes);
+  const merged: BusinessHourRange[] = [];
+  for (const range of raw) {
+    const last = merged[merged.length - 1];
+    if (last !== undefined && range.startMinutes <= last.endMinutes) {
+      last.endMinutes = Math.max(last.endMinutes, range.endMinutes);
+    } else {
+      merged.push({ ...range });
+    }
+  }
+  return merged;
+}
+
+/**
  * タイムラインビューのビューモデルを構築する。
  *
  * 処理内容:
@@ -105,6 +167,9 @@ function compareRowEntries(a: RowEntry, b: RowEntry): number {
  * @param params.timelineDays - 表示日数
  * @param params.slotMinutes - 時間軸の目盛り間隔（分）
  * @param params.now - 現在時刻（`isToday` 判定・現在時刻線に使用）
+ * @param params.businessHours - 営業時間の指定一覧（{@link TimelineViewModel.businessHourRanges}
+ *   を算出する）。表示日ごとに該当曜日のルールを日オフセット付きの表示分の区間へ変換し、
+ *   隣接・重複する区間はマージする。省略時は `[]`（従来どおり）
  * @returns タイムラインビューのビューモデル
  * @example
  * ```ts
@@ -130,6 +195,7 @@ export function buildTimelineViewModel(params: {
   timelineDays: number;
   slotMinutes: number;
   now: Date;
+  businessHours?: readonly BusinessHoursRule[];
 }): TimelineViewModel {
   const {
     currentDate,
@@ -140,6 +206,7 @@ export function buildTimelineViewModel(params: {
     timelineDays,
     slotMinutes,
     now,
+    businessHours = [],
   } = params;
 
   // 表示日の列挙（毎回日の開始へ再正規化する。深夜 0:00 が存在しないゾーン対策）
@@ -329,5 +396,6 @@ export function buildTimelineViewModel(params: {
     isEmpty: rows.length === 0,
     totalMinutes,
     nowIndicatorMinutes: nowInRange ? displayMinutesOf(now) : null,
+    businessHourRanges: buildBusinessHourRanges(days, businessHours),
   };
 }

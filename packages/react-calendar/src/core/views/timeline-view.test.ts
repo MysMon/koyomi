@@ -6,7 +6,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import { parseDateValue } from '../timezone';
-import type { CalendarEvent, CalendarResource, EventOccurrence, TimeZoneId } from '../types';
+import type {
+  BusinessHoursRule,
+  CalendarEvent,
+  CalendarResource,
+  EventOccurrence,
+  TimeZoneId,
+} from '../types';
 import { buildTimelineViewModel } from './timeline-view';
 
 const TOKYO = 'Asia/Tokyo';
@@ -62,6 +68,7 @@ function build(params: {
   currentDate?: Date;
   now?: Date;
   timeZone?: TimeZoneId;
+  businessHours?: readonly BusinessHoursRule[];
 }) {
   return buildTimelineViewModel({
     currentDate: params.currentDate ?? at('2026-07-10T09:00'),
@@ -72,6 +79,7 @@ function build(params: {
     timelineDays: params.timelineDays ?? 3,
     slotMinutes: params.slotMinutes ?? 60,
     now: params.now ?? at('2026-07-10T10:30'),
+    ...(params.businessHours !== undefined ? { businessHours: params.businessHours } : {}),
   });
 }
 
@@ -283,6 +291,73 @@ describe('buildTimelineViewModel', () => {
     it('「今」が表示範囲外なら null を返す', () => {
       const vm = build({ now: at('2026-07-20T10:30') });
       expect(vm.nowIndicatorMinutes).toBeNull();
+    });
+  });
+
+  describe('businessHours（営業時間）', () => {
+    it('省略時（既定 []）は businessHourRanges が空配列になり、常に同じ参照を返す', () => {
+      const vm1 = build({});
+      const vm2 = build({});
+      expect(vm1.businessHourRanges).toEqual([]);
+      expect(vm1.businessHourRanges).toBe(vm2.businessHourRanges);
+    });
+
+    it('該当曜日の日だけ、日オフセット付きの表示分の区間に変換される', () => {
+      // 表示日: 2026-07-10(金,5) / 07-11(土,6) / 07-12(日,0)。金曜だけを営業日にする
+      const vm = build({
+        businessHours: [{ daysOfWeek: [5], startTime: '09:00', endTime: '18:00' }],
+      });
+      expect(vm.businessHourRanges).toEqual([{ startMinutes: 540, endMinutes: 1080 }]);
+    });
+
+    it('複数日にわたる場合、各日の区間が日オフセット付きで並ぶ', () => {
+      const vm = build({
+        businessHours: [{ daysOfWeek: [5, 6], startTime: '09:00', endTime: '18:00' }],
+      });
+      expect(vm.businessHourRanges).toEqual([
+        { startMinutes: 540, endMinutes: 1080 }, // 金曜（日オフセット 0）
+        { startMinutes: 1440 + 540, endMinutes: 1440 + 1080 }, // 土曜（日オフセット 1440）
+      ]);
+    });
+
+    it('同日内で隣接する複数ルールの区間はマージされる', () => {
+      const vm = build({
+        businessHours: [
+          { daysOfWeek: [5], startTime: '09:00', endTime: '13:00' },
+          { daysOfWeek: [5], startTime: '13:00', endTime: '18:00' },
+        ],
+      });
+      expect(vm.businessHourRanges).toEqual([{ startMinutes: 540, endMinutes: 1080 }]);
+    });
+
+    it('同日内で重複する複数ルールの区間はマージされる', () => {
+      const vm = build({
+        businessHours: [
+          { daysOfWeek: [5], startTime: '09:00', endTime: '15:00' },
+          { daysOfWeek: [5], startTime: '13:00', endTime: '18:00' },
+        ],
+      });
+      expect(vm.businessHourRanges).toEqual([{ startMinutes: 540, endMinutes: 1080 }]);
+    });
+
+    it('離れた区間はマージされず、開始分昇順で並ぶ', () => {
+      const vm = build({
+        businessHours: [
+          { daysOfWeek: [5], startTime: '15:00', endTime: '18:00' },
+          { daysOfWeek: [5], startTime: '09:00', endTime: '12:00' },
+        ],
+      });
+      expect(vm.businessHourRanges).toEqual([
+        { startMinutes: 540, endMinutes: 720 },
+        { startMinutes: 900, endMinutes: 1080 },
+      ]);
+    });
+
+    it('daysOfWeek に表示日の曜日が含まれない場合は区間が生成されない', () => {
+      const vm = build({
+        businessHours: [{ daysOfWeek: [1, 2, 3, 4], startTime: '09:00', endTime: '18:00' }],
+      });
+      expect(vm.businessHourRanges).toEqual([]);
     });
   });
 

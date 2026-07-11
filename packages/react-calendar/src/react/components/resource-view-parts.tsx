@@ -19,9 +19,11 @@
 
 import type { ReactNode, Ref } from 'react';
 import type {
+  BusinessHourSlot,
   CalendarResource,
   EventOccurrence,
   PositionedOccurrence,
+  TimeSlot,
   TimeZoneId,
 } from '../../core/types';
 import type { ResourcePreviewSegment } from '../use-resource-grid-drag';
@@ -150,6 +152,42 @@ export function sameEventOccurrence(a: EventOccurrence, b: EventOccurrence): boo
     a.start.getTime() === b.start.getTime() &&
     a.end.getTime() === b.end.getTime()
   );
+}
+
+/** `TimeSlot` 配列の内容が等しいかどうかを比較する（`ResourceView` / `VirtualResourceView` 共通）。 */
+export function sameSlots(a: readonly TimeSlot[], b: readonly TimeSlot[]): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((slot, index) => slot.minutes === b[index]?.minutes);
+}
+
+/**
+ * `BusinessHourSlot` 配列の内容が等しいかどうかを比較する
+ * （`time-grid-view.tsx` の同名ヘルパと同じ判定。リソースビューは 1 本を全列で共有するため
+ * 通常は参照比較で早期に一致するが、`memo` の安全側フォールバックとして内容比較も行う）。
+ */
+export function sameBusinessHourSlots(
+  a: readonly BusinessHourSlot[],
+  b: readonly BusinessHourSlot[],
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((slot, index) => {
+    const other = b[index];
+    return (
+      other !== undefined &&
+      slot.minutes === other.minutes &&
+      slot.isBusinessHours === other.isBusinessHours
+    );
+  });
 }
 
 /** `ResourcePreviewSegment` の内容が等しいかどうかを比較する。 */

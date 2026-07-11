@@ -23,6 +23,7 @@
 import type { ReactElement, ReactNode } from 'react';
 import { memo, useRef, useState } from 'react';
 import type {
+  BusinessHourSlot,
   EventOccurrence,
   PositionedOccurrence,
   ResourceColumn,
@@ -40,10 +41,12 @@ import {
   DEFAULT_UNASSIGNED_LABEL,
   defaultTimedContent,
   MINUTES_PER_DAY,
+  sameBusinessHourSlots,
   sameEventOccurrence,
   samePositionedOccurrences,
   samePreviewSegment,
   sameResource,
+  sameSlots,
   toDivRef,
 } from './resource-view-parts';
 
@@ -107,17 +110,6 @@ function useStableResourceDrag(drag: ResourceGridDragHandlers): ResourceColumnDr
   return stable;
 }
 
-/** `TimeSlot` 配列の内容が等しいかどうかを比較する。 */
-function sameSlots(a: readonly TimeSlot[], b: readonly TimeSlot[]): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a.length !== b.length) {
-    return false;
-  }
-  return a.every((slot, index) => slot.minutes === b[index]?.minutes);
-}
-
 /**
  * リソースビュー（`ResourceView`）を描画する。
  *
@@ -153,7 +145,7 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
     return null;
   }
 
-  const { columns, slots, nowIndicatorMinutes, isToday, isEmpty } = viewModel;
+  const { columns, slots, nowIndicatorMinutes, isToday, isEmpty, businessHourSlots } = viewModel;
   const { timeZone, options } = state;
   const { locale } = options;
 
@@ -257,6 +249,7 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
               key={column.key}
               column={column}
               slots={slots}
+              businessHourSlots={businessHourSlots}
               timeZone={timeZone}
               locale={locale}
               isToday={isToday}
@@ -337,6 +330,8 @@ const AllDayItemButton = memo(AllDayItemButtonImpl, (prev, next) => {
 interface ResourceColumnBodyProps {
   column: ResourceColumn;
   slots: readonly TimeSlot[];
+  /** {@link ResourceViewModel.businessHourSlots}（全列共通の 1 本）。 */
+  businessHourSlots: readonly BusinessHourSlot[];
   timeZone: TimeZoneId;
   locale: string;
   isToday: boolean;
@@ -353,6 +348,7 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
   const {
     column,
     slots,
+    businessHourSlots,
     timeZone,
     locale,
     isToday,
@@ -370,13 +366,28 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
       data-koyomi="resource-column"
       data-today={isToday ? 'true' : undefined}
     >
-      {slots.map((slot) => (
-        <div
-          key={slot.minutes}
-          data-koyomi="timegrid-slot"
-          style={{ top: `${(slot.minutes / MINUTES_PER_DAY) * 100}%` }}
-        />
-      ))}
+      {slots.map((slot, index) => {
+        // isBusinessHours なスロットのみ、次のスロット（無ければ 24:00）までの
+        // 高さを追加で持たせて背景を敷ける（週/日ビューの timegrid-slot と同じ規則。
+        // 既定（businessHours 未指定）では従来どおり top のみのスタイルのまま）
+        const isBusinessHours = businessHourSlots[index]?.isBusinessHours ?? false;
+        const nextMinutes = slots[index + 1]?.minutes ?? MINUTES_PER_DAY;
+        return (
+          <div
+            key={slot.minutes}
+            data-koyomi="timegrid-slot"
+            data-koyomi-business-hours={isBusinessHours ? 'true' : undefined}
+            style={
+              isBusinessHours
+                ? {
+                    top: `${(slot.minutes / MINUTES_PER_DAY) * 100}%`,
+                    height: `${((nextMinutes - slot.minutes) / MINUTES_PER_DAY) * 100}%`,
+                  }
+                : { top: `${(slot.minutes / MINUTES_PER_DAY) * 100}%` }
+            }
+          />
+        );
+      })}
       {column.items.map((item) => {
         const eventProps = drag.getEventProps(item);
         const isEditable = item.occurrence.event.editable !== false;
@@ -473,6 +484,7 @@ const ResourceColumnBody = memo(ResourceColumnBodyImpl, (prev, next) => {
   return (
     sameResourceColumnForBody(prev.column, next.column) &&
     sameSlots(prev.slots, next.slots) &&
+    sameBusinessHourSlots(prev.businessHourSlots, next.businessHourSlots) &&
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
     prev.isToday === next.isToday &&

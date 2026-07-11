@@ -794,7 +794,7 @@ interface ToolbarLabels {
 | `locale?` | `string` | `'ja'` |
 | `hiddenWeekdays?` | `readonly Weekday[]` | `[]`（非表示にする曜日。7 曜日全指定は無効） |
 | `showWeekNumbers?` | `boolean` | `false`（月・週ビューに ISO 8601 週番号を表示するか。詳細は [ビュー: 週番号](./views.md#週番号showweeknumbers) を参照） |
-| `businessHours?` | `readonly BusinessHoursRule[]` | `[]`（週/日ビューの営業時間の指定。詳細は [ビュー: 営業時間](./views.md#営業時間businesshours) を参照） |
+| `businessHours?` | `readonly BusinessHoursRule[]` | `[]`（週/日・リソース・タイムラインビューの営業時間の指定。詳細は [ビュー: 営業時間](./views.md#営業時間businesshours) を参照） |
 | `now?` | `() => Date` | `() => new Date()` |
 | `onEventsChange?` | `(events: readonly CalendarEvent[]) => void` | なし |
 
@@ -831,9 +831,10 @@ interface ToolbarLabels {
 | `YearDay` | `{ date; key; inCurrentMonth; isToday; eventCount }`。前後月の日付（`inCurrentMonth: false`）は常に `eventCount: 0` |
 | `MultiMonthViewModel` | `{ type: 'multiMonth'; anchor: Date; months: readonly MultiMonthMonth[]; weekdays: readonly Weekday[] }` |
 | `MultiMonthMonth` | `{ anchor: Date; key: string; weeks: readonly MonthWeek[] }`。`weeks` は月ビューと同じ `MonthWeek` だが、前後月の日付セルにはセグメントを配置しない |
-| `ResourceViewModel` | `{ type: 'resource'; date: Date; dateKey: string; isToday: boolean; columns: readonly ResourceColumn[]; isEmpty: boolean; slots: readonly TimeSlot[]; nowIndicatorMinutes: number \| null }` |
+| `ResourceViewModel` | `{ type: 'resource'; date: Date; dateKey: string; isToday: boolean; columns: readonly ResourceColumn[]; isEmpty: boolean; slots: readonly TimeSlot[]; nowIndicatorMinutes: number \| null; businessHourSlots: readonly BusinessHourSlot[] }`。`businessHourSlots` は `slots` と同じ並びの営業時間内フラグ（表示日の曜日基準で判定した 1 本を全列で共有。`businessHours` 未指定時はすべて `false`） |
 | `ResourceColumn` | `{ resource: CalendarResource \| null; key: string; items: readonly PositionedOccurrence[]; allDayItems: readonly EventOccurrence[] }`。`resource: null` は未割り当て列。`key` は `` `r:${id}` `` または `'unassigned'` |
-| `TimelineViewModel` | `{ type: 'timeline'; days: readonly TimelineDay[]; slots: readonly TimelineSlot[]; rows: readonly TimelineRow[]; isEmpty: boolean; totalMinutes: number; nowIndicatorMinutes: number \| null }` |
+| `TimelineViewModel` | `{ type: 'timeline'; days: readonly TimelineDay[]; slots: readonly TimelineSlot[]; rows: readonly TimelineRow[]; isEmpty: boolean; totalMinutes: number; nowIndicatorMinutes: number \| null; businessHourRanges: readonly BusinessHourRange[] }`。`businessHourRanges` は営業時間を表示分座標系へ変換し、隣接・重複をマージした区間一覧（開始分昇順。`businessHours` 未指定時は `[]`） |
+| `BusinessHourRange` | `{ startMinutes: number; endMinutes: number }`。表示分座標系（範囲先頭からの分）の営業時間帯 1 本分。`endMinutes` は排他的 |
 | `TimelineDay` | `{ date: Date; key: string; isToday: boolean; weekday: Weekday }` |
 | `TimelineSlot` | `{ minutes: number; dayKey: string; label: string }`。`minutes` は「表示分」（範囲先頭からの分。既存 `TimeSlot` と異なり複数日で 1439 を超えうる） |
 | `TimelineRow` | `{ resource: CalendarResource \| null; key: string; items: readonly TimelineItem[]; laneCount: number }`。`resource: null` は未割り当て行 |
@@ -1082,8 +1083,8 @@ console.log(shortcutForKey('s')); // => null（該当なし）
 | `buildListViewModel(params): ListViewModel` | リストビューのビューモデル（日付ごとのオカレンス一覧）を構築する |
 | `buildYearViewModel(params): YearViewModel` | 年ビューのビューモデル（12 ヶ月分のミニ月グリッド・日ごとの予定件数）を構築する。`hiddenWeekdays` は無視する |
 | `buildMultiMonthViewModel(params): MultiMonthViewModel` | 複数月ビューのビューモデル（`multiMonthCount` ヶ月分の月グリッド）を構築する。内部で月ごとに `buildMonthViewModel` を呼び、`segmentRange` を各月本体にクランプすることで前後月の日付セルに予定を出さない |
-| `buildResourceViewModel(params): ResourceViewModel` | リソースビューのビューモデル（列 = リソース、列ごとの時間グリッド配置）を構築する。`hiddenWeekdays` は無視する。`params.resources` / `params.unassignedLane` で未割り当て列の生成規則を制御する |
-| `buildTimelineViewModel(params): TimelineViewModel` | タイムラインビューのビューモデル（`params.timelineDays` 日分の「表示分」座標系、行 = リソース、区間レーン割当）を構築する。`hiddenWeekdays` は無視する |
+| `buildResourceViewModel(params): ResourceViewModel` | リソースビューのビューモデル（列 = リソース、列ごとの時間グリッド配置）を構築する。`hiddenWeekdays` は無視する。`params.resources` / `params.unassignedLane` で未割り当て列の生成規則を制御し、`params.businessHours`（省略時 `[]`）で全列共通の `businessHourSlots` を算出する |
+| `buildTimelineViewModel(params): TimelineViewModel` | タイムラインビューのビューモデル（`params.timelineDays` 日分の「表示分」座標系、行 = リソース、区間レーン割当）を構築する。`hiddenWeekdays` は無視する。`params.businessHours`（省略時 `[]`）で `businessHourRanges`（表示分の区間・マージ済み）を算出する |
 
 ```ts
 import { buildMonthViewModel } from '@koyomi-cal/react';

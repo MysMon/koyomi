@@ -386,6 +386,20 @@ export interface BusinessHoursRule {
   endTime: string;
 }
 
+/**
+ * タイムラインビューの営業時間帯 1 本分（表示分座標系）。
+ *
+ * {@link TimelineViewModel.businessHourRanges} の要素。`startMinutes`/`endMinutes` は
+ * 範囲先頭からの分（{@link TimelineItem.startMinutes} と同じ座標系）で、`endMinutes` は
+ * 排他的（{@link BusinessHoursRule.endTime} と同じ扱い）。
+ */
+export interface BusinessHourRange {
+  /** 開始（表示分、範囲先頭からの分）。 */
+  startMinutes: number;
+  /** 終了（表示分、範囲先頭からの分）。この分自体は含まない。 */
+  endMinutes: number;
+}
+
 /** 営業時間内フラグを付与した時間グリッドのスロット。 */
 export interface BusinessHourSlot {
   /** その日の 0:00 からの分（{@link TimeSlot.minutes} と同じ並び）。 */
@@ -583,6 +597,14 @@ export interface ResourceViewModel {
   slots: readonly TimeSlot[];
   /** 現在時刻線の位置（その日の 0:00 からの分）。表示日が今日でなければ `null`。 */
   nowIndicatorMinutes: number | null;
+  /**
+   * {@link ResourceViewModel.slots} と同じ並びで、各スロットが
+   * {@link CalendarOptions.businessHours} の営業時間内かどうかを示す
+   * （表示日 {@link ResourceViewModel.date} の曜日基準で判定。列 = リソースのため
+   * 全列共通の 1 本になる。週/日ビューの `TimeGridDay.businessHourSlots` と同じ規則）。
+   * `businessHours` 未指定時はすべて `isBusinessHours: false`。
+   */
+  businessHourSlots: readonly BusinessHourSlot[];
 }
 
 /** タイムラインの時間軸の目盛り 1 つ分。 */
@@ -657,6 +679,14 @@ export interface TimelineViewModel {
   totalMinutes: number;
   /** 現在時刻線の位置（表示分）。表示範囲に「今」がなければ `null`。 */
   nowIndicatorMinutes: number | null;
+  /**
+   * {@link CalendarOptions.businessHours} を表示分座標系（範囲先頭からの分。
+   * {@link TimelineItem.startMinutes} と同じ座標系）へ変換した区間一覧。
+   * 各表示日について該当曜日のルールを日オフセット付きで変換し、開始分昇順に
+   * ソート、隣接・重複する区間はマージ済み（複数ルールが同一区間を指しても
+   * 重複した帯を描画しない）。`businessHours` 未指定時は `[]`（従来どおり）。
+   */
+  businessHourRanges: readonly BusinessHourRange[];
 }
 
 /** 現在のビューに対応するビューモデル。 */

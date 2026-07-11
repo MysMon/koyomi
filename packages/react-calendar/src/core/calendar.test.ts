@@ -547,6 +547,27 @@ describe('createCalendar', () => {
       );
     });
 
+    it('businessHours はリソース/タイムラインビューの businessHourSlots/businessHourRanges にも反映される', () => {
+      const calendar = makeCalendar({
+        resources: [ROOM],
+        businessHours: [
+          { daysOfWeek: [0, 1, 2, 3, 4, 5, 6], startTime: '09:00', endTime: '17:00' },
+        ],
+      });
+
+      calendar.setView('resource');
+      const resourceVm = calendar.getViewModel();
+      if (resourceVm.type !== 'resource') throw new Error('unreachable');
+      expect(
+        resourceVm.businessHourSlots.find((slot) => slot.minutes === 540)?.isBusinessHours,
+      ).toBe(true);
+
+      calendar.setView('timeline');
+      const timelineVm = calendar.getViewModel();
+      if (timelineVm.type !== 'timeline') throw new Error('unreachable');
+      expect(timelineVm.businessHourRanges.length).toBeGreaterThan(0);
+    });
+
     it("setView('year') 後は年ビューのビューモデル（12 ヶ月分）を返す", () => {
       const calendar = makeCalendar();
       calendar.setView('year');
