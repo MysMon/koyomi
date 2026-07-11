@@ -39,10 +39,30 @@ import { YearView } from './year-view';
 export interface CalendarViewProps {
   /** 月ビューのセグメントのカスタム描画。`MonthView` の `renderEvent` に転送する。 */
   renderMonthEvent?: (segment: EventSegment) => ReactNode;
+  /**
+   * 月ビューのイベントボタンの aria-label。既定文字列を受け取って加工・置換できる。
+   * `MonthView` の `eventAriaLabel` に転送する。
+   */
+  monthEventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
   /** 週/日ビューのイベントブロックのカスタム描画。`TimeGridView` の `renderEvent` に転送する。 */
   renderTimeGridEvent?: (item: PositionedOccurrence) => ReactNode;
+  /**
+   * 週/日ビューのイベントブロック（終日行含む）の aria-label。既定文字列を受け取って
+   * 加工・置換できる。`TimeGridView` の `eventAriaLabel` に転送する。
+   */
+  timeGridEventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
   /** リストビューのイベント行のカスタム描画。`ListView` の `renderEvent` に転送する。 */
   renderListEvent?: (occurrence: EventOccurrence) => ReactNode;
+  /**
+   * リストビューのイベント行の aria-label。既定文字列を受け取って加工・置換できる。
+   * `ListView` / `VirtualListView` の `eventAriaLabel` に転送する。
+   */
+  listEventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
+  /**
+   * リストビューの日セクションの aria-label。既定文字列を受け取って加工・置換できる。
+   * `ListView` / `VirtualListView` の `dayAriaLabel` に転送する。
+   */
+  listDayAriaLabel?: (day: ListDay, defaultLabel: string) => string;
   /**
    * リストビューの終日イベント時刻ラベル。`ListView` の `allDayLabel` に転送する。
    * 省略時は「終日」。
@@ -89,8 +109,23 @@ export interface CalendarViewProps {
   renderYearMonthHeader?: (month: YearMonth, defaultContent: ReactNode) => ReactNode;
   /** 年ビューの日セルのカスタム描画。`YearView` の `renderDayCell` に転送する。 */
   renderYearDayCell?: (day: YearDay, defaultContent: ReactNode) => ReactNode;
+  /**
+   * 年ビューの日セルの aria-label に含める件数文言（「予定N件」部分）。
+   * `YearView` の `dayCountLabel` に転送する。
+   */
+  yearDayCountLabel?: (count: number) => string;
+  /**
+   * 年ビューの日セルの aria-label 全体。既定文字列を受け取って加工・置換できる。
+   * `YearView` の `dayAriaLabel` に転送する。
+   */
+  yearDayAriaLabel?: (day: YearDay, defaultLabel: string) => string;
   /** 複数月ビューのセグメントのカスタム描画。`MultiMonthView` の `renderEvent` に転送する。 */
   renderMultiMonthEvent?: (segment: EventSegment) => ReactNode;
+  /**
+   * 複数月ビューのイベントボタンの aria-label。既定文字列を受け取って加工・置換できる。
+   * `MultiMonthView` の `eventAriaLabel` に転送する。
+   */
+  multiMonthEventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
   /** 複数月ビューの日セルのカスタム描画。`MultiMonthView` の `renderDayCell` に転送する。 */
   renderMultiMonthDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
   /**
@@ -120,6 +155,11 @@ export interface CalendarViewProps {
    * 省略時は「リソースがありません」。
    */
   resourceEmptyLabel?: ReactNode;
+  /**
+   * リソースビューのイベントブロックの aria-label。既定文字列を受け取って加工・置換できる。
+   * `ResourceView` の `eventAriaLabel` に転送する。
+   */
+  resourceEventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
   /** タイムラインの帯のカスタム描画。`TimelineView` の `renderEvent` に転送する。 */
   renderTimelineEvent?: (item: TimelineItem) => ReactNode;
   /** タイムラインの行見出しのカスタム描画。`TimelineView` の `renderRowHeader` に転送する。 */
@@ -139,6 +179,11 @@ export interface CalendarViewProps {
    * `cornerLabel` に転送する。省略時は「リソース」。
    */
   timelineCornerLabel?: string;
+  /**
+   * タイムラインの帯の aria-label。既定文字列を受け取って加工・置換できる。
+   * `TimelineView` の `eventAriaLabel` に転送する。
+   */
+  timelineEventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
 }
 
 /**
@@ -175,6 +220,7 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
             {...(props.monthOverflowButtonProps
               ? { overflowButtonProps: props.monthOverflowButtonProps }
               : {})}
+            {...(props.monthEventAriaLabel ? { eventAriaLabel: props.monthEventAriaLabel } : {})}
           />
         );
       case 'week':
@@ -185,6 +231,9 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
             {...(props.renderTimeGridDayHeader
               ? { renderDayHeader: props.renderTimeGridDayHeader }
               : {})}
+            {...(props.timeGridEventAriaLabel
+              ? { eventAriaLabel: props.timeGridEventAriaLabel }
+              : {})}
           />
         );
       case 'list': {
@@ -194,6 +243,8 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
           ...(props.listAllDayLabel !== undefined ? { allDayLabel: props.listAllDayLabel } : {}),
           ...(props.listEmptyLabel !== undefined ? { emptyLabel: props.listEmptyLabel } : {}),
           ...(props.renderListDayHeader ? { renderDayHeader: props.renderListDayHeader } : {}),
+          ...(props.listEventAriaLabel ? { eventAriaLabel: props.listEventAriaLabel } : {}),
+          ...(props.listDayAriaLabel ? { dayAriaLabel: props.listDayAriaLabel } : {}),
         };
         if (props.virtualizeList === true) {
           return (
@@ -215,6 +266,8 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
               ? { renderMonthHeader: props.renderYearMonthHeader }
               : {})}
             {...(props.renderYearDayCell ? { renderDayCell: props.renderYearDayCell } : {})}
+            {...(props.yearDayCountLabel ? { dayCountLabel: props.yearDayCountLabel } : {})}
+            {...(props.yearDayAriaLabel ? { dayAriaLabel: props.yearDayAriaLabel } : {})}
           />
         );
       case 'multiMonth':
@@ -230,6 +283,9 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
             {...(props.multiMonthOverflowButtonProps
               ? { overflowButtonProps: props.multiMonthOverflowButtonProps }
               : {})}
+            {...(props.multiMonthEventAriaLabel
+              ? { eventAriaLabel: props.multiMonthEventAriaLabel }
+              : {})}
           />
         );
       case 'resource':
@@ -244,6 +300,9 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
               : {})}
             {...(props.resourceEmptyLabel !== undefined
               ? { emptyLabel: props.resourceEmptyLabel }
+              : {})}
+            {...(props.resourceEventAriaLabel
+              ? { eventAriaLabel: props.resourceEventAriaLabel }
               : {})}
           />
         );
@@ -262,6 +321,9 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
               : {})}
             {...(props.timelineEmptyLabel !== undefined
               ? { emptyLabel: props.timelineEmptyLabel }
+              : {})}
+            {...(props.timelineEventAriaLabel
+              ? { eventAriaLabel: props.timelineEventAriaLabel }
               : {})}
           />
         );

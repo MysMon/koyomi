@@ -87,6 +87,18 @@ describe('Toolbar', () => {
     }
   });
 
+  it('ビュー切替グループ（toolbar-views）には既定で「表示切替」の aria-label が付く', () => {
+    const { container } = renderToolbar('month');
+    const viewsGroup = container.querySelector('[data-koyomi="toolbar-views"]');
+    expect(viewsGroup).toHaveAttribute('aria-label', '表示切替');
+  });
+
+  it('labels.viewsGroup を指定するとビュー切替グループの aria-label が差し替わる', () => {
+    const { container } = renderToolbar('month', { viewsGroup: 'View switcher' });
+    const viewsGroup = container.querySelector('[data-koyomi="toolbar-views"]');
+    expect(viewsGroup).toHaveAttribute('aria-label', 'View switcher');
+  });
+
   it('today/prev/next ボタンは type="button" と日本語の aria-label を持つ', () => {
     const { container } = renderToolbar('month');
 

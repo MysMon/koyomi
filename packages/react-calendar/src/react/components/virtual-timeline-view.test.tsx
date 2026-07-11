@@ -298,6 +298,27 @@ describe('VirtualTimelineView', () => {
     expect(body.scrollTop).toBe(84);
   });
 
+  it('eventAriaLabel は既定の aria-label 文字列（日時＋リソース名）を defaultLabel として受け取り、返り値に置き換わる', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e0',
+        title: '作業0',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T10:00',
+        resourceId: 'r0',
+      },
+    ];
+    const eventAriaLabel = (
+      _occurrence: import('../../core/types').EventOccurrence,
+      defaultLabel: string,
+    ): string => `カスタム:${defaultLabel}`;
+    const { container } = render(
+      <Harness resources={makeResources(3)} events={events} viewProps={{ eventAriaLabel }} />,
+    );
+    const item = container.querySelector('[data-koyomi="timeline-item"]');
+    expect(item).toHaveAttribute('aria-label', 'カスタム:作業0、7月15日 9:00〜10:00、リソース0');
+  });
+
   it('矢印キー（→）で帯を移動でき、onEventChange が呼ばれる（D&D 配線の確認）', () => {
     const onEventChange = vi.fn();
     const events: CalendarEvent[] = [

@@ -34,6 +34,8 @@ function Harness(props: {
   callbacks?: CalendarInteractionCallbacks;
   renderMonthHeader?: (month: YearMonth, defaultContent: ReactNode) => ReactNode;
   renderDayCell?: (day: YearDay, defaultContent: ReactNode) => ReactNode;
+  dayCountLabel?: (count: number) => string;
+  dayAriaLabel?: (day: YearDay, defaultLabel: string) => string;
   apiRef?: { current: CalendarApi | null };
 }): ReactElement {
   const calendar = useCalendar({
@@ -56,6 +58,8 @@ function Harness(props: {
           ? { renderMonthHeader: props.renderMonthHeader }
           : {})}
         {...(props.renderDayCell !== undefined ? { renderDayCell: props.renderDayCell } : {})}
+        {...(props.dayCountLabel !== undefined ? { dayCountLabel: props.dayCountLabel } : {})}
+        {...(props.dayAriaLabel !== undefined ? { dayAriaLabel: props.dayAriaLabel } : {})}
       />
     </CalendarProvider>
   );
@@ -199,6 +203,36 @@ describe('YearView - 予定件数の表示', () => {
     expect(button).not.toHaveAttribute('data-has-events');
     expect(button.querySelector('[data-koyomi="year-day-count"]')).toBeNull();
     expect(button).toHaveAttribute('aria-label', '7月11日');
+  });
+
+  it('dayCountLabel で件数文言（「予定N件」部分）をカスタマイズできる（予定が 0 件の日には呼ばれない）', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '朝会', start: '2026-07-10T09:00', end: '2026-07-10T09:30' },
+    ];
+    const dayCountLabel = vi.fn((count: number) => `${count} events`);
+    const { container } = render(<Harness events={events} dayCountLabel={dayCountLabel} />);
+    const july = monthSection(container, '2026-07');
+
+    expect(dayButton(july, '2026-07-10')).toHaveAttribute('aria-label', '7月10日 1 events');
+    expect(dayButton(july, '2026-07-11')).toHaveAttribute('aria-label', '7月11日');
+    expect(dayCountLabel).toHaveBeenCalledTimes(1);
+    expect(dayCountLabel).toHaveBeenCalledWith(1);
+  });
+
+  it('dayAriaLabel は既定の aria-label 文字列（dayCountLabel 適用後）を defaultLabel として受け取り、返り値に置き換わる', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '朝会', start: '2026-07-10T09:00', end: '2026-07-10T09:30' },
+    ];
+    const dayAriaLabel = vi.fn(
+      (day: YearDay, defaultLabel: string) => `カスタム:${day.key}:${defaultLabel}`,
+    );
+    const { container } = render(<Harness events={events} dayAriaLabel={dayAriaLabel} />);
+    const july = monthSection(container, '2026-07');
+
+    expect(dayButton(july, '2026-07-10')).toHaveAttribute(
+      'aria-label',
+      'カスタム:2026-07-10:7月10日 予定1件',
+    );
   });
 
   it('前後月セル（data-outside）は実際の予定件数に関わらず件数マーカーを出さない', () => {

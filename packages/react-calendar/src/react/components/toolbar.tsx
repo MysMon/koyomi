@@ -34,6 +34,8 @@ const DEFAULT_TOOLBAR_VIEWS: readonly CalendarViewType[] = ['month', 'week', 'da
 const DEFAULT_TODAY_LABEL = '今日';
 const DEFAULT_PREV_LABEL = '前へ';
 const DEFAULT_NEXT_LABEL = '次へ';
+/** ビュー切替ボタングループの既定 `aria-label`。 */
+const DEFAULT_VIEWS_GROUP_LABEL = '表示切替';
 
 /**
  * {@link Toolbar} の固定文字列を差し替えるためのラベル集合。
@@ -70,6 +72,11 @@ export interface ToolbarLabels {
    * 省略時は「次へ」。
    */
   next?: ReactNode;
+  /**
+   * ビュー切替ボタングループ（`toolbar-views`）の `aria-label`。
+   * 省略時は「表示切替」。
+   */
+  viewsGroup?: string;
 }
 
 /** {@link Toolbar} の props。 */
@@ -117,6 +124,7 @@ export function Toolbar(props: ToolbarProps): ReactElement {
   const todayLabel = labels?.today ?? DEFAULT_TODAY_LABEL;
   const prevLabel = labels?.prev ?? DEFAULT_PREV_LABEL;
   const nextLabel = labels?.next ?? DEFAULT_NEXT_LABEL;
+  const viewsGroupLabel = labels?.viewsGroup ?? DEFAULT_VIEWS_GROUP_LABEL;
 
   /** 現在のビューに応じた期間タイトルを組み立てる。 */
   function title(): string {
@@ -187,7 +195,7 @@ export function Toolbar(props: ToolbarProps): ReactElement {
       {/* biome-ignore lint/a11y/useSemanticElements: DOM 仕様（components-dom.md）で
           toolbar-views は div[role="group"] と定めている。fieldset はテーマなしでの
           既定描画（枠線・余白）が大きく変わるためヘッドレス用途に不向き */}
-      <div data-koyomi="toolbar-views" role="group" aria-label="表示切替">
+      <div data-koyomi="toolbar-views" role="group" aria-label={viewsGroupLabel}>
         {(props.views ?? DEFAULT_TOOLBAR_VIEWS).map((buttonView) => {
           const def = VIEW_BUTTON_DEFS[buttonView];
           return (

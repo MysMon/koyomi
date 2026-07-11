@@ -175,6 +175,23 @@ export function formatEventAriaLabel(
 }
 
 /**
+ * `eventAriaLabel` コールバックが指定されていればそれを適用し、なければ既定文字列を
+ * そのまま返す。イベントボタンを持つ全ビュー（`MonthView` 等）で共通の適用ロジックとして使う。
+ *
+ * @param occurrence - 対象のオカレンス
+ * @param defaultLabel - 各ビューの既定の aria-label 文字列（`formatEventAriaLabel` 等の結果）
+ * @param eventAriaLabel - 既定文字列を受け取って加工・置換するコールバック（省略時は既定文字列をそのまま使う）
+ * @returns 最終的に `aria-label` へ渡す文字列
+ */
+export function resolveEventAriaLabel(
+  occurrence: EventOccurrence,
+  defaultLabel: string,
+  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined,
+): string {
+  return eventAriaLabel ? eventAriaLabel(occurrence, defaultLabel) : defaultLabel;
+}
+
+/**
  * イベントセグメントの既定の表示内容を組み立てる。
  * 終日・複数日にまたがるセグメント（`span > 1`）はタイトルのみ、
  * 単日の時間指定セグメントは開始時刻＋タイトルにする。
@@ -371,6 +388,11 @@ interface MonthWeekRowProps {
   overflowLabel: (count: number) => ReactNode;
   /** 日セルの内容のカスタマイズ関数。 */
   renderDayCell: ((day: MonthDay, defaultContent: ReactNode) => ReactNode) | undefined;
+  /**
+   * イベントボタンの aria-label のカスタマイズ関数。既定文字列（`formatEventAriaLabel` の結果）
+   * を受け取って加工・置換できる。省略時は既定文字列をそのまま使う。
+   */
+  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
   /** 日番号クリック時のハンドラ。 */
   onDayNumberClick: (date: Date) => void;
   /**
@@ -417,6 +439,7 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
     renderEvent,
     overflowLabel,
     renderDayCell,
+    eventAriaLabel,
     onDayNumberClick,
     onOverflowClick,
     overflowButtonProps,
@@ -538,6 +561,7 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
                     locale={locale}
                     columnCount={columnCount}
                     renderEvent={renderEvent}
+                    eventAriaLabel={eventAriaLabel}
                     dayDrag={dayDrag}
                   />
                 ))}
@@ -567,9 +591,11 @@ const MonthEventButton = memo(function MonthEventButton(props: {
   /** この週の可視列数（幅%計算の基準）。 */
   columnCount: number;
   renderEvent: ((segment: EventSegment) => ReactNode) | undefined;
+  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
+  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
   dayDrag: MonthDayDragHandlers;
 }): ReactElement {
-  const { segment, timeZone, locale, columnCount, renderEvent, dayDrag } = props;
+  const { segment, timeZone, locale, columnCount, renderEvent, eventAriaLabel, dayDrag } = props;
   const occurrence = segment.occurrence;
   const segmentProps = dayDrag.getSegmentProps(segment);
   const isEditable = occurrence.event.editable !== false;
@@ -590,7 +616,11 @@ const MonthEventButton = memo(function MonthEventButton(props: {
       {...(occurrence.allDay ? ALL_DAY_EVENT_ATTRS : {})}
       data-koyomi="month-event"
       style={style}
-      aria-label={formatEventAriaLabel(occurrence, timeZone, locale)}
+      aria-label={resolveEventAriaLabel(
+        occurrence,
+        formatEventAriaLabel(occurrence, timeZone, locale),
+        eventAriaLabel,
+      )}
     >
       {renderEvent ? renderEvent(segment) : defaultSegmentContent(segment, timeZone, locale)}
       {/* 左右端のリサイズハンドル。editable:false、またはこの週で継続表示中の端では出さない */}

@@ -311,7 +311,9 @@ console.log(eventEl?.style.getPropertyValue('--koyomi-event-color')); // => '#e6
 
 イベント以外にも、日セルへのコンテンツの差し込み（`renderDayCell`）、日ヘッダー・日付見出し（`renderDayHeader`）、「+N 件」等の UI 文字列（`overflowLabel` / `allDayLabel` / `emptyLabel` / `Toolbar` の `labels`）を差し替えられます。一覧は [ビュー: ビューコンポーネントのカスタマイズ props](./views.md#ビューコンポーネントのカスタマイズ-props) を参照してください。
 
-`CalendarView` を使う場合は、`renderMonthEvent` / `renderTimeGridEvent` / `renderListEvent` prop がそれぞれのビューへ転送されます。
+見た目の内容だけでなく、スクリーンリーダー等が読み上げる `aria-label` もカスタマイズできます。イベントボタンを持つ全ビュー（`MonthView` / `MultiMonthView` / `TimeGridView` / `ListView` / `VirtualListView` / `ResourceView` / `VirtualResourceView` / `TimelineView` / `VirtualTimelineView`）は `eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string` を受け付けます。第 2 引数の `defaultLabel` に既定の aria-label 文字列（日時・タイトル・リソース名を含む）が渡るので、それを加工・置換して返せます。省略時は既定文字列のままです。年ビューの日セルは `dayCountLabel?: (count: number) => string`（「予定N件」部分のみ）と `dayAriaLabel?: (day: YearDay, defaultLabel: string) => string`（aria-label 全体）の 2 段階で、`ListView` / `VirtualListView` の日セクションは `dayAriaLabel?: (day: ListDay, defaultLabel: string) => string` でカスタマイズできます（両ビューの既定 aria-label は同じ形式なので、仮想化の有無で読み上げは変わりません）。
+
+`CalendarView` を使う場合は、`renderMonthEvent` / `renderTimeGridEvent` / `renderListEvent` prop がそれぞれのビューへ転送されます。同様に `monthEventAriaLabel` / `timeGridEventAriaLabel` / `listEventAriaLabel` / `listDayAriaLabel` / `multiMonthEventAriaLabel` / `resourceEventAriaLabel` / `timelineEventAriaLabel` / `yearDayCountLabel` / `yearDayAriaLabel` も同じ接頭辞付き転送規則でそれぞれのビューへ転送されます。
 
 ```tsx
 import { CalendarProvider, MonthView, useCalendar } from '@koyomi-cal/react';
@@ -396,7 +398,7 @@ function App() {
 
 ## 英語ロケール（既定文言の英語化）
 
-ビルトインコンポーネントの `*Label` 系 props（`Toolbar` の `labels` や `allDayLabel` / `unassignedLabel` / `overflowLabel` / `cornerLabel` / `emptyLabel` など）は、省略すると日本語の既定文言（「今日」「終日」「未割り当て」等）を表示します。これらをまとめて英語に差し替えるプリセット `enUsLabels` を提供しています。
+ビルトインコンポーネントの `*Label` 系 props（`Toolbar` の `labels` や `allDayLabel` / `unassignedLabel` / `overflowLabel` / `cornerLabel` / `emptyLabel` / `eventAriaLabel` / `dayAriaLabel` / `dayCountLabel` など）は、省略すると日本語の既定文言（「今日」「終日」「未割り当て」等）や日本語区切りの aria-label を表示します。これらをまとめて英語に差し替えるプリセット `enUsLabels` を提供しています。
 
 `enUsLabels` はコンポーネント単位のグループに分かれていて、対応する props にそのままスプレッドできます。`calendarView` だけは `CalendarView` が各ビューへの転送用に持つプレフィックス付き props（`listAllDayLabel` 等）向けの形です。
 
@@ -412,6 +414,7 @@ import {
   TimelineView,
   Toolbar,
   useCalendar,
+  YearView,
 } from '@koyomi-cal/react';
 
 function App() {
@@ -425,6 +428,7 @@ function App() {
       <MultiMonthView {...enUsLabels.multiMonth} />
       <ResourceView {...enUsLabels.resource} />
       <TimelineView {...enUsLabels.timeline} />
+      <YearView {...enUsLabels.year} />
       {/* CalendarView でビューを出し分ける場合はプレフィックス付き props をまとめて渡す */}
       <CalendarView {...enUsLabels.calendarView} />
     </CalendarProvider>
@@ -435,11 +439,15 @@ function App() {
 // - Toolbar の「今日」ボタンや各ビュー切替ボタンの表示文字列が
 //   "Today" / "Month" / "Week" / ... になる
 //   （「前へ」「次へ」ボタンは表示アイコン ‹ / › 自体は変わらず、
-//   aria-label のみ "Previous" / "Next" になる）
+//   aria-label のみ "Previous" / "Next" になる。ビュー切替グループの
+//   aria-label も "View switcher" になる）
 // - リストビューの終日ラベルが "All day"、空状態が "No events" になる
 // - 月/複数月ビューの「+N 件」が "+N more" になる
 // - リソース/タイムラインビューの未割り当てラベルが "Unassigned"、
 //   空状態が "No resources"、タイムラインの角セルの aria-label が "Resources" になる
+// - イベントボタンの aria-label の区切り記号（「、」「〜」）が英語表記
+//   （カンマ・en dash）になる（日付・時刻自体は locale により整形済み）
+// - 年ビューの日セルの件数文言「予定N件」が "N events"（1 件なら "1 event"）になる
 ```
 
 日本語の既定値自体は変更されないため、`enUsLabels` を渡さない既存のコードの見た目・挙動は変わりません（後方互換）。日本語・英語以外のロケールが必要な場合は、同じ形のオブジェクトを自前で用意して同様にスプレッドしてください。

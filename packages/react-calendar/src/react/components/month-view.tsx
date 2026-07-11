@@ -58,6 +58,15 @@ export interface MonthViewProps {
     day: MonthDay,
     hiddenOccurrences: readonly EventOccurrence[],
   ) => MonthOverflowButtonProps;
+  /**
+   * イベントボタンの aria-label をカスタマイズする関数。
+   * 第 2 引数に既定の aria-label 文字列（`'タイトル、M月d日 H:mm〜H:mm'` 形式、
+   * {@link MonthWeekRow} が使う `formatEventAriaLabel` の結果）を渡すので、
+   * それを加工・置換して返せる。省略時は既定文字列をそのまま使う。
+   * @param occurrence - 対象のオカレンス
+   * @param defaultLabel - 既定の aria-label 文字列
+   */
+  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
 }
 
 /** 「+N 件」の既定ラベル。 */
@@ -88,6 +97,7 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
     overflowLabel = defaultOverflowLabel,
     renderDayCell,
     overflowButtonProps,
+    eventAriaLabel,
   } = props;
   const { api, state, viewModel, callbacks } = useCalendarContext();
   const calendar = { api, state, viewModel };
@@ -187,6 +197,7 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
             renderEvent={renderEvent}
             overflowLabel={overflowLabel}
             renderDayCell={renderDayCell}
+            eventAriaLabel={eventAriaLabel}
             onDayNumberClick={handleDayNumberClick}
             onOverflowClick={handleOverflowClick}
             overflowButtonProps={overflowButtonProps}

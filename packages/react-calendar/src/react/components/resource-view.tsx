@@ -33,7 +33,7 @@ import type {
 import { useCalendarContext } from '../context';
 import type { ResourceGridDragHandlers, ResourcePreviewSegment } from '../use-resource-grid-drag';
 import { useResourceGridDrag } from '../use-resource-grid-drag';
-import { withEventColorStyle } from './month-view-parts';
+import { resolveEventAriaLabel, withEventColorStyle } from './month-view-parts';
 import {
   ariaLabelText,
   ariaLabelWithResource,
@@ -68,6 +68,14 @@ export interface ResourceViewProps {
   unassignedLabel?: ReactNode;
   /** 空状態（列が 1 つもない）のメッセージ。省略時は「リソースがありません」。 */
   emptyLabel?: ReactNode;
+  /**
+   * イベントブロックの aria-label をカスタマイズする関数。
+   * 第 2 引数に既定の aria-label 文字列（日時＋リソース名、`ariaLabelWithResource` の結果）
+   * を渡すので、それを加工・置換して返せる。省略時は既定文字列をそのまま使う。
+   * @param occurrence - 対象のオカレンス
+   * @param defaultLabel - 既定の aria-label 文字列
+   */
+  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
 }
 
 /**
@@ -133,6 +141,7 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
     renderColumnHeader,
     unassignedLabel = DEFAULT_UNASSIGNED_LABEL,
     emptyLabel = DEFAULT_EMPTY_LABEL,
+    eventAriaLabel,
   } = props;
   const { api, state, viewModel, callbacks } = useCalendarContext();
   const calendar = { api, state, viewModel };
@@ -223,6 +232,7 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
                     locale={locale}
                     drag={stableDrag}
                     isDragging={drag.isDragging}
+                    eventAriaLabel={eventAriaLabel}
                   />
                 ))}
               </div>
@@ -258,6 +268,7 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
               drag={stableDrag}
               isDragging={drag.isDragging}
               preview={drag.previewFor(column)}
+              eventAriaLabel={eventAriaLabel}
             />
           ))}
         </div>
@@ -277,11 +288,13 @@ interface AllDayItemButtonProps {
   drag: ResourceColumnDragHandlers;
   /** ドラッグ操作が進行中か（memo 判定に使う。詳細は {@link AllDayItemButton} 参照）。 */
   isDragging: boolean;
+  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
+  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
 }
 
 /** リソースビューの終日アイテム 1 件分のボタン（列間移動のみ）。 */
 function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
-  const { occurrence, column, lane, timeZone, locale, drag } = props;
+  const { occurrence, column, lane, timeZone, locale, drag, eventAriaLabel } = props;
   const style = withEventColorStyle(
     // 週/日ビューの終日セグメントと同じ位置決め。列 = 1 日のため水平スパンは
     // 常に列幅いっぱい（週/日ビューの startCol/span に相当する % は 0%/100% 固定）
@@ -298,7 +311,11 @@ function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
       {...drag.getAllDayItemProps(occurrence)}
       data-koyomi="allday-event"
       style={style}
-      aria-label={ariaLabelWithResource(occurrence, column.resource?.title, timeZone, locale)}
+      aria-label={resolveEventAriaLabel(
+        occurrence,
+        ariaLabelWithResource(occurrence, column.resource?.title, timeZone, locale),
+        eventAriaLabel,
+      )}
     >
       {occurrence.event.title}
     </button>
@@ -322,7 +339,8 @@ const AllDayItemButton = memo(AllDayItemButtonImpl, (prev, next) => {
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
     prev.drag === next.drag &&
-    prev.isDragging === next.isDragging
+    prev.isDragging === next.isDragging &&
+    prev.eventAriaLabel === next.eventAriaLabel
   );
 });
 
@@ -341,6 +359,8 @@ interface ResourceColumnBodyProps {
   /** ドラッグ操作が進行中か（memo 判定に使う。詳細は {@link ResourceColumnBody} 参照）。 */
   isDragging: boolean;
   preview: ResourcePreviewSegment | null;
+  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
+  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
 }
 
 /** リソースビューの 1 列分（目盛り線・イベント・プレビュー・現在時刻線）。 */
@@ -356,6 +376,7 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
     renderEvent,
     drag,
     preview,
+    eventAriaLabel,
   } = props;
   const { ref, ...columnProps } = drag.getColumnProps(column);
 
@@ -409,11 +430,10 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
             data-continues-before={item.continuesBefore ? 'true' : undefined}
             data-continues-after={item.continuesAfter ? 'true' : undefined}
             style={style}
-            aria-label={ariaLabelWithResource(
+            aria-label={resolveEventAriaLabel(
               item.occurrence,
-              column.resource?.title,
-              timeZone,
-              locale,
+              ariaLabelWithResource(item.occurrence, column.resource?.title, timeZone, locale),
+              eventAriaLabel,
             )}
           >
             <div data-koyomi="timegrid-event-content">
@@ -492,6 +512,7 @@ const ResourceColumnBody = memo(ResourceColumnBodyImpl, (prev, next) => {
     prev.renderEvent === next.renderEvent &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&
-    samePreviewSegment(prev.preview, next.preview)
+    samePreviewSegment(prev.preview, next.preview) &&
+    prev.eventAriaLabel === next.eventAriaLabel
   );
 });

@@ -34,7 +34,13 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { BusinessHourRange, TimelineItem, TimelineRow, TimeZoneId } from '../../core/types';
+import type {
+  BusinessHourRange,
+  EventOccurrence,
+  TimelineItem,
+  TimelineRow,
+  TimeZoneId,
+} from '../../core/types';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
 import { useIsomorphicLayoutEffect } from '../use-isomorphic-layout-effect';
@@ -42,7 +48,11 @@ import type { TimelinePreviewSegment } from '../use-timeline-drag';
 import { useTimelineDrag } from '../use-timeline-drag';
 import { useVirtualizer } from '../use-virtualizer';
 import { formatDayHeader } from './format';
-import { formatEventAriaLabel, withEventColorStyle } from './month-view-parts';
+import {
+  formatEventAriaLabel,
+  resolveEventAriaLabel,
+  withEventColorStyle,
+} from './month-view-parts';
 import type { TimelineRowDragHandlers } from './timeline-view-parts';
 import {
   DEFAULT_CORNER_LABEL,
@@ -78,6 +88,14 @@ export interface VirtualTimelineViewProps {
   emptyLabel?: ReactNode;
   /** ヘッダー行の角セルの `aria-label`。省略時は「リソース」。 */
   cornerLabel?: string;
+  /**
+   * 帯（タイムラインアイテム）の aria-label をカスタマイズする関数（`TimelineView` と同じ）。
+   * 第 2 引数に既定の aria-label 文字列（日時＋リソース名）を渡すので、
+   * それを加工・置換して返せる。省略時は既定文字列をそのまま使う。
+   * @param occurrence - 対象のオカレンス
+   * @param defaultLabel - 既定の aria-label 文字列
+   */
+  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
   /**
    * 行 1 件分の推定高（px）。件数に応じて変えたい場合は関数で渡す。
    * 実測（ResizeObserver）が入るまでの暫定値。既定はレーン数 × 28px
@@ -125,6 +143,8 @@ interface TimelineRowGroupProps {
   style?: CSSProperties;
   /** 仮想化: 帯をタブ順に含めるか。既定 `true`（`false` で `tabIndex=-1`）。 */
   itemTabbable?: boolean;
+  /** 帯の aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
+  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
 }
 
 /** タイムラインの 1 行分（行見出し + 帯トラック）を描画する（`TimelineView` と同じ DOM 仕様）。 */
@@ -145,6 +165,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
     pinned,
     style,
     itemTabbable,
+    eventAriaLabel,
   } = props;
   const { ref, ...rowProps } = drag.getRowProps(row);
   const headerContent = row.resource?.title ?? unassignedLabel;
@@ -202,7 +223,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
             },
             occurrence.event.color ?? row.resource?.color,
           );
-          const ariaLabel =
+          const defaultAriaLabel =
             row.resource === null
               ? formatEventAriaLabel(occurrence, timeZone, locale)
               : `${formatEventAriaLabel(occurrence, timeZone, locale)}、${row.resource.title}`;
@@ -217,7 +238,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
               data-continues-before={item.continuesBefore ? 'true' : undefined}
               data-continues-after={item.continuesAfter ? 'true' : undefined}
               style={itemStyle}
-              aria-label={ariaLabel}
+              aria-label={resolveEventAriaLabel(occurrence, defaultAriaLabel, eventAriaLabel)}
               {...(itemTabbable === false ? { tabIndex: -1 } : {})}
             >
               <div data-koyomi="timeline-item-content">
@@ -286,7 +307,8 @@ const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
     prev.rowRef === next.rowRef &&
     prev.pinned === next.pinned &&
     prev.style === next.style &&
-    prev.itemTabbable === next.itemTabbable
+    prev.itemTabbable === next.itemTabbable &&
+    prev.eventAriaLabel === next.eventAriaLabel
   );
 });
 
@@ -318,6 +340,7 @@ export const VirtualTimelineView = forwardRef<VirtualTimelineViewHandle, Virtual
       cornerLabel = DEFAULT_CORNER_LABEL,
       estimateRowHeight,
       overscan,
+      eventAriaLabel,
     } = props;
     const { api, state, viewModel, callbacks } = useCalendarContext();
     const calendar = { api, state, viewModel };
@@ -482,6 +505,7 @@ export const VirtualTimelineView = forwardRef<VirtualTimelineViewHandle, Virtual
         drag={stableDrag}
         isDragging={drag.isDragging}
         preview={drag.previewFor(row)}
+        eventAriaLabel={eventAriaLabel}
         rowRef={virtualizer.measureElement(row.key)}
         {...(extra.pinned === true ? { pinned: true, itemTabbable: false } : {})}
         {...(extra.style !== undefined ? { style: extra.style } : {})}

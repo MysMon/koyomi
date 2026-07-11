@@ -71,6 +71,18 @@ Koyomi の各ビューが実装している WAI-ARIA パターン、キーボー
 - **「+N 件」ポップオーバーは自前実装が前提です。** ヘッドレスの方針上、開閉状態の `aria-expanded` 等は `overflowButtonProps` で利用側が付与する必要があります。詳細は [インタラクション: 「+N 件」のポップオーバーを自前で組む](./interactions.md#n-件のポップオーバーを自前で組む) を参照してください
 - **色だけに依存した情報伝達はありません。** イベントの色（`event.color` / `resource.color`）は視覚的な区別のためのみに使い、色分けの内容（タイトル・時刻・リソース名等）は常に `aria-label` のテキストとしても提供します
 
+## 読み上げ文言のカスタマイズ
+
+既定の `aria-label` は日本語（例:「会議、7月16日 10:00〜11:00」）で固定されているため、多言語対応や文言の調整が必要な場合は各ビューの `eventAriaLabel` / `dayAriaLabel` / `dayCountLabel` prop で上書きできます。
+
+- **イベントボタンを持つ全ビュー**（`MonthView` / `MultiMonthView` / `TimeGridView`（終日行含む） / `ListView` / `VirtualListView` / `ResourceView` / `VirtualResourceView` / `TimelineView` / `VirtualTimelineView`）は `eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string` を受け付けます。第 2 引数 `defaultLabel` に既定の aria-label 文字列（`formatEventAriaLabel` / `ariaLabelWithResource` の結果）が渡るので、加工・置換して返せます。省略時は既定文字列のままです
+- **年ビュー（YearView）** は日セルの件数文言「予定N件」部分を `dayCountLabel?: (count: number) => string` で、aria-label 全体を `dayAriaLabel?: (day: YearDay, defaultLabel: string) => string` で差し替えられます（`defaultLabel` は `dayCountLabel` 適用後の文字列）
+- **リストビュー（ListView / VirtualListView）** は日セクションの aria-label（例:「7月16日(木) 予定2件」）を `dayAriaLabel?: (day: ListDay, defaultLabel: string) => string` で差し替えられます。両ビューの既定 aria-label は同じ形式なので、仮想化の有無で読み上げが変わることはありません
+- **`Toolbar`** はビュー切替ボタングループ（`toolbar-views`）の `aria-label` を `labels.viewsGroup`（既定「表示切替」）で差し替えられます
+- `CalendarView` 経由では、それぞれ接頭辞付きの転送 prop（`monthEventAriaLabel` / `timeGridEventAriaLabel` / `listEventAriaLabel` / `listDayAriaLabel` / `multiMonthEventAriaLabel` / `resourceEventAriaLabel` / `timelineEventAriaLabel` / `yearDayCountLabel` / `yearDayAriaLabel`）で対応するビューへ転送されます
+
+これらの英語訳は `enUsLabels` プリセットに含まれています（詳細は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照）。
+
 ## テスト
 
 各ビューの `role` / `aria-label` / `aria-current` は `@testing-library/react` を使った結合テストで検証しています（`packages/react-calendar/src/react/components/*.test.tsx`）。DOM 構造・ARIA 属性の正式な仕様は内部設計書 [`docs/internal/components-dom.md`](./internal/components-dom.md) にビューごとの ASCII 図として記載しています。

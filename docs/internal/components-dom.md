@@ -176,9 +176,10 @@ div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"]
 
 ```
 div[data-koyomi="list"]
-  section[data-koyomi="list-day"][data-koyomi-date][data-today?] (aria-current="date"?) × n
+  section[data-koyomi="list-day"][data-koyomi-date][data-today?][aria-label] (aria-current="date"?) × n
+                                                      … aria-label は「M月d日(曜) 予定N件」形式（dayAriaLabel で差し替え可）
     h3[data-koyomi="list-day-header"]                … 日付ラベル（Intl、renderDayHeader で差し替え可）
-    button[data-koyomi="list-event"] × n
+    button[data-koyomi="list-event"][aria-label] × n … aria-label は formatEventAriaLabel と同形式（eventAriaLabel で差し替え可）
       span[data-koyomi="list-event-time"]            … allDayLabel（既定「終日」）または「HH:mm〜HH:mm」
       span[data-koyomi="list-event-swatch"]          … 色見本（--koyomi-event-color）
       span[data-koyomi="list-event-title"]
@@ -188,7 +189,9 @@ div[data-koyomi="list"]
 - リストのイベントはクリックで `onEventClick`（ドラッグなし）。Enter/Space も同様
 - a11y: 日付ごとに独立した `<section>` の一覧であり、行・列からなる表形式ではないため
   WAI-ARIA grid パターンは適用しない（判断根拠は `docs/accessibility.md` 参照）。今日の
-  section には他ビューと同様 `aria-current="date"` を付ける
+  section には他ビューと同様 `aria-current="date"` を付ける。日セクションの
+  `aria-label`・イベント行の `aria-label` は仮想化版（`VirtualListView`）と同じ既定文字列で、
+  仮想化の有無で読み上げは変わらない
 
 ### 仮想化（VirtualListView）— opt-in 時の DOM 拡張
 

@@ -188,6 +188,33 @@ describe('ResourceView - イベントブロック', () => {
     expect(eventEl?.textContent).toContain('定例会議');
   });
 
+  it('eventAriaLabel は既定の aria-label 文字列（リソース名込み）を defaultLabel として受け取り、返り値に置き換わる', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '定例会議',
+        start: '2026-07-15T10:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'room-a',
+      },
+    ];
+    const eventAriaLabel = (
+      occurrence: import('../../core/types').EventOccurrence,
+      defaultLabel: string,
+    ): string => {
+      expect(occurrence.eventId).toBe('e1');
+      expect(defaultLabel).toBe('定例会議、7月15日 10:00〜11:00、会議室A');
+      return `カスタム:${defaultLabel}`;
+    };
+    const { container } = render(
+      <Harness resources={[ROOM_A]} events={events} viewProps={{ eventAriaLabel }} />,
+    );
+    const eventEl = container.querySelector('[data-koyomi="timegrid-event"]');
+    expect(eventEl?.getAttribute('aria-label')).toBe(
+      'カスタム:定例会議、7月15日 10:00〜11:00、会議室A',
+    );
+  });
+
   it('参照先のない resourceId のイベントは未割り当て列に入り、aria-label にリソース名を付けない', () => {
     const events: CalendarEvent[] = [
       {
@@ -322,6 +349,28 @@ describe('ResourceView - 終日アイテム', () => {
     expect(alldayEvent).not.toBeNull();
     expect(alldayEvent?.textContent).toBe('休暇');
     expect(alldayEvent?.getAttribute('aria-label')).toBe('休暇、7月15日、会議室A');
+  });
+
+  it('eventAriaLabel は終日アイテムの既定 aria-label も defaultLabel として受け取る', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'ad1',
+        title: '休暇',
+        start: '2026-07-15',
+        end: '2026-07-16',
+        allDay: true,
+        resourceId: 'room-a',
+      },
+    ];
+    const eventAriaLabel = (
+      _occurrence: import('../../core/types').EventOccurrence,
+      defaultLabel: string,
+    ): string => `カスタム:${defaultLabel}`;
+    const { container } = render(
+      <Harness resources={[ROOM_A]} events={events} viewProps={{ eventAriaLabel }} />,
+    );
+    const alldayEvent = container.querySelector('[data-koyomi="allday-event"]');
+    expect(alldayEvent?.getAttribute('aria-label')).toBe('カスタム:休暇、7月15日、会議室A');
   });
 });
 

@@ -44,7 +44,7 @@ import { useDayDrag } from '../use-day-drag';
 import type { TimeGridDragHandlers, TimeGridPreviewSegment } from '../use-time-grid-drag';
 import { useTimeGridDrag } from '../use-time-grid-drag';
 import { formatWeekday } from './format';
-import { withEventColorStyle } from './month-view-parts';
+import { resolveEventAriaLabel, withEventColorStyle } from './month-view-parts';
 
 /** 1 日の分（24:00）。 */
 const MINUTES_PER_DAY = 1440;
@@ -76,6 +76,14 @@ export interface TimeGridViewProps {
    * ```
    */
   renderDayHeader?: (day: TimeGridDay, defaultContent: ReactNode) => ReactNode;
+  /**
+   * イベントボタン（時間指定・終日行の両方）の aria-label をカスタマイズする関数。
+   * 第 2 引数に既定の aria-label 文字列を渡すので、それを加工・置換して返せる。
+   * 省略時は既定文字列をそのまま使う。
+   * @param occurrence - 対象のオカレンス
+   * @param defaultLabel - 既定の aria-label 文字列
+   */
+  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
 }
 
 /** 2 桁ゼロ埋め。 */
@@ -390,7 +398,7 @@ function samePreviewSegment(
  * ```
  */
 export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
-  const { renderEvent, renderDayHeader } = props;
+  const { renderEvent, renderDayHeader, eventAriaLabel } = props;
   const { api, state, viewModel, callbacks } = useCalendarContext();
   const calendar = { api, state, viewModel };
   const dayDrag = useDayDrag({ calendar, callbacks });
@@ -532,6 +540,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
                         timeZone={timeZone}
                         locale={locale}
                         dayDrag={dayDrag}
+                        eventAriaLabel={eventAriaLabel}
                       />
                     ))}
                 </div>
@@ -576,6 +585,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
               nowIndicatorDayKey={nowIndicator?.dayKey ?? null}
               nowIndicatorMinutes={nowIndicator?.minutes ?? null}
               renderEvent={renderEvent}
+              eventAriaLabel={eventAriaLabel}
               drag={stableDrag}
               isDragging={timeGridDrag.isDragging}
               preview={timeGridDrag.previewFor(day)}
@@ -611,8 +621,10 @@ function AllDaySegmentButton(props: {
   timeZone: TimeZoneId;
   locale: string;
   dayDrag: DayDragHandlers;
+  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
+  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
 }): ReactElement {
-  const { segment, columnCount, timeZone, locale, dayDrag } = props;
+  const { segment, columnCount, timeZone, locale, dayDrag, eventAriaLabel } = props;
   const occurrence = segment.occurrence;
   const segmentProps = dayDrag.getSegmentProps(segment);
   const isEditable = occurrence.event.editable !== false;
@@ -633,7 +645,11 @@ function AllDaySegmentButton(props: {
       data-continues-before={segment.continuesBefore ? 'true' : undefined}
       data-continues-after={segment.continuesAfter ? 'true' : undefined}
       style={style}
-      aria-label={formatOccurrenceAriaLabel(occurrence, timeZone, locale)}
+      aria-label={resolveEventAriaLabel(
+        occurrence,
+        formatOccurrenceAriaLabel(occurrence, timeZone, locale),
+        eventAriaLabel,
+      )}
     >
       {occurrence.event.title}
       {isEditable && !segment.continuesBefore && (
@@ -663,6 +679,8 @@ function TimeGridDayColumnImpl(props: {
   nowIndicatorDayKey: string | null;
   nowIndicatorMinutes: number | null;
   renderEvent: ((item: PositionedOccurrence) => ReactNode) | undefined;
+  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
+  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
   drag: TimeGridColumnDragHandlers;
   /** ドラッグ操作が進行中か（{@link TimeGridEventButton} の memo 判定に使う）。 */
   isDragging: boolean;
@@ -677,6 +695,7 @@ function TimeGridDayColumnImpl(props: {
     nowIndicatorDayKey,
     nowIndicatorMinutes,
     renderEvent,
+    eventAriaLabel,
     drag,
     isDragging,
     preview,
@@ -720,6 +739,7 @@ function TimeGridDayColumnImpl(props: {
           timeZone={timeZone}
           locale={locale}
           renderEvent={renderEvent}
+          eventAriaLabel={eventAriaLabel}
           drag={drag}
           isDragging={isDragging}
         />
@@ -764,6 +784,7 @@ const TimeGridDayColumn = memo(TimeGridDayColumnImpl, (prev, next) => {
     prev.nowIndicatorDayKey === next.nowIndicatorDayKey &&
     prev.nowIndicatorMinutes === next.nowIndicatorMinutes &&
     prev.renderEvent === next.renderEvent &&
+    prev.eventAriaLabel === next.eventAriaLabel &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&
     samePreviewSegment(prev.preview, next.preview)
@@ -776,11 +797,13 @@ function TimeGridEventButtonImpl(props: {
   timeZone: TimeZoneId;
   locale: string;
   renderEvent: ((item: PositionedOccurrence) => ReactNode) | undefined;
+  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
+  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
   drag: TimeGridColumnDragHandlers;
   /** ドラッグ操作が進行中か（このコンポーネント自体は使わないが、memo 判定に必要）。 */
   isDragging: boolean;
 }): ReactElement {
-  const { item, timeZone, locale, renderEvent, drag } = props;
+  const { item, timeZone, locale, renderEvent, eventAriaLabel, drag } = props;
   const occurrence = item.occurrence;
   const eventProps = drag.getEventProps(item);
   const isEditable = occurrence.event.editable !== false;
@@ -802,7 +825,11 @@ function TimeGridEventButtonImpl(props: {
       data-continues-before={item.continuesBefore ? 'true' : undefined}
       data-continues-after={item.continuesAfter ? 'true' : undefined}
       style={style}
-      aria-label={formatOccurrenceAriaLabel(occurrence, timeZone, locale)}
+      aria-label={resolveEventAriaLabel(
+        occurrence,
+        formatOccurrenceAriaLabel(occurrence, timeZone, locale),
+        eventAriaLabel,
+      )}
     >
       <div data-koyomi="timegrid-event-content">
         {renderEvent ? renderEvent(item) : defaultTimedEventContent(item)}
@@ -838,6 +865,7 @@ const TimeGridEventButton = memo(TimeGridEventButtonImpl, (prev, next) => {
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
     prev.renderEvent === next.renderEvent &&
+    prev.eventAriaLabel === next.eventAriaLabel &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging
   );
