@@ -268,6 +268,7 @@ function App() {
 | `onError` | インタラクション中の非同期処理（スコープ解決や適用）が例外を投げたとき | `console.error` に出力する |
 | `resolveRecurringScope` | 繰り返し予定の移動・リサイズ・削除・更新の適用範囲を決めるとき | 常に `'this'`（この予定のみ） |
 | `onOverflowClick` | 月ビューの「+N 件」がクリックされたとき。第 2 引数で非表示のオカレンス一覧（`hiddenOccurrences`）、第 3 引数（`details`）で表示中のオカレンス一覧（`visibleOccurrences`）を受け取れる | その日の日ビューに切り替える |
+| `onDayNumberClick` | 月ビュー・複数月ビュー・年ビュー・週/日ビューの日番号ボタンがクリックされたとき | その日の日ビューに切り替える |
 
 ## キーボードショートカット
 

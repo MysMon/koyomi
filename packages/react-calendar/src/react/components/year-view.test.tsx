@@ -7,7 +7,7 @@
  */
 import { fireEvent, render } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type {
   CalendarApi,
   CalendarEvent,
@@ -16,6 +16,7 @@ import type {
   YearMonth,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
+import type { CalendarInteractionCallbacks } from '../types';
 import { useCalendar } from '../use-calendar';
 import { YearView } from './year-view';
 
@@ -30,6 +31,7 @@ const EMPTY_EVENTS: readonly CalendarEvent[] = [];
 function Harness(props: {
   events?: readonly CalendarEvent[];
   initialView?: CalendarViewType;
+  callbacks?: CalendarInteractionCallbacks;
   renderMonthHeader?: (month: YearMonth, defaultContent: ReactNode) => ReactNode;
   renderDayCell?: (day: YearDay, defaultContent: ReactNode) => ReactNode;
   apiRef?: { current: CalendarApi | null };
@@ -45,7 +47,10 @@ function Harness(props: {
     props.apiRef.current = calendar.api;
   }
   return (
-    <CalendarProvider value={calendar}>
+    <CalendarProvider
+      value={calendar}
+      {...(props.callbacks !== undefined ? { callbacks: props.callbacks } : {})}
+    >
       <YearView
         {...(props.renderMonthHeader !== undefined
           ? { renderMonthHeader: props.renderMonthHeader }
@@ -245,6 +250,22 @@ describe('YearView - クリック操作', () => {
     expect(apiRef.current?.getState().currentDate.getTime()).toBe(
       new Date('2026-06-27T15:00:00Z').getTime(), // 2026-06-28 0:00 JST
     );
+  });
+
+  it('onDayNumberClick が指定されていればそれが呼ばれ、既定の画面遷移は行われない', () => {
+    const onDayNumberClick = vi.fn();
+    const apiRef: { current: CalendarApi | null } = { current: null };
+    const { container } = render(<Harness callbacks={{ onDayNumberClick }} apiRef={apiRef} />);
+    const july = monthSection(container, '2026-07');
+    const button = dayButton(july, '2026-07-10');
+
+    fireEvent.click(button);
+
+    expect(onDayNumberClick).toHaveBeenCalledTimes(1);
+    expect(onDayNumberClick.mock.calls[0]?.[0]?.getTime()).toBe(
+      new Date('2026-07-09T15:00:00Z').getTime(), // 2026-07-10 0:00 JST
+    );
+    expect(apiRef.current?.getState().view).toBe('year');
   });
 });
 

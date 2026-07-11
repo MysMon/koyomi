@@ -485,4 +485,27 @@ describe('MultiMonthView - クリック操作', () => {
     // 日番号クリックはイベント作成を伴わない（pointerdown の伝播が止められている）
     expect(apiRef.current?.getEvents()).toHaveLength(0);
   });
+
+  it('onDayNumberClick が指定されていればそれが呼ばれ、既定の画面遷移は行われない', () => {
+    const onDayNumberClick = vi.fn();
+    const apiRef: { current: CalendarApi | null } = { current: null };
+    const { container } = render(<Harness callbacks={{ onDayNumberClick }} apiRef={apiRef} />);
+
+    const dayCell = container.querySelector('[data-koyomi-date="2026-07-10"]');
+    if (!(dayCell instanceof HTMLElement)) {
+      throw new Error('日セルが見つかりません');
+    }
+    const dayNumberButton = dayCell.querySelector('[data-koyomi="month-day-number"]');
+    if (!(dayNumberButton instanceof HTMLElement)) {
+      throw new Error('日番号ボタンが見つかりません');
+    }
+
+    fireEvent.click(dayNumberButton);
+
+    expect(onDayNumberClick).toHaveBeenCalledTimes(1);
+    expect(onDayNumberClick.mock.calls[0]?.[0]?.getTime()).toBe(
+      new Date('2026-07-09T15:00:00Z').getTime(), // 2026-07-10 0:00 JST
+    );
+    expect(apiRef.current?.getState().view).toBe('multiMonth');
+  });
 });

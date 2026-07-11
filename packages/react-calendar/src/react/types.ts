@@ -165,6 +165,7 @@ export interface MonthOverflowButtonProps {
  * - `onEventDelete` — 通知のみの用途（削除の適用はライブラリが行う）
  * - `onError` — console.error に出力する
  * - `onOverflowClick` — その日の日ビューに切り替える
+ * - `onDayNumberClick` — その日の日ビューに切り替える
  * - `onBeforeEventChange` — 常に許可する（`true`）
  * - `onBeforeSelectRange` — 常に許可する（`true`）
  * - `onBeforeEventDelete` — 常に許可する（`true`）
@@ -269,6 +270,16 @@ export interface CalendarInteractionCallbacks {
     hiddenOccurrences: readonly EventOccurrence[],
     details: OverflowClickDetails,
   ) => void;
+  /**
+   * 月ビュー・複数月ビュー・年ビュー・週/日ビューの日番号ボタンがクリックされたときに呼ばれる。
+   *
+   * 指定した場合、既定の day ビューへの画面遷移（{@link CalendarApi.goTo} +
+   * {@link CalendarApi.setView} による `'day'` への切り替え）は行われず、この
+   * コールバックのみが呼ばれる。省略時は従来どおり day ビューへ切り替わる。
+   *
+   * @param date - クリックされた日番号ボタンが表す日
+   */
+  onDayNumberClick?: (date: Date) => void;
 }
 
 /**
