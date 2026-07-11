@@ -1,0 +1,76 @@
+/*
+ * 「Undo つきエディタ」パターン専用のスタイル。
+ *
+ * demo.css の共通クラス（.demo-app / .demo-header / .demo-main / .demo-log /
+ * .demo-dialog / .demo-form / .demo-button 系 / .demo-scope-* 等）と組み合わせて
+ * 使う想定で、ここではこのパターン固有の要素だけを定義する。
+ * 色・間隔・影は demo.css が :root に定義する CSS 変数（--demo-*）を再利用する
+ * ため、このファイル単体でライト/ダークどちらのテーマにも追従する。
+ *
+ * すべてのセレクタはこのパターンのルート要素（.demo-undo-pattern）配下に
+ * スコープする。
+ */
+
+.demo-undo-pattern .undo-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.demo-undo-pattern .undo-shortcut-hint {
+  font-size: 12px;
+  color: var(--demo-muted);
+}
+
+.demo-undo-pattern .undo-history-count {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--demo-muted);
+}
+
+/*
+ * 編集パネル・スコープ選択パネルの背景オーバーレイ。
+ * このパターンは `EventDialog` / `ScopeDialog`（native <dialog>）を使わず、
+ * 独自のオーバーレイ div として実装するため、中央寄せ・背景の暗転を自前で持つ。
+ */
+.demo-undo-pattern .undo-editor-overlay,
+.demo-undo-pattern .undo-scope-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background-color: rgba(32, 33, 36, 0.5);
+  z-index: 20;
+}
+
+.demo-undo-pattern .undo-editor-panel,
+.demo-undo-pattern .undo-scope-panel {
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+.demo-undo-pattern .undo-scope-panel {
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 「元に戻す」実行時のトースト通知。 */
+.demo-undo-pattern .undo-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 12px 18px;
+  border-radius: 8px;
+  background-color: var(--demo-fg);
+  color: var(--demo-bg);
+  box-shadow: var(--demo-shadow);
+  font-size: 14px;
+  z-index: 30;
+}
