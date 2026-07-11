@@ -166,6 +166,19 @@ function App() {
 - 「今日」の判定はレンダリング時の `now()` に依存するため、サーバーとクライアントで日付境界をまたいだ瞬間にはハイドレーション差分が起きる可能性があります。厳密に避けたい場合は `initialDate` と `now` を明示的に固定してください
 - **`timeZone` を明示指定してください**。省略時は実行環境の `Intl` ローカルタイムゾーンが使われるため、サーバー（例: `UTC`）とクライアント（例: `Asia/Tokyo`）で異なると、「今日」・日付キー・イベント配置・時刻ラベルがハイドレーション前後でずれます。SSR では `useCalendar({ timeZone: 'Asia/Tokyo' })` のように固定するのが安全です
 
+## React に依存しないコアだけを使う
+
+`createCalendar` を含むカレンダーエンジン（`src/core/` 配下の公開 API）は、React を一切 import しない専用エントリ `@koyomi-cal/react/core` からも利用できます。React を持たない Node.js 環境（サーバーサイドのバッチ処理・CLI ツール等）や他の UI フレームワークから使う場合はこちらを使ってください。
+
+```ts
+import { createCalendar } from '@koyomi-cal/react/core';
+
+const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+console.log(calendar.getViewModel().type); // => 'month'
+```
+
+`react` / `react-dom` は `package.json` の `peerDependencies` ですが、`@koyomi-cal/react/core` のみを使う場合は未インストールでも実行時エラーにはなりません（インストール時のピア依存の警告は無視できます）。詳細は [API リファレンス](./api.md#koyomi-calreactcorereact-非依存の単体エントリ) を参照してください。
+
 ## 次に読む
 
 - [ビュー（月・週・日・リスト・年・複数月・リソース・タイムライン）](./views.md)

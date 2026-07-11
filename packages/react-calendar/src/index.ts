@@ -4,6 +4,8 @@
  *
  * 公開 API のエントリポイント。コア（フレームワーク非依存）と
  * React バインディングの両方をここから re-export する。
+ * React を import せずコアのみを使いたい場合は `@koyomi-cal/react/core`
+ * （`./core.ts`）を使う。
  */
 
 // カレンダーエンジン
