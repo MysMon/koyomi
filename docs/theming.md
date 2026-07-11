@@ -4,7 +4,7 @@ Koyomi のビルトインコンポーネントはヘッドレスです。ロジ�
 
 ## ヘッドレスの考え方
 
-ビルトインコンポーネント（`Toolbar` / `CalendarView` / `MonthView` / `TimeGridView` / `ListView` / `VirtualListView` / `YearView` / `MultiMonthView` / `ResourceView` / `TimelineView`）はクラス名を一切生成しません。すべての要素は `data-koyomi="<部位名>"` という属性を持ち、状態は追加の data 属性（`data-today` / `data-outside` / `data-koyomi-dragging` など）で表されます。CSS はこの属性だけをセレクタにして書きます。
+ビルトインコンポーネント（`Toolbar` / `CalendarView` / `MonthView` / `TimeGridView` / `ListView` / `VirtualListView` / `YearView` / `MultiMonthView` / `ResourceView` / `VirtualResourceView` / `TimelineView` / `VirtualTimelineView`）はクラス名を一切生成しません。すべての要素は `data-koyomi="<部位名>"` という属性を持ち、状態は追加の data 属性（`data-today` / `data-outside` / `data-koyomi-dragging` など）で表されます。CSS はこの属性だけをセレクタにして書きます。
 
 インラインの `style` は、位置決めに必須の数値（%・`calc()`）だけに限定されています。色・境界線・余白などの見た目は inline style に出力されません。唯一の例外は `event.color` を指定したイベント要素で、この場合のみ CSS 変数 `--koyomi-event-color` が inline で設定されます（テーマ側は `var(--koyomi-event-color, 既定色)` で参照します）。
 
@@ -111,7 +111,7 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 | --- | --- |
 | 月ビュー本体 | `month` |
 | 曜日ヘッダー行 / 各ラベル | `month-weekdays` / `month-weekday` |
-| 週の行 | `month-week` |
+| 週の行 | `month-week`（ISO 週番号の表示時のみ `data-koyomi-week-number`） |
 | 日セルの行 / 各日セル | `month-days` / `month-day`（`data-koyomi-date="YYYY-MM-DD"`） |
 | 日番号ボタン | `month-day-number` |
 | 「+N 件」ボタン | `month-overflow` |
@@ -124,12 +124,14 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 | 要素 | `data-koyomi` |
 | --- | --- |
 | 時間グリッド本体 | `timegrid`（`data-koyomi-days="7\|1"`） |
+| ヘッダー行（日ヘッダー群の親、grid row） | `timegrid-header`（ISO 週番号の表示時のみ `data-koyomi-week-number`） |
+| 時間軸の余白列（ヘッダー/終日行に同居） / 時間軸本体 | `timegrid-axis-gutter` / `time-axis`（複数タイムゾーン軸。`timeAxisZones` 指定時は軸の数だけ並び、各軸に `data-koyomi-timezone="<TZ>"` が付く） |
 | 終日イベント行 / セル / イベント | `allday-row` / `allday-cell` / `allday-event` |
 | 終日イベントの左右端リサイズハンドル | `allday-resize`（`data-edge="start\|end"`） |
 | 日ヘッダー / 日番号ボタン | `timegrid-day-header`（`data-koyomi-date`）/ `timegrid-day-number` |
 | 時刻軸ラベル | `time-slot-label` |
 | 日列 | `timegrid-day`（`data-koyomi-date`） |
-| 罫線 | `timegrid-slot` |
+| 罫線 | `timegrid-slot`（営業時間内スロットは `data-koyomi-business-hours="true"` も付く） |
 | 時間指定イベント / 内容 | `timegrid-event` / `timegrid-event-content` |
 | 上下端リサイズハンドル | `timegrid-resize`（`data-edge="start\|end"`。`start` が上端 = 開始時刻） |
 | ドラッグ・作成のプレビュー | `timegrid-preview`（`data-kind="create\|move\|resize"`） |
@@ -175,16 +177,18 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 | --- | --- |
 | リソースビュー本体 | `resource`（`data-koyomi-columns="N"`） |
 | 空状態（列が 1 つもない）の表示 | `resource-empty` |
-| 列見出し行 / 各見出しセル | `resource-headers` / `resource-header-cell`（リソースに対応する列のみ `data-koyomi-resource-id`） |
+| 列見出し行（role="row"） / 各見出しセル | `resource-header` / `resource-header-cell`（`role="columnheader"`。リソースに対応する列のみ `data-koyomi-resource-id`） |
 | 終日イベント行 / セル | `allday-row` / `resource-allday-cell`（`data-koyomi-resource`、終日ドラッグプレビューの対象列は `data-koyomi-preview-target="true"`） |
 | 終日アイテム | `allday-event` |
 | 本体 / 時刻軸ラベル | `resource-body` / `time-slot-label` |
 | リソース列群 / 各列 | `resource-columns` / `resource-column`（`data-koyomi-resource`） |
-| 罫線 | `timegrid-slot` |
+| 罫線 | `timegrid-slot`（営業時間内スロットは `data-koyomi-business-hours="true"` も付く） |
 | 時間指定イベント / 内容 | `timegrid-event` / `timegrid-event-content` |
 | 上下端リサイズハンドル | `timegrid-resize`（`data-edge="start\|end"`） |
 | ドラッグ・作成のプレビュー | `timegrid-preview`（`data-kind="create\|move\|resize"`） |
 | 現在時刻線 | `now-indicator` |
+
+`resource-header`（`role="row"`）と各 `resource-header-cell`（`role="columnheader"`）の間には、`resource-headers` という `role="presentation"` の透過的なラッパー要素が挟まります（ARIA の row の必須所有関係を壊さないためのレイアウト用ラッパーで、それ自体は見出しセルではありません）。終日行も同様に `allday-row`（`role="row"`）と各 `resource-allday-cell`（`role="gridcell"`）の間に `resource-allday-cells` という同じ役割の透過ラッパーを挟みます（本体の `resource-columns` は `resource-body` 配下にあり `role="row"` を持たないため、この row/gridcell 間の透過ラッパーには該当しません）。
 
 `data-koyomi-resource` はドラッグ操作の列識別子（`ResourceColumn.key`。`` `r:${id}` `` または `'unassigned'`）で、`timegrid-day` の `data-koyomi-date` に相当します。実際のリソース ID を指す `data-koyomi-resource-id` とは別の属性です。イベントブロック・リサイズハンドル・現在時刻線・プレビューは週/日ビューと同じ部位名を使い、デフォルトテーマのスタイルを共有します。
 
@@ -201,10 +205,24 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 | 行グループ（見出し＋帯トラック） | `timeline-row-group` |
 | 行見出し | `timeline-resource-header`（リソースに対応する行のみ `data-koyomi-resource-id`） |
 | 帯トラック | `timeline-row`（`data-koyomi-resource`） |
+| 営業時間内区間の下敷き帯 | `timeline-business-hours` |
 | 帯（アイテム） / 内容 | `timeline-item`（`data-koyomi-lane="N"`、終日イベントは `data-all-day`） / `timeline-item-content` |
 | 左右端リサイズハンドル（終日の帯には付かない） | `timeline-resize`（`data-edge="start\|end"`） |
 | ドラッグ・作成のプレビュー | `timeline-preview`（`data-kind="create\|move\|resize"`） |
 | 現在時刻線 | `now-indicator` |
+
+### リソース/タイムラインビューの仮想化（VirtualResourceView / VirtualTimelineView）
+
+`VirtualResourceView` / `VirtualTimelineView` は、それぞれ `ResourceView` / `TimelineView` と同じ部位名・DOM 構造・ARIA を使う別コンポーネントです（`data-koyomi="resource"` / `data-koyomi="timeline"` 以下の既存の部位名はすべて共通）。仮想化に伴い追加されるのは次の部位・属性のみです。
+
+| 要素 | `data-koyomi` |
+| --- | --- |
+| 仮想化ルートである印 | ルート（`resource` / `timeline`）に付く `data-koyomi-virtualized="true"`（`data-koyomi-columns` / `data-koyomi-days` は非仮想化版と同じ） |
+| リソース: 列見出し行 / 終日行 / 本体列群の前後スペーサ | `resource-header-spacer` / `resource-allday-spacer` / `resource-columns-spacer`（各 `data-edge="before\|after"`） |
+| タイムライン: 行リストの前後スペーサ | `timeline-row-spacer`（`data-edge="before\|after"`） |
+| 窓外へスクロールしてもフォーカス保持のため描画され続ける列/行 | 該当要素に `data-koyomi-pinned="true"` が付く（`resource-header-cell` / `resource-allday-cell` / `resource-column` / `timeline-row-group`） |
+
+pinned な列/行は通常フローから外れて `position: absolute` で元の位置に固定表示されます（詳細は次節「自前スタイルをゼロから当てる場合の注意」を参照）。それ以外の見た目（イベントブロック・リサイズハンドル・現在時刻線・プレビュー等）は非仮想化版と完全に同じ部位名・スタイルを共有します。
 
 ### 状態を表す data 属性
 
@@ -256,18 +274,32 @@ console.log(eventEl?.style.getPropertyValue('--koyomi-event-color')); // => '#e6
 
 デフォルトテーマを使わず、`data-koyomi-*` 属性だけを頼りに独自の CSS を組み立てる場合、次の点に注意してください。
 
+- **`position: absolute` 自体はテーマ側の責務です**: 位置決めに必須の数値（`top` / `left` / `insetInlineStart` / `width` / `height` など、すべて %）だけが inline style で出力され、`position: absolute` そのものはデフォルトテーマの CSS が当てています（ヘッドレスの原則: 数値のみ inline、`position` の値自体は見た目の一部としてテーマ側が担当）。自前 CSS では次の要素すべてに `position: absolute` を明示的に当ててください（`src/theme/default.css` と実装を突き合わせた一覧です）。
+  - `month-event` / `day-selection` / `allday-event`（月・終日行の帯とドラッグ選択）
+  - `timegrid-slot` / `timegrid-event` / `timegrid-resize` / `timegrid-preview` / `now-indicator`（週/日・リソース共通の時間グリッド部位）
+  - `month-event-resize` / `allday-resize` / `timeline-resize`（帯セグメントの左右端リサイズハンドル。月/終日行/タイムラインで共有）
+  - `year-day-count`（年ビューの密度マーカー）
+  - `timeline-slot-label` / `timeline-business-hours` / `timeline-item` / `timeline-preview`（タイムライン固有の部位）
+  - 例外（inline で `position` を持つ要素）: 月ビューの「+N 件」ボタン（`month-overflow`。`insetInlineStart` / `width` / `bottom` とあわせて `position: absolute` 自体もコンポーネントが inline で出力します）と、仮想化 3 ビュー（`VirtualListView` / `VirtualResourceView` / `VirtualTimelineView`）の pinned 要素（窓外でフォーカス保持中の日セクション/列/行。`data-koyomi-pinned="true"` が付く要素。テーマ CSS を読み込まない環境でも通常フローへ割り込まないよう、コンポーネント自身が inline で `position: absolute` を出力します）
 - **`position: relative` が必要な要素**: イベントは絶対配置（`position: absolute`）の inline style（`left` / `width` / `top` など、すべて %）で位置決めされます。これらは最も近い `position: relative`（または他の配置コンテキスト）の祖先を基準に解決されるため、次の要素には必ず `position: relative` を当ててください。
   - `[data-koyomi="month-week"]`（月ビューのイベント帯 `month-event` の基準）
   - `[data-koyomi="allday-cells"]`（終日イベント行の帯 `allday-event` の基準）
   - `[data-koyomi="timegrid-day"]`（時間グリッド本体のイベント・目盛り・プレビュー・現在時刻線の基準）
+  - `[data-koyomi="resource-allday-cells"]`（リソースビューの終日イベント行の帯 `allday-event` の基準。`allday-cells` と同じ役割）
+  - `[data-koyomi="resource-column"]`（リソースビュー本体のイベント・目盛り・プレビュー・現在時刻線の基準。`timegrid-day` と同じ役割）
+  - `[data-koyomi="timeline-row"]`（タイムラインビューの帯 `timeline-item`・営業時間帯 `timeline-business-hours`・プレビュー・現在時刻線（縦線）の基準）
 - **逆に、日セルを positioned にしないでください**: 月ビューの帯（`month-event`）・終日行の帯（`allday-event`）は、複数日にまたがっても DOM 上は**開始日のセル（`month-day` / `allday-cell`）の子**として描画されます（アクセシビリティ上の所有関係の要請）。帯の % 座標は上記の週行/セル列コンテナ（`month-week` / `allday-cells`）を基準に計算されているため、セル自体に `position: relative` 等を当てると帯の基準がセルに変わり、複数日の帯が 1 セル幅に潰れて壊れます。バッジ等をセル内で絶対配置したい場合は、セルではなく `renderDayCell` で差し込む自前のラッパー要素に `position: relative` を当ててください。
 - **`renderDayCell` の `defaultContent` を positioned な自前ラッパーの内側に入れないでください**: 月ビューの「+N 件」ボタン（`month-overflow`）も `month-event` と同じ方式で絶対配置され（positioned ancestor は `month-day` ではなく `month-week`）、`insetInlineStart` / `width` はその週の可視列数を基準にした % で計算されています。`defaultContent`（`month-day-number` と `month-overflow` を含む）を `position: relative` な自前のラッパー要素で丸ごと囲むと、`month-overflow` の絶対配置がその自前ラッパー基準に変わってしまい、% がセル 1 個分の幅に対する割合として解決されるため配置が崩れます。バッジ等の装飾で positioned なラッパーが必要な場合は、`defaultContent` とは別の兄弟要素として差し込んでください（`defaultContent` 自体はラップせずそのまま返す）。
 - **inline の % は祖先の実寸に依存する**: 上記の基準要素には、% が正しく解決されるよう明示的な高さ（または `min-height`）が必要です。例えば `[data-koyomi="timegrid-day"]` の `top` / `height` は 1 日（1440 分）に対する割合なので、その要素の高さが 0 のままだとイベントは潰れて表示されます（デフォルトテーマでは `height: calc(24 * var(--koyomi-hour-height))` を設定しています）。同様に月ビューの `[data-koyomi="month-days"]` にも `dayMaxEvents` のレーン数を見込んだ `min-height` が必要です。
+- **終日行コンテナの `min-height`**: 終日イベントの帯（`allday-event`）はレーン（縦位置）ごとに積み重なりますが、実際のレーン数はビューモデル側でしか把握できません。そのためコンテナ（`[data-koyomi="allday-cells"]` / `[data-koyomi="resource-allday-cells"]`）には既定で 2 レーン分の `min-height`（フォールバック）が必要です。週/日ビューはさらに実際のレーン数（`allDayLaneCount`）に応じた `min-height` をコンテナ自身に inline で上書きしますが、リソースビューは列ごとの `resource-allday-cell` 側にレーン数に応じた `min-height` を inline で持たせる方式のため、コンテナの `min-height` は常にこのフォールバック値のままです。
+- **リソースビューの横スクロールと時間軸の固定表示**: リソース列は数十〜数百列に増えうるため、横スクロールはルート `[data-koyomi="resource"]` だけが担います（`overflow-x: auto`。列見出し行・終日行・本体の 3 行を個別のスクロールコンテナにすると、横スクロール位置がずれます）。時間軸の余白列（`timegrid-axis-gutter`）と時間軸本体（`time-axis`）は、横スクロール中も左端に固定表示されるよう `position: sticky; inset-inline-start: 0;` が必要です（タイムラインビューの行見出し列と同じ手法）。
+- **仮想化 3 ビューは境界寸法が必須**: `VirtualListView` はスクロールコンテナ（`[data-koyomi="list"][data-koyomi-virtualized]`）に `height` / `max-height`、`VirtualTimelineView` は `[data-koyomi="timeline-body"]` に `max-height`、`VirtualResourceView` はルート `[data-koyomi="resource"]`（横スクロールを担う要素）に境界幅が、それぞれ CSS で与えられている必要があります。境界寸法が無いと可視ウィンドウを計算できず、仮想化は無害に全件描画へフォールバックします（開発ビルドでは一度警告します）。
 - **クラス名は生成されない**: セレクタは常に `[data-koyomi="..."]` 属性セレクタを使います。子孫の見た目（罫線・余白・フォントなど）はすべて自分で用意する必要があります（デフォルトテーマの `src/theme/default.css` を出発点にすると早く済みます）。
 - **イベント色**: `event.color` を持つイベントには inline で `--koyomi-event-color` が設定されるだけなので、それを使うかどうか（`background-color: var(--koyomi-event-color, 既定色)` のように参照するか）は自前 CSS 側で決める必要があります。
-- **タッチデバイスの `touch-action`**: ドラッグ起点となる要素（`month-day` / `month-event` / `allday-cell` / `allday-event` / `timegrid-day` / `timegrid-event` / 各リサイズハンドル）には `touch-action: none` が必要です。これがないとタッチ操作のドラッグがブラウザのスクロールに奪われます（デフォルトテーマでは設定済み）。
+- **タッチデバイスの `touch-action`**: ドラッグ起点となる要素（`month-day` / `month-event` / `allday-cell` / `allday-event` / `timegrid-day` / `timegrid-event` / `resource-allday-cell` / `resource-column` / `timeline-row` / `timeline-item` / 各リサイズハンドル）には `touch-action: none` が必要です。これがないとタッチ操作のドラッグがブラウザのスクロールに奪われます（デフォルトテーマでは設定済み）。
 - **キーボードフォーカス**: 予定要素と日セルは `tabindex` によりフォーカス可能です。`:focus-visible` のアウトライン等、フォーカスリングのスタイルを必ず用意してください（デフォルトテーマでは設定済み）。
 - **RTL（右書き言語）**: イベントの水平位置はデフォルトコンポーネントが `insetInlineStart`（論理プロパティ）で出力するため、`dir="rtl"` の文書では自動で反転します。自前 CSS でも `border-inline-start` などの論理プロパティを使うと RTL 対応が保たれます（デフォルトテーマは論理プロパティで記述されています）。
+- **`data-edge` は 2 つの語彙で使われます**: `data-edge="start|end"` はリサイズハンドル（`month-event-resize` / `allday-resize` / `timegrid-resize` / `timeline-resize`）の左右・上下端を表すのに対し、`data-edge="before|after"` は仮想化のスペーサ（`list-spacer` / `resource-header-spacer` / `resource-allday-spacer` / `resource-columns-spacer` / `timeline-row-spacer`）が窓の前後どちら側かを表します。同じ属性名ですが意味の異なる別々の語彙なので、`[data-edge="start"]` のようなセレクタが両方の文脈に意図せずマッチしないよう注意してください。
 
 ## renderEvent によるイベント内容のカスタマイズ
 
