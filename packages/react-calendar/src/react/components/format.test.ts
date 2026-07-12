@@ -132,7 +132,13 @@ describe('Intl.DateTimeFormat のキャッシュ', () => {
     const date = new Date('2026-07-15T01:00:00Z');
     formatTime(date, CACHE_TEST_TZ, CACHE_TEST_LOCALE); // ウォームアップ
 
-    const spy = vi.spyOn(Intl, 'DateTimeFormat');
+    // spy 実装は `new` の対象になるため、コンストラクタとして呼べる function 式で元へ委譲する
+    const OriginalDateTimeFormat = Intl.DateTimeFormat;
+    const spy = vi
+      .spyOn(Intl, 'DateTimeFormat')
+      .mockImplementation(function (...args) {
+        return new OriginalDateTimeFormat(...args);
+      });
     formatTime(date, CACHE_TEST_TZ, 'de-DE');
     expect(spy).toHaveBeenCalledTimes(1);
     spy.mockRestore();
@@ -142,7 +148,13 @@ describe('Intl.DateTimeFormat のキャッシュ', () => {
     const date = new Date('2026-07-15T01:00:00Z');
     formatTime(date, CACHE_TEST_TZ, CACHE_TEST_LOCALE); // ウォームアップ（'time' 種別）
 
-    const spy = vi.spyOn(Intl, 'DateTimeFormat');
+    // spy 実装は `new` の対象になるため、コンストラクタとして呼べる function 式で元へ委譲する
+    const OriginalDateTimeFormat = Intl.DateTimeFormat;
+    const spy = vi
+      .spyOn(Intl, 'DateTimeFormat')
+      .mockImplementation(function (...args) {
+        return new OriginalDateTimeFormat(...args);
+      });
     formatMonthTitle(date, CACHE_TEST_TZ, CACHE_TEST_LOCALE); // 'month-title' 種別は未キャッシュ
     expect(spy).toHaveBeenCalledTimes(1);
     spy.mockRestore();
