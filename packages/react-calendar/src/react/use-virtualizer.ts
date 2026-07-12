@@ -14,14 +14,13 @@
  * 可視となり、実質的に仮想化なしの全件描画へ無害に縮退する）。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   computeWindow,
   startForKey,
   type VirtualItem,
   type WindowResult,
 } from '../core/virtualization';
-import { useIsomorphicLayoutEffect } from './use-isomorphic-layout-effect';
 
 /**
  * {@link useVirtualizer} のオプション。
@@ -194,7 +193,7 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
   // 現在のスクロール要素を state で追跡する。`getScrollElement` の戻り値が変わったとき
   // （null→要素、A→B の差し替え）に購読 effect を貼り直せるようにする。
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
-  useIsomorphicLayoutEffect(() => {
+  useLayoutEffect(() => {
     const next = getScrollElementRef.current();
     setScrollElement((prev) => (prev === next ? prev : next));
   });
@@ -479,7 +478,8 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
   // 実測反映（measureVersion 変化）時のみ、アイテム高のズレ分だけアンカーが動かないよう
   // スクロール位置を補正する（count/getItemKey/estimateSize は補正計算に読むが、スクロール毎の
   // 再実行を避けるため依存は measureVersion/enabled に絞る）。
-  useIsomorphicLayoutEffect(() => {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 上記コメントの意図的な依存絞り込み（実測反映時だけ補正を実行する）
+  useLayoutEffect(() => {
     if (!enabled || measureVersion === 0) {
       return;
     }

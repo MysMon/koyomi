@@ -29,6 +29,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -42,7 +43,6 @@ import type {
 } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
-import { useIsomorphicLayoutEffect } from '../use-isomorphic-layout-effect';
 import type { TimelinePreviewSegment } from '../use-timeline-drag';
 import { useTimelineDrag } from '../use-timeline-drag';
 import { useVirtualizer } from '../use-virtualizer';
@@ -358,7 +358,7 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
   // SSR・初回クライアント render は非仮想化（全件）。マウント後に仮想化へ切り替える
   // ことで hydration 不一致を避ける（VirtualListView と同じ）。
   const [enabled, setEnabled] = useState(false);
-  useIsomorphicLayoutEffect(() => {
+  useLayoutEffect(() => {
     setEnabled(true);
   }, []);
 
@@ -366,7 +366,7 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
   // その分だけ可視ビューポートを差し引く（useVirtualizer の viewportPadding）。
   const headerRef = useRef<HTMLDivElement>(null);
   const [headerHeight, setHeaderHeight] = useState(0);
-  useIsomorphicLayoutEffect(() => {
+  useLayoutEffect(() => {
     const element = headerRef.current;
     if (element === null) {
       return;

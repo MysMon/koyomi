@@ -15,11 +15,10 @@
  */
 
 import type { CSSProperties, ReactElement, FocusEvent as ReactFocusEvent, ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { EventOccurrence, ListDay } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
-import { useIsomorphicLayoutEffect } from '../use-isomorphic-layout-effect';
 import { useVirtualizer } from '../use-virtualizer';
 import {
   DEFAULT_ALL_DAY_LABEL,
@@ -105,7 +104,7 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
   // SSR・初回クライアント render は非仮想化（全件）。マウント後に仮想化へ切り替えることで
   // hydration 不一致を避ける。
   const [enabled, setEnabled] = useState(false);
-  useIsomorphicLayoutEffect(() => {
+  useLayoutEffect(() => {
     setEnabled(true);
   }, []);
 

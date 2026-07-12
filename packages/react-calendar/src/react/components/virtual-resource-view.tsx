@@ -35,6 +35,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -49,7 +50,6 @@ import type {
 } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
-import { useIsomorphicLayoutEffect } from '../use-isomorphic-layout-effect';
 import type { ResourceGridDragHandlers, ResourcePreviewSegment } from '../use-resource-grid-drag';
 import { useResourceGridDrag } from '../use-resource-grid-drag';
 import { useVirtualizer } from '../use-virtualizer';
@@ -657,7 +657,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
 
   const rootRef = useRef<HTMLDivElement>(null);
   const [enabled, setEnabled] = useState(false);
-  useIsomorphicLayoutEffect(() => {
+  useLayoutEffect(() => {
     setEnabled(true);
   }, []);
 
@@ -665,7 +665,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
   // 「前」に同居する固定表示の列なので、その分だけ可視ビューポートを差し引く。
   const gutterRef = useRef<HTMLDivElement>(null);
   const [gutterWidth, setGutterWidth] = useState(0);
-  useIsomorphicLayoutEffect(() => {
+  useLayoutEffect(() => {
     const element = gutterRef.current;
     if (element === null) {
       return;
