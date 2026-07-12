@@ -350,4 +350,42 @@ describe('VirtualListView', () => {
     const dateMatches = html.match(/data-koyomi-date=/g) ?? [];
     expect(dateMatches.length).toBe(5);
   });
+
+  it('境界高（clientHeight）が全内容を上回る＝実質無い場合、全日セクションが描画される', async () => {
+    // 境界高が無ければ（開発警告を出すだけでなく）全件描画へのフォールバック本体が
+    // 実際に働き、全日セクションが描画されるはずである。
+    const dayCount = 50;
+    const { container } = render(
+      <TestVirtualList events={makeDailyEvents(dayCount)} listDays={60} estimateDayHeight={50} />,
+    );
+    await setViewport(container, 50 * dayCount);
+
+    const sections = container.querySelectorAll('[data-koyomi="list-day"]');
+    expect(sections).toHaveLength(dayCount);
+  });
+
+  it('estimateDayHeight に負数を渡しても例外を投げず、日セクションが描画される', () => {
+    expect(() =>
+      render(
+        <TestVirtualList events={makeDailyEvents(5)} listDays={10} estimateDayHeight={-100} />,
+      ),
+    ).not.toThrow();
+    const { container } = render(
+      <TestVirtualList events={makeDailyEvents(5)} listDays={10} estimateDayHeight={-100} />,
+    );
+    const sections = container.querySelectorAll('[data-koyomi="list-day"]');
+    expect(sections.length).toBeGreaterThan(0);
+  });
+
+  it('estimateDayHeight に NaN を渡しても例外を投げない', () => {
+    expect(() =>
+      render(
+        <TestVirtualList
+          events={makeDailyEvents(5)}
+          listDays={10}
+          estimateDayHeight={Number.NaN}
+        />,
+      ),
+    ).not.toThrow();
+  });
 });

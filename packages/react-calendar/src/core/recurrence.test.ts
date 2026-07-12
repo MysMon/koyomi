@@ -226,6 +226,39 @@ describe('expandRecurrence', () => {
     ]);
   });
 
+  it('FREQ=MONTHLY（BYMONTHDAY 省略）は同じ日を毎月返す', () => {
+    const dtstart = new Date('2026-07-01T00:00:00Z'); // 東京 7/1 9:00
+    const result = expandRecurrence({
+      rrule: 'FREQ=MONTHLY',
+      dtstart,
+      timeZone: TOKYO,
+      range: { start: dtstart, end: new Date('2027-01-01T00:00:00Z') },
+    });
+    expect(toISO(result)).toEqual([
+      '2026-07-01T00:00:00.000Z',
+      '2026-08-01T00:00:00.000Z',
+      '2026-09-01T00:00:00.000Z',
+      '2026-10-01T00:00:00.000Z',
+      '2026-11-01T00:00:00.000Z',
+      '2026-12-01T00:00:00.000Z',
+    ]);
+  });
+
+  it('FREQ=YEARLY は同じ日を毎年返す', () => {
+    const dtstart = new Date('2026-07-01T00:00:00Z');
+    const result = expandRecurrence({
+      rrule: 'FREQ=YEARLY',
+      dtstart,
+      timeZone: TOKYO,
+      range: { start: dtstart, end: new Date('2029-01-01T00:00:00Z') },
+    });
+    expect(toISO(result)).toEqual([
+      '2026-07-01T00:00:00.000Z',
+      '2027-07-01T00:00:00.000Z',
+      '2028-07-01T00:00:00.000Z',
+    ]);
+  });
+
   it('dtstart 自身が最初のオカレンスとして含まれる（範囲 start ちょうども含む）', () => {
     const dtstart = new Date('2026-07-01T00:00:00Z');
     const result = expandRecurrence({

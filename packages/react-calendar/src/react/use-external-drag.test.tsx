@@ -24,10 +24,12 @@ import { useRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseDateValue } from '../core/timezone';
 import type { CalendarEvent, CalendarResource } from '../core/types';
+import { ListView } from './components/list-view';
 import { MonthView } from './components/month-view';
 import { ResourceView } from './components/resource-view';
 import { TimeGridView } from './components/time-grid-view';
 import { TimelineView } from './components/timeline-view';
+import { YearView } from './components/year-view';
 import { CalendarProvider } from './context';
 import type { UseCalendarResult } from './types';
 import { useCalendar } from './use-calendar';
@@ -519,6 +521,37 @@ describe('useExternalDrag - リソースビュー', () => {
       payload: { title: '外部の予定' },
     });
   });
+
+  it('resources: [] かつ unassignedLane: auto の場合はドロップ先の列が存在せずキャンセル扱いになる', () => {
+    // resources: [] かつ unassignedLane: 'auto' のため isEmpty:true になり、
+    // resource-empty のみが描画される（resource-column 等は存在しない）。
+    const onExternalDrop = vi.fn();
+    const { container } = render(
+      <Harness
+        view="resource"
+        resources={[]}
+        unassignedLane="auto"
+        onExternalDrop={onExternalDrop}
+      />,
+    );
+    const root = container.querySelector('[data-koyomi="resource"]');
+    const empty = container.querySelector('[data-koyomi="resource-empty"]');
+    const source = container.querySelector('[data-testid="external-source"]');
+    if (
+      !(root instanceof HTMLElement) ||
+      !(empty instanceof HTMLElement) ||
+      !(source instanceof HTMLElement)
+    ) {
+      throw new Error('要素が見つかりません');
+    }
+    mockElementsFromPoint([empty, root]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+    releasePointer(10, 10);
+
+    expect(onExternalDrop).not.toHaveBeenCalled();
+  });
 });
 
 describe('useExternalDrag - タイムラインビュー', () => {
@@ -761,5 +794,183 @@ describe('useExternalDrag - キャンセル', () => {
 
     releasePointer(10, 10);
     expect(onExternalDrop).not.toHaveBeenCalled();
+  });
+});
+
+describe('useExternalDrag - 非対応ビューでのドロップはキャンセル扱い', () => {
+  interface UnsupportedHarnessProps {
+    view: 'list' | 'year';
+    onExternalDrop: (info: ExternalDropInfo<Payload>) => void;
+  }
+
+  // ListView は「予定がある日だけ」をセクション化するため、日セクションが
+  // 描画されるよう予定を用意する（YearView は予定の有無に関わらず全日を描画する）。
+  const UNSUPPORTED_VIEW_EVENTS: readonly CalendarEvent[] = [
+    { id: 'e1', title: '予定', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+  ];
+
+  function UnsupportedHarness(props: UnsupportedHarnessProps): ReactElement {
+    const calendar = useCalendar({
+      timeZone: TOKYO,
+      now: () => NOW,
+      initialDate: NOW,
+      initialView: props.view,
+      events: UNSUPPORTED_VIEW_EVENTS,
+      resources: EMPTY_RESOURCES,
+    });
+    const containerRef = useRef<HTMLDivElement>(null);
+    const drag = useExternalDrag<Payload>({
+      calendar,
+      containerRef,
+      onExternalDrop: props.onExternalDrop,
+    });
+    return (
+      <div>
+        <div data-testid="external-source" {...drag.getDraggableProps({ title: '外部の予定' })} />
+        <div data-testid="calendar-root" ref={containerRef}>
+          <CalendarProvider value={calendar}>
+            {props.view === 'list' && <ListView />}
+            {props.view === 'year' && <YearView />}
+          </CalendarProvider>
+        </div>
+      </div>
+    );
+  }
+
+  it('リストビュー: 日セクション上へドロップしても onExternalDrop は呼ばれない（ドロップ先解決不可でキャンセル扱い）', () => {
+    const onExternalDrop = vi.fn();
+    const { container } = render(
+      <UnsupportedHarness view="list" onExternalDrop={onExternalDrop} />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const day = container.querySelector('[data-koyomi="list-day"]');
+    if (!(source instanceof HTMLElement) || !(day instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockElementsFromPoint([day]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+    releasePointer(10, 10);
+
+    expect(onExternalDrop).not.toHaveBeenCalled();
+  });
+
+  it('年ビュー: 日セル上へドロップしても onExternalDrop は呼ばれない（ドロップ先解決不可でキャンセル扱い）', () => {
+    const onExternalDrop = vi.fn();
+    const { container } = render(
+      <UnsupportedHarness view="year" onExternalDrop={onExternalDrop} />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const day = container.querySelector('[data-koyomi="year-day"]');
+    if (!(source instanceof HTMLElement) || !(day instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockElementsFromPoint([day]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+    releasePointer(10, 10);
+
+    expect(onExternalDrop).not.toHaveBeenCalled();
+  });
+});
+
+describe('useExternalDrag - containerRef.current が null の間はキャンセル扱い', () => {
+  it('マウント前相当（ref を実際の要素に接続していない）状態でドロップしても onExternalDrop は呼ばれない', () => {
+    const onExternalDrop = vi.fn();
+
+    function NullRefHarness(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'month',
+        events: EMPTY_EVENTS,
+        resources: EMPTY_RESOURCES,
+      });
+      // 意図的に containerRef をどの要素にも接続しない（current が常に null のまま）。
+      // これにより「マウント前」を模した状態を作る。
+      const containerRef = useRef<HTMLDivElement>(null);
+      const drag = useExternalDrag<Payload>({ calendar, containerRef, onExternalDrop });
+      return (
+        <div>
+          <div data-testid="external-source" {...drag.getDraggableProps({ title: '外部の予定' })} />
+          {/* containerRef を接続せず、別の要素の内側にカレンダーを描画する。 */}
+          <div>
+            <CalendarProvider value={calendar}>
+              <MonthView />
+            </CalendarProvider>
+          </div>
+        </div>
+      );
+    }
+
+    const { container } = render(<NullRefHarness />);
+    const source = container.querySelector('[data-testid="external-source"]');
+    const cell = container.querySelector(
+      '[data-koyomi="month-day"][data-koyomi-date="2026-07-20"]',
+    );
+    if (!(source instanceof HTMLElement) || !(cell instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockElementsFromPoint([cell]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+    releasePointer(10, 10);
+
+    expect(onExternalDrop).not.toHaveBeenCalled();
+  });
+});
+
+describe('useExternalDrag - onError', () => {
+  it('onExternalDrop が投げた例外は onError に渡され、外へは漏れない', () => {
+    const thrown = new Error('作成に失敗');
+    const onExternalDrop = vi.fn(() => {
+      throw thrown;
+    });
+    const onError = vi.fn();
+    const { container } = render(
+      <Harness view="month" onExternalDrop={onExternalDrop} onError={onError} />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const cell = container.querySelector(
+      '[data-koyomi="month-day"][data-koyomi-date="2026-07-20"]',
+    );
+    if (!(source instanceof HTMLElement) || !(cell instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockElementsFromPoint([cell]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+    expect(() => releasePointer(10, 10)).not.toThrow();
+
+    expect(onExternalDrop).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(thrown);
+  });
+
+  it('onError 省略時、onExternalDrop が投げた例外は console.error に出力される', () => {
+    const thrown = new Error('作成に失敗');
+    const onExternalDrop = vi.fn(() => {
+      throw thrown;
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { container } = render(<Harness view="month" onExternalDrop={onExternalDrop} />);
+    const source = container.querySelector('[data-testid="external-source"]');
+    const cell = container.querySelector(
+      '[data-koyomi="month-day"][data-koyomi-date="2026-07-20"]',
+    );
+    if (!(source instanceof HTMLElement) || !(cell instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockElementsFromPoint([cell]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+    expect(() => releasePointer(10, 10)).not.toThrow();
+
+    expect(errorSpy).toHaveBeenCalledWith(thrown);
   });
 });

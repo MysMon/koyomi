@@ -185,6 +185,45 @@ describe('fromWallClock', () => {
   });
 });
 
+describe('fromWallClock / getWallClock: 不正な IANA タイムゾーン ID', () => {
+  // fromWallClock / getWallClock に不正な IANA タイムゾーン ID（存在しない ID など）を
+  // 渡した場合は、setTimeZone や timeAxisZones とは異なり Error にはならず、無言で
+  // NaN を返す。
+  //
+  // 空文字列 '' はこの一覧から意図的に除外している: @date-fns/tz の tzOffset は
+  // オフセット文字列をキーにしたグローバルキャッシュを持ち、'UTC' の解決結果
+  // （ICU 環境によっては "GMT" 接尾辞が空文字列になる）が '' というキーで
+  // キャッシュされることがある。本ファイルは他のテストで 'UTC' を広く使うため、
+  // '' を無効なタイムゾーンとして渡しても、その副作用でオフセット 0（有効な UTC 相当）
+  // に解決されてしまい、NaN にならない（このファイル内の実行順序に依存する
+  // ライブラリ側の挙動であり、本仕様が検証したい「不正な ID の拒否」とは無関係）。
+  it.each([
+    'Not/AZone',
+    'garbage',
+    'Asia/Nonexistent',
+    'XYZ',
+  ])('fromWallClock は不正な IANA タイムゾーン ID %s で Error を投げず、time が NaN の Invalid Date を返す', (invalidTimeZone) => {
+    const instant = fromWallClock({ year: 2026, month: 7, day: 1, hours: 10 }, invalidTimeZone);
+    expect(Number.isNaN(instant.getTime())).toBe(true);
+  });
+
+  it.each([
+    'Not/AZone',
+    'garbage',
+    'Asia/Nonexistent',
+    'XYZ',
+  ])('getWallClock は不正な IANA タイムゾーン ID %s で Error を投げず、全成分が NaN の WallClockParts を返す', (invalidTimeZone) => {
+    const wall = getWallClock(new Date('2026-07-01T00:00:00Z'), invalidTimeZone);
+    expect(Number.isNaN(wall.year)).toBe(true);
+    expect(Number.isNaN(wall.month)).toBe(true);
+    expect(Number.isNaN(wall.day)).toBe(true);
+    expect(Number.isNaN(wall.hours)).toBe(true);
+    expect(Number.isNaN(wall.minutes)).toBe(true);
+    expect(Number.isNaN(wall.seconds)).toBe(true);
+    expect(Number.isNaN(wall.milliseconds)).toBe(true);
+  });
+});
+
 describe('fromWallClock: 年 0〜99 の 2 桁年変換バグ回帰', () => {
   // TZDate の数値引数コンストラクタは Date コンストラクタの 2 桁年マッピング
   // （0〜99 年を 1900〜1999 年とみなす）を引き継いでしまう。
@@ -214,6 +253,35 @@ describe('fromWallClock: 年 0〜99 の 2 桁年変換バグ回帰', () => {
   });
 });
 
+describe('fromWallClock: WallClockParts のオーバーフロー正規化', () => {
+  // WallClockParts の各成分に暦上の範囲外の値（month: 13 や day: 32、day: 0 など）を
+  // 渡した場合は Error にはならず、Date の setter と同じ繰り上げ/繰り下げ
+  // （オーバーフロー）で正規化される。
+  it('day: 32 を指定すると翌月の 1 日として解決される（例: 2026-01-32 → 2026-02-01）', () => {
+    const instant = fromWallClock({ year: 2026, month: 1, day: 32 }, TOKYO);
+    const wall = getWallClock(instant, TOKYO);
+    expect(wall.year).toBe(2026);
+    expect(wall.month).toBe(2);
+    expect(wall.day).toBe(1);
+  });
+
+  it('month: 13 を指定すると翌年の 1 月として解決される', () => {
+    const instant = fromWallClock({ year: 2026, month: 13, day: 1 }, TOKYO);
+    const wall = getWallClock(instant, TOKYO);
+    expect(wall.year).toBe(2027);
+    expect(wall.month).toBe(1);
+    expect(wall.day).toBe(1);
+  });
+
+  it('day: 0 を指定すると前月の末日として解決される', () => {
+    const instant = fromWallClock({ year: 2026, month: 1, day: 0 }, TOKYO);
+    const wall = getWallClock(instant, TOKYO);
+    expect(wall.year).toBe(2025);
+    expect(wall.month).toBe(12);
+    expect(wall.day).toBe(31);
+  });
+});
+
 describe('startOfDayInZone', () => {
   it('タイムゾーンごとに、その絶対時刻が属する日の 0:00 を返す', () => {
     const date = new Date('2026-06-30T20:00:00Z');
@@ -238,6 +306,17 @@ describe('startOfDayInZone', () => {
   it('すでに 0:00 の時刻はそのままの絶対時刻を返す', () => {
     const midnight = new Date('2026-06-30T15:00:00Z'); // 7/1 0:00 JST
     expect(startOfDayInZone(midnight, TOKYO).getTime()).toBe(midnight.getTime());
+  });
+
+  it('その日の 0:00 が DST により存在しない場合、直後の実在時刻（1:00）に繰り上げて解決する', () => {
+    // America/Santiago は 2026-09-06 の 0:00 → 1:00 に夏時間へ切り替わる。
+    const startOfDay = startOfDayInZone(new Date('2026-09-06T12:00:00Z'), 'America/Santiago');
+    const wall = getWallClock(startOfDay, 'America/Santiago');
+    expect(wall.year).toBe(2026);
+    expect(wall.month).toBe(9);
+    expect(wall.day).toBe(6);
+    expect(wall.hours).toBe(1);
+    expect(wall.minutes).toBe(0);
   });
 });
 
@@ -270,6 +349,34 @@ describe('addDaysInZone', () => {
   it('0 を加算すると同じ絶対時刻を返す', () => {
     const date = new Date('2026-07-01T01:00:00Z');
     expect(addDaysInZone(date, 0, TOKYO).getTime()).toBe(date.getTime());
+  });
+
+  it('年末（12/31）をまたぐと翌年 1/1 になる', () => {
+    const date = new Date('2025-12-31T05:00:00Z'); // 東京 12/31 14:00
+    const next = addDaysInZone(date, 1, TOKYO);
+    const wall = getWallClock(next, TOKYO);
+    expect(wall.year).toBe(2026);
+    expect(wall.month).toBe(1);
+    expect(wall.day).toBe(1);
+    expect(wall.hours).toBe(14);
+  });
+
+  it('うるう年の 2/28 をまたぐと 2/29 になる（2028 年はうるう年）', () => {
+    const date = new Date('2028-02-28T05:00:00Z'); // 東京 2/28 14:00
+    const next = addDaysInZone(date, 1, TOKYO);
+    const wall = getWallClock(next, TOKYO);
+    expect(wall.year).toBe(2028);
+    expect(wall.month).toBe(2);
+    expect(wall.day).toBe(29);
+  });
+
+  it('平年（うるう年でない）の 2/28 をまたぐと 3/1 になる（2026 年は平年）', () => {
+    const date = new Date('2026-02-28T05:00:00Z'); // 東京 2/28 14:00
+    const next = addDaysInZone(date, 1, TOKYO);
+    const wall = getWallClock(next, TOKYO);
+    expect(wall.year).toBe(2026);
+    expect(wall.month).toBe(3);
+    expect(wall.day).toBe(1);
   });
 
   it('複数日をまとめて加算できる', () => {

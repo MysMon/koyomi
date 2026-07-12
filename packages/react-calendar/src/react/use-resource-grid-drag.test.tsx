@@ -13,7 +13,7 @@ import { act, fireEvent, render, renderHook } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { parseDateValue } from '../core/timezone';
-import type { CalendarEvent, CalendarResource } from '../core/types';
+import type { CalendarEvent, CalendarResource, RecurringEditScope } from '../core/types';
 import { ResourceView } from './components/resource-view';
 import { CalendarProvider } from './context';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
@@ -42,6 +42,7 @@ const EMPTY_EVENTS: readonly CalendarEvent[] = [];
 /** 2 リソース分の固定フィクスチャ。 */
 const ROOM_A: CalendarResource = { id: 'room-a', title: '会議室A' };
 const ROOM_B: CalendarResource = { id: 'room-b', title: '会議室B' };
+const ROOM_C: CalendarResource = { id: 'room-c', title: '会議室C' };
 
 /** 列の幅（px）。列ごとに重ならない範囲を割り当てる。 */
 const COLUMN_WIDTH = 100;
@@ -649,6 +650,181 @@ describe('useResourceGridDrag - キーボード操作', () => {
       end: `${DAY}T11:00`,
       resourceId: 'room-a',
     });
+  });
+
+  it('Enter キーで onEventClick 相当のクリックが発火する', () => {
+    const onEventClick = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-enter',
+      title: '会議',
+      start: `${DAY}T09:00`,
+      end: `${DAY}T09:30`,
+      resourceId: 'room-a',
+    };
+    const { container } = renderHarness({
+      resources: [ROOM_A],
+      events: [event],
+      callbacks: { onEventClick },
+    });
+    const eventEl = getEventElement(container, 'ev-enter', `${DAY}T09:00`);
+
+    fireEvent.keyDown(eventEl, { key: 'Enter' });
+
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+    expect(onEventClick.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ eventId: 'ev-enter' }),
+    );
+  });
+
+  it('Delete キーで単発の予定が削除される', () => {
+    const onEventDelete = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-delete',
+      title: '会議',
+      start: `${DAY}T09:00`,
+      end: `${DAY}T09:30`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      events: [event],
+      callbacks: { onEventDelete },
+    });
+    const eventEl = getEventElement(container, 'ev-delete', `${DAY}T09:00`);
+
+    fireEvent.keyDown(eventEl, { key: 'Delete' });
+
+    expect(sink.current?.api.getEvents()).toHaveLength(0);
+    expect(onEventDelete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        occurrence: expect.objectContaining({ eventId: 'ev-delete' }),
+        scope: null,
+      }),
+    );
+  });
+
+  it('ArrowUp で snapMinutes 分だけ前に移動する', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-up',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({ resources: [ROOM_A], events: [event] });
+    const eventEl = getEventElement(container, 'ev-up', `${DAY}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowUp' });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: at(`${DAY}T09:45`), end: at(`${DAY}T10:45`) });
+  });
+
+  it('Shift+ArrowUp で終了時刻が snapMinutes 分だけ短縮される', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-shift-up',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({ resources: [ROOM_A], events: [event] });
+    const eventEl = getEventElement(container, 'ev-shift-up', `${DAY}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowUp', shiftKey: true });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: at(`${DAY}T10:00`), end: at(`${DAY}T10:45`) });
+  });
+
+  it('先頭以外の列で ArrowLeft を押すと隣（前）のリソース列へ移動する', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-left',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-b',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B, ROOM_C],
+      events: [event],
+    });
+    const eventEl = getEventElement(container, 'ev-left', `${DAY}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowLeft' });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      resourceId: 'room-a',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+    });
+  });
+
+  it('繰り返し予定を矢印キーで移動しようとすると resolveRecurringScope が action: "move" で呼ばれる（リソース移動も this / thisAndFollowing / all の選択対象）', async () => {
+    const resolveRecurringScope = vi.fn().mockResolvedValue('this' as RecurringEditScope);
+    const event: CalendarEvent = {
+      id: 'recurring-resource-move',
+      title: '定例',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      resourceId: 'room-a',
+      rrule: 'FREQ=WEEKLY;BYDAY=WE',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { resolveRecurringScope },
+    });
+    const eventEl = getEventElement(container, 'recurring-resource-move', `${DAY}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowDown' });
+    });
+
+    expect(resolveRecurringScope).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: 'recurring-resource-move' }),
+      'move',
+    );
+    const override = (sink.current?.api.getEvents() ?? []).find(
+      (candidate) => candidate.recurringEventId === 'recurring-resource-move',
+    );
+    expect(override).toMatchObject({ start: at(`${DAY}T10:15`), end: at(`${DAY}T11:15`) });
+  });
+
+  it('繰り返し予定を Delete キーで削除しようとすると resolveRecurringScope が action: "delete" で呼ばれる', async () => {
+    const resolveRecurringScope = vi.fn().mockResolvedValue('this' as RecurringEditScope);
+    const onEventDelete = vi.fn();
+    const event: CalendarEvent = {
+      id: 'recurring-resource-delete',
+      title: '定例',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      resourceId: 'room-a',
+      rrule: 'FREQ=WEEKLY;BYDAY=WE',
+    };
+    const { container } = renderHarness({
+      resources: [ROOM_A],
+      events: [event],
+      callbacks: { resolveRecurringScope, onEventDelete },
+    });
+    const eventEl = getEventElement(container, 'recurring-resource-delete', `${DAY}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'Delete' });
+    });
+
+    expect(resolveRecurringScope).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: 'recurring-resource-delete' }),
+      'delete',
+    );
+    expect(onEventDelete).toHaveBeenCalledWith(expect.objectContaining({ scope: 'this' }));
   });
 });
 

@@ -17,9 +17,20 @@
 import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
-import type { CalendarEvent, EventOccurrence, ListDay, YearDay } from '../../core/types';
+import type {
+  CalendarEvent,
+  CalendarResource,
+  EventOccurrence,
+  ListDay,
+  YearDay,
+} from '../../core/types';
+import { CalendarView } from '../components/calendar-view';
 import { ListView } from '../components/list-view';
+import { MonthView } from '../components/month-view';
+import { ResourceView } from '../components/resource-view';
+import { TimelineView } from '../components/timeline-view';
 import { Toolbar } from '../components/toolbar';
+import { YearView } from '../components/year-view';
 import { CalendarProvider } from '../context';
 import { useCalendar } from '../use-calendar';
 import type { EnUsLabels } from './en-us';
@@ -250,6 +261,211 @@ describe('enUsLabels', () => {
       const { container } = render(<EnUsLabelsHarness />);
 
       expect(container.querySelector('[data-koyomi="list-empty"]')?.textContent).toBe('No events');
+    });
+
+    it('month グループを MonthView にスプレッドすると「+N 件」ボタンが "+2 more" になる', () => {
+      // 3 件のうち dayMaxEvents=1 まで表示、残り 2 件を overflow として表現するため
+      // 同日に複数の予定を用意する。
+      const events: CalendarEvent[] = [
+        { id: 'a', title: '予定A', start: '2026-07-16T09:00', end: '2026-07-16T09:30' },
+        { id: 'b', title: '予定B', start: '2026-07-16T10:00', end: '2026-07-16T10:30' },
+        { id: 'c', title: '予定C', start: '2026-07-16T11:00', end: '2026-07-16T11:30' },
+      ];
+      function Harness(): ReactElement {
+        const calendar = useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          initialView: 'month',
+          events,
+          dayMaxEvents: 1,
+        });
+        return (
+          <CalendarProvider value={calendar}>
+            <MonthView {...enUsLabels.month} />
+          </CalendarProvider>
+        );
+      }
+      const { container } = render(<Harness />);
+      const overflow = container.querySelector('[data-koyomi="month-overflow"]');
+      expect(overflow?.textContent).toBe('+2 more');
+    });
+
+    it('resource グループを ResourceView にスプレッドすると、未割り当て列見出しが "Unassigned"、空状態が "No resources" になる', () => {
+      function HarnessWithResource(): ReactElement {
+        const calendar = useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          initialView: 'resource',
+          events: [],
+          resources: [{ id: 'r1', title: 'リソース1' } satisfies CalendarResource],
+          unassignedLane: 'always',
+        });
+        return (
+          <CalendarProvider value={calendar}>
+            <ResourceView {...enUsLabels.resource} />
+          </CalendarProvider>
+        );
+      }
+      const { container: withUnassigned } = render(<HarnessWithResource />);
+      const headers = withUnassigned.querySelectorAll('[data-koyomi="resource-header-cell"]');
+      // 1 リソース + unassignedLane: 'always' なので、最後の列見出しが未割り当て列になる。
+      const unassignedHeader = headers[headers.length - 1];
+      expect(unassignedHeader?.textContent).toBe('Unassigned');
+
+      function HarnessEmpty(): ReactElement {
+        const calendar = useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          initialView: 'resource',
+          events: [],
+          resources: [],
+          unassignedLane: 'auto',
+        });
+        return (
+          <CalendarProvider value={calendar}>
+            <ResourceView {...enUsLabels.resource} />
+          </CalendarProvider>
+        );
+      }
+      const { container: empty } = render(<HarnessEmpty />);
+      const emptyEl = empty.querySelector('[data-koyomi="resource-empty"]');
+      expect(emptyEl?.textContent).toBe('No resources');
+    });
+
+    it('timeline グループを TimelineView にスプレッドすると、角セルの aria-label が "Resources" になる', () => {
+      function Harness(): ReactElement {
+        const calendar = useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          initialView: 'timeline',
+          events: [],
+          resources: [{ id: 'r1', title: 'リソース1' } satisfies CalendarResource],
+        });
+        return (
+          <CalendarProvider value={calendar}>
+            <TimelineView {...enUsLabels.timeline} />
+          </CalendarProvider>
+        );
+      }
+      const { container } = render(<Harness />);
+      const corner = container.querySelector('[data-koyomi="timeline-corner"]');
+      expect(corner?.getAttribute('aria-label')).toBe('Resources');
+    });
+
+    it('year グループを YearView にスプレッドすると、日セルの件数文言が "N events"（複数）/ "1 event"（単数）になる', () => {
+      const events: CalendarEvent[] = [
+        { id: 'a', title: '予定A', start: '2026-07-10T09:00', end: '2026-07-10T09:30' },
+        { id: 'b', title: '予定B', start: '2026-07-10T10:00', end: '2026-07-10T10:30' },
+        { id: 'c', title: '予定C', start: '2026-07-11T09:00', end: '2026-07-11T09:30' },
+      ];
+      function Harness(): ReactElement {
+        const calendar = useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          initialView: 'year',
+          events,
+        });
+        return (
+          <CalendarProvider value={calendar}>
+            <YearView {...enUsLabels.year} />
+          </CalendarProvider>
+        );
+      }
+      const { container } = render(<Harness />);
+      const dayWithTwo = container.querySelector(
+        '[data-koyomi="year-day"][data-koyomi-date="2026-07-10"]',
+      );
+      const dayWithOne = container.querySelector(
+        '[data-koyomi="year-day"][data-koyomi-date="2026-07-11"]',
+      );
+      expect(dayWithTwo?.getAttribute('aria-label')).toContain('2 events');
+      expect(dayWithOne?.getAttribute('aria-label')).toContain('1 event');
+      expect(dayWithOne?.getAttribute('aria-label')).not.toContain('1 events');
+    });
+
+    it('calendarView グループを CalendarView にスプレッドすると、list ビューの空状態が "No events" になる', () => {
+      function Harness(): ReactElement {
+        const calendar = useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          initialView: 'list',
+          events: [],
+        });
+        return (
+          <CalendarProvider value={calendar}>
+            <CalendarView {...enUsLabels.calendarView} />
+          </CalendarProvider>
+        );
+      }
+      const { container } = render(<Harness />);
+      const empty = container.querySelector('[data-koyomi="list-empty"]');
+      expect(empty?.textContent).toBe('No events');
+    });
+
+    it('enUsLabels を渡さない場合は既定の日本語文言のまま（MonthView の「+N 件」）', () => {
+      const events: CalendarEvent[] = [
+        { id: 'a', title: '予定A', start: '2026-07-16T09:00', end: '2026-07-16T09:30' },
+        { id: 'b', title: '予定B', start: '2026-07-16T10:00', end: '2026-07-16T10:30' },
+      ];
+      function Harness(): ReactElement {
+        const calendar = useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          initialView: 'month',
+          events,
+          dayMaxEvents: 1,
+        });
+        return (
+          <CalendarProvider value={calendar}>
+            <MonthView />
+          </CalendarProvider>
+        );
+      }
+      const { container } = render(<Harness />);
+      const overflow = container.querySelector('[data-koyomi="month-overflow"]');
+      expect(overflow?.textContent).toBe('+1 件');
+    });
+
+    it('locale: "ja"（既定）のまま month.eventAriaLabel を使うと、区切り記号は英語化されるが曜日表記は日本語のまま残る', () => {
+      // enUsLabels の eventAriaLabel が変換するのは既定文字列中の区切り記号だけである。
+      // 曜日・月名などの日付・時刻表記自体は defaultLabel の時点で Intl.DateTimeFormat
+      // によりカレンダーの locale オプションで整形済みのため、enUsLabels はそれらを
+      // 変換しない。locale: 'ja'（既定）のまま enUsLabels だけを渡した場合、区切り記号は
+      // 英語表記になるが、曜日等の日付・時刻表記は locale に従って日本語のままになる。
+      const events: CalendarEvent[] = [
+        { id: 'a', title: '会議', start: '2026-07-16T09:00', end: '2026-07-16T09:30' },
+      ];
+      function Harness(): ReactElement {
+        const calendar = useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          initialView: 'month',
+          events,
+          // locale を明示的に指定しない（既定の 'ja' のまま）
+        });
+        return (
+          <CalendarProvider value={calendar}>
+            <MonthView {...enUsLabels.month} />
+          </CalendarProvider>
+        );
+      }
+      const { container } = render(<Harness />);
+      const eventButton = container.querySelector('[data-koyomi="month-event"]');
+      const label = eventButton?.getAttribute('aria-label') ?? '';
+      // 区切り記号（「、」「〜」）は英語表記に変換される
+      expect(label).not.toContain('、');
+      expect(label).toContain(', ');
+      // 一方、日付・時刻表記自体は locale: 'ja' の Intl 整形のままなので、
+      // 「9:00」のような時刻表記に変化はない（英語ロケールの "9:00 AM" 等にはならない）
+      expect(label).toContain('9:00');
     });
   });
 });

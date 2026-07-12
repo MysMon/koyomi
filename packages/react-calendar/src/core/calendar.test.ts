@@ -132,6 +132,61 @@ describe('createCalendar', () => {
         }),
       ).toThrow();
     });
+
+    it("defaultEventTitle 省略時の既定値は '(タイトルなし)' になる", () => {
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+      expect(calendar.getState().options.defaultEventTitle).toBe('(タイトルなし)');
+    });
+
+    it('now 省略時の既定値は呼び出すと現在時刻に近い Date を返す関数になる', () => {
+      const before = Date.now();
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+      const { now } = calendar.getState().options;
+      expect(typeof now).toBe('function');
+      const evaluated = now().getTime();
+      const after = Date.now();
+      // 実行時刻の前後 1 秒以内（now() 呼び出しは同期的に行われるため十分な余裕）。
+      expect(evaluated).toBeGreaterThanOrEqual(before - 1000);
+      expect(evaluated).toBeLessThanOrEqual(after + 1000);
+    });
+
+    it('now を省略すると実行時の現在時刻（new Date()）が使われる', () => {
+      const systemNow = new Date('2026-07-07T00:00:00Z');
+      vi.useFakeTimers();
+      vi.setSystemTime(systemNow);
+      try {
+        const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+        calendar.today();
+        expect(calendar.getState().currentDate.getTime()).toBe(systemNow.getTime());
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('initialDate 省略時は現在時刻になる', () => {
+      const before = Date.now();
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+      const after = Date.now();
+      const currentDate = calendar.getState().currentDate.getTime();
+      expect(currentDate).toBeGreaterThanOrEqual(before - 1000);
+      expect(currentDate).toBeLessThanOrEqual(after + 1000);
+    });
+
+    it('resources は ResolvedCalendarOptions に含まれない', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        resources: [{ id: 'r1', title: '会議室' }],
+      });
+      expect('resources' in calendar.getState().options).toBe(false);
+    });
+
+    it('hiddenWeekdays に 7 曜日すべてを指定すると無効な設定として無視され、既定の空配列にフォールバックする', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        hiddenWeekdays: [0, 1, 2, 3, 4, 5, 6],
+      });
+      expect(calendar.getState().options.hiddenWeekdays).toEqual([]);
+    });
   });
 
   describe('購読と状態スナップショット', () => {
@@ -248,6 +303,98 @@ describe('createCalendar', () => {
       const vm2 = calendar.getViewModel();
       if (vm2.type !== 'month') throw new Error('unreachable');
       expect(vm2.weeks.flatMap((w) => w.days).some((d) => d.key === '2026-06-15')).toBe(true);
+    });
+
+    describe('next / prev の移動幅はビューごとに異なる', () => {
+      const START = new Date('2026-07-15T00:00:00+09:00');
+
+      it('month ビューの next() は 1 ヶ月分（月初基準）進む', () => {
+        const calendar = createCalendar({
+          timeZone: 'Asia/Tokyo',
+          initialView: 'month',
+          initialDate: START,
+        });
+        calendar.next();
+        expect(calendar.getState().currentDate.toISOString()).toBe('2026-07-31T15:00:00.000Z'); // 東京 8/1 0:00
+      });
+
+      it('week ビューの next() は 7 日進む', () => {
+        const calendar = createCalendar({
+          timeZone: 'Asia/Tokyo',
+          initialView: 'week',
+          initialDate: START,
+        });
+        const before = calendar.getState().currentDate.getTime();
+        calendar.next();
+        expect(calendar.getState().currentDate.getTime() - before).toBe(7 * 24 * 60 * 60 * 1000);
+      });
+
+      it('day ビューの next() は 1 日進む', () => {
+        const calendar = createCalendar({
+          timeZone: 'Asia/Tokyo',
+          initialView: 'day',
+          initialDate: START,
+        });
+        const before = calendar.getState().currentDate.getTime();
+        calendar.next();
+        expect(calendar.getState().currentDate.getTime() - before).toBe(24 * 60 * 60 * 1000);
+      });
+
+      it('list ビューの next() は listDays 日進む', () => {
+        const calendar = createCalendar({
+          timeZone: 'Asia/Tokyo',
+          initialView: 'list',
+          initialDate: START,
+          listDays: 10,
+        });
+        const before = calendar.getState().currentDate.getTime();
+        calendar.next();
+        expect(calendar.getState().currentDate.getTime() - before).toBe(10 * 24 * 60 * 60 * 1000);
+      });
+
+      it('year ビューの next() は 1 年分（年初基準）進む', () => {
+        const calendar = createCalendar({
+          timeZone: 'Asia/Tokyo',
+          initialView: 'year',
+          initialDate: START,
+        });
+        calendar.next();
+        expect(calendar.getState().currentDate.toISOString()).toBe('2026-12-31T15:00:00.000Z'); // 東京 2027-01-01 0:00
+      });
+
+      it('multiMonth ビューの next() は multiMonthCount ヶ月分（月初基準）進む', () => {
+        const calendar = createCalendar({
+          timeZone: 'Asia/Tokyo',
+          initialView: 'multiMonth',
+          initialDate: START,
+          multiMonthCount: 2,
+        });
+        calendar.next();
+        expect(calendar.getState().currentDate.toISOString()).toBe('2026-08-31T15:00:00.000Z'); // 東京 9/1 0:00
+      });
+
+      it('resource ビューの next() は day ビューと同じく 1 日進む', () => {
+        const calendar = createCalendar({
+          timeZone: 'Asia/Tokyo',
+          initialView: 'resource',
+          initialDate: START,
+        });
+        const before = calendar.getState().currentDate.getTime();
+        calendar.next();
+        expect(calendar.getState().currentDate.getTime() - before).toBe(24 * 60 * 60 * 1000);
+      });
+
+      it('timeline ビューの next() は timelineDays 日進む', () => {
+        const calendar = createCalendar({
+          timeZone: 'Asia/Tokyo',
+          initialView: 'timeline',
+          initialDate: START,
+          timelineDays: 5,
+        });
+        const before = calendar.getState().currentDate.getTime();
+        calendar.next();
+        expect(calendar.getState().currentDate.getTime() - before).toBe(5 * 24 * 60 * 60 * 1000);
+      });
     });
 
     it('today で現在日時（now）に戻る', () => {
@@ -426,6 +573,286 @@ describe('createCalendar', () => {
       const last = occurrences.at(-1);
       expect(last?.start.toISOString()).toBe('2026-07-14T00:00:00.000Z');
     });
+
+    it('新規カレンダーで id を省略して作成すると最初の呼び出しは koyomi-1 になる', () => {
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+      const created = calendar.createEvent({ title: '新しい予定', start: '2026-07-01T10:00:00' });
+      expect(created.id).toBe('koyomi-1');
+    });
+
+    it('id を省略して 2 回作成すると koyomi-1・koyomi-2 と連番になる', () => {
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+      const first = calendar.createEvent({ title: 'A', start: '2026-07-01T10:00:00' });
+      const second = calendar.createEvent({ title: 'B', start: '2026-07-02T10:00:00' });
+      expect(first.id).toBe('koyomi-1');
+      expect(second.id).toBe('koyomi-2');
+    });
+
+    it('既存イベントと重複する id を指定して createEvent を呼ぶと Error を投げる', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        events: [{ id: 'dup', title: '既存', start: '2026-07-01T09:00:00' }],
+      });
+      expect(() =>
+        calendar.createEvent({ id: 'dup', title: '新規', start: '2026-07-02T09:00:00' }),
+      ).toThrow();
+    });
+
+    it('rrule に DTSTART を書かなくても CalendarEvent.start が起点として使われる', () => {
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+      calendar.createEvent({
+        id: 'daily',
+        title: '毎日',
+        start: '2026-07-01T09:00:00',
+        rrule: 'FREQ=DAILY;COUNT=3',
+      });
+      const occurrences = calendar.getOccurrences({
+        start: new Date('2026-07-01T00:00:00Z'),
+        end: new Date('2026-07-10T00:00:00Z'),
+      });
+      expect(occurrences.map((o) => o.start.toISOString())).toEqual([
+        '2026-07-01T00:00:00.000Z',
+        '2026-07-02T00:00:00.000Z',
+        '2026-07-03T00:00:00.000Z',
+      ]);
+    });
+
+    it('createEvent に不正な RRULE を渡すと例外が投げられる', () => {
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+      expect(() =>
+        calendar.createEvent({ title: '不正な例', start: '2026-07-01T09:00:00', rrule: 'FOO=BAR' }),
+      ).toThrow(/不正な RRULE/);
+    });
+
+    it('override.start には patch した値がそのまま入り（型変換されない）、originalStart は本来の開始時刻になる', () => {
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+      calendar.createEvent({
+        id: 'standup',
+        title: '朝会',
+        start: '2026-07-01T09:00:00',
+        end: '2026-07-01T09:15:00',
+        rrule: 'FREQ=DAILY;COUNT=5',
+      });
+      calendar.updateEvent(
+        'standup',
+        { start: '2026-07-03T10:00:00', end: '2026-07-03T10:15:00' },
+        { occurrenceStart: new Date('2026-07-03T00:00:00Z'), scope: 'this' },
+      );
+      const events = calendar.getEvents();
+      // マスター（変更なし）＋ 新しいオーバーライドの 2 件になる
+      expect(events).toHaveLength(2);
+      const override = events.find((e) => e.recurringEventId === 'standup');
+      expect(override).toBeDefined();
+      expect(override?.start).toBe('2026-07-03T10:00:00'); // patch の値がそのまま（文字列のまま）入る
+      expect(override?.originalStart).toEqual(new Date('2026-07-03T00:00:00Z')); // 本来の 7/3 09:00 JST
+    });
+
+    it('単発イベントの updateEvent に target を明示的に渡しても、無視されて patch がそのまま適用される', () => {
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+      calendar.createEvent({ id: 'single', title: '単発予定', start: '2026-07-01T09:00:00' });
+      calendar.updateEvent(
+        'single',
+        { title: '更新後' },
+        { occurrenceStart: new Date('2026-07-05T00:00:00Z'), scope: 'this' },
+      );
+      expect(calendar.getEvents()).toHaveLength(1);
+      expect(calendar.getEvents()[0]?.title).toBe('更新後');
+    });
+
+    it('単発イベントの deleteEvent に target を明示的に渡しても、無視されてイベントが取り除かれる', () => {
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+      calendar.createEvent({ id: 'single', title: '単発予定', start: '2026-07-01T09:00:00' });
+      calendar.deleteEvent('single', {
+        occurrenceStart: new Date('2026-07-05T00:00:00Z'),
+        scope: 'all',
+      });
+      expect(calendar.getEvents()).toHaveLength(0);
+    });
+
+    it('既にオーバーライド済みのオカレンスの『移動後の現在の開始時刻』を occurrenceStart に渡すと、既存のオーバーライドは変更されず新しいオーバーライドが作られる', () => {
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+      calendar.createEvent({
+        id: 'standup',
+        title: '朝会',
+        start: '2026-07-01T09:00:00',
+        rrule: 'FREQ=DAILY;COUNT=5',
+      });
+      // 7/3 のオカレンスを 10:00 へ移動する（正しい occurrenceStart = 7/3 09:00 JST）
+      calendar.updateEvent(
+        'standup',
+        { start: '2026-07-03T10:00:00', end: '2026-07-03T11:00:00' },
+        { occurrenceStart: new Date('2026-07-03T00:00:00Z'), scope: 'this' },
+      );
+      const beforeSecondUpdate = calendar.getEvents();
+      expect(beforeSecondUpdate).toHaveLength(2); // マスター + 1 個目のオーバーライド
+
+      // 誤って「移動後の現在の開始時刻」（7/3 10:00 JST）を occurrenceStart に渡す
+      calendar.updateEvent(
+        'standup',
+        { title: '別の変更' },
+        { occurrenceStart: new Date('2026-07-03T01:00:00Z'), scope: 'this' }, // 7/3 10:00 JST
+      );
+      const events = calendar.getEvents();
+      // 一致するオーバーライドが無いものとして扱われ、新しいオーバーライドが追加される
+      expect(events).toHaveLength(3);
+      const firstOverride = events.find(
+        (e) =>
+          e.recurringEventId === 'standup' &&
+          e.originalStart instanceof Date &&
+          e.originalStart.getTime() === new Date('2026-07-03T00:00:00Z').getTime(),
+      );
+      // 既存のオーバーライドは変更されない（title は元の patch のまま）
+      expect(firstOverride?.title).toBe('朝会');
+      const newOverride = events.find((e) => e.title === '別の変更');
+      expect(newOverride?.recurringEventId).toBe('standup');
+      expect(newOverride?.originalStart).toEqual(new Date('2026-07-03T01:00:00Z'));
+    });
+
+    it('一致するオカレンスが無い occurrenceStart で deleteEvent(scope: this) を呼ぶと、その値がそのまま exdates に追加される', () => {
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+      calendar.createEvent({
+        id: 'standup',
+        title: '朝会',
+        start: '2026-07-01T09:00:00',
+        rrule: 'FREQ=DAILY;COUNT=5',
+      });
+      const bogusOccurrenceStart = new Date('2026-07-03T01:23:45Z'); // どのオカレンスの本来の開始時刻とも一致しない
+      calendar.deleteEvent('standup', { occurrenceStart: bogusOccurrenceStart, scope: 'this' });
+
+      const master = calendar.getEvents().find((e) => e.id === 'standup');
+      expect(master?.exdates).toHaveLength(1);
+      expect(master?.exdates?.[0]).toEqual(bogusOccurrenceStart);
+
+      // 一致するオカレンスが元々無いため、5 回すべてがそのまま展開される（EXDATE は無害）
+      const occurrences = calendar.getOccurrences({
+        start: new Date('2026-07-01T00:00:00Z'),
+        end: new Date('2026-07-10T00:00:00Z'),
+      });
+      expect(occurrences).toHaveLength(5);
+    });
+
+    it('editable: false のイベントに updateEvent を直接呼んでも通常どおり更新される', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        events: [
+          { id: 'locked', title: '固定予定', start: '2026-07-01T10:00:00', editable: false },
+        ],
+      });
+      calendar.updateEvent('locked', { title: '更新後' });
+      expect(calendar.getEvents()[0]?.title).toBe('更新後');
+    });
+
+    it('editable: false のイベントに deleteEvent を直接呼んでも通常どおり削除される', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        events: [
+          { id: 'locked', title: '固定予定', start: '2026-07-01T10:00:00', editable: false },
+        ],
+      });
+      calendar.deleteEvent('locked');
+      expect(calendar.getEvents()).toHaveLength(0);
+    });
+
+    it('start >= end のイベントは Error にならず保存されるが、getOccurrences には含まれない', () => {
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+      const created = calendar.createEvent({
+        id: 'inverted',
+        title: '不正な範囲',
+        start: '2026-07-01T10:00:00',
+        end: '2026-07-01T09:00:00',
+      });
+      expect(calendar.getEvents()).toContainEqual(created);
+
+      const occurrences = calendar.getOccurrences({
+        start: new Date('2026-06-25T00:00:00Z'),
+        end: new Date('2026-07-10T00:00:00Z'),
+      });
+      expect(occurrences.some((o) => o.eventId === 'inverted')).toBe(false);
+    });
+
+    it('update + delete が混在する操作後も、changes を逆再生すれば操作前の状態に完全復元できる', () => {
+      const initialEvents: readonly CalendarEvent[] = [
+        { id: 'a', title: 'A', start: '2026-07-01T10:00:00' },
+        { id: 'b', title: 'B', start: '2026-07-02T10:00:00' },
+      ];
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo', events: initialEvents });
+
+      const updateChanges = calendar.updateEvent('a', { title: 'A（更新）' });
+      const deleteChanges = calendar.deleteEvent('b');
+
+      // 操作後の状態は初期状態と異なる
+      expect(calendar.getEvents()).not.toEqual(initialEvents);
+
+      // changes を新しい順に逆再生して復元する（before/after の集合から state を再構築する）
+      const byId = new Map(calendar.getEvents().map((event) => [event.id, event]));
+      for (const change of [...deleteChanges, ...updateChanges]) {
+        if (change.after !== undefined) {
+          byId.delete(change.after.id);
+        }
+      }
+      for (const change of [...deleteChanges, ...updateChanges]) {
+        if (change.before !== undefined) {
+          byId.set(change.before.id, change.before);
+        }
+      }
+      calendar.setEvents([...byId.values()]);
+
+      const restored = [...calendar.getEvents()].sort((x, y) => x.id.localeCompare(y.id));
+      const expected = [...initialEvents].sort((x, y) => x.id.localeCompare(y.id));
+      expect(restored).toEqual(expected);
+    });
+
+    it('無変化な patch（空パッチ・既存値と同じ値のパッチ）を渡すと changes は空になる', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        events: [{ id: 'e1', title: '会議', start: '2026-07-01T10:00:00' }],
+      });
+      expect(calendar.updateEvent('e1', {})).toHaveLength(0);
+      expect(calendar.updateEvent('e1', { title: '会議' })).toHaveLength(0);
+    });
+
+    it('exdates を並び替えただけの patch は無変化として扱われ changes は空になる', () => {
+      const a = new Date('2026-07-02T00:00:00Z');
+      const b = new Date('2026-07-03T00:00:00Z');
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        events: [
+          {
+            id: 'e1',
+            title: '定例',
+            start: '2026-07-01T09:00:00',
+            rrule: 'FREQ=DAILY;COUNT=5',
+            exdates: [a, b],
+          },
+        ],
+      });
+      // 並び順だけが異なる（集合としては同一の）exdates を渡す
+      expect(calendar.updateEvent('e1', { exdates: [b, a] })).toHaveLength(0);
+    });
+
+    it('非終日イベントの timeZone 省略時、オフセットなし文字列は表示タイムゾーンの現地時刻として解釈される', () => {
+      const event: CalendarEvent = {
+        id: 'no-tz',
+        title: 'タイムゾーン省略イベント',
+        start: '2026-07-01T10:00',
+        end: '2026-07-01T11:00',
+      };
+
+      const tokyoCalendar = createCalendar({ timeZone: 'Asia/Tokyo', events: [event] });
+      const nyCalendar = createCalendar({ timeZone: 'America/New_York', events: [event] });
+
+      const range = {
+        start: new Date('2026-07-01T00:00:00Z'),
+        end: new Date('2026-07-02T00:00:00Z'),
+      };
+      const [tokyoOcc] = tokyoCalendar.getOccurrences(range);
+      const [nyOcc] = nyCalendar.getOccurrences(range);
+
+      // 東京 10:00 = UTC 01:00（JST は UTC+9、DST なし）
+      expect(tokyoOcc?.start.toISOString()).toBe('2026-07-01T01:00:00.000Z');
+      // NY 10:00 = UTC 14:00（2026-07-01 は夏時間中で EDT = UTC-4）
+      expect(nyOcc?.start.toISOString()).toBe('2026-07-01T14:00:00.000Z');
+    });
   });
 
   describe('リソース', () => {
@@ -535,6 +962,142 @@ describe('createCalendar', () => {
       const weekVm = calendar.getViewModel();
       if (weekVm.type !== 'timeGrid') throw new Error('unreachable');
       expect(weekVm.weekNumber).not.toBeNull();
+    });
+
+    it('複数月ビューは showWeekNumbers: true を指定しても各月グリッドの weekNumber が常に null になる', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        now: () => new Date('2026-07-07T12:00:00Z'),
+        initialDate: new Date('2026-07-07T12:00:00Z'),
+        initialView: 'multiMonth',
+        showWeekNumbers: true,
+      });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'multiMonth') throw new Error('unreachable');
+      for (const month of vm.months) {
+        for (const week of month.weeks) {
+          expect(week.weekNumber).toBeNull();
+        }
+      }
+    });
+
+    it('月ビューで 7 曜日すべてを hiddenWeekdays に指定すると無効な設定として無視され、全曜日が表示される', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        now: () => new Date('2026-07-15T01:00:00Z'),
+        initialDate: new Date('2026-07-15T01:00:00Z'),
+        initialView: 'month',
+        hiddenWeekdays: [0, 1, 2, 3, 4, 5, 6],
+      });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'month') throw new Error('unreachable');
+      expect(vm.weekdays).toHaveLength(7);
+      for (const week of vm.weeks) {
+        expect(week.days).toHaveLength(7);
+      }
+    });
+
+    it('週ビューで 7 曜日すべてを hiddenWeekdays に指定すると無効な設定として無視され、7 日とも表示される', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        now: () => new Date('2026-07-15T01:00:00Z'),
+        initialDate: new Date('2026-07-15T01:00:00Z'),
+        initialView: 'week',
+        hiddenWeekdays: [0, 1, 2, 3, 4, 5, 6],
+      });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'timeGrid') throw new Error('unreachable');
+      expect(vm.days).toHaveLength(7);
+    });
+
+    it('複数月ビューで 7 曜日すべてを hiddenWeekdays に指定すると無効な設定として無視され、各月グリッドが全曜日表示になる', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        now: () => new Date('2026-07-15T01:00:00Z'),
+        initialDate: new Date('2026-07-15T01:00:00Z'),
+        initialView: 'multiMonth',
+        hiddenWeekdays: [0, 1, 2, 3, 4, 5, 6],
+      });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'multiMonth') throw new Error('unreachable');
+      expect(vm.weekdays).toHaveLength(7);
+      for (const month of vm.months) {
+        for (const week of month.weeks) {
+          expect(week.days).toHaveLength(7);
+        }
+      }
+    });
+
+    it('年ビューは hiddenWeekdays を無視し、ミニ月グリッドは常に 7 列のままになる', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        now: () => new Date('2026-07-15T01:00:00Z'),
+        initialDate: new Date('2026-07-15T01:00:00Z'),
+        initialView: 'year',
+        hiddenWeekdays: [0, 6],
+      });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'year') throw new Error('unreachable');
+      expect(vm.weekdays).toHaveLength(7);
+      for (const month of vm.months) {
+        for (const week of month.weeks) {
+          expect(week).toHaveLength(7);
+        }
+      }
+    });
+
+    it('リソースビューは hiddenWeekdays を無視し、非表示曜日へ goTo した日もそのまま表示日になる', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        now: () => new Date('2026-07-15T01:00:00Z'),
+        initialDate: new Date('2026-07-15T01:00:00Z'),
+        initialView: 'resource',
+        hiddenWeekdays: [0, 6],
+      });
+      // 2026-07-04 は土曜（非表示曜日に指定されている）
+      calendar.goTo(new Date('2026-07-03T15:00:00Z'));
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'resource') throw new Error('unreachable');
+      expect(vm.dateKey).toBe('2026-07-04');
+    });
+
+    it('タイムラインビューは hiddenWeekdays を無視し、常に timelineDays 日の連続した並びになる', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        now: () => new Date('2026-07-15T01:00:00Z'),
+        initialDate: new Date('2026-07-15T01:00:00Z'),
+        initialView: 'timeline',
+        hiddenWeekdays: [0, 6],
+        timelineDays: 3,
+      });
+      // 2026-07-04(土)〜2026-07-06(月) を表示日にする。土日が非表示曜日でも欠けずに並ぶ。
+      calendar.goTo(new Date('2026-07-03T15:00:00Z'));
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'timeline') throw new Error('unreachable');
+      expect(vm.days.map((day) => day.key)).toEqual(['2026-07-04', '2026-07-05', '2026-07-06']);
+    });
+
+    it('hiddenWeekdays はリストビューでは受け取れず、非表示曜日にしか予定が無い日もセクションとして表示される', () => {
+      // 2026-07-04 は土曜日（hiddenWeekdays: [0, 6] に含まれる想定の曜日）。
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        now: () => new Date('2026-07-01T01:00:00Z'),
+        initialDate: new Date('2026-07-01T01:00:00Z'),
+        initialView: 'list',
+        listDays: 7,
+        hiddenWeekdays: [0, 6],
+        events: [
+          {
+            id: 'sat-only',
+            title: '土曜のみの予定',
+            start: '2026-07-04T09:00',
+            end: '2026-07-04T10:00',
+          },
+        ],
+      });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'list') throw new Error('unreachable');
+      expect(vm.days.some((day) => day.key === '2026-07-04')).toBe(true);
     });
 
     it('businessHours 省略時は週/日ビューの businessHourSlots がすべて false（従来どおりの出力）', () => {
@@ -784,6 +1347,36 @@ describe('createCalendar', () => {
         end: new Date('2026-07-16T15:00:00Z'),
       });
       expect(occurrences).toHaveLength(2);
+    });
+
+    it('getOccurrences は範囲内のオカレンスを開始時刻順（昇順）で返す', () => {
+      // 意図的に開始時刻の降順で登録し、返り値が昇順に並び替わることを確認する。
+      const late: CalendarEvent = {
+        id: 'late',
+        title: '遅い予定',
+        start: '2026-07-15T18:00',
+        end: '2026-07-15T19:00',
+      };
+      const early: CalendarEvent = {
+        id: 'early',
+        title: '早い予定',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T10:00',
+      };
+      const middle: CalendarEvent = {
+        id: 'middle',
+        title: '中間の予定',
+        start: '2026-07-15T13:00',
+        end: '2026-07-15T14:00',
+      };
+      const calendar = makeCalendar({ events: [late, early, middle] });
+
+      const occurrences = calendar.getOccurrences({
+        start: new Date('2026-07-14T15:00:00Z'), // 東京 7/15 0:00
+        end: new Date('2026-07-15T15:00:00Z'), // 東京 7/16 0:00
+      });
+
+      expect(occurrences.map((o) => o.eventId)).toEqual(['early', 'middle', 'late']);
     });
   });
 

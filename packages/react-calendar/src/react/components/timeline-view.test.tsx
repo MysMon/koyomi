@@ -161,6 +161,14 @@ describe('TimelineView - 空状態', () => {
     const empty = container.querySelector('[data-koyomi="timeline-empty"]');
     expect(empty?.textContent).toBe('設備がありません');
   });
+
+  it('行が1つもないとき timeline-body を生成せず、ルート直下は timeline-empty のみになる', () => {
+    const { container } = render(<Harness resources={[]} events={[]} />);
+    const root = container.querySelector('[data-koyomi="timeline"]');
+    expect(root?.querySelector('[data-koyomi="timeline-body"]')).toBeNull();
+    expect(root?.children).toHaveLength(1);
+    expect(root?.firstElementChild).toHaveAttribute('data-koyomi', 'timeline-empty');
+  });
 });
 
 describe('TimelineView - 帯の位置', () => {
@@ -441,6 +449,32 @@ describe('TimelineView - リソース color の反映', () => {
     expect(withoutOwnColor?.getAttribute('style')).toContain('--koyomi-event-color: #0000ff');
     // イベント自身の color が優先される
     expect(withOwnColor?.getAttribute('style')).toContain('--koyomi-event-color: #00ff00');
+  });
+});
+
+describe('TimelineView - inline style の仕様', () => {
+  it('timeline-item の inline style は position・背景色・文字色・枠線・イベント色変数を含まない', () => {
+    // event.color も resource.color も指定していないため --koyomi-event-color は
+    // 設定されない。position 等の見た目はテーマ CSS 側の責務であり inline には出ない。
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '会議',
+        start: '2026-07-15T10:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'crane-2',
+      },
+    ];
+    const { container } = render(<Harness resources={[CRANE_2]} events={events} />);
+    const item = container.querySelector('[data-koyomi="timeline-item"]');
+    if (!(item instanceof HTMLElement)) {
+      throw new Error('timeline-item が見つかりません');
+    }
+    expect(item.style.position).toBe('');
+    expect(item.style.backgroundColor).toBe('');
+    expect(item.style.color).toBe('');
+    expect(item.style.border).toBe('');
+    expect(item.style.getPropertyValue('--koyomi-event-color')).toBe('');
   });
 });
 

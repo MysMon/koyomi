@@ -209,6 +209,47 @@ describe('MultiMonthView - 前後月セルの非インタラクティブ性', ()
       HTMLElement,
     );
   });
+
+  it('前後月の日付セルが「今日」と一致する場合、非インタラクティブでも data-today と aria-current="date" が付く', () => {
+    // data-today / aria-current="date" は interactiveOutsideDays に関わらず付与されるため、
+    // 前後月の日付セル（data-outside）がたまたま「今日」と一致する場合も、他の可視日と
+    // 同様に aria-current="date" が付く。
+    // 2026-08 のミニ月グリッドの前月はみ出し部分（7/26〜7/31 あたり）に「今日」を置く。
+    // 東京 2026-07-31 を「今日」とし、2 ヶ月表示にして 8 月グリッドの前月セルとして
+    // 7/31 が現れるようにする。
+    const todayNow = new Date('2026-07-31T01:00:00Z'); // 東京 7/31 10:00
+    function TodayOutsideHarness(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => todayNow,
+        initialDate: todayNow,
+        initialView: 'multiMonth',
+        multiMonthCount: 2,
+        events: EMPTY_EVENTS,
+      });
+      return (
+        <CalendarProvider value={calendar}>
+          <MultiMonthView />
+        </CalendarProvider>
+      );
+    }
+    const { container } = render(<TodayOutsideHarness />);
+    // 2 つ目の月グリッド（8 月）の前月はみ出しセルのうち、日番号ボタンのテキストが
+    // '31' のものを探す（非インタラクティブセルは data-koyomi-date を持たないため、
+    // month セクション単位で絞り込む）。
+    const months = container.querySelectorAll('[data-koyomi="multimonth-month"]');
+    expect(months).toHaveLength(2);
+    const augustSection = months[1];
+    const outsideCells = augustSection?.querySelectorAll('[data-koyomi="month-day"][data-outside]');
+    const todayOutsideCell = Array.from(outsideCells ?? []).find((cell) =>
+      cell.hasAttribute('data-today'),
+    );
+    expect(todayOutsideCell).toBeDefined();
+    expect(todayOutsideCell).toHaveAttribute('aria-current', 'date');
+    // 非インタラクティブであることも合わせて確認する（tabIndex なし・data-koyomi-date なし）
+    expect(todayOutsideCell).not.toHaveAttribute('tabindex');
+    expect(todayOutsideCell).not.toHaveAttribute('data-koyomi-date');
+  });
 });
 
 describe('MultiMonthView - 月境界をまたぐ帯', () => {

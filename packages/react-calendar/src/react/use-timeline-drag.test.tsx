@@ -14,7 +14,7 @@ import { act, fireEvent, render, renderHook } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { parseDateValue } from '../core/timezone';
-import type { CalendarEvent, CalendarResource } from '../core/types';
+import type { CalendarEvent, CalendarResource, RecurringEditScope } from '../core/types';
 import { TimelineView } from './components/timeline-view';
 import { CalendarProvider } from './context';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
@@ -623,6 +623,194 @@ describe('useTimelineDrag - キーボード操作', () => {
       end: `${DAY0}T11:00`,
       resourceId: 'crane-1',
     });
+  });
+
+  it('Enter キーで onEventClick 相当のクリックが発火する', () => {
+    const onEventClick = vi.fn();
+    const event: CalendarEvent = {
+      id: 'tl-enter',
+      title: '作業',
+      start: `${DAY0}T09:00`,
+      end: `${DAY0}T09:30`,
+      resourceId: 'crane-1',
+    };
+    const { container } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [event],
+      callbacks: { onEventClick },
+    });
+    const itemEl = getItemElement(container, 'tl-enter', `${DAY0}T09:00`);
+
+    fireEvent.keyDown(itemEl, { key: 'Enter' });
+
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+    expect(onEventClick.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ eventId: 'tl-enter' }),
+    );
+  });
+
+  it('Delete キーで単発の予定が削除される', () => {
+    const onEventDelete = vi.fn();
+    const event: CalendarEvent = {
+      id: 'tl-delete',
+      title: '作業',
+      start: `${DAY0}T09:00`,
+      end: `${DAY0}T09:30`,
+      resourceId: 'crane-1',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [event],
+      callbacks: { onEventDelete },
+    });
+    const itemEl = getItemElement(container, 'tl-delete', `${DAY0}T09:00`);
+
+    fireEvent.keyDown(itemEl, { key: 'Delete' });
+
+    expect(sink.current?.api.getEvents()).toHaveLength(0);
+    expect(onEventDelete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        occurrence: expect.objectContaining({ eventId: 'tl-delete' }),
+        scope: null,
+      }),
+    );
+  });
+
+  it('ArrowLeft で snapMinutes 分だけ過去方向に移動する', async () => {
+    const event: CalendarEvent = {
+      id: 'tl-left',
+      title: '作業',
+      start: `${DAY0}T10:00`,
+      end: `${DAY0}T11:00`,
+      resourceId: 'crane-1',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [event],
+    });
+    const itemEl = getItemElement(container, 'tl-left', `${DAY0}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(itemEl, { key: 'ArrowLeft' });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: at(`${DAY0}T09:45`), end: at(`${DAY0}T10:45`) });
+  });
+
+  it('Shift+ArrowLeft で終了時刻が snapMinutes 分だけ短縮される', async () => {
+    const event: CalendarEvent = {
+      id: 'tl-shift-left',
+      title: '作業',
+      start: `${DAY0}T10:00`,
+      end: `${DAY0}T11:00`,
+      resourceId: 'crane-1',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [event],
+    });
+    const itemEl = getItemElement(container, 'tl-shift-left', `${DAY0}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(itemEl, { key: 'ArrowLeft', shiftKey: true });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: at(`${DAY0}T10:00`), end: at(`${DAY0}T10:45`) });
+  });
+
+  it('2 行目の帯で ArrowUp を押すと隣（前）の行（リソース）へ移動する', async () => {
+    const event: CalendarEvent = {
+      id: 'tl-up',
+      title: '作業',
+      start: `${DAY0}T10:00`,
+      end: `${DAY0}T11:00`,
+      resourceId: 'crane-2',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 1,
+      events: [event],
+    });
+    const itemEl = getItemElement(container, 'tl-up', `${DAY0}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(itemEl, { key: 'ArrowUp' });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      resourceId: 'crane-1',
+      start: `${DAY0}T10:00`,
+      end: `${DAY0}T11:00`,
+    });
+  });
+
+  it('繰り返し予定を矢印キーで移動しようとすると resolveRecurringScope が action: "move" で呼ばれる', async () => {
+    const resolveRecurringScope = vi.fn().mockResolvedValue('this' as RecurringEditScope);
+    const event: CalendarEvent = {
+      id: 'recurring-timeline-move',
+      title: '定例作業',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      resourceId: 'crane-1',
+      rrule: 'FREQ=WEEKLY;BYDAY=WE',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 1,
+      events: [event],
+      callbacks: { resolveRecurringScope },
+    });
+    const itemEl = getItemElement(container, 'recurring-timeline-move', `${DAY0}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(itemEl, { key: 'ArrowRight' });
+    });
+
+    expect(resolveRecurringScope).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: 'recurring-timeline-move' }),
+      'move',
+    );
+    const override = (sink.current?.api.getEvents() ?? []).find(
+      (candidate) => candidate.recurringEventId === 'recurring-timeline-move',
+    );
+    expect(override).toMatchObject({ start: at(`${DAY0}T10:15`), end: at(`${DAY0}T11:15`) });
+  });
+
+  it('繰り返し予定を Delete キーで削除しようとすると resolveRecurringScope が action: "delete" で呼ばれる', async () => {
+    const resolveRecurringScope = vi.fn().mockResolvedValue('this' as RecurringEditScope);
+    const onEventDelete = vi.fn();
+    const event: CalendarEvent = {
+      id: 'recurring-timeline-delete',
+      title: '定例作業',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      resourceId: 'crane-1',
+      rrule: 'FREQ=WEEKLY;BYDAY=WE',
+    };
+    const { container } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [event],
+      callbacks: { resolveRecurringScope, onEventDelete },
+    });
+    const itemEl = getItemElement(container, 'recurring-timeline-delete', `${DAY0}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(itemEl, { key: 'Delete' });
+    });
+
+    expect(resolveRecurringScope).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: 'recurring-timeline-delete' }),
+      'delete',
+    );
+    expect(onEventDelete).toHaveBeenCalledWith(expect.objectContaining({ scope: 'this' }));
   });
 });
 

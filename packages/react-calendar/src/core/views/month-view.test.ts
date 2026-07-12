@@ -276,6 +276,17 @@ describe('buildMonthViewModel', () => {
       // 他の週の overflowCount はすべて 0
       expect(vm.weeks[0]?.days.every((day) => day.overflowCount === 0)).toBe(true);
     });
+
+    it('dayMaxEvents ちょうどの件数（超過なし）では、どのセグメントも hidden にならず overflowCount は 0 になる', () => {
+      const a = makeOccurrence('a', at(TOKYO, 2026, 7, 7, 9), at(TOKYO, 2026, 7, 7, 10));
+      const b = makeOccurrence('b', at(TOKYO, 2026, 7, 7, 10), at(TOKYO, 2026, 7, 7, 11));
+      const vm = build({ occurrences: [a, b], dayMaxEvents: 2 });
+      const week = vm.weeks[1];
+      expect(week?.segments).toHaveLength(2);
+      expect(week?.segments.every((segment) => segment.hidden === false)).toBe(true);
+      expect(week?.laneCount).toBe(2);
+      expect(week?.days.every((day) => day.overflowCount === 0)).toBe(true);
+    });
   });
 
   describe('end 排他の境界', () => {
@@ -534,6 +545,20 @@ describe('buildMonthViewModel', () => {
       );
       expect(sundayWeek?.weekNumber).toBe(27);
       expect(mondayWeek?.weekNumber).toBe(27);
+    });
+
+    it('weekStartsOn: 4（木曜始まり）では 2026-07-01 を含む週が第 26 週になり、日曜始まりでは同じ日付が第 27 週になる', () => {
+      const vmThursday = build({ showWeekNumbers: true, weekStartsOn: 4 });
+      const weekThursday = vmThursday.weeks.find((week) =>
+        week.days.some((day) => day.key === '2026-07-01'),
+      );
+      expect(weekThursday?.weekNumber).toBe(26);
+
+      const vmSunday = build({ showWeekNumbers: true, weekStartsOn: 0 });
+      const weekSunday = vmSunday.weeks.find((week) =>
+        week.days.some((day) => day.key === '2026-07-01'),
+      );
+      expect(weekSunday?.weekNumber).toBe(27);
     });
   });
 

@@ -237,6 +237,38 @@ describe('ListView', () => {
     expect(onEventClick).toHaveBeenCalledTimes(1);
   });
 
+  it('Delete キーでは何も起きない（onEventClick が呼ばれず、予定も変更されない）', () => {
+    const onEventClick = vi.fn();
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const { container } = render(<TestListView events={events} callbacks={{ onEventClick }} />);
+    const button = container.querySelector('[data-koyomi="list-event"]');
+    if (!(button instanceof HTMLElement)) {
+      throw new Error('list-event ボタンが見つかりません');
+    }
+
+    fireEvent.keyDown(button, { key: 'Delete' });
+
+    expect(onEventClick).not.toHaveBeenCalled();
+  });
+
+  it('ArrowRight キーでは何も起きない（onEventClick が呼ばれない）', () => {
+    const onEventClick = vi.fn();
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const { container } = render(<TestListView events={events} callbacks={{ onEventClick }} />);
+    const button = container.querySelector('[data-koyomi="list-event"]');
+    if (!(button instanceof HTMLElement)) {
+      throw new Error('list-event ボタンが見つかりません');
+    }
+
+    fireEvent.keyDown(button, { key: 'ArrowRight' });
+
+    expect(onEventClick).not.toHaveBeenCalled();
+  });
+
   it('ダブルクリックで onEventDoubleClick がオカレンスと nativeEvent を受け取る', () => {
     const onEventDoubleClick = vi.fn();
     const events: CalendarEvent[] = [

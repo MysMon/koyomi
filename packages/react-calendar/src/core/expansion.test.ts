@@ -194,6 +194,24 @@ describe('expandEvents', () => {
       }
     });
 
+    it("'RRULE:' プレフィックス付き/なしのどちらでも同じオカレンスに展開される", () => {
+      const range = { start: '2026-06-30T15:00:00Z', end: '2026-07-10T15:00:00Z' };
+      const bare = makeEvent({
+        id: 'bare',
+        start: '2026-07-01T09:00:00',
+        rrule: 'FREQ=DAILY;COUNT=3',
+      });
+      const prefixed = makeEvent({
+        id: 'prefixed',
+        start: '2026-07-01T09:00:00',
+        rrule: 'RRULE:FREQ=DAILY;COUNT=3',
+      });
+      const bareStarts = expand([bare], range).map((o) => o.start.toISOString());
+      const prefixedStarts = expand([prefixed], range).map((o) => o.start.toISOString());
+      expect(prefixedStarts).toEqual(bareStarts);
+      expect(bareStarts).toHaveLength(3);
+    });
+
     it('各オカレンスの長さはマスターの start/end のミリ秒差を維持する（DST 跨ぎ）', () => {
       // NY の 1:30〜3:30（2 時間）。3/8 のオカレンスは DST 開始（2:00→3:00）を跨ぐ
       const source = makeEvent({
@@ -465,6 +483,24 @@ describe('expandEvents', () => {
         expect(occ.isRecurring).toBe(true);
       }
     });
+
+    it('マスターに end が無ければ rdate 由来のオカレンスも既定長（defaultEventMinutes）になる', () => {
+      const master = makeEvent({
+        id: 'no-end',
+        start: '2026-07-01T09:00:00',
+        rdates: ['2026-07-03T09:00:00'],
+      });
+      const result = expand(
+        [master],
+        { start: '2026-06-30T15:00:00Z', end: '2026-07-10T15:00:00Z' },
+        TOKYO,
+        45,
+      );
+      expect(result).toHaveLength(2);
+      for (const occ of result) {
+        expect(occ.end.getTime() - occ.start.getTime()).toBe(45 * 60 * 1000);
+      }
+    });
   });
 
   describe('オーバーライド（繰り返し例外）', () => {
@@ -585,6 +621,37 @@ describe('expandEvents', () => {
       // 表示 TZ（東京）で誤解釈すると 05:00Z（13 時間ずれる）になってしまう
       expect(overridden?.start).toEqual(new Date('2026-07-03T18:00:00.000Z'));
       expect(overridden?.end).toEqual(new Date('2026-07-03T19:00:00.000Z'));
+    });
+
+    it('オーバーライド自身に明示的な timeZone があれば、マスターの timeZone より優先される', () => {
+      // マスターは America/New_York、オーバーライドは明示的に UTC を指定。
+      // マスター TZ にフォールバックしてしまうと 4 時間ずれた誤った絶対時刻になる。
+      const master = makeEvent({
+        id: 'master-tz',
+        start: '2026-07-01T10:00:00',
+        end: '2026-07-01T11:00:00',
+        timeZone: NY,
+        rrule: 'FREQ=DAILY;COUNT=5',
+      });
+      const override = makeEvent({
+        id: 'ov-tz',
+        recurringEventId: 'master-tz',
+        // 絶対時刻で指定し、TZ 解釈の曖昧さを排除する(NY 7/3 10:00 EDT = 14:00Z)
+        originalStart: new Date('2026-07-03T14:00:00Z'),
+        // オフセットなし文字列 + 明示的な timeZone: UTC
+        // → UTC 20:00 として解釈されるべき(マスターの NY にフォールバックすると
+        //   2026-07-04T00:00:00Z になってしまう)
+        start: '2026-07-03T20:00:00',
+        end: '2026-07-03T21:00:00',
+        timeZone: 'UTC',
+      });
+      const result = expand(
+        [master, override],
+        { start: '2026-07-01T00:00:00Z', end: '2026-07-10T00:00:00Z' },
+        TOKYO,
+      );
+      const overridden = result.find((o) => o.eventId === 'ov-tz');
+      expect(overridden?.start).toEqual(new Date('2026-07-03T20:00:00Z'));
     });
   });
 
