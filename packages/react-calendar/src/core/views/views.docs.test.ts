@@ -14,6 +14,7 @@ import { parseDateValue } from '../timezone';
 import type { CalendarEvent, EventOccurrence, TimeZoneId } from '../types';
 import { buildMonthViewModel } from './month-view';
 import { buildTimeGridViewModel } from './time-grid-view';
+import { buildYearViewModel } from './year-view';
 
 const TOKYO: TimeZoneId = 'Asia/Tokyo';
 
@@ -172,6 +173,91 @@ describe('hiddenWeekdays: 年・リソース・タイムラインビューは無
     const vm = calendar.getViewModel();
     if (vm.type !== 'timeline') throw new Error('unreachable');
     expect(vm.days.map((day) => day.key)).toEqual(['2026-07-04', '2026-07-05', '2026-07-06']);
+  });
+});
+
+describe('hiddenWeekdays: リストビューは対象外（本追記分）', () => {
+  it('リストビューは hiddenWeekdays を受け取らず、非表示曜日にしか予定が無い日もセクションとして表示される', () => {
+    // 出典: docs/views.md「リストビュー（list）」節（本追記分）:
+    // 「hiddenWeekdays は対象外です（buildListViewModel / ListView はそもそも
+    //  hiddenWeekdays を受け取らないため、非表示曜日にしか予定が無い日もセクションとして
+    //  表示されます）。」
+    // 2026-07-04 は土曜日（hiddenWeekdays: [0, 6] に含まれる想定の曜日）。
+    const occ = makeOccurrence('sat-only', at('2026-07-04T09:00'), at('2026-07-04T10:00'));
+    const calendar = createCalendar({
+      timeZone: TOKYO,
+      now: () => at('2026-07-01T10:00'),
+      initialDate: at('2026-07-01T10:00'),
+      initialView: 'list',
+      listDays: 7,
+      hiddenWeekdays: [0, 6],
+      events: [
+        {
+          id: occ.eventId,
+          title: occ.event.title,
+          start: occ.start,
+          end: occ.end,
+        },
+      ],
+    });
+    const vm = calendar.getViewModel();
+    if (vm.type !== 'list') throw new Error('unreachable');
+    expect(vm.days.some((day) => day.key === '2026-07-04')).toBe(true);
+  });
+});
+
+describe('showWeekNumbers: 複数月ビューは対象外（本追記分）', () => {
+  it('複数月ビューは showWeekNumbers: true を指定しても各月グリッドの weekNumber が常に null になる', () => {
+    // 出典: docs/views.md「週番号（showWeekNumbers）」節（本追記分）:
+    // 「複数月ビュー（MultiMonthView）は showWeekNumbers の対象外です。
+    //  buildMultiMonthViewModel は showWeekNumbers を受け取らず内部の
+    //  buildMonthViewModel 呼び出しにも渡さないため、showWeekNumbers: true を
+    //  指定していても各月グリッドの MonthWeek.weekNumber は常に null のままで、
+    //  data-koyomi-week-number 属性も出力されません。」
+    const calendar = createCalendar({
+      timeZone: TOKYO,
+      now: () => at('2026-07-07T12:00'),
+      initialDate: at('2026-07-07T12:00'),
+      initialView: 'multiMonth',
+      showWeekNumbers: true,
+    });
+    const vm = calendar.getViewModel();
+    if (vm.type !== 'multiMonth') throw new Error('unreachable');
+    for (const month of vm.months) {
+      for (const week of month.weeks) {
+        expect(week.weekNumber).toBeNull();
+      }
+    }
+  });
+});
+
+describe('年ビューの密度ドット: 件数によらず二値表示になる（本追記分）', () => {
+  it('1 件の日と 100 件の日で eventCount は異なるが、密度マーカーの有無（data-has-events 相当の判定）はどちらも同じ「表示あり」になる', () => {
+    // 出典: docs/views.md「年ビュー（year）」節（本追記分）:
+    // 「ドットは「予定が1件以上あるか」の二値表示で、件数が1件でも100件でも見た目は
+    //  同じ1個のドットのままです。」
+    // コアのビューモデルは eventCount（実数）を返すが、閲覧側の「表示あり/なし」判定
+    // （eventCount > 0）は 1 件・100 件のどちらでも同じ結果になることを確認する。
+    const oneEventOcc = makeOccurrence('one', at('2026-07-10T09:00'), at('2026-07-10T10:00'));
+    const manyOccurrences: EventOccurrence[] = Array.from({ length: 100 }, (_, i) =>
+      makeOccurrence(`many-${i}`, at('2026-07-20T09:00'), at('2026-07-20T09:30')),
+    );
+    const vm = buildYearViewModel({
+      currentDate: at('2026-07-01T00:00'),
+      timeZone: TOKYO,
+      occurrences: [oneEventOcc, ...manyOccurrences],
+      weekStartsOn: 0,
+      now: at('2026-07-01T12:00'),
+    });
+    const julyMonth = vm.months.find((month) => month.key === '2026-07');
+    const findDay = (key: string) => julyMonth?.weeks.flat().find((day) => day.key === key);
+
+    const oneEventDay = findDay('2026-07-10');
+    const manyEventsDay = findDay('2026-07-20');
+    expect(oneEventDay?.eventCount).toBe(1);
+    expect(manyEventsDay?.eventCount).toBe(100);
+    // 「表示あり」判定（eventCount > 0）はどちらも true で同じ扱いになる
+    expect((oneEventDay?.eventCount ?? 0) > 0).toBe((manyEventsDay?.eventCount ?? 0) > 0);
   });
 });
 

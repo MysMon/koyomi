@@ -241,9 +241,35 @@ function assertValidDate(date: Date): void {
  * calendar.setView('week');
  * ```
  */
+/** 有効なビュー名の一覧（{@link CalendarViewType} と同期させる）。 */
+const VIEW_TYPES: readonly CalendarViewType[] = [
+  'month',
+  'week',
+  'day',
+  'list',
+  'year',
+  'multiMonth',
+  'resource',
+  'timeline',
+];
+
+/**
+ * ビュー名を検証し、未知の値なら Error を投げる。
+ *
+ * TypeScript の型チェックを経ない呼び出し（JS からの利用等）で不正な値が渡ると、
+ * 後続の getViewModel() で原因の分かりにくい TypeError になるため、
+ * 渡された時点で失敗させる（setTimeZone の不正 IANA ID 検証と同じ方針）。
+ */
+function assertViewType(view: CalendarViewType): void {
+  if (!VIEW_TYPES.includes(view)) {
+    throw new Error(`不正なビュー名です: '${String(view)}'（有効な値: ${VIEW_TYPES.join(', ')}）`);
+  }
+}
+
 export function createCalendar(options?: CalendarOptions): CalendarApi {
   let resolvedOptions = resolveOptions(options);
   let view: CalendarViewType = options?.initialView ?? 'month';
+  assertViewType(view);
   let currentDate: Date = options?.initialDate ?? resolvedOptions.now();
   let timeZone: TimeZoneId = options?.timeZone ?? getLocalTimeZone();
   let events: readonly CalendarEvent[] = options?.events ?? [];
@@ -488,6 +514,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
     // --- ナビゲーション ---
 
     setView(next: CalendarViewType): void {
+      assertViewType(next);
       if (next === view) {
         return;
       }

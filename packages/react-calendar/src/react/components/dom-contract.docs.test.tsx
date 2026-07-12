@@ -5,6 +5,7 @@
  * - docs/internal/components-dom.md（DOM 仕様書。ASCII 図・data-koyomi-* 属性・role 構成）
  * - docs/theming.md（data-koyomi 属性一覧・inline style の仕様）
  * - docs/accessibility.md（WAI-ARIA パターン・aria-current 等）
+ * - docs/views.md（営業時間（businessHours）節の日をまたぐルールの表現方法）
  *
  * このファイルは上記 docs の記述のみから導出した仕様由来テストであり、
  * packages/react-calendar/src/ の実装ファイル（*.test.* 以外）を参照して
@@ -20,6 +21,7 @@ import type { CalendarEvent, CalendarResource } from '../../core/types';
 import { CalendarProvider } from '../context';
 import { useCalendar } from '../use-calendar';
 import { MonthView } from './month-view';
+import { MultiMonthView } from './multi-month-view';
 import { ResourceView } from './resource-view';
 import { TimeGridView } from './time-grid-view';
 import { TimelineView } from './timeline-view';
@@ -359,5 +361,125 @@ describe('TimelineView - isEmpty のとき内部構造を出力しない', () =>
     expect(root?.querySelector('[data-koyomi="timeline-body"]')).toBeNull();
     expect(root?.children).toHaveLength(1);
     expect(root?.firstElementChild).toHaveAttribute('data-koyomi', 'timeline-empty');
+  });
+});
+
+describe('ResourceView - isEmpty のとき data-koyomi-columns 属性自体が省略される（本追記分）', () => {
+  /*
+   * 出典: docs/internal/components-dom.md「リソースビュー（ResourceView）」節（本追記分）:
+   *   「isEmpty の場合は...(中略)...この場合ルート自身の data-koyomi-columns 属性も
+   *     出力されない（"0" にはならず、属性自体が付かない）」
+   */
+  it('列が1つもないとき、ルートの data-koyomi-columns 属性自体が付かない（"0" にもならない）', () => {
+    const { container } = render(<ResourceHarness resources={[]} events={[]} />);
+    const root = container.querySelector('[data-koyomi="resource"]');
+    expect(root).not.toHaveAttribute('data-koyomi-columns');
+  });
+});
+
+describe('MultiMonthView - 非インタラクティブな前後月セルへの aria-current 付与（本追記分）', () => {
+  /*
+   * 出典: docs/internal/components-dom.md「複数月ビュー（MultiMonthView）」節（本追記分）:
+   *   「data-today / aria-current="date" は interactiveOutsideDays に関わらず付与される
+   *     (...)。そのため前後月の日付セル（data-outside）がたまたま「今日」と一致する
+   *     場合も、他の可視日と同様に aria-current="date" が付く」
+   */
+  it('前後月の日付セルが「今日」と一致する場合、非インタラクティブでも data-today と aria-current="date" が付く', () => {
+    // 2026-08 のミニ月グリッドの前月はみ出し部分（7/26〜7/31 あたり）に「今日」を置く。
+    // 東京 2026-07-31 を「今日」とし、2 ヶ月表示にして 8 月グリッドの前月セルとして
+    // 7/31 が現れるようにする。
+    const NOW = new Date('2026-07-31T01:00:00Z'); // 東京 7/31 10:00
+    function Harness(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'multiMonth',
+        multiMonthCount: 2,
+        events: EMPTY_EVENTS,
+      });
+      return (
+        <CalendarProvider value={calendar}>
+          <MultiMonthView />
+        </CalendarProvider>
+      );
+    }
+    const { container } = render(<Harness />);
+    // 2 つ目の月グリッド（8 月）の前月はみ出しセルのうち、日番号ボタンのテキストが
+    // '31' のものを探す（非インタラクティブセルは data-koyomi-date を持たないため、
+    // month セクション単位で絞り込む）。
+    const months = container.querySelectorAll('[data-koyomi="multimonth-month"]');
+    expect(months).toHaveLength(2);
+    const augustSection = months[1];
+    const outsideCells = augustSection?.querySelectorAll('[data-koyomi="month-day"][data-outside]');
+    const todayOutsideCell = Array.from(outsideCells ?? []).find((cell) =>
+      cell.hasAttribute('data-today'),
+    );
+    expect(todayOutsideCell).toBeDefined();
+    expect(todayOutsideCell).toHaveAttribute('aria-current', 'date');
+    // 非インタラクティブであることも合わせて確認する（tabIndex なし・data-koyomi-date なし）
+    expect(todayOutsideCell).not.toHaveAttribute('tabindex');
+    expect(todayOutsideCell).not.toHaveAttribute('data-koyomi-date');
+  });
+});
+
+describe('週/日ビュー - 日をまたぐ営業時間は2件のルールで表現する（本追記分）', () => {
+  /*
+   * 出典: docs/views.md「営業時間（businessHours）」→「週/日ビュー（TimeGridView）」節
+   *   （本追記分）:
+   *   「startTime が endTime より前であることが必須のため、1 件の BusinessHoursRule で
+   *     日をまたぐ営業時間（例: 22:00〜翌 2:00）を直接表現することはできません
+   *     （指定すると Error になります）。日をまたぐ営業時間は、判定が曜日ごとの
+   *     独立したスロット列で行われることを利用し、日をまたいで2件のルールに分けて
+   *     指定します。」
+   */
+  it('1 件のルールで 22:00〜翌 2:00 を指定すると Error になる', () => {
+    function BadHarness(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'week',
+        events: EMPTY_EVENTS,
+        businessHours: [{ daysOfWeek: [2], startTime: '22:00', endTime: '02:00' }],
+      });
+      return (
+        <CalendarProvider value={calendar}>
+          <TimeGridView />
+        </CalendarProvider>
+      );
+    }
+    expect(() => render(<BadHarness />)).toThrow();
+  });
+
+  it('日をまたいで2件のルールに分けると、当日の遅い時間帯と翌日の早い時間帯の両方に data-koyomi-business-hours が付く', () => {
+    // 2026-07-15 は水曜（daysOfWeek: 3）、2026-07-16 は木曜（daysOfWeek: 4）。
+    function SplitHarness(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'week',
+        events: EMPTY_EVENTS,
+        businessHours: [
+          { daysOfWeek: [3], startTime: '22:00', endTime: '23:00' },
+          { daysOfWeek: [4], startTime: '00:00', endTime: '02:00' },
+        ],
+      });
+      return (
+        <CalendarProvider value={calendar}>
+          <TimeGridView />
+        </CalendarProvider>
+      );
+    }
+    const { container } = render(<SplitHarness />);
+    const wednesday = container.querySelector(
+      '[data-koyomi="timegrid-day"][data-koyomi-date="2026-07-15"]',
+    );
+    const thursday = container.querySelector(
+      '[data-koyomi="timegrid-day"][data-koyomi-date="2026-07-16"]',
+    );
+    expect(wednesday?.querySelectorAll('[data-koyomi-business-hours]').length).toBeGreaterThan(0);
+    expect(thursday?.querySelectorAll('[data-koyomi-business-hours]').length).toBeGreaterThan(0);
   });
 });

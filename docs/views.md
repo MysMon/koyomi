@@ -14,11 +14,11 @@ Koyomi は月・週・日・リスト（スケジュール）・年・複数月�
 
 ### リストビュー（list）
 
-`ListView` が描画します。予定がある日だけを対象に、日付ごとのセクションとして一覧表示します（Google カレンダーの「スケジュール」表示相当）。各セクションには日付の見出しと予定の行（時刻ラベル・色見本・タイトル）が並びます。表示範囲（`listDays` 日分、既定 `30`）に予定が 1 件もない場合は空状態のメッセージを表示します。月・週・日ビューと異なり、リストビューにドラッグ操作はありません。
+`ListView` が描画します。予定がある日だけを対象に、日付ごとのセクションとして一覧表示します（Google カレンダーの「スケジュール」表示相当）。各セクションには日付の見出しと予定の行（時刻ラベル・色見本・タイトル）が並びます。表示範囲（`listDays` 日分、既定 `30`）に予定が 1 件もない場合は空状態のメッセージを表示します。月・週・日ビューと異なり、リストビューにドラッグ操作はありません。`hiddenWeekdays` は対象外です（`buildListViewModel` / `ListView` はそもそも `hiddenWeekdays` を受け取らないため、非表示曜日にしか予定が無い日もセクションとして表示されます）。
 
 ### 年ビュー（year）
 
-`YearView` が描画します。表示対象年の 1 月〜12 月分のミニ月グリッドを、レスポンシブなグリッドレイアウトで並べます（Google カレンダーの「年」表示相当）。各ミニ月グリッドは月見出しと曜日の見出し行、4〜6 週の日セルで構成され、`weekStartsOn` に従う週の並びは月ビューと共通です。各日セルはボタンで、日番号を表示し、予定がある日には小さなドットマーカーが付きます（件数の数値ではなく密度のみを示します）。日セルをクリックするとその日の日ビューに切り替わります（`callbacks.onDayNumberClick` を指定すると既定の画面遷移を差し替えられます。[インタラクション](./interactions.md) 参照）。予定の帯・タイトルは表示せず、ドラッグ操作もありません（日付ナビゲーションと予定密度の俯瞰が目的のビューです）。前後月の日付セルは減光表示され、予定件数は常に 0 として扱われます。`hiddenWeekdays` は日ビューと同じく無視されます（ミニ月グリッドは常に 7 列）。
+`YearView` が描画します。表示対象年の 1 月〜12 月分のミニ月グリッドを、レスポンシブなグリッドレイアウトで並べます（Google カレンダーの「年」表示相当）。各ミニ月グリッドは月見出しと曜日の見出し行、4〜6 週の日セルで構成され、`weekStartsOn` に従う週の並びは月ビューと共通です。各日セルはボタンで、日番号を表示し、予定がある日には小さなドットマーカーが付きます（件数の数値ではなく密度のみを示します）。ドットは「予定が1件以上あるか」の二値表示で、件数が1件でも100件でも見た目は同じ1個のドットのままです。日セルをクリックするとその日の日ビューに切り替わります（`callbacks.onDayNumberClick` を指定すると既定の画面遷移を差し替えられます。[インタラクション](./interactions.md) 参照）。予定の帯・タイトルは表示せず、ドラッグ操作もありません（日付ナビゲーションと予定密度の俯瞰が目的のビューです）。前後月の日付セルは減光表示され、予定件数は常に 0 として扱われます。`hiddenWeekdays` は日ビューと同じく無視されます（ミニ月グリッドは常に 7 列）。
 
 年ビューは `Toolbar` のビュー切替ボタン・`useCalendarShortcuts` の `Y` キーとも既定では無効な opt-in のビューです（詳細は次節）。
 
@@ -281,11 +281,11 @@ function BareMonthGrid() {
 | `timeAxisZones` | `readonly TimeZoneId[]` | `[]` | 週/日ビューの時間軸に並べる追加のタイムゾーン（Google カレンダーのセカンダリタイムゾーン相当）。詳細は [複数タイムゾーン軸](#複数タイムゾーン軸timeaxiszones) を参照 |
 | `listDays` | `number` | `30` | リストビューが表示する日数。`next()`/`prev()` の移動単位にもなる |
 | `multiMonthCount` | `number` | `3` | 複数月ビューが表示する月数。`next()`/`prev()` の移動単位にもなる |
-| `hiddenWeekdays` | `readonly Weekday[]` | `[]` | 月・週・複数月ビューの列から除外する曜日（下記参照）。年・日・リソース・タイムラインビューは無視する |
+| `hiddenWeekdays` | `readonly Weekday[]` | `[]` | 月・週・複数月ビューの列から除外する曜日（下記参照）。年・日・リソース・タイムラインビューは無視する。リストビューは対象外（そもそも受け取らない） |
 | `resources` | `readonly CalendarResource[]` | `[]` | リソースビュー・タイムラインビューの列/行になるリソース一覧（表示順）。他ビューには影響しない。詳細は [予定の管理: リソース](./events.md#リソース) を参照 |
 | `timelineDays` | `number` | `1` | タイムラインビューが表示する日数。`next()`/`prev()` の移動単位にもなる |
 | `unassignedLane` | `'auto' \| 'always'` | `'auto'` | リソース/タイムラインビューの未割り当てレーンの生成規則。`'auto'` は該当する予定があるときのみ末尾に生成、`'always'` は常に生成する（「未割り当てへ戻す」D&D を使う場合に必要。詳細は [対象ビューを有効にする](#年複数月リソースタイムラインビューを有効にするopt-in) を参照） |
-| `showWeekNumbers` | `boolean` | `false` | 月ビューの週行・週ビューのヘッダーに ISO 8601 週番号を表示するか。詳細は [週番号](#週番号showweeknumbers) を参照 |
+| `showWeekNumbers` | `boolean` | `false` | 月ビューの週行・週ビューのヘッダーに ISO 8601 週番号を表示するか。複数月ビューは対象外（週番号は算出されない）。詳細は [週番号](#週番号showweeknumbers) を参照 |
 | `businessHours` | `readonly BusinessHoursRule[]` | `[]` | 週/日・リソース・タイムラインビューの営業時間の指定。詳細は [営業時間](#営業時間businesshours) を参照 |
 
 ## 週末などの曜日を隠す（hiddenWeekdays）
@@ -309,6 +309,8 @@ calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
 // - リソースビューも hiddenWeekdays を無視する（日ビューと同じく表示日は 1 日固定）
 // - タイムラインビューも hiddenWeekdays を無視する（比例スケールの歪みを避けるため。
 //   常に timelineDays 日の連続した並びになる）
+// - リストビューは hiddenWeekdays を受け取らない（対象外）ため、非表示曜日にしか
+//   予定が無い日もセクションとして表示される
 // - 「今日」が非表示曜日の場合、現在時刻線（nowIndicator）は表示されない
 ```
 
@@ -404,9 +406,10 @@ function Agenda() {
   /* または: :root { --koyomi-virtual-list-max-height: 600px; } */
   ```
 
-- `estimateDayHeight`（数値または `(day, index) => number`）は実測が入るまでの推定高です。実際の高さは ResizeObserver で自動測定・補正されます。`overscan`（既定 3）で前後の追加描画日数を調整できます。
+- `estimateDayHeight`（数値または `(day, index) => number`）は実測が入るまでの推定高です。実際の高さは ResizeObserver で自動測定・補正されます。`overscan`（既定 3）で前後の追加描画日数を調整できます。負数・`0`・`NaN` 等の不正な値（関数が返す値を含む）は `0` として扱われ、レイアウト計算（合計高・スペーサ高）が壊れないよう安全側にクランプされます。
 - `CalendarView` を使っている場合は、`<CalendarView virtualizeList />`（必要に応じて `listEstimateDayHeight` / `listOverscan`）で list ビューだけを仮想化に切り替えられます。`renderListEvent` などのリスト系 props はそのまま転送されます。
 - `data-koyomi-virtualized="true"` が付き、`role="list"` / 日セクションの `role="listitem"` と件数入りの `aria-label` が付与されます。日セクションの内容（`data-koyomi-*` 構造）は `ListView` と完全に一致します。
+- フォーカス中の日セクションは、スクロールで可視窓の外に出ても DOM を保持し続けます（pinned セクション）。この pinned セクション内の操作要素は `tabIndex={-1}` になりタブ順から外れます（窓内に戻ると既定の `tabIndex` に戻ります）。`VirtualResourceView` / `VirtualTimelineView` の pinned 列・行も同じ規則です。
 - **注意**: 仮想化中はブラウザのページ内検索（Ctrl+F）が窓の外の予定に届きません。また「1 日あたり数百件」のような 1 セクション内の大量予定は仮想化の対象外です。
 
 ### 独自 UI へ組み込む（useVirtualizer）
@@ -431,9 +434,9 @@ function CraneSchedule() {
 ```
 
 - **`VirtualTimelineView`** はリソース行を縦方向に仮想化します（`TimelineView` の行と同じ `role="row"`/`rowheader`/`gridcell` 構造）。行 1 件分の推定高は `estimateRowHeight`（既定はレーン数 × 28px）。
-- **`VirtualResourceView`** はリソース列を横方向に仮想化します（`ResourceView` の列と同じ `role="columnheader"`/`gridcell` 構造）。`ResourceView` 自体は列数が多いと横スクロールに任せる方針（`docs/internal/components-dom.md` 参照）ですが、数百列規模の極端なケース向けに `VirtualResourceView` が windowing を提供します。列幅は固定（`columnWidth`、既定 160px = `--koyomi-resource-column-width` の既定値と同じ）です。
+- **`VirtualResourceView`** はリソース列を横方向に仮想化します（`ResourceView` の列と同じ `role="columnheader"`/`gridcell` 構造）。`ResourceView` 自体は列数が多いと横スクロールに任せる方針（`docs/internal/components-dom.md` 参照）ですが、数百列規模の極端なケース向けに `VirtualResourceView` が windowing を提供します。列幅は固定（`columnWidth`、既定 160px = `--koyomi-resource-column-width` の既定値と同じ）です。 `estimateRowHeight` / `columnWidth` に負数・`0`・`NaN` 等の不正な値を渡した場合も、窓の計算内では `0` として扱われ安全側にクランプされます（`VirtualListView` の `estimateDayHeight` と同じ規則）。ただし `columnWidth` は列の inline style（`flex` / `min-width`）にもそのまま使われるため、不正な値は描画される列幅自体にも影響します。
 - どちらも **境界寸法は CSS で指定します**。`VirtualTimelineView` は `[data-koyomi="timeline-body"]` の `max-height`（既定テーマは 640px）、`VirtualResourceView` はルート `[data-koyomi="resource"]` の境界幅（横スクロールを担う要素）です。境界寸法が無い環境では仮想化は無害に無効化され、全件描画へフォールバックします（開発ビルドで一度警告します）。
-- フォーカス中のリソース（行・列）は、スクロールで可視窓の外に出ても DOM を保持し続けます（`VirtualListView` の pinned 日セクションと同じ方式）。`VirtualResourceView` は列見出し・終日セル・本文列の 3 箇所がまとめて保持されます。
+- フォーカス中のリソース（行・列）は、スクロールで可視窓の外に出ても DOM を保持し続けます（`VirtualListView` の pinned 日セクションと同じ方式）。`VirtualResourceView` は列見出し・終日セル・本文列の 3 箇所がまとめて保持されます。 pinned 状態の行・列に含まれるイベントボタン等の操作要素は `tabIndex={-1}` になりタブ順から外れます（窓内へ戻ると既定の `tabIndex` に戻ります。列見出し・行見出し自体はもともと操作対象ではないため対象外）。
 - `ref` 経由で `scrollToResource(resourceId, options?)`（`resourceId` は未割り当てへは `null`、`options.align` は `'auto' | 'start' | 'center'`）を呼べます。
 - `CalendarView` を使っている場合は、`<CalendarView virtualizeResource />` / `<CalendarView virtualizeTimeline />` でリソース・タイムラインビューだけを仮想化に切り替えられます。`renderResourceEvent` / `renderResourceAllDayItem` / `renderTimelineEvent` などの既存のカスタマイズ props はそのまま転送されます（`virtualizeList` と同じ方式）。
 
@@ -508,6 +511,8 @@ function App() {
 
 `MonthWeek.weekNumber` / `TimeGridViewModel.weekNumber`（`viewType: 'day'` では常に `null`）としてビューモデルからも参照できます。属性のみを付与するヘッドレスな設計のため、実際に数字を表示するには CSS（`content: attr(data-koyomi-week-number)` 等）や `renderDayCell` 等のカスタム描画スロットを使ってください。`showWeekNumbers` 未指定時（既定）は `weekNumber` が常に `null` で、DOM 属性も出力されません。
 
+複数月ビュー（MultiMonthView）は showWeekNumbers の対象外です。`buildMultiMonthViewModel` は showWeekNumbers を受け取らず内部の `buildMonthViewModel` 呼び出しにも渡さないため、`showWeekNumbers: true` を指定していても各月グリッドの `MonthWeek.weekNumber` は常に `null` のままで、`data-koyomi-week-number` 属性も出力されません。
+
 ## 営業時間（businessHours）
 
 `CalendarOptions.businessHours`（既定 `[]`）に曜日・時間帯の指定を渡すと、週/日・リソース・タイムラインビューの該当する時間帯が営業時間内としてハイライトされます。
@@ -548,6 +553,15 @@ businessHours: [
 ハイライトの判定はスロット単位（各スロットの開始時刻が営業時間内かどうか）で行います。そのため `startTime` / `endTime` が `slotMinutes` の区切りに合っていない場合（例: `slotMinutes: 30` で `startTime: '09:15'`）、ハイライトは次のスロット境界（9:30）から始まります。スロットより細かい粒度の表現が必要な場合は、`TimeGridDay.businessHourSlots` を参照して独自に描画してください。
 
 `TimeGridDay.businessHourSlots`（`slots` と同じ並びの `{ minutes, isBusinessHours }[]`）としてビューモデルからも参照できます。`businessHours` 未指定時（既定 `[]`）はすべてのスロットが `isBusinessHours: false` になり、DOM 属性も出力されません。`startTime` が `endTime` 以降、または `'HH:mm'` 形式でない値を指定すると `Error` になります。
+
+`startTime` が `endTime` より前であることが必須のため、1 件の `BusinessHoursRule` で日をまたぐ営業時間（例: 22:00〜翌 2:00）を直接表現することはできません（指定すると Error になります）。日をまたぐ営業時間は、判定が曜日ごとの独立したスロット列で行われることを利用し、日をまたいで2件のルールに分けて指定します。
+
+```tsx
+businessHours: [
+  { daysOfWeek: [2], startTime: '22:00', endTime: '23:59' }, // 火曜の遅い時間帯
+  { daysOfWeek: [3], startTime: '00:00', endTime: '02:00' }, // 水曜の早い時間帯（火曜深夜からの続き）
+]
+```
 
 ### リソースビュー（ResourceView / VirtualResourceView）
 

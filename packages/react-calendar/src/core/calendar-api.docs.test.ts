@@ -93,6 +93,123 @@ describe('CalendarOptions の既定値（docs/api.md #オプション 由来）'
   });
 });
 
+describe('timeZone オプション本体の不正な IANA タイムゾーン ID（docs/api.md #オプション 由来。本追記分）', () => {
+  // 出典: docs/api.md オプション表（本追記分）:
+  // 「timeZone?: TimeZoneId | 実行環境のローカルタイムゾーン（不正な IANA タイムゾーン ID を
+  //  指定すると createCalendar 呼び出し自体が Error を投げる。setTimeZone と同じ検証規則）」
+  it('createCalendar({ timeZone: 不正な値 }) は Error を投げる', () => {
+    expect(() => createCalendar({ timeZone: 'Invalid/Zone' })).toThrow();
+  });
+});
+
+describe('hiddenWeekdays に 7 曜日すべてを指定した場合の挙動（docs/api.md #オプション 由来。本追記分）', () => {
+  // 出典: docs/api.md オプション表（本追記分）:
+  // 「hiddenWeekdays?: readonly Weekday[] | []（非表示にする曜日。7 曜日全指定は無効な
+  //  設定として無視され、既定の空配列（すべて表示）にフォールバックする。...）」
+  it('hiddenWeekdays に 7 曜日すべてを指定すると無効な設定として無視され、既定の空配列にフォールバックする', () => {
+    const calendar = createCalendar({
+      timeZone: 'Asia/Tokyo',
+      hiddenWeekdays: [0, 1, 2, 3, 4, 5, 6],
+    });
+    expect(calendar.getState().options.hiddenWeekdays).toEqual([]);
+  });
+});
+
+describe('next / prev の移動幅（docs/api.md #CalendarApi 由来。本追記分）', () => {
+  // 出典: docs/api.md「next / prev の移動幅はビューごとに異なります」表（本追記分）:
+  // month=1 ヶ月・week=7 日・day=1 日・list=listDays 日・year=1 年・
+  // multiMonth=multiMonthCount ヶ月・resource=1 日・timeline=timelineDays 日
+  const START = new Date('2026-07-15T00:00:00+09:00');
+
+  it('month ビューの next() は 1 ヶ月分（月初基準）進む', () => {
+    const calendar = createCalendar({
+      timeZone: 'Asia/Tokyo',
+      initialView: 'month',
+      initialDate: START,
+    });
+    calendar.next();
+    expect(calendar.getState().currentDate.toISOString()).toBe('2026-07-31T15:00:00.000Z'); // 東京 8/1 0:00
+  });
+
+  it('week ビューの next() は 7 日進む', () => {
+    const calendar = createCalendar({
+      timeZone: 'Asia/Tokyo',
+      initialView: 'week',
+      initialDate: START,
+    });
+    const before = calendar.getState().currentDate.getTime();
+    calendar.next();
+    expect(calendar.getState().currentDate.getTime() - before).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it('day ビューの next() は 1 日進む', () => {
+    const calendar = createCalendar({
+      timeZone: 'Asia/Tokyo',
+      initialView: 'day',
+      initialDate: START,
+    });
+    const before = calendar.getState().currentDate.getTime();
+    calendar.next();
+    expect(calendar.getState().currentDate.getTime() - before).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it('list ビューの next() は listDays 日進む', () => {
+    const calendar = createCalendar({
+      timeZone: 'Asia/Tokyo',
+      initialView: 'list',
+      initialDate: START,
+      listDays: 10,
+    });
+    const before = calendar.getState().currentDate.getTime();
+    calendar.next();
+    expect(calendar.getState().currentDate.getTime() - before).toBe(10 * 24 * 60 * 60 * 1000);
+  });
+
+  it('year ビューの next() は 1 年分（年初基準）進む', () => {
+    const calendar = createCalendar({
+      timeZone: 'Asia/Tokyo',
+      initialView: 'year',
+      initialDate: START,
+    });
+    calendar.next();
+    expect(calendar.getState().currentDate.toISOString()).toBe('2026-12-31T15:00:00.000Z'); // 東京 2027-01-01 0:00
+  });
+
+  it('multiMonth ビューの next() は multiMonthCount ヶ月分（月初基準）進む', () => {
+    const calendar = createCalendar({
+      timeZone: 'Asia/Tokyo',
+      initialView: 'multiMonth',
+      initialDate: START,
+      multiMonthCount: 2,
+    });
+    calendar.next();
+    expect(calendar.getState().currentDate.toISOString()).toBe('2026-08-31T15:00:00.000Z'); // 東京 9/1 0:00
+  });
+
+  it('resource ビューの next() は day ビューと同じく 1 日進む', () => {
+    const calendar = createCalendar({
+      timeZone: 'Asia/Tokyo',
+      initialView: 'resource',
+      initialDate: START,
+    });
+    const before = calendar.getState().currentDate.getTime();
+    calendar.next();
+    expect(calendar.getState().currentDate.getTime() - before).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it('timeline ビューの next() は timelineDays 日進む', () => {
+    const calendar = createCalendar({
+      timeZone: 'Asia/Tokyo',
+      initialView: 'timeline',
+      initialDate: START,
+      timelineDays: 5,
+    });
+    const before = calendar.getState().currentDate.getTime();
+    calendar.next();
+    expect(calendar.getState().currentDate.getTime() - before).toBe(5 * 24 * 60 * 60 * 1000);
+  });
+});
+
 describe('onEventsChange / onRangeChange の発火規約（docs/api.md 由来。既存テストとの重複を避け未カバー分のみ）', () => {
   it('setEvents 単体では通知されるが onEventsChange は呼ばれない（api.md #createCalendar: 「setEvents では呼ばれません」）', () => {
     const onEventsChange = vi.fn();

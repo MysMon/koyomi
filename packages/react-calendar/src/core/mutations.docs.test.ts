@@ -126,6 +126,44 @@ describe('editable: false のイベントへの API 直接操作: docs/events.md
   });
 });
 
+describe('start >= end の不正な時刻範囲: docs/events.md「end の排他性」節（本追記分）', () => {
+  // 出典: docs/events.md「end の排他性」節（本追記分）:
+  // 「start >= end（終了が開始以前）となる不正な時刻範囲を createEvent / updateEvent に
+  //  渡しても Error にはならず、そのままイベントとして保存されます。ただし、そのイベントは
+  //  (範囲が空であるため) getOccurrences が返すオカレンス一覧には決して含まれず、
+  //  どのビューにも表示されません。」
+  it('start >= end のイベントは Error にならず保存されるが、getOccurrences には含まれない', () => {
+    const calendar = makeCalendar();
+    const created = calendar.createEvent({
+      id: 'inverted',
+      title: '不正な範囲',
+      start: '2026-07-01T10:00:00',
+      end: '2026-07-01T09:00:00',
+    });
+    expect(calendar.getEvents()).toContainEqual(created);
+
+    const occurrences = calendar.getOccurrences({
+      start: new Date('2026-06-25T00:00:00Z'),
+      end: new Date('2026-07-10T00:00:00Z'),
+    });
+    expect(occurrences.some((o) => o.eventId === 'inverted')).toBe(false);
+  });
+});
+
+describe('createEvent の id 重複: docs/events.md「イベントの CRUD」節（本追記分）', () => {
+  // 出典: docs/events.md「イベントの CRUD」節（本追記分）:
+  // 「既存イベントと重複する id を明示的に指定した場合は Error を投げます
+  //  （CalendarResource.id の重複が先勝ちで許容されるのとは異なる規則です）」
+  it('既存イベントと重複する id を指定して createEvent を呼ぶと Error を投げる', () => {
+    const calendar = makeCalendar({
+      events: [{ id: 'dup', title: '既存', start: '2026-07-01T09:00:00' }],
+    });
+    expect(() =>
+      calendar.createEvent({ id: 'dup', title: '新規', start: '2026-07-02T09:00:00' }),
+    ).toThrow();
+  });
+});
+
 describe('changes（EventChangeEntry）: docs/events.md「undo（元に戻す）を実装する」節', () => {
   // 出典: docs/events.md
   //   「`before` のみ（`after` なし） — そのイベントは削除された」
@@ -194,5 +232,38 @@ describe('changes（EventChangeEntry）: docs/events.md「undo（元に戻す）
     const restored = [...calendar.getEvents()].sort((x, y) => x.id.localeCompare(y.id));
     const expected = [...initialEvents].sort((x, y) => x.id.localeCompare(y.id));
     expect(restored).toEqual(expected);
+  });
+
+  // 出典: docs/events.md「undo（元に戻す）を実装する」節（本追記分）:
+  // 「updateEvent に値として実質同じ（無変化な）patch を渡した場合、そのイベントは
+  //  changes に含まれません（空の patch: {} や、既存の値と同じ値を明示的に指定した
+  //  patch も同様）。」
+  it('無変化な patch（空パッチ・既存値と同じ値のパッチ）を渡すと changes は空になる', () => {
+    const calendar = makeCalendar({
+      events: [{ id: 'e1', title: '会議', start: '2026-07-01T10:00:00' }],
+    });
+    expect(calendar.updateEvent('e1', {})).toHaveLength(0);
+    expect(calendar.updateEvent('e1', { title: '会議' })).toHaveLength(0);
+  });
+
+  // 出典: docs/events.md「undo（元に戻す）を実装する」節（本追記分）:
+  // 「exdates / rdates は日付の集合として比較されるため、要素の並び替えのみを行う
+  //  patch（値の集合として同一）も無変化として扱われ changes には含まれません。」
+  it('exdates を並び替えただけの patch は無変化として扱われ changes は空になる', () => {
+    const a = new Date('2026-07-02T00:00:00Z');
+    const b = new Date('2026-07-03T00:00:00Z');
+    const calendar = makeCalendar({
+      events: [
+        {
+          id: 'e1',
+          title: '定例',
+          start: '2026-07-01T09:00:00',
+          rrule: 'FREQ=DAILY;COUNT=5',
+          exdates: [a, b],
+        },
+      ],
+    });
+    // 並び順だけが異なる（集合としては同一の）exdates を渡す
+    expect(calendar.updateEvent('e1', { exdates: [b, a] })).toHaveLength(0);
   });
 });

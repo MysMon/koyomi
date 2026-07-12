@@ -113,6 +113,11 @@ const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
 // occurrence.end.getTime() - occurrence.start.getTime() === twoDaysMs
 ```
 
+`start >= end`（終了が開始以前）となる不正な時刻範囲を `createEvent` / `updateEvent`
+に渡しても `Error` にはならず、そのままイベントとして保存されます。ただし、そのイベントは
+（範囲が空であるため）`getOccurrences` が返すオカレンス一覧には決して含まれず、
+どのビューにも表示されません。
+
 ## リソース
 
 `CalendarResource` は会議室・設備・担当者など、予定の割当先を表す型です。`CalendarEvent.resourceId` でイベントをリソースに割り当てます。リソース/タイムラインビューで使用します。
@@ -155,7 +160,9 @@ calendar.setResources([{ id: 'room-a', title: '会議室A（改称）' }]);
 
 - `getEvents()` — すべてのソースイベントを返す
 - `setEvents(events)` — イベント一覧を置き換える（外部ストアとの同期用）
-- `createEvent(input)` — イベントを作成する（`id` 省略時は自動採番）
+- `createEvent(input)` — イベントを作成する（`id` 省略時は自動採番）。既存イベントと
+  重複する `id` を明示的に指定した場合は `Error` を投げます（`CalendarResource.id` の
+  重複が先勝ちで許容されるのとは異なる規則です）
 - `updateEvent(id, patch, target?)` — イベントを更新する。影響を受けた各イベントの
   before/after 一覧（`readonly EventChangeEntry[]`）を返す
 - `deleteEvent(id, target?)` — イベントを削除する。`updateEvent` と同様、影響を受けた
@@ -327,6 +334,12 @@ interface EventChangeEntry {
 スコープ操作（オーバーライド生成・シリーズ分割・打ち切り）では、作成・変更・削除
 されたイベントすべてを漏れなく含みます。そのため `changes` をそのまま逆再生すれば、
 操作前の状態を完全に復元できます。
+
+`updateEvent` に値として実質同じ（無変化な）`patch` を渡した場合、そのイベントは
+`changes` に含まれません（空の `patch: {}` や、既存の値と同じ値を明示的に指定した
+`patch` も同様）。`exdates` / `rdates` は日付の集合として比較されるため、要素の
+並び替えのみを行う `patch`（値の集合として同一）も無変化として扱われ `changes` には
+含まれません。
 
 ```tsx
 import type { CalendarApi, EventChangeEntry } from '@koyomi-cal/react';

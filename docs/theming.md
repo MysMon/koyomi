@@ -450,6 +450,8 @@ function App() {
 // - 年ビューの日セルの件数文言「予定N件」が "N events"（1 件なら "1 event"）になる
 ```
 
+`eventAriaLabelEn`（`eventAriaLabel` 系 props に渡る関数）が変換するのは既定文字列中の区切り記号（「、」「〜」）だけです。曜日・月名などの日付・時刻表記自体は `defaultLabel` の時点で `Intl.DateTimeFormat` によりカレンダーの `locale` オプションで整形済みのため、`enUsLabels` はそれらを変換しません。`locale: 'ja'`（既定）のまま `enUsLabels` だけを渡した場合、区切り記号は英語表記になりますが、曜日等の日付・時刻表記は `locale` に従って日本語のままです。英語の日付・時刻表記まで揃えたい場合は、`useCalendar` / `createCalendar` の `locale` オプション自体を英語の BCP 47 タグ（例: `'en-US'`）に変更してください。
+
 `enUsLabels` を渡さない場合は既定の日本語文言のままです。日本語・英語以外のロケールが必要な場合は、同じ形のオブジェクトを自前で用意して同様にスプレッドしてください。
 
 ## 関連ページ

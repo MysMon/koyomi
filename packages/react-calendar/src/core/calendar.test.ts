@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createCalendar } from './calendar';
-import type { CalendarEvent, CalendarResource } from './types';
+import type { CalendarEvent, CalendarResource, CalendarViewType } from './types';
 
 /** テスト用の固定「現在時刻」。東京の 2026-07-15 10:00。 */
 const NOW = new Date('2026-07-15T01:00:00Z');
@@ -216,6 +216,23 @@ describe('createCalendar', () => {
       const calendar = makeCalendar();
       calendar.setView('list');
       expect(calendar.getState().view).toBe('list');
+    });
+
+    it('setView に未知のビュー名を渡すと Error になり、状態は変わらない', () => {
+      // JS からの呼び出しなど型チェックを経ない不正値は、後続の getViewModel() で
+      // 原因の分かりにくい TypeError になる前に、渡した時点で失敗させる
+      const calendar = makeCalendar();
+      // 'as' 使用理由: 型上あり得ない不正値を意図的に渡すテストのため
+      expect(() => calendar.setView('agenda' as CalendarViewType)).toThrow(/agenda/);
+      expect(calendar.getState().view).toBe('month');
+      expect(() => calendar.getViewModel()).not.toThrow();
+    });
+
+    it('initialView に未知のビュー名を渡すと作成時に Error になる', () => {
+      // 'as' 使用理由: 同上（型を欺く不正値の防御を検証する）
+      expect(() =>
+        createCalendar({ initialView: 'agenda' as CalendarViewType, now: () => NOW }),
+      ).toThrow(/agenda/);
     });
 
     it('next / prev は月ビューで前後の月に移動する', () => {

@@ -14,10 +14,13 @@
  *
  * 各 `it` の先頭コメントに出典（ファイル名・見出し・該当記述の要約）を付す。
  * 既存テスト（`virtual-list-view.test.tsx` 等）で既にカバーされている観点
- * （境界寸法があるときの窓の絞り込み、pinned のタブ順除外、Escape/pointercancel
- * によるキャンセル、対応ビューでの日時/リソース解決など）は重複させない。
+ * （境界寸法があるときの窓の絞り込み、Escape/pointercancel によるキャンセル、
+ * 対応ビューでの日時/リソース解決など）は重複させない。ただし pinned のタブ順除外は、
+ * 実装由来テストでは既にカバー済みだが docs 側（本ファイルが由来とする views.md 等）に
+ * 記述が無かったため、docs に明文化した際に仕様由来テストとして本ファイルにも追加した
+ * （実装由来テストとの重複を許容する）。
  */
-import { act, render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { useRef } from 'react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -652,5 +655,223 @@ describe('enUsLabels: 各グループを対応コンポーネントへスプレ�
     const { container } = render(<Harness />);
     const overflow = container.querySelector('[data-koyomi="month-overflow"]');
     expect(overflow?.textContent).toBe('+1 件');
+  });
+});
+
+// ============================================================================
+// 仮想化 3 ビュー: pinned 要素のタブ順除外（本追記分）
+//
+// 出典: docs/views.md「リストの仮想化」節（本追記分）:
+//   「フォーカス中の日セクションは...pinned セクション内の操作要素は
+//    tabIndex={-1} になりタブ順から外れます」
+// 出典: docs/views.md「レーンの仮想化」節（本追記分）:
+//   「pinned 状態の行・列に含まれるイベントボタン等の操作要素は tabIndex={-1}
+//    になりタブ順から外れます」
+//
+// この挙動は実装由来テスト（virtual-list-view.test.tsx 等）で既にカバーされているが、
+// docs 側にこの記述を追記した本タスクの一環として、仕様由来テストとしても
+// （重複を許容して）ここに 1 件追加する。
+// ============================================================================
+
+describe('VirtualListView: pinned セクションのイベント行はタブ順から外れる（本追記分）', () => {
+  it('フォーカス中の日セクションが窓外にスクロールされ pinned になると、内部のイベント行が tabindex=-1 になる', async () => {
+    const dayCount = 40;
+    function ListHarness(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'list',
+        events: makeDailyEvents(dayCount),
+        listDays: 60,
+      });
+      return (
+        <CalendarProvider value={calendar}>
+          <VirtualListView estimateDayHeight={50} />
+        </CalendarProvider>
+      );
+    }
+    const { container } = render(<ListHarness />);
+    const list = container.querySelector('[data-koyomi="list"]');
+    if (!(list instanceof HTMLElement)) throw new Error('list コンテナが見つかりません');
+
+    await act(async () => {
+      Object.defineProperty(list, 'clientHeight', { configurable: true, value: 100 });
+      list.dispatchEvent(new Event('scroll'));
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    });
+
+    const firstButton = container.querySelector('[data-koyomi="list-event"]');
+    if (firstButton === null) throw new Error('list-event が見つかりません');
+    // 窓内のイベント行はタブ順から外れていない（tabindex なし）
+    expect(firstButton.hasAttribute('tabindex')).toBe(false);
+
+    await act(async () => {
+      fireEvent.focus(firstButton);
+    });
+    await act(async () => {
+      list.scrollTop = 1500;
+      list.dispatchEvent(new Event('scroll'));
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    });
+
+    const pinned = container.querySelector('[data-koyomi-pinned="true"]');
+    const pinnedButton = pinned?.querySelector('[data-koyomi="list-event"]');
+    expect(pinnedButton?.getAttribute('tabindex')).toBe('-1');
+  });
+});
+
+// ============================================================================
+// estimateDayHeight/estimateRowHeight/columnWidth への不正値（本追記分）
+//
+// 出典: docs/views.md「リストの仮想化」節（本追記分）:
+//   「負数・0・NaN 等の不正な値（関数が返す値を含む）は 0 として扱われ、レイアウト
+//    計算（合計高・スペーサ高）が壊れないよう安全側にクランプされます。」
+// ============================================================================
+
+describe('VirtualListView: estimateDayHeight に不正な値を渡してもクラッシュせず 0 としてクランプされる（本追記分）', () => {
+  it('estimateDayHeight に負数を渡しても例外を投げず、日セクションが描画される', async () => {
+    function Harness(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'list',
+        events: makeDailyEvents(5),
+        listDays: 10,
+      });
+      return (
+        <CalendarProvider value={calendar}>
+          <VirtualListView estimateDayHeight={-100} />
+        </CalendarProvider>
+      );
+    }
+    expect(() => render(<Harness />)).not.toThrow();
+    const { container } = render(<Harness />);
+    const sections = container.querySelectorAll('[data-koyomi="list-day"]');
+    expect(sections.length).toBeGreaterThan(0);
+  });
+
+  it('estimateDayHeight に NaN を渡しても例外を投げない', () => {
+    function Harness(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'list',
+        events: makeDailyEvents(5),
+        listDays: 10,
+      });
+      return (
+        <CalendarProvider value={calendar}>
+          <VirtualListView estimateDayHeight={Number.NaN} />
+        </CalendarProvider>
+      );
+    }
+    expect(() => render(<Harness />)).not.toThrow();
+  });
+});
+
+// ============================================================================
+// useExternalDrag: resource/timeline ビューで resources が 0 件かつ未割り当て
+// レーンも無い場合のドロップ（本追記分）
+//
+// 出典: docs/interactions.md「外部ドラッグ受け入れ」節（本追記分）:
+//   「リソース/タイムラインビューで resources が 0 件かつ未割り当てレーンも生成
+//    されない場合(...)、そのビューは列/行を 1 つも描画しません(...)。ドロップ先と
+//    なる列/行の DOM 要素自体が存在しないため、この状態でのドロップはリスト・年・
+//    複数月ビューと同様にドロップ先が解決できずキャンセル扱いになります」
+// ============================================================================
+
+describe('useExternalDrag: resource ビューで resources が0件・未割り当てレーンも無い場合はキャンセル扱い（本追記分）', () => {
+  it('resources: [] かつ unassignedLane: auto の ResourceView へドロップしても onExternalDrop は呼ばれない', () => {
+    const onExternalDrop = vi.fn();
+    function Harness(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'resource',
+        events: EMPTY_EVENTS,
+        resources: EMPTY_RESOURCES,
+        unassignedLane: 'auto',
+      });
+      const containerRef = useRef<HTMLDivElement>(null);
+      const drag = useExternalDrag<Payload>({ calendar, containerRef, onExternalDrop });
+      return (
+        <div>
+          <div data-testid="external-source" {...drag.getDraggableProps({ title: '外部の予定' })} />
+          <div data-testid="calendar-root" ref={containerRef}>
+            <CalendarProvider value={calendar}>
+              <ResourceView />
+            </CalendarProvider>
+          </div>
+        </div>
+      );
+    }
+    const { container } = render(<Harness />);
+    // resources: [] かつ unassignedLane: 'auto' のため isEmpty:true になり、
+    // resource-empty のみが描画される(resource-column 等は存在しない)。
+    const root = container.querySelector('[data-koyomi="resource"]');
+    const empty = container.querySelector('[data-koyomi="resource-empty"]');
+    const source = container.querySelector('[data-testid="external-source"]');
+    if (
+      !(root instanceof HTMLElement) ||
+      !(empty instanceof HTMLElement) ||
+      !(source instanceof HTMLElement)
+    ) {
+      throw new Error('要素が見つかりません');
+    }
+    mockElementsFromPoint([empty, root]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+    releasePointer(10, 10);
+
+    expect(onExternalDrop).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// enUsLabels の eventAriaLabel: 区切り記号以外は変換されない（本追記分）
+//
+// 出典: docs/theming.md「英語ロケール」節（本追記分）:
+//   「eventAriaLabelEn(...)が変換するのは既定文字列中の区切り記号(...)だけです。
+//    曜日・月名などの日付・時刻表記自体は defaultLabel の時点で
+//    Intl.DateTimeFormat によりカレンダーの locale オプションで整形済みのため、
+//    enUsLabels はそれらを変換しません。locale: 'ja'（既定）のまま enUsLabels
+//    だけを渡した場合、区切り記号は英語表記になりますが、曜日等の日付・時刻表記は
+//    locale に従って日本語のままです。」
+// ============================================================================
+
+describe('enUsLabels: locale を変更しない場合、区切り記号以外の日本語表記は変換されない（本追記分）', () => {
+  it('locale: "ja"（既定）のまま month.eventAriaLabel を使うと、区切り記号は英語化されるが曜日表記は日本語のまま残る', () => {
+    const events: CalendarEvent[] = [
+      { id: 'a', title: '会議', start: '2026-07-16T09:00', end: '2026-07-16T09:30' },
+    ];
+    function Harness(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'month',
+        events,
+        // locale を明示的に指定しない（既定の 'ja' のまま）
+      });
+      return (
+        <CalendarProvider value={calendar}>
+          <MonthView {...enUsLabels.month} />
+        </CalendarProvider>
+      );
+    }
+    const { container } = render(<Harness />);
+    const eventButton = container.querySelector('[data-koyomi="month-event"]');
+    const label = eventButton?.getAttribute('aria-label') ?? '';
+    // 区切り記号（「、」「〜」）は英語表記に変換される
+    expect(label).not.toContain('、');
+    expect(label).toContain(', ');
+    // 一方、日付・時刻表記自体は locale: 'ja' の Intl 整形のままなので、
+    // 「9:00」のような時刻表記に変化はない（英語ロケールの "9:00 AM" 等にはならない）
+    expect(label).toContain('9:00');
   });
 });
