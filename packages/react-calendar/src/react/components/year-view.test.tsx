@@ -195,6 +195,30 @@ describe('YearView - 予定件数の表示', () => {
     expect(button).toHaveAttribute('aria-label', '7月10日 予定1件');
   });
 
+  it('密度マーカーは件数によらず同一の表示になる（1 件の日と 100 件の日で DOM が一致し、件数の数字を含まない）', () => {
+    const events: CalendarEvent[] = [
+      { id: 'one', title: '単発', start: '2026-07-10T09:00', end: '2026-07-10T10:00' },
+      ...Array.from({ length: 100 }, (_, i) => ({
+        id: `many-${i}`,
+        title: `予定${i}`,
+        start: '2026-07-20T09:00',
+        end: '2026-07-20T09:30',
+      })),
+    ];
+    const { container } = render(<Harness events={events} />);
+    const july = monthSection(container, '2026-07');
+    const oneMarker = dayButton(july, '2026-07-10').querySelector('[data-koyomi="year-day-count"]');
+    const manyMarker = dayButton(july, '2026-07-20').querySelector(
+      '[data-koyomi="year-day-count"]',
+    );
+
+    expect(oneMarker).not.toBeNull();
+    expect(manyMarker).not.toBeNull();
+    // 二値表示: マーカーの DOM は件数 1 件と 100 件で完全に同一（件数のテキストを持たない）
+    expect(manyMarker?.outerHTML).toBe(oneMarker?.outerHTML);
+    expect(manyMarker?.textContent).toBe('');
+  });
+
   it('予定がない日には data-has-events が付かず、aria-label に件数が含まれない', () => {
     const { container } = render(<Harness />);
     const july = monthSection(container, '2026-07');

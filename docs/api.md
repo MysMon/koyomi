@@ -47,7 +47,7 @@ unsubscribe();
 | --- | --- | --- |
 | `getState` | `(): CalendarState` | 現在の状態のスナップショットを返す |
 | `subscribe` | `(listener: () => void): () => void` | 状態変更の通知を購読する。戻り値で購読解除 |
-| `setView` | `(view: CalendarViewType): void` | ビューを切り替える |
+| `setView` | `(view: CalendarViewType): void` | ビューを切り替える。未知のビュー名は `Error`（`initialView` も同じ検証） |
 | `next` | `(): void` | 現在のビュー単位で次の期間へ移動する（移動幅は下記参照） |
 | `prev` | `(): void` | 現在のビュー単位で前の期間へ移動する（移動幅は下記参照） |
 | `today` | `(): void` | 今日へ移動する |

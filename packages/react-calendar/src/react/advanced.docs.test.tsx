@@ -752,6 +752,58 @@ describe('VirtualListView: estimateDayHeight に不正な値を渡してもク�
     expect(sections.length).toBeGreaterThan(0);
   });
 
+  it.each([
+    ['負数', -160],
+    ['0', 0],
+    ['NaN', Number.NaN],
+  ])('VirtualResourceView: columnWidth に不正な値（%s）を渡しても例外を投げず、列が描画される', (_label, invalid) => {
+    function ResourceHarness(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'resource',
+        events: [],
+        resources: makeResources(3),
+      });
+      return (
+        <CalendarProvider value={calendar}>
+          <VirtualResourceView columnWidth={invalid} />
+        </CalendarProvider>
+      );
+    }
+    expect(() => render(<ResourceHarness />)).not.toThrow();
+    const { container } = render(<ResourceHarness />);
+    expect(container.querySelectorAll('[data-koyomi="resource-column"]').length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['負数', -28],
+    ['0', 0],
+    ['NaN', Number.NaN],
+  ])('VirtualTimelineView: estimateRowHeight に不正な値（%s）を渡しても例外を投げず、行が描画される', (_label, invalid) => {
+    function TimelineHarness(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'timeline',
+        events: [],
+        resources: makeResources(3),
+      });
+      return (
+        <CalendarProvider value={calendar}>
+          <VirtualTimelineView estimateRowHeight={invalid} />
+        </CalendarProvider>
+      );
+    }
+    expect(() => render(<TimelineHarness />)).not.toThrow();
+    const { container } = render(<TimelineHarness />);
+    expect(container.querySelectorAll('[data-koyomi="timeline-row-group"]').length).toBeGreaterThan(
+      0,
+    );
+  });
+
   it('estimateDayHeight に NaN を渡しても例外を投げない', () => {
     function Harness(): ReactElement {
       const calendar = useCalendar({
