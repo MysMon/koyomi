@@ -92,7 +92,9 @@ function toDivRef(ref: Ref<HTMLElement>): (element: HTMLDivElement | null) => vo
       return;
     }
     if (ref !== null) {
-      ref.current = element;
+      // React 18 の型定義では RefObject.current が readonly になるため、
+      // 直接代入の代わりに Object.assign で書き込む（ref オブジェクト自体は実行時には可変）。
+      Object.assign(ref, { current: element });
     }
   };
 }
