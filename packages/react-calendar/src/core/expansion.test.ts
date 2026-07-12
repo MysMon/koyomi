@@ -16,6 +16,7 @@ import type { CalendarEvent, EventOccurrence, TimeZoneId } from './types';
 
 const TOKYO = 'Asia/Tokyo';
 const NY = 'America/New_York';
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** `title` を省略可能にしたテスト用イベントファクトリ（省略時は `id` を流用）。 */
 function makeEvent(props: Omit<CalendarEvent, 'title'> & { title?: string }): CalendarEvent {
@@ -833,6 +834,119 @@ describe('expandEvents', () => {
       expect(moved.isRecurring).toBe(true);
       // originalStart は表示 TZ における元の日付（7/8）の 0:00
       expect(moved.originalStart).toEqual(new Date('2026-07-07T15:00:00Z'));
+    });
+  });
+
+  describe('終日イベントの不正な範囲（end <= start、日付キー比較）', () => {
+    it('単発: end === start（同日）ならオカレンスを生成しない', () => {
+      const source = makeEvent({
+        id: 'ad-eq',
+        start: '2026-07-01',
+        end: '2026-07-01',
+        allDay: true,
+      });
+      const result = expand([source], {
+        start: '2026-06-29T15:00:00Z',
+        end: '2026-07-05T15:00:00Z',
+      });
+      expect(result).toEqual([]);
+    });
+
+    it('単発: end < start ならオカレンスを生成しない', () => {
+      const source = makeEvent({
+        id: 'ad-lt',
+        start: '2026-07-02',
+        end: '2026-07-01',
+        allDay: true,
+      });
+      const result = expand([source], {
+        start: '2026-06-29T15:00:00Z',
+        end: '2026-07-05T15:00:00Z',
+      });
+      expect(result).toEqual([]);
+    });
+
+    it('RRULE: マスターの end <= start ならどの回もオカレンスを生成しない', () => {
+      const eq = makeEvent({
+        id: 'rr-eq',
+        start: '2026-07-01',
+        end: '2026-07-01',
+        allDay: true,
+        rrule: 'FREQ=WEEKLY;COUNT=3',
+      });
+      const lt = makeEvent({
+        id: 'rr-lt',
+        start: '2026-07-01',
+        end: '2026-06-30',
+        allDay: true,
+        rrule: 'FREQ=WEEKLY;COUNT=3',
+      });
+      const range = { start: '2026-06-28T00:00:00Z', end: '2026-07-20T00:00:00Z' };
+      expect(expand([eq], range)).toEqual([]);
+      expect(expand([lt], range)).toEqual([]);
+    });
+
+    it('RDATE（rrule なし）: end <= start ならマスターの日も rdate の日もオカレンスを生成しない', () => {
+      const eq = makeEvent({
+        id: 'rd-eq',
+        start: '2026-07-01',
+        end: '2026-07-01',
+        allDay: true,
+        rdates: ['2026-07-03'],
+      });
+      const lt = makeEvent({
+        id: 'rd-lt',
+        start: '2026-07-02',
+        end: '2026-07-01',
+        allDay: true,
+        rdates: ['2026-07-05'],
+      });
+      const range = { start: '2026-06-28T00:00:00Z', end: '2026-07-20T00:00:00Z' };
+      expect(expand([eq], range)).toEqual([]);
+      expect(expand([lt], range)).toEqual([]);
+    });
+
+    it('オーバーライドが単一オカレンスの end <= start を不正化した場合、そのオカレンスだけ除外される', () => {
+      const master = makeEvent({
+        id: 'wk',
+        start: '2026-07-01',
+        allDay: true,
+        rrule: 'FREQ=WEEKLY;COUNT=3', // 7/1・7/8・7/15
+      });
+      // 7/8 のオカレンスを end <= start の不正な範囲へ書き換える
+      const override = makeEvent({
+        id: 'ado-invalid',
+        recurringEventId: 'wk',
+        originalStart: '2026-07-08',
+        start: '2026-07-08',
+        end: '2026-07-08',
+        allDay: true,
+      });
+      const result = expand([master, override], {
+        start: '2026-06-28T00:00:00Z',
+        end: '2026-07-20T00:00:00Z',
+      });
+      // 7/8 はマスター側でも（オーバーライドで置換済みのため）オーバーライド側でも
+      // （end <= start のため）出現せず、7/1・7/15 のみが残る
+      expect(result.map((o) => [o.eventId, dateKeyInZone(o.start, TOKYO)])).toEqual([
+        ['wk', '2026-07-01'],
+        ['wk', '2026-07-15'],
+      ]);
+    });
+
+    it('回帰: end 省略時は 1 日、正常な end は日数を維持する', () => {
+      const omitted = makeEvent({ id: 'omit', start: '2026-07-01', allDay: true });
+      const normal = makeEvent({
+        id: 'normal',
+        start: '2026-07-01',
+        end: '2026-07-03',
+        allDay: true,
+      });
+      const range = { start: '2026-06-29T15:00:00Z', end: '2026-07-05T15:00:00Z' };
+      const omittedResult = expand([omitted], range);
+      const normalResult = expand([normal], range);
+      expect(omittedResult[0]!.end.getTime() - omittedResult[0]!.start.getTime()).toBe(DAY_MS);
+      expect(normalResult[0]!.end.getTime() - normalResult[0]!.start.getTime()).toBe(2 * DAY_MS);
     });
   });
 

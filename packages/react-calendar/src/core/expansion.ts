@@ -69,7 +69,11 @@ interface TimedSpan {
 interface AllDaySpan {
   /** 開始日の日付キー（`'YYYY-MM-DD'`）。 */
   startKey: string;
-  /** 日数（1 以上）。`end` は排他なのでキー差がそのまま日数になる。 */
+  /**
+   * 日数。`end` は排他なのでキー差がそのまま日数になる。
+   * `end` が `start` 以前（日付キー比較で `endKey <= startKey`）の場合は 0 以下になり、
+   * この場合オカレンスは 1 件も生成されない。
+   */
   dayCount: number;
 }
 
@@ -92,7 +96,9 @@ function resolveTimedSpan(
 
 /**
  * 終日イベントの `start` / `end` を日付キーと日数に変換する。
- * `end` 省略時は 1 日、`end` が `start` 以前の不正値でも防御的に 1 日とみなす。
+ * `end` 省略時は 1 日。`end` を指定した場合、日付キー比較で `endKey <= startKey`
+ * （時間指定イベントの `end <= start` に相当）なら `dayCount` は 0 以下になり、
+ * 呼び出し側でオカレンスが生成されない。
  */
 function resolveAllDaySpan(event: CalendarEvent, interpretTimeZone: TimeZoneId): AllDaySpan {
   const startInstant = parseDateValue(event.start, interpretTimeZone, true);
@@ -107,7 +113,7 @@ function resolveAllDaySpan(event: CalendarEvent, interpretTimeZone: TimeZoneId):
       dateFromKey(startKey, DATE_KEY_ZONE).getTime()) /
       DAY_MS,
   );
-  return { startKey, dayCount: Math.max(1, diffDays) };
+  return { startKey, dayCount: diffDays };
 }
 
 /** 日付キーに日数を加算した日付キーを返す（DST のない UTC 空間で演算）。 */
@@ -269,9 +275,11 @@ function expandAllDayRecurrence(params: {
     rdateKeys,
   } = params;
   const excludedKeys = resolveExcludedKeys(event, interpretTimeZone);
+  // dayCount が 0 以下（不正な範囲）のときは手前に広げる必要がないため、
+  // 負の幅で範囲を狭めてしまわないよう 0 未満にはしない
   const queryStart = new Date(
     dateFromKey(dateKeyInZone(range.start, displayTimeZone), DATE_KEY_ZONE).getTime() -
-      span.dayCount * DAY_MS,
+      Math.max(0, span.dayCount) * DAY_MS,
   );
   const queryEnd = new Date(
     dateFromKey(dateKeyInZone(range.end, displayTimeZone), DATE_KEY_ZONE).getTime() + DAY_MS,
