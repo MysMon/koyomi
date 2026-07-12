@@ -51,8 +51,16 @@ jobs:
         if: matrix.id == 'main'
         run: pnpm lint
 
+      # React 18 レグはライブラリの @types/react だけを 18 へ差し替えるため、
+      # React 19 のままのデモを含めると型定義が混在して検査にならない。
+      # このレグの検査対象はライブラリのみとする。
       - name: 型チェック
+        if: matrix.id != 'node24-react18'
         run: pnpm typecheck
+
+      - name: 型チェック（ライブラリのみ、node24-react18 レグ）
+        if: matrix.id == 'node24-react18'
+        run: pnpm --filter @koyomi-cal/react typecheck
 
       - name: テスト（カバレッジ付き、main レグのみ）
         if: matrix.id == 'main'
