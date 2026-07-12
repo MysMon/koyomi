@@ -20,5 +20,12 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",
     "typescript": "^5.9.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "tsup>esbuild": ">=0.28.1",
+      "bundle-require>esbuild": ">=0.28.1",
+      "vite>esbuild": ">=0.28.1"
+    }
   }
 }
