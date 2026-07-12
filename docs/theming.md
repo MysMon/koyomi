@@ -6,7 +6,7 @@ Koyomi のビルトインコンポーネントはヘッドレスです。ロジ�
 
 ビルトインコンポーネント（`Toolbar` / `CalendarView` / `MonthView` / `TimeGridView` / `ListView` / `VirtualListView` / `YearView` / `MultiMonthView` / `ResourceView` / `VirtualResourceView` / `TimelineView` / `VirtualTimelineView`）はクラス名を一切生成しません。すべての要素は `data-koyomi="<部位名>"` という属性を持ち、状態は追加の data 属性（`data-today` / `data-outside` / `data-koyomi-dragging` など）で表されます。CSS はこの属性だけをセレクタにして書きます。
 
-インラインの `style` は、位置決めに必須の数値（%・`calc()`）だけに限定されています。色・境界線・余白などの見た目は inline style に出力されません。唯一の例外は `event.color` を指定したイベント要素で、この場合のみ CSS 変数 `--koyomi-event-color` が inline で設定されます（テーマ側は `var(--koyomi-event-color, 既定色)` で参照します）。
+インラインの `style` は、位置決めに必須の数値（%・`calc()`）やレーン数・仮想化スペーサーの高さなど、レイアウトを成立させるために避けられない値に限定されています。色・境界線・余白などの見た目は inline style に出力されません。唯一の例外は CSS 変数 `--koyomi-event-color` で、`event.color` を指定したイベント要素に加え、`resource.color` を指定したリソースのリソース列見出し（`ResourceView`）・タイムライン行見出し（`TimelineView`）にも inline で設定されます（テーマ側は `var(--koyomi-event-color, 既定色)` で参照します）。
 
 クリック・キーボード操作が可能な要素（イベント・日番号・ツールバーのボタンなど）は、すべて `<button type="button">` として描画されます。
 

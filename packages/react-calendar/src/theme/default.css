@@ -336,13 +336,6 @@
   text-decoration: underline;
 }
 
-/* イベントのセグメント層。素通しにしてクリックを下の日セルへ透過させる */
-[data-koyomi="month-events"] {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
 [data-koyomi="month-event"] {
   position: absolute;
   overflow: hidden;
