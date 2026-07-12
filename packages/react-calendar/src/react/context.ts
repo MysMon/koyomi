@@ -68,7 +68,7 @@ export function CalendarProvider(props: CalendarProviderProps): ReactElement {
     [api, state, viewModel, resolvedCallbacks],
   );
 
-  return createElement(CalendarContext.Provider, { value: contextValue }, children);
+  return createElement(CalendarContext, { value: contextValue }, children);
 }
 
 /**

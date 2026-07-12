@@ -23,9 +23,14 @@
  * `viewportPadding` にその実測幅を渡して差し引く（詳細は `useVirtualizer` の TSDoc参照）。
  */
 
-import type { CSSProperties, ReactElement, FocusEvent as ReactFocusEvent, ReactNode } from 'react';
+import type {
+  CSSProperties,
+  ReactElement,
+  FocusEvent as ReactFocusEvent,
+  ReactNode,
+  Ref,
+} from 'react';
 import {
-  forwardRef,
   memo,
   useCallback,
   useEffect,
@@ -107,6 +112,12 @@ export interface VirtualResourceViewProps {
    * @param defaultLabel - 既定の aria-label 文字列
    */
   eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
+  /**
+   * {@link VirtualResourceViewHandle}（スクロール操作などの命令的 API）を受け取る ref。
+   */
+  // React 本体の RefAttributes と同じく明示的な undefined を許容する
+  // （exactOptionalPropertyTypes 下で `ref={maybeUndefined}` を書けるようにするため）
+  ref?: Ref<VirtualResourceViewHandle> | undefined;
 }
 
 /** {@link VirtualResourceView} が `ref` 経由で公開する命令的 API。 */
@@ -625,278 +636,169 @@ const ResourceColumnBody = memo(ResourceColumnBodyImpl, (prev, next) => {
  * // handleRef.current?.scrollToResource('room-5');
  * ```
  */
-export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, VirtualResourceViewProps>(
-  function VirtualResourceView(props, ref): ReactElement | null {
-    const {
-      renderEvent,
-      renderAllDayItem,
-      renderColumnHeader,
-      unassignedLabel = DEFAULT_UNASSIGNED_LABEL,
-      emptyLabel = DEFAULT_EMPTY_LABEL,
-      columnWidth = DEFAULT_COLUMN_WIDTH,
-      overscan,
-      eventAriaLabel,
-    } = props;
-    const { api, state, viewModel, callbacks } = useCalendarContext();
-    const calendar = { api, state, viewModel };
-    const drag = useResourceGridDrag({ calendar, callbacks });
-    const stableDrag = useStableResourceDrag(drag);
+export function VirtualResourceView(props: VirtualResourceViewProps): ReactElement | null {
+  const {
+    renderEvent,
+    renderAllDayItem,
+    renderColumnHeader,
+    unassignedLabel = DEFAULT_UNASSIGNED_LABEL,
+    emptyLabel = DEFAULT_EMPTY_LABEL,
+    columnWidth = DEFAULT_COLUMN_WIDTH,
+    overscan,
+    eventAriaLabel,
+    ref,
+  } = props;
+  const { api, state, viewModel, callbacks } = useCalendarContext();
+  const calendar = { api, state, viewModel };
+  const drag = useResourceGridDrag({ calendar, callbacks });
+  const stableDrag = useStableResourceDrag(drag);
 
-    const columns: readonly ResourceColumn[] =
-      viewModel.type === 'resource' ? viewModel.columns : [];
+  const columns: readonly ResourceColumn[] = viewModel.type === 'resource' ? viewModel.columns : [];
 
-    const rootRef = useRef<HTMLDivElement>(null);
-    const [enabled, setEnabled] = useState(false);
-    useIsomorphicLayoutEffect(() => {
-      setEnabled(true);
-    }, []);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [enabled, setEnabled] = useState(false);
+  useIsomorphicLayoutEffect(() => {
+    setEnabled(true);
+  }, []);
 
-    // 時間軸の余白列（axis-gutter）の実測幅。スクロールコンテナ内でリソース列より
-    // 「前」に同居する固定表示の列なので、その分だけ可視ビューポートを差し引く。
-    const gutterRef = useRef<HTMLDivElement>(null);
-    const [gutterWidth, setGutterWidth] = useState(0);
-    useIsomorphicLayoutEffect(() => {
-      const element = gutterRef.current;
-      if (element === null) {
-        return;
-      }
-      setGutterWidth(element.getBoundingClientRect().width);
-      if (typeof ResizeObserver === 'undefined') {
-        return;
-      }
-      const observer = new ResizeObserver(() => {
-        setGutterWidth(element.getBoundingClientRect().width);
-      });
-      observer.observe(element);
-      return () => observer.disconnect();
-    }, []);
-
-    const [focusedKey, setFocusedKey] = useState<string | null>(null);
-    const pinnedKeys = useMemo(
-      () => (focusedKey !== null ? new Set([focusedKey]) : undefined),
-      [focusedKey],
-    );
-
-    const getItemKey = useCallback((index: number): string => columns[index]?.key ?? '', [columns]);
-    const estimateSize = useCallback(() => columnWidth, [columnWidth]);
-    const getScrollElement = useCallback((): HTMLElement | null => rootRef.current, []);
-
-    const virtualizer = useVirtualizer({
-      count: columns.length,
-      getItemKey,
-      estimateSize,
-      getScrollElement,
-      enabled,
-      axis: 'horizontal',
-      measure: false,
-      viewportPadding: gutterWidth,
-      ...(overscan !== undefined ? { overscan } : {}),
-      ...(pinnedKeys !== undefined ? { pinnedKeys } : {}),
-    });
-
-    useImperativeHandle(
-      ref,
-      (): VirtualResourceViewHandle => ({
-        scrollToResource(resourceId, options) {
-          const index = columns.findIndex((column) => (column.resource?.id ?? null) === resourceId);
-          if (index >= 0) {
-            virtualizer.scrollToIndex(index, options);
-          }
-        },
-      }),
-      [columns, virtualizer],
-    );
-
-    const warnedRef = useRef(false);
-    useEffect(() => {
-      if (!enabled || warnedRef.current || !isDevBuild()) {
-        return;
-      }
-      if (
-        columns.length > VIRTUALIZE_WARN_THRESHOLD &&
-        virtualizer.virtualItems.length >= columns.length
-      ) {
-        warnedRef.current = true;
-        // biome-ignore lint/suspicious/noConsole: 開発ビルド限定の設定ミス警告（VirtualListView と同じ流儀）
-        console.warn(
-          `[koyomi] VirtualResourceView: 全 ${columns.length} 列が可視窓に入っており仮想化の効果が出ていません。` +
-            'スクロールコンテナ [data-koyomi="resource"] の境界幅、境界幅が広すぎる、' +
-            'または overscan 過大のいずれかを確認してください。',
-        );
-      }
-    }, [enabled, columns.length, virtualizer.virtualItems.length]);
-
-    /** フォーカスが入った列のキーを記録する（窓外へ出ても DOM を保持するため）。 */
-    const handleFocus = useCallback((event: ReactFocusEvent<HTMLDivElement>): void => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) {
-        return;
-      }
-      const cell = target.closest('[data-koyomi-column-key]');
-      const key = cell?.getAttribute('data-koyomi-column-key') ?? null;
-      if (key !== null) {
-        setFocusedKey(key);
-      }
-    }, []);
-
-    /** フォーカスがリソースビュー外へ抜けたら pinned を解除する。 */
-    const handleBlur = useCallback((event: ReactFocusEvent<HTMLDivElement>): void => {
-      const next = event.relatedTarget;
-      if (next instanceof Node && event.currentTarget.contains(next)) {
-        return;
-      }
-      setFocusedKey(null);
-    }, []);
-
-    if (viewModel.type !== 'resource') {
-      return null;
+  // 時間軸の余白列（axis-gutter）の実測幅。スクロールコンテナ内でリソース列より
+  // 「前」に同居する固定表示の列なので、その分だけ可視ビューポートを差し引く。
+  const gutterRef = useRef<HTMLDivElement>(null);
+  const [gutterWidth, setGutterWidth] = useState(0);
+  useIsomorphicLayoutEffect(() => {
+    const element = gutterRef.current;
+    if (element === null) {
+      return;
     }
+    setGutterWidth(element.getBoundingClientRect().width);
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      setGutterWidth(element.getBoundingClientRect().width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
-    const { slots, businessHourSlots, nowIndicatorMinutes, isToday, isEmpty } = viewModel;
-    const { timeZone, options } = state;
-    const { locale } = options;
-    // businessHours 未指定（既定 []）のときは `timegrid-slot` 罫線 div 自体を描画しない
-    // （businessHours 拡張前の VirtualResourceView は列本文にスロット罫線を持たなかった
-    // ため、既定出力を旧版と一致させる。ResourceView は元々無条件描画のためこの分岐は不要）。
+  const [focusedKey, setFocusedKey] = useState<string | null>(null);
+  const pinnedKeys = useMemo(
+    () => (focusedKey !== null ? new Set([focusedKey]) : undefined),
+    [focusedKey],
+  );
 
-    if (isEmpty) {
-      return (
-        <div data-koyomi="resource">
-          <div data-koyomi="resource-empty">{emptyLabel}</div>
-        </div>
+  const getItemKey = useCallback((index: number): string => columns[index]?.key ?? '', [columns]);
+  const estimateSize = useCallback(() => columnWidth, [columnWidth]);
+  const getScrollElement = useCallback((): HTMLElement | null => rootRef.current, []);
+
+  const virtualizer = useVirtualizer({
+    count: columns.length,
+    getItemKey,
+    estimateSize,
+    getScrollElement,
+    enabled,
+    axis: 'horizontal',
+    measure: false,
+    viewportPadding: gutterWidth,
+    ...(overscan !== undefined ? { overscan } : {}),
+    ...(pinnedKeys !== undefined ? { pinnedKeys } : {}),
+  });
+
+  useImperativeHandle(
+    ref,
+    (): VirtualResourceViewHandle => ({
+      scrollToResource(resourceId, options) {
+        const index = columns.findIndex((column) => (column.resource?.id ?? null) === resourceId);
+        if (index >= 0) {
+          virtualizer.scrollToIndex(index, options);
+        }
+      },
+    }),
+    [columns, virtualizer],
+  );
+
+  const warnedRef = useRef(false);
+  useEffect(() => {
+    if (!enabled || warnedRef.current || !isDevBuild()) {
+      return;
+    }
+    if (
+      columns.length > VIRTUALIZE_WARN_THRESHOLD &&
+      virtualizer.virtualItems.length >= columns.length
+    ) {
+      warnedRef.current = true;
+      // biome-ignore lint/suspicious/noConsole: 開発ビルド限定の設定ミス警告（VirtualListView と同じ流儀）
+      console.warn(
+        `[koyomi] VirtualResourceView: 全 ${columns.length} 列が可視窓に入っており仮想化の効果が出ていません。` +
+          'スクロールコンテナ [data-koyomi="resource"] の境界幅、境界幅が広すぎる、' +
+          'または overscan 過大のいずれかを確認してください。',
       );
     }
+  }, [enabled, columns.length, virtualizer.virtualItems.length]);
 
-    const visible = virtualizer.virtualItems;
-    const pinned = virtualizer.pinnedItems;
+  /** フォーカスが入った列のキーを記録する（窓外へ出ても DOM を保持するため）。 */
+  const handleFocus = useCallback((event: ReactFocusEvent<HTMLDivElement>): void => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const cell = target.closest('[data-koyomi-column-key]');
+    const key = cell?.getAttribute('data-koyomi-column-key') ?? null;
+    if (key !== null) {
+      setFocusedKey(key);
+    }
+  }, []);
 
+  /** フォーカスがリソースビュー外へ抜けたら pinned を解除する。 */
+  const handleBlur = useCallback((event: ReactFocusEvent<HTMLDivElement>): void => {
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) {
+      return;
+    }
+    setFocusedKey(null);
+  }, []);
+
+  if (viewModel.type !== 'resource') {
+    return null;
+  }
+
+  const { slots, businessHourSlots, nowIndicatorMinutes, isToday, isEmpty } = viewModel;
+  const { timeZone, options } = state;
+  const { locale } = options;
+  // businessHours 未指定（既定 []）のときは `timegrid-slot` 罫線 div 自体を描画しない
+  // （businessHours 拡張前の VirtualResourceView は列本文にスロット罫線を持たなかった
+  // ため、既定出力を旧版と一致させる。ResourceView は元々無条件描画のためこの分岐は不要）。
+
+  if (isEmpty) {
     return (
-      // biome-ignore lint/a11y/noStaticElementInteractions: フォーカス保持の onFocus/onBlur は列見出し・終日行・本文をまたぐルート（役割なしの ResourceView と同じ構造）に置く必要がある
-      <div
-        ref={rootRef}
-        data-koyomi="resource"
-        data-koyomi-virtualized="true"
-        data-koyomi-columns={String(columns.length)}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-      >
-        {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA grid（ResourceView と同じ方針） */}
-        <div data-koyomi="resource-grid" role="grid">
-          {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA row */}
-          {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない */}
-          <div data-koyomi="resource-header" role="row">
-            <div ref={gutterRef} data-koyomi="timegrid-axis-gutter" role="presentation" />
-            <div data-koyomi="resource-headers" role="presentation">
-              <div
-                data-koyomi="resource-header-spacer"
-                data-edge="before"
-                aria-hidden="true"
-                style={{ width: `${virtualizer.beforeSize}px` }}
-              />
-              {visible.map((item) => {
-                const column = columns[item.index];
-                return column !== undefined ? (
-                  <HeaderCell
-                    key={column.key}
-                    column={column}
-                    unassignedLabel={unassignedLabel}
-                    renderColumnHeader={renderColumnHeader}
-                    columnWidth={columnWidth}
-                  />
-                ) : null;
-              })}
-              <div
-                data-koyomi="resource-header-spacer"
-                data-edge="after"
-                aria-hidden="true"
-                style={{ width: `${virtualizer.afterSize}px` }}
-              />
-              {pinned.map((item) => {
-                const column = columns[item.index];
-                return column !== undefined ? (
-                  <HeaderCell
-                    key={column.key}
-                    column={column}
-                    unassignedLabel={unassignedLabel}
-                    renderColumnHeader={renderColumnHeader}
-                    columnWidth={columnWidth}
-                    pinned
-                    left={item.start}
-                  />
-                ) : null;
-              })}
-            </div>
-          </div>
-          {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA row */}
-          {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない */}
-          <div data-koyomi="allday-row" role="row">
-            <div data-koyomi="timegrid-axis-gutter" role="presentation" />
-            <div data-koyomi="resource-allday-cells" role="presentation">
-              <div
-                data-koyomi="resource-allday-spacer"
-                data-edge="before"
-                aria-hidden="true"
-                style={{ width: `${virtualizer.beforeSize}px` }}
-              />
-              {visible.map((item) => {
-                const column = columns[item.index];
-                return column !== undefined ? (
-                  <AllDayCell
-                    key={column.key}
-                    column={column}
-                    unassignedLabel={unassignedLabel}
-                    columnWidth={columnWidth}
-                    drag={stableDrag}
-                    isDragging={drag.isDragging}
-                    isPreviewTarget={drag.isAllDayPreviewTarget(column)}
-                    timeZone={timeZone}
-                    locale={locale}
-                    renderAllDayItem={renderAllDayItem}
-                    eventAriaLabel={eventAriaLabel}
-                  />
-                ) : null;
-              })}
-              <div
-                data-koyomi="resource-allday-spacer"
-                data-edge="after"
-                aria-hidden="true"
-                style={{ width: `${virtualizer.afterSize}px` }}
-              />
-              {pinned.map((item) => {
-                const column = columns[item.index];
-                return column !== undefined ? (
-                  <AllDayCell
-                    key={column.key}
-                    column={column}
-                    unassignedLabel={unassignedLabel}
-                    columnWidth={columnWidth}
-                    drag={stableDrag}
-                    isDragging={drag.isDragging}
-                    isPreviewTarget={drag.isAllDayPreviewTarget(column)}
-                    timeZone={timeZone}
-                    locale={locale}
-                    pinned
-                    left={item.start}
-                    itemTabbable={false}
-                    renderAllDayItem={renderAllDayItem}
-                    eventAriaLabel={eventAriaLabel}
-                  />
-                ) : null;
-              })}
-            </div>
-          </div>
-        </div>
-        <div data-koyomi="resource-body">
-          <div data-koyomi="time-axis">
-            {slots.map((slot) => (
-              <div key={slot.minutes} data-koyomi="time-slot-label">
-                {slot.label}
-              </div>
-            ))}
-          </div>
-          <div data-koyomi="resource-columns">
+      <div data-koyomi="resource">
+        <div data-koyomi="resource-empty">{emptyLabel}</div>
+      </div>
+    );
+  }
+
+  const visible = virtualizer.virtualItems;
+  const pinned = virtualizer.pinnedItems;
+
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: フォーカス保持の onFocus/onBlur は列見出し・終日行・本文をまたぐルート（役割なしの ResourceView と同じ構造）に置く必要がある
+    <div
+      ref={rootRef}
+      data-koyomi="resource"
+      data-koyomi-virtualized="true"
+      data-koyomi-columns={String(columns.length)}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+    >
+      {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA grid（ResourceView と同じ方針） */}
+      <div data-koyomi="resource-grid" role="grid">
+        {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA row */}
+        {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない */}
+        <div data-koyomi="resource-header" role="row">
+          <div ref={gutterRef} data-koyomi="timegrid-axis-gutter" role="presentation" />
+          <div data-koyomi="resource-headers" role="presentation">
             <div
-              data-koyomi="resource-columns-spacer"
+              data-koyomi="resource-header-spacer"
               data-edge="before"
               aria-hidden="true"
               style={{ width: `${virtualizer.beforeSize}px` }}
@@ -904,26 +806,17 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
             {visible.map((item) => {
               const column = columns[item.index];
               return column !== undefined ? (
-                <ResourceColumnBody
+                <HeaderCell
                   key={column.key}
                   column={column}
-                  slots={slots}
-                  businessHourSlots={businessHourSlots}
-                  timeZone={timeZone}
-                  locale={locale}
-                  isToday={isToday}
-                  nowIndicatorMinutes={nowIndicatorMinutes}
-                  renderEvent={renderEvent}
-                  drag={stableDrag}
-                  isDragging={drag.isDragging}
-                  preview={drag.previewFor(column)}
+                  unassignedLabel={unassignedLabel}
+                  renderColumnHeader={renderColumnHeader}
                   columnWidth={columnWidth}
-                  eventAriaLabel={eventAriaLabel}
                 />
               ) : null;
             })}
             <div
-              data-koyomi="resource-columns-spacer"
+              data-koyomi="resource-header-spacer"
               data-edge="after"
               aria-hidden="true"
               style={{ width: `${virtualizer.afterSize}px` }}
@@ -931,23 +824,71 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
             {pinned.map((item) => {
               const column = columns[item.index];
               return column !== undefined ? (
-                <ResourceColumnBody
+                <HeaderCell
                   key={column.key}
                   column={column}
-                  slots={slots}
-                  businessHourSlots={businessHourSlots}
-                  timeZone={timeZone}
-                  locale={locale}
-                  isToday={isToday}
-                  nowIndicatorMinutes={nowIndicatorMinutes}
-                  renderEvent={renderEvent}
-                  drag={stableDrag}
-                  isDragging={drag.isDragging}
-                  preview={drag.previewFor(column)}
+                  unassignedLabel={unassignedLabel}
+                  renderColumnHeader={renderColumnHeader}
                   columnWidth={columnWidth}
                   pinned
                   left={item.start}
-                  eventTabbable={false}
+                />
+              ) : null;
+            })}
+          </div>
+        </div>
+        {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA row */}
+        {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない */}
+        <div data-koyomi="allday-row" role="row">
+          <div data-koyomi="timegrid-axis-gutter" role="presentation" />
+          <div data-koyomi="resource-allday-cells" role="presentation">
+            <div
+              data-koyomi="resource-allday-spacer"
+              data-edge="before"
+              aria-hidden="true"
+              style={{ width: `${virtualizer.beforeSize}px` }}
+            />
+            {visible.map((item) => {
+              const column = columns[item.index];
+              return column !== undefined ? (
+                <AllDayCell
+                  key={column.key}
+                  column={column}
+                  unassignedLabel={unassignedLabel}
+                  columnWidth={columnWidth}
+                  drag={stableDrag}
+                  isDragging={drag.isDragging}
+                  isPreviewTarget={drag.isAllDayPreviewTarget(column)}
+                  timeZone={timeZone}
+                  locale={locale}
+                  renderAllDayItem={renderAllDayItem}
+                  eventAriaLabel={eventAriaLabel}
+                />
+              ) : null;
+            })}
+            <div
+              data-koyomi="resource-allday-spacer"
+              data-edge="after"
+              aria-hidden="true"
+              style={{ width: `${virtualizer.afterSize}px` }}
+            />
+            {pinned.map((item) => {
+              const column = columns[item.index];
+              return column !== undefined ? (
+                <AllDayCell
+                  key={column.key}
+                  column={column}
+                  unassignedLabel={unassignedLabel}
+                  columnWidth={columnWidth}
+                  drag={stableDrag}
+                  isDragging={drag.isDragging}
+                  isPreviewTarget={drag.isAllDayPreviewTarget(column)}
+                  timeZone={timeZone}
+                  locale={locale}
+                  pinned
+                  left={item.start}
+                  itemTabbable={false}
+                  renderAllDayItem={renderAllDayItem}
                   eventAriaLabel={eventAriaLabel}
                 />
               ) : null;
@@ -955,6 +896,74 @@ export const VirtualResourceView = forwardRef<VirtualResourceViewHandle, Virtual
           </div>
         </div>
       </div>
-    );
-  },
-);
+      <div data-koyomi="resource-body">
+        <div data-koyomi="time-axis">
+          {slots.map((slot) => (
+            <div key={slot.minutes} data-koyomi="time-slot-label">
+              {slot.label}
+            </div>
+          ))}
+        </div>
+        <div data-koyomi="resource-columns">
+          <div
+            data-koyomi="resource-columns-spacer"
+            data-edge="before"
+            aria-hidden="true"
+            style={{ width: `${virtualizer.beforeSize}px` }}
+          />
+          {visible.map((item) => {
+            const column = columns[item.index];
+            return column !== undefined ? (
+              <ResourceColumnBody
+                key={column.key}
+                column={column}
+                slots={slots}
+                businessHourSlots={businessHourSlots}
+                timeZone={timeZone}
+                locale={locale}
+                isToday={isToday}
+                nowIndicatorMinutes={nowIndicatorMinutes}
+                renderEvent={renderEvent}
+                drag={stableDrag}
+                isDragging={drag.isDragging}
+                preview={drag.previewFor(column)}
+                columnWidth={columnWidth}
+                eventAriaLabel={eventAriaLabel}
+              />
+            ) : null;
+          })}
+          <div
+            data-koyomi="resource-columns-spacer"
+            data-edge="after"
+            aria-hidden="true"
+            style={{ width: `${virtualizer.afterSize}px` }}
+          />
+          {pinned.map((item) => {
+            const column = columns[item.index];
+            return column !== undefined ? (
+              <ResourceColumnBody
+                key={column.key}
+                column={column}
+                slots={slots}
+                businessHourSlots={businessHourSlots}
+                timeZone={timeZone}
+                locale={locale}
+                isToday={isToday}
+                nowIndicatorMinutes={nowIndicatorMinutes}
+                renderEvent={renderEvent}
+                drag={stableDrag}
+                isDragging={drag.isDragging}
+                preview={drag.previewFor(column)}
+                columnWidth={columnWidth}
+                pinned
+                left={item.start}
+                eventTabbable={false}
+                eventAriaLabel={eventAriaLabel}
+              />
+            ) : null;
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}

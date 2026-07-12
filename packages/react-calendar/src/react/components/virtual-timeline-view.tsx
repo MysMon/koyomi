@@ -25,7 +25,6 @@ import type {
   Ref,
 } from 'react';
 import {
-  forwardRef,
   memo,
   useCallback,
   useEffect,
@@ -104,6 +103,12 @@ export interface VirtualTimelineViewProps {
   estimateRowHeight?: number | ((row: TimelineRow, index: number) => number);
   /** 前後 overscan 行数。既定 3。 */
   overscan?: number;
+  /**
+   * {@link VirtualTimelineViewHandle}（スクロール操作などの命令的 API）を受け取る ref。
+   */
+  // React 本体の RefAttributes と同じく明示的な undefined を許容する
+  // （exactOptionalPropertyTypes 下で `ref={maybeUndefined}` を書けるようにするため）
+  ref?: Ref<VirtualTimelineViewHandle> | undefined;
 }
 
 /** {@link VirtualTimelineView} が `ref` 経由で公開する命令的 API。 */
@@ -330,272 +335,267 @@ const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
  * // handleRef.current?.scrollToResource('room-5');
  * ```
  */
-export const VirtualTimelineView = forwardRef<VirtualTimelineViewHandle, VirtualTimelineViewProps>(
-  function VirtualTimelineView(props, ref): ReactElement | null {
-    const {
-      renderEvent,
-      renderRowHeader,
-      unassignedLabel = DEFAULT_UNASSIGNED_LABEL,
-      emptyLabel = DEFAULT_EMPTY_LABEL,
-      cornerLabel = DEFAULT_CORNER_LABEL,
-      estimateRowHeight,
-      overscan,
-      eventAriaLabel,
-    } = props;
-    const { api, state, viewModel, callbacks } = useCalendarContext();
-    const calendar = { api, state, viewModel };
-    const drag = useTimelineDrag({ calendar, callbacks });
-    const stableDrag = useStableTimelineDrag(drag);
+export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactElement | null {
+  const {
+    renderEvent,
+    renderRowHeader,
+    unassignedLabel = DEFAULT_UNASSIGNED_LABEL,
+    emptyLabel = DEFAULT_EMPTY_LABEL,
+    cornerLabel = DEFAULT_CORNER_LABEL,
+    estimateRowHeight,
+    overscan,
+    eventAriaLabel,
+    ref,
+  } = props;
+  const { api, state, viewModel, callbacks } = useCalendarContext();
+  const calendar = { api, state, viewModel };
+  const drag = useTimelineDrag({ calendar, callbacks });
+  const stableDrag = useStableTimelineDrag(drag);
 
-    const rows: readonly TimelineRow[] = viewModel.type === 'timeline' ? viewModel.rows : [];
+  const rows: readonly TimelineRow[] = viewModel.type === 'timeline' ? viewModel.rows : [];
 
-    const scrollRef = useRef<HTMLDivElement>(null);
-    // SSR・初回クライアント render は非仮想化（全件）。マウント後に仮想化へ切り替える
-    // ことで hydration 不一致を避ける（VirtualListView と同じ）。
-    const [enabled, setEnabled] = useState(false);
-    useIsomorphicLayoutEffect(() => {
-      setEnabled(true);
-    }, []);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // SSR・初回クライアント render は非仮想化（全件）。マウント後に仮想化へ切り替える
+  // ことで hydration 不一致を避ける（VirtualListView と同じ）。
+  const [enabled, setEnabled] = useState(false);
+  useIsomorphicLayoutEffect(() => {
+    setEnabled(true);
+  }, []);
 
-    // ヘッダー行（sticky）の実測高。スクロールコンテナ内で行リストより前に同居するため、
-    // その分だけ可視ビューポートを差し引く（useVirtualizer の viewportPadding）。
-    const headerRef = useRef<HTMLDivElement>(null);
-    const [headerHeight, setHeaderHeight] = useState(0);
-    useIsomorphicLayoutEffect(() => {
-      const element = headerRef.current;
-      if (element === null) {
-        return;
-      }
-      setHeaderHeight(element.getBoundingClientRect().height);
-      if (typeof ResizeObserver === 'undefined') {
-        return;
-      }
-      const observer = new ResizeObserver(() => {
-        setHeaderHeight(element.getBoundingClientRect().height);
-      });
-      observer.observe(element);
-      return () => observer.disconnect();
-    }, []);
-
-    // フォーカス中の行のキー。窓外へスクロールしても DOM を保持し続け、
-    // フォーカス喪失を防ぐため pinnedKeys に渡す（VirtualListView と同じ方式）。
-    const [focusedKey, setFocusedKey] = useState<string | null>(null);
-    const pinnedKeys = useMemo(
-      () => (focusedKey !== null ? new Set([focusedKey]) : undefined),
-      [focusedKey],
-    );
-
-    const getItemKey = useCallback((index: number): string => rows[index]?.key ?? '', [rows]);
-    const estimateSize = useCallback(
-      (index: number): number => {
-        const row = rows[index];
-        if (typeof estimateRowHeight === 'function') {
-          return row !== undefined ? estimateRowHeight(row, index) : DEFAULT_LANE_HEIGHT;
-        }
-        if (estimateRowHeight !== undefined) {
-          return estimateRowHeight;
-        }
-        return row !== undefined
-          ? Math.max(1, row.laneCount) * DEFAULT_LANE_HEIGHT
-          : DEFAULT_LANE_HEIGHT;
-      },
-      [rows, estimateRowHeight],
-    );
-    const getScrollElement = useCallback((): HTMLElement | null => scrollRef.current, []);
-
-    const virtualizer = useVirtualizer({
-      count: rows.length,
-      getItemKey,
-      estimateSize,
-      getScrollElement,
-      enabled,
-      viewportPadding: headerHeight,
-      ...(overscan !== undefined ? { overscan } : {}),
-      ...(pinnedKeys !== undefined ? { pinnedKeys } : {}),
-    });
-
-    useImperativeHandle(
-      ref,
-      (): VirtualTimelineViewHandle => ({
-        scrollToResource(resourceId, options) {
-          const index = rows.findIndex((row) => (row.resource?.id ?? null) === resourceId);
-          if (index >= 0) {
-            virtualizer.scrollToIndex(index, options);
-          }
-        },
-      }),
-      [rows, virtualizer],
-    );
-
-    // 仮想化の効果が出ていない場合、開発ビルドで一度だけ警告する（VirtualListView と同じ方針）。
-    const warnedRef = useRef(false);
-    useEffect(() => {
-      if (!enabled || warnedRef.current || !isDevBuild()) {
-        return;
-      }
-      if (
-        rows.length > VIRTUALIZE_WARN_THRESHOLD &&
-        virtualizer.virtualItems.length >= rows.length
-      ) {
-        warnedRef.current = true;
-        // biome-ignore lint/suspicious/noConsole: 開発ビルド限定の設定ミス警告（VirtualListView と同じ流儀）
-        console.warn(
-          `[koyomi] VirtualTimelineView: 全 ${rows.length} 行が可視窓に入っており仮想化の効果が出ていません。` +
-            'スクロールコンテナ [data-koyomi="timeline-body"] の境界高（max-height 等）未設定、' +
-            '境界高が高すぎる、または overscan 過大のいずれかを確認してください。',
-        );
-      }
-    }, [enabled, rows.length, virtualizer.virtualItems.length]);
-
-    /** フォーカスが入った行のキーを記録する（窓外へ出ても DOM を保持するため）。 */
-    const handleFocus = useCallback((event: ReactFocusEvent<HTMLDivElement>): void => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) {
-        return;
-      }
-      const rowGroup = target.closest('[data-koyomi="timeline-row-group"]');
-      const key = rowGroup?.getAttribute('data-koyomi-row-key') ?? null;
-      if (key !== null) {
-        setFocusedKey(key);
-      }
-    }, []);
-
-    /** フォーカスがタイムライン外へ抜けたら pinned を解除する。 */
-    const handleBlur = useCallback((event: ReactFocusEvent<HTMLDivElement>): void => {
-      const next = event.relatedTarget;
-      if (next instanceof Node && event.currentTarget.contains(next)) {
-        return;
-      }
-      setFocusedKey(null);
-    }, []);
-
-    if (viewModel.type !== 'timeline') {
-      return null;
+  // ヘッダー行（sticky）の実測高。スクロールコンテナ内で行リストより前に同居するため、
+  // その分だけ可視ビューポートを差し引く（useVirtualizer の viewportPadding）。
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  useIsomorphicLayoutEffect(() => {
+    const element = headerRef.current;
+    if (element === null) {
+      return;
     }
+    setHeaderHeight(element.getBoundingClientRect().height);
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      setHeaderHeight(element.getBoundingClientRect().height);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
-    const { days, slots, totalMinutes, nowIndicatorMinutes, isEmpty, businessHourRanges } =
-      viewModel;
-    const { timeZone, options } = state;
-    const { locale } = options;
+  // フォーカス中の行のキー。窓外へスクロールしても DOM を保持し続け、
+  // フォーカス喪失を防ぐため pinnedKeys に渡す（VirtualListView と同じ方式）。
+  const [focusedKey, setFocusedKey] = useState<string | null>(null);
+  const pinnedKeys = useMemo(
+    () => (focusedKey !== null ? new Set([focusedKey]) : undefined),
+    [focusedKey],
+  );
 
-    if (isEmpty) {
-      return (
-        <div data-koyomi="timeline">
-          <div data-koyomi="timeline-empty">{emptyLabel}</div>
-        </div>
+  const getItemKey = useCallback((index: number): string => rows[index]?.key ?? '', [rows]);
+  const estimateSize = useCallback(
+    (index: number): number => {
+      const row = rows[index];
+      if (typeof estimateRowHeight === 'function') {
+        return row !== undefined ? estimateRowHeight(row, index) : DEFAULT_LANE_HEIGHT;
+      }
+      if (estimateRowHeight !== undefined) {
+        return estimateRowHeight;
+      }
+      return row !== undefined
+        ? Math.max(1, row.laneCount) * DEFAULT_LANE_HEIGHT
+        : DEFAULT_LANE_HEIGHT;
+    },
+    [rows, estimateRowHeight],
+  );
+  const getScrollElement = useCallback((): HTMLElement | null => scrollRef.current, []);
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getItemKey,
+    estimateSize,
+    getScrollElement,
+    enabled,
+    viewportPadding: headerHeight,
+    ...(overscan !== undefined ? { overscan } : {}),
+    ...(pinnedKeys !== undefined ? { pinnedKeys } : {}),
+  });
+
+  useImperativeHandle(
+    ref,
+    (): VirtualTimelineViewHandle => ({
+      scrollToResource(resourceId, options) {
+        const index = rows.findIndex((row) => (row.resource?.id ?? null) === resourceId);
+        if (index >= 0) {
+          virtualizer.scrollToIndex(index, options);
+        }
+      },
+    }),
+    [rows, virtualizer],
+  );
+
+  // 仮想化の効果が出ていない場合、開発ビルドで一度だけ警告する（VirtualListView と同じ方針）。
+  const warnedRef = useRef(false);
+  useEffect(() => {
+    if (!enabled || warnedRef.current || !isDevBuild()) {
+      return;
+    }
+    if (rows.length > VIRTUALIZE_WARN_THRESHOLD && virtualizer.virtualItems.length >= rows.length) {
+      warnedRef.current = true;
+      // biome-ignore lint/suspicious/noConsole: 開発ビルド限定の設定ミス警告（VirtualListView と同じ流儀）
+      console.warn(
+        `[koyomi] VirtualTimelineView: 全 ${rows.length} 行が可視窓に入っており仮想化の効果が出ていません。` +
+          'スクロールコンテナ [data-koyomi="timeline-body"] の境界高（max-height 等）未設定、' +
+          '境界高が高すぎる、または overscan 過大のいずれかを確認してください。',
       );
     }
+  }, [enabled, rows.length, virtualizer.virtualItems.length]);
 
-    /** 行を描画する（通常フロー・pinned の両方で使う）。 */
-    const renderRow = (
-      row: TimelineRow,
-      extra: { pinned?: boolean; style?: CSSProperties },
-    ): ReactElement => (
-      <TimelineRowGroup
-        key={row.key}
-        row={row}
-        timeZone={timeZone}
-        locale={locale}
-        totalMinutes={totalMinutes}
-        nowIndicatorMinutes={nowIndicatorMinutes}
-        businessHourRanges={businessHourRanges}
-        unassignedLabel={unassignedLabel}
-        renderEvent={renderEvent}
-        renderRowHeader={renderRowHeader}
-        drag={stableDrag}
-        isDragging={drag.isDragging}
-        preview={drag.previewFor(row)}
-        eventAriaLabel={eventAriaLabel}
-        rowRef={virtualizer.measureElement(row.key)}
-        {...(extra.pinned === true ? { pinned: true, itemTabbable: false } : {})}
-        {...(extra.style !== undefined ? { style: extra.style } : {})}
-      />
-    );
+  /** フォーカスが入った行のキーを記録する（窓外へ出ても DOM を保持するため）。 */
+  const handleFocus = useCallback((event: ReactFocusEvent<HTMLDivElement>): void => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const rowGroup = target.closest('[data-koyomi="timeline-row-group"]');
+    const key = rowGroup?.getAttribute('data-koyomi-row-key') ?? null;
+    if (key !== null) {
+      setFocusedKey(key);
+    }
+  }, []);
 
+  /** フォーカスがタイムライン外へ抜けたら pinned を解除する。 */
+  const handleBlur = useCallback((event: ReactFocusEvent<HTMLDivElement>): void => {
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) {
+      return;
+    }
+    setFocusedKey(null);
+  }, []);
+
+  if (viewModel.type !== 'timeline') {
+    return null;
+  }
+
+  const { days, slots, totalMinutes, nowIndicatorMinutes, isEmpty, businessHourRanges } = viewModel;
+  const { timeZone, options } = state;
+  const { locale } = options;
+
+  if (isEmpty) {
     return (
-      // biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA grid（TimelineView と同じ方針）
-      <div
-        data-koyomi="timeline"
-        data-koyomi-virtualized="true"
-        data-koyomi-days={String(days.length)}
-        role="grid"
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-      >
-        <div ref={scrollRef} data-koyomi="timeline-body" role="presentation">
-          {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA row */}
-          {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない */}
-          <div ref={headerRef} data-koyomi="timeline-header-row" role="row">
-            {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA columnheader */}
-            {/* biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない */}
-            <div data-koyomi="timeline-corner" role="columnheader" aria-label={cornerLabel} />
-            {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA columnheader */}
-            {/* biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない */}
-            <div data-koyomi="timeline-axis" role="columnheader">
-              <div data-koyomi="timeline-day-headers">
-                {days.map((day) => (
-                  <div
-                    key={day.key}
-                    data-koyomi="timeline-day-header"
-                    data-today={day.isToday ? 'true' : undefined}
-                    aria-current={day.isToday ? 'date' : undefined}
-                    style={{ width: `${(MINUTES_PER_DAY / totalMinutes) * 100}%` }}
-                  >
-                    {formatDayHeader(day.date, timeZone, locale)}
-                  </div>
-                ))}
-              </div>
-              <div data-koyomi="timeline-slots">
-                {slots.map((slot) => (
-                  <div
-                    key={slot.minutes}
-                    data-koyomi="timeline-slot-label"
-                    style={{ insetInlineStart: `${(slot.minutes / totalMinutes) * 100}%` }}
-                  >
-                    {slot.label}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div data-koyomi="timeline-rows" role="presentation">
-            <div
-              data-koyomi="timeline-row-spacer"
-              data-edge="before"
-              aria-hidden="true"
-              style={{ height: `${virtualizer.beforeSize}px` }}
-            />
-            {virtualizer.virtualItems.map((item) => {
-              const row = rows[item.index];
-              return row !== undefined ? renderRow(row, {}) : null;
-            })}
-            <div
-              data-koyomi="timeline-row-spacer"
-              data-edge="after"
-              aria-hidden="true"
-              style={{ height: `${virtualizer.afterSize}px` }}
-            />
-            {virtualizer.pinnedItems.map((item) => {
-              const row = rows[item.index];
-              // 位置決めに必須のスタイルは inline で出力する（ヘッドレス原則）。
-              // position: absolute をテーマ CSS 任せにすると、独自 CSS の利用者では
-              // pinned 行が通常フローへ割り込み、行の重複表示・高さ跳ねが起きる
-              // （VirtualResourceView の columnPositionStyle と同じ方針）
-              return row !== undefined
-                ? renderRow(row, {
-                    pinned: true,
-                    style: {
-                      position: 'absolute',
-                      top: `${item.start}px`,
-                      insetInlineStart: 0,
-                      width: '100%',
-                    },
-                  })
-                : null;
-            })}
-          </div>
-        </div>
+      <div data-koyomi="timeline">
+        <div data-koyomi="timeline-empty">{emptyLabel}</div>
       </div>
     );
-  },
-);
+  }
+
+  /** 行を描画する（通常フロー・pinned の両方で使う）。 */
+  const renderRow = (
+    row: TimelineRow,
+    extra: { pinned?: boolean; style?: CSSProperties },
+  ): ReactElement => (
+    <TimelineRowGroup
+      key={row.key}
+      row={row}
+      timeZone={timeZone}
+      locale={locale}
+      totalMinutes={totalMinutes}
+      nowIndicatorMinutes={nowIndicatorMinutes}
+      businessHourRanges={businessHourRanges}
+      unassignedLabel={unassignedLabel}
+      renderEvent={renderEvent}
+      renderRowHeader={renderRowHeader}
+      drag={stableDrag}
+      isDragging={drag.isDragging}
+      preview={drag.previewFor(row)}
+      eventAriaLabel={eventAriaLabel}
+      rowRef={virtualizer.measureElement(row.key)}
+      {...(extra.pinned === true ? { pinned: true, itemTabbable: false } : {})}
+      {...(extra.style !== undefined ? { style: extra.style } : {})}
+    />
+  );
+
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA grid（TimelineView と同じ方針）
+    <div
+      data-koyomi="timeline"
+      data-koyomi-virtualized="true"
+      data-koyomi-days={String(days.length)}
+      role="grid"
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+    >
+      <div ref={scrollRef} data-koyomi="timeline-body" role="presentation">
+        {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA row */}
+        {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない */}
+        <div ref={headerRef} data-koyomi="timeline-header-row" role="row">
+          {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA columnheader */}
+          {/* biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない */}
+          <div data-koyomi="timeline-corner" role="columnheader" aria-label={cornerLabel} />
+          {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA columnheader */}
+          {/* biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない */}
+          <div data-koyomi="timeline-axis" role="columnheader">
+            <div data-koyomi="timeline-day-headers">
+              {days.map((day) => (
+                <div
+                  key={day.key}
+                  data-koyomi="timeline-day-header"
+                  data-today={day.isToday ? 'true' : undefined}
+                  aria-current={day.isToday ? 'date' : undefined}
+                  style={{ width: `${(MINUTES_PER_DAY / totalMinutes) * 100}%` }}
+                >
+                  {formatDayHeader(day.date, timeZone, locale)}
+                </div>
+              ))}
+            </div>
+            <div data-koyomi="timeline-slots">
+              {slots.map((slot) => (
+                <div
+                  key={slot.minutes}
+                  data-koyomi="timeline-slot-label"
+                  style={{ insetInlineStart: `${(slot.minutes / totalMinutes) * 100}%` }}
+                >
+                  {slot.label}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div data-koyomi="timeline-rows" role="presentation">
+          <div
+            data-koyomi="timeline-row-spacer"
+            data-edge="before"
+            aria-hidden="true"
+            style={{ height: `${virtualizer.beforeSize}px` }}
+          />
+          {virtualizer.virtualItems.map((item) => {
+            const row = rows[item.index];
+            return row !== undefined ? renderRow(row, {}) : null;
+          })}
+          <div
+            data-koyomi="timeline-row-spacer"
+            data-edge="after"
+            aria-hidden="true"
+            style={{ height: `${virtualizer.afterSize}px` }}
+          />
+          {virtualizer.pinnedItems.map((item) => {
+            const row = rows[item.index];
+            // 位置決めに必須のスタイルは inline で出力する（ヘッドレス原則）。
+            // position: absolute をテーマ CSS 任せにすると、独自 CSS の利用者では
+            // pinned 行が通常フローへ割り込み、行の重複表示・高さ跳ねが起きる
+            // （VirtualResourceView の columnPositionStyle と同じ方針）
+            return row !== undefined
+              ? renderRow(row, {
+                  pinned: true,
+                  style: {
+                    position: 'absolute',
+                    top: `${item.start}px`,
+                    insetInlineStart: 0,
+                    width: '100%',
+                  },
+                })
+              : null;
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
