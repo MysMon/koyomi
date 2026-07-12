@@ -256,8 +256,8 @@ describe('年ビューの密度ドット: 件数によらず二値表示にな�
     const manyEventsDay = findDay('2026-07-20');
     expect(oneEventDay?.eventCount).toBe(1);
     expect(manyEventsDay?.eventCount).toBe(100);
-    // 「表示あり」判定（eventCount > 0）はどちらも true で同じ扱いになる
-    expect((oneEventDay?.eventCount ?? 0) > 0).toBe((manyEventsDay?.eventCount ?? 0) > 0);
+    // 「件数によらず見た目が同じ 1 個のドット」という DOM 上の二値表示は
+    // year-view.test.tsx（React コンポーネント側）で検証する
   });
 });
 
