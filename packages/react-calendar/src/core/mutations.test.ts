@@ -163,6 +163,20 @@ describe('applyPatch', () => {
     const result = applyPatch(event, { resourceId: 'room-2' });
     expect(result.resourceId).toBe('room-2');
   });
+
+  it('extendedProps に undefined を指定するパッチは extendedProps フィールドごと削除する', () => {
+    const event = makeMaster({ extendedProps: { team: 'dev', ownerId: 'u1' } });
+    const result = applyPatch(event, undefinedPatch('extendedProps'));
+    expect('extendedProps' in result).toBe(false);
+  });
+
+  it('extendedProps を新しいオブジェクトで置き換えるパッチは、既存のキーをマージせず丸ごと置き換える', () => {
+    const event = makeMaster({ extendedProps: { team: 'dev', ownerId: 'u1' } });
+    const result = applyPatch(event, { extendedProps: { ownerId: 'u2' } });
+    expect(result.extendedProps).toEqual({ ownerId: 'u2' });
+    // 置き換え前の 'team' キーは残らない（マージではなく置換）
+    expect(result.extendedProps).not.toHaveProperty('team');
+  });
 });
 
 describe('createEventIn', () => {
@@ -905,6 +919,28 @@ describe('deleteEventIn: 参照先のないオーバーライド（親マスタ�
 
     // 参照先のないオーバーライドは取り除かれ、他イベントは EXDATE 追加などの影響を受けない
     expect(result).toEqual([other]);
+  });
+});
+
+describe('updateEventIn: 参照先のないオーバーライド（親マスター不在）', () => {
+  it('target を省略した更新は、単発イベントと同様に直接パッチを適用する', () => {
+    const orphan: CalendarEvent = {
+      id: 'orphan-1',
+      title: '参照先のないオーバーライド',
+      start: new Date('2026-07-03T02:00:00Z'),
+      end: new Date('2026-07-03T03:00:00Z'),
+      recurringEventId: 'missing-master',
+      originalStart: new Date('2026-07-03T00:00:00Z'),
+    };
+    const result = updateEventIn(
+      [orphan],
+      'orphan-1',
+      { title: '変更後' },
+      undefined,
+      makeContext(),
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]?.title).toBe('変更後');
   });
 });
 

@@ -104,6 +104,26 @@ describe('useCalendarShortcuts', () => {
     expect(calendar.api.getState().view).toBe('week');
   });
 
+  it('Alt 修飾キー付きは無視される', () => {
+    const calendar = makeCalendar();
+    calendar.api.setView('week');
+    renderHook(() => useCalendarShortcuts({ calendar }));
+
+    pressKey('m', { altKey: true });
+
+    expect(calendar.api.getState().view).toBe('week');
+  });
+
+  it('Cmd（Meta）修飾キー付きは無視される', () => {
+    const calendar = makeCalendar();
+    calendar.api.setView('week');
+    renderHook(() => useCalendarShortcuts({ calendar }));
+
+    pressKey('m', { metaKey: true });
+
+    expect(calendar.api.getState().view).toBe('week');
+  });
+
   it('既定では y キーは無効（ビューが変わらず、preventDefault もされない）', () => {
     const calendar = makeCalendar();
     renderHook(() => useCalendarShortcuts({ calendar }));
@@ -295,6 +315,36 @@ describe('useCalendarShortcuts', () => {
     expect(setViewSpy).not.toHaveBeenCalled();
 
     document.body.removeChild(input);
+  });
+
+  it('textarea にフォーカス中は無視される', () => {
+    const calendar = makeCalendar();
+    const setViewSpy = vi.spyOn(calendar.api, 'setView');
+    renderHook(() => useCalendarShortcuts({ calendar }));
+
+    const textarea = document.createElement('textarea');
+    document.body.appendChild(textarea);
+    textarea.focus();
+    fireEvent.keyDown(textarea, { key: 'm' });
+
+    expect(setViewSpy).not.toHaveBeenCalled();
+
+    document.body.removeChild(textarea);
+  });
+
+  it('select にフォーカス中は無視される', () => {
+    const calendar = makeCalendar();
+    const setViewSpy = vi.spyOn(calendar.api, 'setView');
+    renderHook(() => useCalendarShortcuts({ calendar }));
+
+    const select = document.createElement('select');
+    document.body.appendChild(select);
+    select.focus();
+    fireEvent.keyDown(select, { key: 'm' });
+
+    expect(setViewSpy).not.toHaveBeenCalled();
+
+    document.body.removeChild(select);
   });
 
   it('contentEditable 要素の内側では無視される', () => {

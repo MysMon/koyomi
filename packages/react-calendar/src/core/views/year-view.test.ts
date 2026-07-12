@@ -185,6 +185,25 @@ describe('buildYearViewModel', () => {
       expect(findDay(sep, '2026-09-10')?.eventCount).toBe(2);
     });
 
+    it('1 件の日と 100 件の日のどちらも eventCount > 0 になる（密度マーカーの表示判定は件数によらず二値）', () => {
+      // 密度ドットは「予定が1件以上あるか」の二値表示であり、コアのビューモデルは
+      // eventCount（実数）を返す。閲覧側の「表示あり/なし」判定（eventCount > 0）は
+      // 1 件・100 件のどちらでも同じ結果になる（DOM 上の二値表示自体は
+      // react/components/year-view.test.tsx で検証する）。
+      const oneEventOcc = makeOccurrence(
+        'one',
+        at(TOKYO, 2026, 7, 10, 9),
+        at(TOKYO, 2026, 7, 10, 10),
+      );
+      const manyOccurrences: EventOccurrence[] = Array.from({ length: 100 }, (_, i) =>
+        makeOccurrence(`many-${i}`, at(TOKYO, 2026, 7, 20, 9), at(TOKYO, 2026, 7, 20, 9, 30)),
+      );
+      const vm = build({ occurrences: [oneEventOcc, ...manyOccurrences] });
+      const july = vm.months[6];
+      expect(findDay(july, '2026-07-10')?.eventCount).toBe(1);
+      expect(findDay(july, '2026-07-20')?.eventCount).toBe(100);
+    });
+
     it('年境界をまたぐ複数日オカレンス（2025-12-30〜2026-01-03）は年内の日（1/1, 1/2）にのみ加算される', () => {
       // end 排他: 12/30, 12/31, 1/1, 1/2 の 4 日間スパン。うち年内は 1/1・1/2 のみ
       const occ = makeOccurrence(

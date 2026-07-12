@@ -167,6 +167,21 @@ describe('ResourceView - 空状態', () => {
     const empty = container.querySelector('[data-koyomi="resource-empty"]');
     expect(empty?.textContent).toBe('会議室がありません');
   });
+
+  it('列が1つもないとき resource-grid / resource-body を生成せず、ルート直下は resource-empty のみになる', () => {
+    const { container } = render(<Harness resources={[]} events={[]} />);
+    const root = container.querySelector('[data-koyomi="resource"]');
+    expect(root?.querySelector('[data-koyomi="resource-grid"]')).toBeNull();
+    expect(root?.querySelector('[data-koyomi="resource-body"]')).toBeNull();
+    expect(root?.children).toHaveLength(1);
+    expect(root?.firstElementChild).toHaveAttribute('data-koyomi', 'resource-empty');
+  });
+
+  it('列が1つもないとき、ルートの data-koyomi-columns 属性自体が付かない（"0" にもならない）', () => {
+    const { container } = render(<Harness resources={[]} events={[]} />);
+    const root = container.querySelector('[data-koyomi="resource"]');
+    expect(root).not.toHaveAttribute('data-koyomi-columns');
+  });
 });
 
 describe('ResourceView - イベントブロック', () => {
@@ -233,6 +248,86 @@ describe('ResourceView - イベントブロック', () => {
       '[data-koyomi="resource-column"][data-koyomi-resource="unassigned"]',
     );
     expect(unassignedColumn?.contains(eventEl)).toBe(true);
+  });
+
+  it('表示日の前から続くイベントには data-continues-before のみ、後まで続くイベントには data-continues-after のみが付き、収まるイベントにはどちらも付かない', () => {
+    // ResourceView は 1 日固定ビューのため、週/日ビューの「日境界をまたぐイベント」と
+    // 同じ規則で、表示日の前後にまたがるイベントに continues 属性が付く
+    // （timegrid-event は週/日ビューと部位名を共有する）。
+    const events: CalendarEvent[] = [
+      {
+        id: 'contained',
+        title: '基準予定',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T10:00',
+        resourceId: 'room-a',
+      },
+      {
+        id: 'cross-start',
+        title: '開始またぎ予定',
+        start: '2026-07-14T22:00',
+        end: '2026-07-15T02:00',
+        resourceId: 'room-a',
+      },
+      {
+        id: 'cross-end',
+        title: '終了またぎ予定',
+        start: '2026-07-15T22:00',
+        end: '2026-07-16T02:00',
+        resourceId: 'room-b',
+      },
+    ];
+    const { container } = render(<Harness resources={[ROOM_A, ROOM_B]} events={events} />);
+
+    const findByTitle = (title: string): Element => {
+      const found = Array.from(container.querySelectorAll('[data-koyomi="timegrid-event"]')).find(
+        (candidate) => candidate.textContent?.includes(title) ?? false,
+      );
+      if (found === undefined) {
+        throw new Error(`イベント「${title}」の timegrid-event が見つかりません`);
+      }
+      return found;
+    };
+
+    const contained = findByTitle('基準予定');
+    expect(contained).not.toHaveAttribute('data-continues-before');
+    expect(contained).not.toHaveAttribute('data-continues-after');
+
+    const crossStart = findByTitle('開始またぎ予定');
+    expect(crossStart).toHaveAttribute('data-continues-before', 'true');
+    expect(crossStart).not.toHaveAttribute('data-continues-after');
+
+    const crossEnd = findByTitle('終了またぎ予定');
+    expect(crossEnd).toHaveAttribute('data-continues-after', 'true');
+    expect(crossEnd).not.toHaveAttribute('data-continues-before');
+  });
+
+  it('editable: false のイベントには上下端どちらのリサイズハンドルも描画されない', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'editable',
+        title: '編集可予定',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T10:00',
+        resourceId: 'room-a',
+      },
+      {
+        id: 'locked',
+        title: '編集不可予定',
+        start: '2026-07-15T11:00',
+        end: '2026-07-15T12:00',
+        resourceId: 'room-a',
+        editable: false,
+      },
+    ];
+    const { container } = render(<Harness resources={[ROOM_A]} events={events} />);
+
+    const eventElements = Array.from(container.querySelectorAll('[data-koyomi="timegrid-event"]'));
+    const editableEvent = eventElements.find((el) => el.textContent?.includes('編集可予定'));
+    const lockedEvent = eventElements.find((el) => el.textContent?.includes('編集不可予定'));
+
+    expect(editableEvent?.querySelectorAll('[data-koyomi="timegrid-resize"]')).toHaveLength(2);
+    expect(lockedEvent?.querySelectorAll('[data-koyomi="timegrid-resize"]')).toHaveLength(0);
   });
 });
 

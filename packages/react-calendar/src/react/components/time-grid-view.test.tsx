@@ -154,6 +154,38 @@ describe('TimeGridView', () => {
     expect(eventEl?.textContent).toContain('会議');
   });
 
+  it('event.color を指定していない場合、timegrid-event の inline style は背景色・文字色・枠線・イベント色変数を含まない', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+    ];
+    const { container } = render(<Harness initialView="day" events={events} />);
+    const item = container.querySelector('[data-koyomi="timegrid-event"]');
+    if (!(item instanceof HTMLElement)) {
+      throw new Error('timegrid-event が見つかりません');
+    }
+    expect(item.style.position).toBe('');
+    expect(item.style.backgroundColor).toBe('');
+    expect(item.style.color).toBe('');
+    expect(item.style.border).toBe('');
+    expect(item.style.getPropertyValue('--koyomi-event-color')).toBe('');
+  });
+
+  it('event.color を指定していない場合、allday-event の inline style は背景色・文字色・枠線・イベント色変数を含まない', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '休暇', start: '2026-07-15', end: '2026-07-16', allDay: true },
+    ];
+    const { container } = render(<Harness initialView="week" events={events} />);
+    const item = container.querySelector('[data-koyomi="allday-event"]');
+    if (!(item instanceof HTMLElement)) {
+      throw new Error('allday-event が見つかりません');
+    }
+    expect(item.style.position).toBe('');
+    expect(item.style.backgroundColor).toBe('');
+    expect(item.style.color).toBe('');
+    expect(item.style.border).toBe('');
+    expect(item.style.getPropertyValue('--koyomi-event-color')).toBe('');
+  });
+
   it('時間が重なる 2 件のイベントが left/width で横並びになる', () => {
     const events: CalendarEvent[] = [
       { id: 'a', title: 'A', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
@@ -613,6 +645,50 @@ describe('TimeGridView - businessHours（営業時間）', () => {
     expect(slots[9]).toHaveAttribute('data-koyomi-business-hours', 'true');
     expect(slots[17]).not.toHaveAttribute('data-koyomi-business-hours');
     expect(slots[8]).not.toHaveAttribute('data-koyomi-business-hours');
+  });
+
+  it('1 件のルールで 22:00〜翌 2:00 を指定すると Error になる', () => {
+    // startTime が endTime より前であることが必須のため、1 件の BusinessHoursRule で
+    // 日をまたぐ営業時間を直接表現することはできない。
+    function BadHarness(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'week',
+        events: EMPTY_EVENTS,
+        businessHours: [{ daysOfWeek: [2], startTime: '22:00', endTime: '02:00' }],
+      });
+      return (
+        <CalendarProvider value={calendar}>
+          <TimeGridView />
+        </CalendarProvider>
+      );
+    }
+    expect(() => render(<BadHarness />)).toThrow();
+  });
+
+  it('日をまたいで2件のルールに分けると、当日の遅い時間帯と翌日の早い時間帯の両方に data-koyomi-business-hours が付く', () => {
+    // 2026-07-15 は水曜（daysOfWeek: 3）、2026-07-16 は木曜（daysOfWeek: 4）。
+    // 判定が曜日ごとの独立したスロット列で行われることを利用し、日をまたいで
+    // 2 件のルールに分けて指定する。
+    const { container } = render(
+      <Harness
+        initialView="week"
+        businessHours={[
+          { daysOfWeek: [3], startTime: '22:00', endTime: '23:00' },
+          { daysOfWeek: [4], startTime: '00:00', endTime: '02:00' },
+        ]}
+      />,
+    );
+    const wednesday = container.querySelector(
+      '[data-koyomi="timegrid-day"][data-koyomi-date="2026-07-15"]',
+    );
+    const thursday = container.querySelector(
+      '[data-koyomi="timegrid-day"][data-koyomi-date="2026-07-16"]',
+    );
+    expect(wednesday?.querySelectorAll('[data-koyomi-business-hours]').length).toBeGreaterThan(0);
+    expect(thursday?.querySelectorAll('[data-koyomi-business-hours]').length).toBeGreaterThan(0);
   });
 });
 

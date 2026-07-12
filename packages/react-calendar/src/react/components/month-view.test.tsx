@@ -253,6 +253,50 @@ describe('MonthView - イベントセグメント', () => {
     expect(second).not.toHaveAttribute('data-continues-after');
   });
 
+  it('3 週にまたがる終日イベントは中間週のセグメントに continues-before と continues-after が両方付く', () => {
+    // 2026年7月（週開始=日曜、東京）の週区切り:
+    //   第1週 6/28-7/4, 第2週 7/5-7/11, 第3週 7/12-7/18, ...
+    // start=2026-07-03, end=2026-07-13（排他的終了。実日程は 7/3〜7/12）は
+    // 第1週・第2週・第3週の 3 週にまたがる
+    const events: CalendarEvent[] = [
+      { id: 'long-trip', title: '長期出張', start: '2026-07-03', end: '2026-07-13', allDay: true },
+    ];
+    const { container } = render(<Harness events={events} />);
+
+    const segments = container.querySelectorAll('[data-koyomi="month-event"]');
+    expect(segments).toHaveLength(3);
+
+    const [first, middle, last] = Array.from(segments);
+
+    expect(first).toHaveAttribute('data-continues-after', 'true');
+    expect(first).not.toHaveAttribute('data-continues-before');
+
+    expect(middle).toHaveAttribute('data-continues-before', 'true');
+    expect(middle).toHaveAttribute('data-continues-after', 'true');
+
+    expect(last).toHaveAttribute('data-continues-before', 'true');
+    expect(last).not.toHaveAttribute('data-continues-after');
+  });
+
+  it('event.color を指定していない場合、月イベントの inline style は position・背景色・文字色・枠線・イベント色変数を含まない', () => {
+    // インラインの style は位置決めに必須の数値（insetInlineStart・width 等）だけに
+    // 限定され、色・境界線などの見た目や --koyomi-event-color は event.color を
+    // 指定した場合にのみ設定される。
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+    ];
+    const { container } = render(<Harness events={events} />);
+    const segment = container.querySelector('[data-koyomi="month-event"]');
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('month-event が見つかりません');
+    }
+    expect(segment.style.position).toBe('');
+    expect(segment.style.backgroundColor).toBe('');
+    expect(segment.style.color).toBe('');
+    expect(segment.style.border).toBe('');
+    expect(segment.style.getPropertyValue('--koyomi-event-color')).toBe('');
+  });
+
   it('ルート要素に --koyomi-month-lanes が dayMaxEvents の値で inline 設定される（テーマの min-height 計算用）', () => {
     // テーマ CSS は月の週行の最小高さを var(--koyomi-month-lanes, 4) で計算する。
     // 固定 4 レーン想定だと dayMaxEvents を 5 以上にしたとき帯が行から溢れるため、

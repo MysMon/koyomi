@@ -192,6 +192,33 @@ describe('VirtualTimelineView', () => {
     expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('仮想化の効果が出ていません'));
   });
 
+  it('境界高（clientHeight）が全行高を上回る＝実質無い場合、全リソース行が描画される', async () => {
+    // 境界高が無ければ（開発警告を出すだけでなく）全件描画へのフォールバック本体が
+    // 実際に働き、全リソース行が描画されるはずである。
+    const resourceCount = 40;
+    const { container } = render(<Harness resources={makeResources(resourceCount)} />);
+    await setViewport(container, 28 * resourceCount);
+
+    const rowGroups = container.querySelectorAll('[data-koyomi="timeline-row-group"]');
+    expect(rowGroups).toHaveLength(resourceCount);
+  });
+
+  it.each([
+    ['負数', -28],
+    ['0', 0],
+    ['NaN', Number.NaN],
+  ])('estimateRowHeight に不正な値（%s）を渡しても例外を投げず、行が描画される', (_label, invalid) => {
+    expect(() =>
+      render(<Harness resources={makeResources(3)} viewProps={{ estimateRowHeight: invalid }} />),
+    ).not.toThrow();
+    const { container } = render(
+      <Harness resources={makeResources(3)} viewProps={{ estimateRowHeight: invalid }} />,
+    );
+    expect(container.querySelectorAll('[data-koyomi="timeline-row-group"]').length).toBeGreaterThan(
+      0,
+    );
+  });
+
   it('フォーカス中の行は窓外へスクロールしても pinned で残り、blur で解除される', async () => {
     const events: CalendarEvent[] = [
       {

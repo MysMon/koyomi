@@ -288,6 +288,31 @@ describe('VirtualResourceView', () => {
     expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('仮想化の効果が出ていません'));
   });
 
+  it('境界幅（clientWidth）が全列幅を上回る＝実質無い場合、全リソース列が描画される', async () => {
+    // 境界幅が無ければ（開発警告を出すだけでなく）全件描画へのフォールバック本体が
+    // 実際に働き、全リソース列が描画されるはずである。
+    const resourceCount = 40;
+    const { container } = render(<Harness resources={makeResources(resourceCount)} />);
+    await setViewport(container, 160 * resourceCount);
+
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+    expect(columns).toHaveLength(resourceCount);
+  });
+
+  it.each([
+    ['負数', -160],
+    ['0', 0],
+    ['NaN', Number.NaN],
+  ])('columnWidth に不正な値（%s）を渡しても例外を投げず、列が描画される', (_label, invalid) => {
+    expect(() =>
+      render(<Harness resources={makeResources(3)} viewProps={{ columnWidth: invalid }} />),
+    ).not.toThrow();
+    const { container } = render(
+      <Harness resources={makeResources(3)} viewProps={{ columnWidth: invalid }} />,
+    );
+    expect(container.querySelectorAll('[data-koyomi="resource-column"]').length).toBeGreaterThan(0);
+  });
+
   it('フォーカス中の列は窓外へスクロールしても 3 箇所とも pinned で残り、blur で解除される', async () => {
     const events: CalendarEvent[] = [
       {

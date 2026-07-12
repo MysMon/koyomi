@@ -192,4 +192,41 @@ describe('core エントリ (src/core.ts)', () => {
       expect(typeof fn).toBe('function');
     }
   });
+
+  it('React コンポーネント・フックは再エクスポートされない', async () => {
+    const coreEntry: Record<string, unknown> = await import('./core');
+
+    for (const reactOnlySymbol of [
+      'useCalendar',
+      'useCalendarShortcuts',
+      'useDayDrag',
+      'useTimeGridDrag',
+      'useResourceGridDrag',
+      'useTimelineDrag',
+      'useExternalDrag',
+      'useVirtualizer',
+      'CalendarProvider',
+      'CalendarView',
+      'MonthView',
+      'TimeGridView',
+      'Toolbar',
+    ]) {
+      expect(coreEntry[reactOnlySymbol]).toBeUndefined();
+    }
+  });
+
+  it('createCalendar は動的 import 経由でも同じ挙動で利用できる', async () => {
+    const { createCalendar: createCalendarFromCoreEntry } = await import('./core');
+    const calendar = createCalendarFromCoreEntry({ timeZone: 'Asia/Tokyo' });
+    calendar.setView('week');
+    expect(calendar.getState().view).toBe('week');
+  });
+});
+
+describe('index エントリ (src/index.ts) の主要なユーティリティ export', () => {
+  it('isoWeekNumberInZone と parseTimeOfDay が公開エントリから export されている', async () => {
+    const indexModule = await import('./index');
+    expect(typeof indexModule.isoWeekNumberInZone).toBe('function');
+    expect(typeof indexModule.parseTimeOfDay).toBe('function');
+  });
 });

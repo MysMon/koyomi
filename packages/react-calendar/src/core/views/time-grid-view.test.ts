@@ -679,6 +679,20 @@ describe('buildTimeGridViewModel', () => {
       expect(at10?.isBusinessHours).toBe(true);
       expect(at9?.isBusinessHours).toBe(false);
     });
+
+    it('startTime が slotMinutes の区切りに合っていない場合、ハイライトは次のスロット境界から始まる', () => {
+      // 2026-07-01 は水曜（daysOfWeek に含まれる）。
+      const model = build({
+        viewType: 'day',
+        slotMinutes: 30,
+        businessHours: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:15', endTime: '17:00' }],
+      });
+      const day = model.days[0];
+      const at9 = day?.businessHourSlots.find((slot) => slot.minutes === 540); // 9:00
+      const at930 = day?.businessHourSlots.find((slot) => slot.minutes === 570); // 9:30
+      expect(at9?.isBusinessHours).toBe(false);
+      expect(at930?.isBusinessHours).toBe(true);
+    });
   });
 
   describe('nowIndicator（現在時刻線）', () => {

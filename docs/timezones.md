@@ -331,9 +331,9 @@ console.log(startOfDayInZone(new Date('2026-09-06T12:00:00Z'), 'America/Santiago
 `Date` の setter と同じ繰り上げ/繰り下げ（オーバーフロー）で正規化されます
 （例: `{ year: 2026, month: 1, day: 32 }` は `2026-02-01` として解決される）。
 
-`fromWallClock` / `getWallClock` に不正な IANA タイムゾーン ID（存在しない ID や空文字列など）
-を渡した場合は、`setTimeZone` や `timeAxisZones` とは異なり `Error` にはなりません。
-両者とも無言で `NaN` を返します。
+`fromWallClock` / `getWallClock` に不正な IANA タイムゾーン ID（存在しない ID など）を
+渡した場合は、`setTimeZone` や `timeAxisZones` とは異なり `Error` にはなりません。
+両者とも無言で `NaN` を返します。事前に検証したい場合は `isValidTimeZone` を使ってください。
 
 - `fromWallClock` — `time` が `NaN` の Invalid Date を返す
 - `getWallClock` — 全成分（`year` / `month` / `day` / `hours` / `minutes` / `seconds` /
