@@ -1,5 +1,7 @@
 # CI: Lint（Biome）・型チェック（tsc）・テスト（Vitest・カバレッジ付き）・ビルド（tsup）
-# ・パッケージ検査（publint / attw / pack スモークテスト）を実行する
+# ・パッケージ検査（publint / attw / pack スモークテスト）を実行する。
+# Node / React の互換性を確認するため、主レグに加えて Node 24、React 18 の
+# 組み合わせを追加の 2 レグで検証する。
 name: CI
 
 on:
@@ -10,6 +12,19 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: main
+            node-version: 20.19.0
+            react-version: 19
+          - id: node24-react19
+            node-version: 24
+            react-version: 19
+          - id: node24-react18
+            node-version: 24
+            react-version: 18
     steps:
       - uses: actions/checkout@v7
 
@@ -17,51 +32,52 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: ${{ matrix.node-version }}
           cache: pnpm
 
       - name: 依存関係のインストール
         run: pnpm install --frozen-lockfile
 
-      - name: Lint（Biome）
+      - name: React 18 への差し替え（node24-react18 レグのみ）
+        if: matrix.id == 'node24-react18'
+        run: |
+          pnpm --filter @koyomi-cal/react add -D react@^18 react-dom@^18 @types/react@^18 @types/react-dom@^18
+
+      - name: 用語チェック（main レグのみ）
+        if: matrix.id == 'main'
+        run: pnpm terms
+
+      - name: Lint（Biome）（main レグのみ）
+        if: matrix.id == 'main'
         run: pnpm lint
 
       - name: 型チェック
         run: pnpm typecheck
 
-      - name: テスト（カバレッジ付き）
+      - name: テスト（カバレッジ付き、main レグのみ）
+        if: matrix.id == 'main'
         run: pnpm --filter @koyomi-cal/react test:coverage
 
-      - name: ビルド
+      - name: テスト（main レグ以外）
+        if: matrix.id != 'main'
+        run: pnpm --filter @koyomi-cal/react test
+
+      - name: ビルド（main レグのみ）
+        if: matrix.id == 'main'
         run: pnpm build
 
-      - name: パッケージ検査（publint / arethetypeswrong）
+      - name: デモのビルド（main レグのみ）
+        if: matrix.id == 'main'
+        run: pnpm --filter @koyomi-cal/demo build
+
+      - name: パッケージ検査（publint / arethetypeswrong、main レグのみ）
+        if: matrix.id == 'main'
         working-directory: packages/react-calendar
         run: |
-          pnpm dlx publint
+          pnpm dlx publint@0.3.15
           # ESM-only パッケージのため esm-only プロファイル。theme.css は型解決対象外なので除外
-          pnpm dlx @arethetypeswrong/cli --pack . --profile esm-only --exclude-entrypoints ./theme.css
+          pnpm dlx @arethetypeswrong/cli@0.18.5 --pack . --profile esm-only --exclude-entrypoints ./theme.css
 
-      - name: pack スモークテスト（素の Node ESM から公開物を import できるか）
-        run: |
-          set -eu
-          PKG_DIR="$(pwd)/packages/react-calendar"
-          TARBALL="$(cd "$PKG_DIR" && npm pack --pack-destination /tmp | tail -1)"
-          SMOKE_DIR="$(mktemp -d)"
-          cd "$SMOKE_DIR"
-          npm init -y > /dev/null
-          npm install --no-save "/tmp/$TARBALL" react react-dom > /dev/null
-          node --input-type=module -e "
-            import('@koyomi-cal/react').then((m) => {
-              const cal = m.createCalendar({
-                timeZone: 'Asia/Tokyo',
-                events: [{ id: '1', title: 't', start: '2026-07-01T10:00', rrule: 'FREQ=DAILY;COUNT=3' }],
-              });
-              const count = cal.getOccurrences({
-                start: new Date('2026-06-30T00:00:00Z'),
-                end: new Date('2026-07-10T00:00:00Z'),
-              }).length;
-              if (count !== 3) throw new Error('RRULE 展開が期待どおりでない: ' + count);
-              console.log('スモークテスト OK');
-            });
-          "
+      - name: pack スモークテスト（素の Node ESM/CJS から公開物を読み込めるか、main レグのみ）
+        if: matrix.id == 'main'
+        run: bash scripts/pack-smoke-test.sh
