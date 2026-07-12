@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createCalendar } from './calendar';
-import type { CalendarEvent, CalendarResource, CalendarViewType } from './types';
+import type { BusinessHoursRule, CalendarEvent, CalendarResource, CalendarViewType } from './types';
 
 /** テスト用の固定「現在時刻」。東京の 2026-07-15 10:00。 */
 const NOW = new Date('2026-07-15T01:00:00Z');
@@ -1520,6 +1520,256 @@ describe('createCalendar', () => {
       calendar.next();
 
       expect(order).toEqual(['listener', 'onRangeChange']);
+    });
+
+    it('コールバックなしで作成し後から updateOptions で登録しても、範囲に無関係な操作では発火しない', () => {
+      const calendar = makeCalendar();
+      const onRangeChange = vi.fn();
+      calendar.updateOptions({ onRangeChange });
+
+      const created = calendar.createEvent({ title: '追加', start: '2026-07-15T13:00' });
+      calendar.updateEvent(created.id, { title: '変更後' });
+      calendar.deleteEvent(created.id);
+      calendar.setEvents([MEETING]);
+      calendar.setResources([ROOM]);
+      calendar.refresh();
+
+      expect(onRangeChange).not.toHaveBeenCalled();
+    });
+
+    it('コールバックなしで作成し後から updateOptions で登録した場合、setView / goTo / next / prev / setTimeZone では発火する', () => {
+      const calendar = makeCalendar();
+      const onRangeChange = vi.fn();
+      calendar.updateOptions({ onRangeChange });
+
+      calendar.setView('week');
+      expect(onRangeChange).toHaveBeenCalledTimes(1);
+
+      calendar.next();
+      expect(onRangeChange).toHaveBeenCalledTimes(2);
+
+      calendar.prev();
+      expect(onRangeChange).toHaveBeenCalledTimes(3);
+
+      calendar.goTo(new Date('2026-09-01T00:00:00Z'));
+      expect(onRangeChange).toHaveBeenCalledTimes(4);
+
+      calendar.setTimeZone('America/New_York');
+      expect(onRangeChange).toHaveBeenCalledTimes(5);
+    });
+  });
+
+  describe('コールバックの解除（updateOptions に null を渡す）', () => {
+    it('onEventsChange を null で解除すると、以後のイベント変更で呼ばれなくなる', () => {
+      const onEventsChange = vi.fn();
+      const calendar = makeCalendar({ onEventsChange });
+
+      calendar.updateOptions({ onEventsChange: null });
+      calendar.createEvent({ title: '追加', start: '2026-07-15T13:00' });
+
+      expect(onEventsChange).not.toHaveBeenCalled();
+    });
+
+    it('onRangeChange を null で解除すると、以後の範囲変更で呼ばれなくなる', () => {
+      const onRangeChange = vi.fn();
+      const calendar = makeCalendar({ onRangeChange });
+      onRangeChange.mockClear();
+
+      calendar.updateOptions({ onRangeChange: null });
+      calendar.next();
+
+      expect(onRangeChange).not.toHaveBeenCalled();
+    });
+
+    it('null で解除した後に再度 updateOptions で登録し直すと、また発火するようになる', () => {
+      const onRangeChange = vi.fn();
+      const calendar = makeCalendar({ onRangeChange });
+      onRangeChange.mockClear();
+
+      calendar.updateOptions({ onRangeChange: null });
+      calendar.updateOptions({ onRangeChange });
+      calendar.next();
+
+      expect(onRangeChange).toHaveBeenCalledTimes(1);
+    });
+
+    it('null 解除自体は状態変更として通知されない', () => {
+      const calendar = makeCalendar({ onEventsChange: vi.fn(), onRangeChange: vi.fn() });
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+
+      calendar.updateOptions({ onEventsChange: null, onRangeChange: null });
+
+      expect(listener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('notifyRangeChange', () => {
+    it('onRangeChange が未登録でも例外にならない', () => {
+      const calendar = makeCalendar();
+      expect(() => calendar.notifyRangeChange()).not.toThrow();
+    });
+
+    it('登録済みなら現在のビュー・基準日・表示範囲を即時通知する', () => {
+      const calendar = makeCalendar();
+      const onRangeChange = vi.fn();
+      calendar.updateOptions({ onRangeChange });
+
+      calendar.notifyRangeChange();
+
+      expect(onRangeChange).toHaveBeenCalledTimes(1);
+      const range = calendar.getVisibleRange();
+      expect(onRangeChange.mock.calls[0]?.[0]).toEqual({
+        view: calendar.getState().view,
+        currentDate: calendar.getState().currentDate,
+        rangeStart: range.start,
+        rangeEnd: range.end,
+      });
+    });
+
+    it('差分がなくても呼ぶたびに毎回通知する（notifyRangeChangeIfNeeded との違い）', () => {
+      const onRangeChange = vi.fn();
+      const calendar = makeCalendar({ onRangeChange });
+      onRangeChange.mockClear();
+
+      calendar.notifyRangeChange();
+      calendar.notifyRangeChange();
+
+      expect(onRangeChange).toHaveBeenCalledTimes(2);
+    });
+
+    it('呼び出し後は比較基準が更新され、実質無変化な操作での重複発火が起きない', () => {
+      const onRangeChange = vi.fn();
+      const calendar = makeCalendar({ onRangeChange });
+
+      calendar.notifyRangeChange();
+      onRangeChange.mockClear();
+
+      calendar.setView('month'); // 既に month
+      expect(onRangeChange).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('可変参照からの保護（入力・公開境界の複製）', () => {
+    it('initialDate に渡した Date を後から変更しても state / getVisibleRange / getViewModel が変わらない', () => {
+      const date = new Date('2026-07-15T00:00:00Z');
+      const calendar = createCalendar({ timeZone: 'UTC', initialDate: date });
+      const viewModelBefore = calendar.getViewModel();
+      const rangeBefore = calendar.getVisibleRange();
+
+      date.setUTCMonth(7); // 呼び出し側で 8 月へ変更
+
+      expect(calendar.getState().currentDate.toISOString()).toBe('2026-07-15T00:00:00.000Z');
+      expect(calendar.getVisibleRange()).toEqual(rangeBefore);
+      expect(calendar.getViewModel()).toBe(viewModelBefore);
+    });
+
+    it('goTo に渡した Date を後から変更しても内部状態に影響しない', () => {
+      const calendar = makeCalendar();
+      const target = new Date('2026-08-01T00:00:00Z');
+      calendar.goTo(target);
+
+      target.setUTCMonth(11);
+
+      expect(calendar.getState().currentDate.toISOString()).toBe('2026-08-01T00:00:00.000Z');
+    });
+
+    it('getState().currentDate を変更しても内部の基準日は汚染されない（次のナビゲーションが元の基準日から計算される）', () => {
+      const calendar = makeCalendar(); // NOW = 2026-07-15（東京）
+      const state = calendar.getState();
+
+      state.currentDate.setUTCFullYear(2000); // 戻り値を書き換える（内部には反映されないはず）
+
+      calendar.next(); // 内部の currentDate（東京 2026-07-15 10:00）を基準に翌月初へ進む
+      const after = calendar.getState().currentDate;
+      // 内部が 2000 年に汚染されていれば無関係な日時になるが、
+      // 実際は NOW（東京 2026-07-15）の翌月初（東京 2026-08-01 0:00 = UTC 2026-07-31T15:00）になる
+      expect(after.toISOString()).toBe('2026-07-31T15:00:00.000Z');
+    });
+
+    it('events / resources の入力配列へ後から push しても反映されず、通知も起きない', () => {
+      const events: CalendarEvent[] = [MEETING];
+      const resources: CalendarResource[] = [ROOM];
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo', events, resources });
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+
+      events.push({ id: 'sneaked-in', title: '追加', start: '2026-07-16T09:00' });
+      resources.push({ id: 'room-2', title: '会議室B' });
+
+      expect(calendar.getEvents()).toEqual([MEETING]);
+      expect(calendar.getResources()).toEqual([ROOM]);
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('now オプションが同一 Date インスタンスを返し続けても today() が壊れない', () => {
+      const shared = new Date('2026-07-20T00:00:00Z');
+      const calendar = createCalendar({ timeZone: 'UTC', now: () => shared });
+
+      calendar.today();
+      const capturedTime = calendar.getState().currentDate.getTime();
+      shared.setUTCFullYear(2000); // now() が返した共有インスタンスを後から変更
+
+      expect(calendar.getState().currentDate.getTime()).toBe(capturedTime);
+    });
+
+    it('businessHours / timeAxisZones を事後変更しても反映されない', () => {
+      const businessHours: BusinessHoursRule[] = [
+        { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '17:00' },
+      ];
+      const timeAxisZones = ['America/New_York'];
+      const calendar = makeCalendar({ initialView: 'week', businessHours, timeAxisZones });
+
+      businessHours.push({ daysOfWeek: [0, 6], startTime: '10:00', endTime: '12:00' });
+      timeAxisZones.push('Europe/London');
+
+      expect(calendar.getState().options.businessHours).toHaveLength(1);
+      expect(calendar.getState().options.timeAxisZones).toEqual(['America/New_York']);
+    });
+
+    it('updateOptions に渡した businessHours 配列を事後変更しても反映されない', () => {
+      const calendar = makeCalendar({ initialView: 'day' });
+      const businessHours: BusinessHoursRule[] = [
+        { daysOfWeek: [1], startTime: '09:00', endTime: '17:00' },
+      ];
+      calendar.updateOptions({ businessHours });
+
+      businessHours.push({ daysOfWeek: [2], startTime: '10:00', endTime: '11:00' });
+
+      expect(calendar.getState().options.businessHours).toHaveLength(1);
+    });
+
+    it('setEvents に同一参照を渡すと no-op、createEvent 後に同じ入力配列を渡し直すと反映される（高速パスの無効化）', () => {
+      const arr: CalendarEvent[] = [MEETING];
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+
+      calendar.setEvents(arr);
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+
+      calendar.setEvents(arr); // 同一参照 → no-op
+      expect(listener).not.toHaveBeenCalled();
+
+      calendar.createEvent({ title: '追加', start: '2026-07-16T09:00' });
+      expect(calendar.getEvents()).toHaveLength(2);
+      listener.mockClear();
+
+      calendar.setEvents(arr); // 内部変更後に同じ入力配列を渡し直す → 反映される（高速パス無効化）
+      expect(calendar.getEvents()).toEqual([MEETING]);
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('setResources に同一参照を渡すと no-op になる（setEvents と同じ高速パス）', () => {
+      const arr: CalendarResource[] = [ROOM];
+      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+
+      calendar.setResources(arr);
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+
+      calendar.setResources(arr); // 同一参照 → no-op
+
+      expect(listener).not.toHaveBeenCalled();
     });
   });
 });

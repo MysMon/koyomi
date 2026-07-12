@@ -1,5 +1,6 @@
-import { act, renderHook } from '@testing-library/react';
-import type { ReactElement } from 'react';
+import { act, render, renderHook } from '@testing-library/react';
+import type { ReactElement, ReactNode } from 'react';
+import { StrictMode, useState } from 'react';
 import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CalendarEvent, CalendarRangeChangeInfo, CalendarResource } from '../core/types';
@@ -211,6 +212,111 @@ describe('useCalendar', () => {
     const html = renderToString(<ServerComponent />);
 
     expect(html).toContain('week');
+  });
+
+  describe('onRangeChange の初期通知（マウント後）', () => {
+    it('SSR（renderToString）中は onRangeChange が一度も呼ばれない', () => {
+      const onRangeChange = vi.fn();
+      function ServerComponent(): ReactElement {
+        useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          onRangeChange,
+        });
+        return <div />;
+      }
+
+      renderToString(<ServerComponent />);
+
+      expect(onRangeChange).not.toHaveBeenCalled();
+    });
+
+    it('マウント後（act 完了後）に初期通知が 1 回届き、view・currentDate・表示範囲が正しい', () => {
+      const onRangeChange = vi.fn();
+
+      const { result } = renderHook(() =>
+        useCalendar({ timeZone: 'Asia/Tokyo', now: () => NOW, initialDate: NOW, onRangeChange }),
+      );
+
+      expect(onRangeChange).toHaveBeenCalledTimes(1);
+      const range = result.current.api.getVisibleRange();
+      expect(onRangeChange.mock.calls[0]?.[0]).toEqual({
+        view: 'month',
+        currentDate: result.current.state.currentDate,
+        rangeStart: range.start,
+        rangeEnd: range.end,
+      });
+    });
+
+    it('マウント後に api.next() を呼ぶと通知が届く（既存挙動の回帰確認）', () => {
+      const onRangeChange = vi.fn();
+
+      const { result } = renderHook(() =>
+        useCalendar({ timeZone: 'Asia/Tokyo', now: () => NOW, initialDate: NOW, onRangeChange }),
+      );
+      onRangeChange.mockClear();
+
+      act(() => {
+        result.current.api.next();
+      });
+
+      expect(onRangeChange).toHaveBeenCalledTimes(1);
+      expect(onRangeChange.mock.calls[0]?.[0]).toMatchObject({ view: 'month' });
+    });
+
+    it('StrictMode でラップしても例外・警告なく動作し、通知は 1 回以上・内容はすべて正しい', () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const onRangeChange = vi.fn();
+
+      function Wrapper({ children }: { children: ReactNode }): ReactElement {
+        return <StrictMode>{children}</StrictMode>;
+      }
+
+      const { result } = renderHook(
+        () =>
+          useCalendar({ timeZone: 'Asia/Tokyo', now: () => NOW, initialDate: NOW, onRangeChange }),
+        { wrapper: Wrapper },
+      );
+
+      expect(onRangeChange.mock.calls.length).toBeGreaterThanOrEqual(1);
+      const range = result.current.api.getVisibleRange();
+      const expectedInfo = {
+        view: 'month',
+        currentDate: result.current.state.currentDate,
+        rangeStart: range.start,
+        rangeEnd: range.end,
+      };
+      for (const call of onRangeChange.mock.calls) {
+        expect(call[0]).toEqual(expectedInfo);
+      }
+      expect(errorSpy).not.toHaveBeenCalled();
+
+      errorSpy.mockRestore();
+    });
+
+    it('onRangeChange 内で setState しても console.error の警告が出ない（レンダー中の副作用ではないため）', () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      function TestComponent(): ReactElement {
+        const [, setTick] = useState(0);
+        useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          onRangeChange: () => {
+            setTick((t) => t + 1);
+          },
+        });
+        return <div />;
+      }
+
+      render(<TestComponent />);
+
+      expect(errorSpy).not.toHaveBeenCalled();
+
+      errorSpy.mockRestore();
+    });
   });
 
   describe('開発時警告', () => {

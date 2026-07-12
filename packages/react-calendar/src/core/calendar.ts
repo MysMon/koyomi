@@ -22,6 +22,7 @@ import type {
   CalendarEventInput,
   CalendarEventPatch,
   CalendarOptions,
+  CalendarOptionsPatch,
   CalendarRangeChangeInfo,
   CalendarResource,
   CalendarState,
@@ -91,9 +92,11 @@ function normalizePositiveInt(value: number, min: number): number {
 /**
  * `CalendarOptions` から解決済みオプションを構築する。
  * 未指定のフィールドには既定値を適用し、数値オプションは正の整数へ正規化する。
+ * 配列オプション（`timeAxisZones` / `businessHours`）は呼び出し側の配列参照を
+ * そのまま保持せず、浅く複製する（事後変更が内部状態に影響しないようにするため）。
  */
 function resolveOptions(
-  options: CalendarOptions | undefined,
+  options: Omit<CalendarOptions, 'onEventsChange' | 'onRangeChange'> | undefined,
   base?: ResolvedCalendarOptions,
 ): ResolvedCalendarOptions {
   const current = base ?? { ...DEFAULT_OPTIONS, now: () => new Date() };
@@ -108,7 +111,8 @@ function resolveOptions(
     dayMaxEvents: normalizePositiveInt(options?.dayMaxEvents ?? current.dayMaxEvents, 1),
     snapMinutes: normalizePositiveInt(options?.snapMinutes ?? current.snapMinutes, 1),
     slotMinutes: normalizePositiveInt(options?.slotMinutes ?? current.slotMinutes, 1),
-    timeAxisZones: options?.timeAxisZones ?? current.timeAxisZones,
+    timeAxisZones:
+      options?.timeAxisZones !== undefined ? [...options.timeAxisZones] : current.timeAxisZones,
     defaultEventMinutes: normalizePositiveInt(
       options?.defaultEventMinutes ?? current.defaultEventMinutes,
       1,
@@ -124,7 +128,8 @@ function resolveOptions(
         ? normalizeHiddenWeekdays(options.hiddenWeekdays)
         : current.hiddenWeekdays,
     showWeekNumbers: options?.showWeekNumbers ?? current.showWeekNumbers,
-    businessHours: options?.businessHours ?? current.businessHours,
+    businessHours:
+      options?.businessHours !== undefined ? [...options.businessHours] : current.businessHours,
     now: options?.now ?? current.now,
   };
 }
@@ -227,6 +232,10 @@ function assertValidDate(date: Date): void {
  *   `setEvents`（外部同期の入口）では呼ばれない
  * - `createEvent` で `id` を省略した場合は `'koyomi-1'` のような連番 ID を
  *   採番する（既存 ID と衝突しない番号まで進む）
+ * - `initialDate` に渡した `Date`、`events` / `resources` 配列は事後に変更しても
+ *   内部状態に影響しない（複製して保持する）。ただし各イベント/リソース
+ *   オブジェクト自身は複製されないため、カレンダーに渡した後・getter が
+ *   返した後は変更しないこと
  *
  * @example
  * ```ts
@@ -270,10 +279,26 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
   let resolvedOptions = resolveOptions(options);
   let view: CalendarViewType = options?.initialView ?? 'month';
   assertViewType(view);
-  let currentDate: Date = options?.initialDate ?? resolvedOptions.now();
+  // initialDate / now() の戻り値は呼び出し側が保持する Date と同一参照になり得るため、
+  // 複製して保持する（事後の外部変更が内部状態に影響しないようにするため）。
+  let currentDate: Date =
+    options?.initialDate !== undefined
+      ? new Date(options.initialDate.getTime())
+      : new Date(resolvedOptions.now().getTime());
   let timeZone: TimeZoneId = options?.timeZone ?? getLocalTimeZone();
-  let events: readonly CalendarEvent[] = options?.events ?? [];
-  let resources: readonly CalendarResource[] = options?.resources ?? [];
+  // events / resources も同様に、呼び出し側の配列参照をそのまま保持せず浅く複製する。
+  let events: readonly CalendarEvent[] = options?.events !== undefined ? [...options.events] : [];
+  let resources: readonly CalendarResource[] =
+    options?.resources !== undefined ? [...options.resources] : [];
+  /**
+   * `setEvents` / `updateOptions({ events })` に直近渡された「入力そのものの参照」。
+   * `events`（内部の複製済み配列）とは別に保持し、同一参照を渡された場合の
+   * no-op 判定に使う。`applyEventsChange`（createEvent 等の内部変更）が起きると
+   * 無効化（`null`）し、その後に同じ入力配列を渡し直した場合は正しく反映されるようにする。
+   */
+  let lastEventsInput: readonly CalendarEvent[] | null = options?.events ?? null;
+  /** `setResources` / `updateOptions({ resources })` 版の {@link lastEventsInput}。 */
+  let lastResourcesInput: readonly CalendarResource[] | null = options?.resources ?? null;
   let dragPreview: DragPreview | null = null;
   let onEventsChange = options?.onEventsChange;
   let onRangeChange = options?.onRangeChange;
@@ -288,51 +313,76 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
   let viewModelCache: CalendarViewModel | null = null;
   /** ID 自動採番のカウンタ。 */
   let idCounter = 0;
-  /**
-   * 直近に `onRangeChange` へ通知した内容（比較用）。`null` は未通知
-   * （作成直後、まだ 1 度も通知していない状態）を表す。
-   */
-  let lastNotifiedRange: {
+  /** {@link lastNotifiedRange} の比較用スナップショットの型。 */
+  type RangeSnapshot = {
     view: CalendarViewType;
     currentDateTime: number;
     rangeStart: number;
     rangeEnd: number;
-  } | null = null;
+  };
 
   /**
-   * `onRangeChange` の発火判定を行う。ビュー・基準日・表示範囲（の計算結果）が
-   * 直前の通知と 1 つでも異なる場合のみ 1 回発火する。表示範囲は
-   * {@link getVisibleRange}（イベント展開にも使う既存の範囲計算）をそのまま
-   * 再利用し、別の計算式を持たない。
+   * 直近に比較基準として記録した内容。`null` は「まだ一度も記録していない」
+   * （このカレンダーの生存期間中、比較基準を 1 度も作っていない）ことを表す。
+   * `onRangeChange` の登録有無に関わらず、状態が変わるたびに更新される
+   * （未登録で作成 → 後から登録、という順序でも誤発火しないようにするため）。
    */
-  function notifyRangeChangeIfNeeded(): void {
-    if (onRangeChange === undefined) {
-      return;
-    }
-    const range = getVisibleRange();
-    const next = {
+  let lastNotifiedRange: RangeSnapshot | null = null;
+
+  /** 現在の状態から {@link RangeSnapshot} を作る。 */
+  function computeRangeSnapshot(range: DateRange): RangeSnapshot {
+    return {
       view,
       currentDateTime: currentDate.getTime(),
       rangeStart: range.start.getTime(),
       rangeEnd: range.end.getTime(),
     };
-    if (
-      lastNotifiedRange !== null &&
-      lastNotifiedRange.view === next.view &&
-      lastNotifiedRange.currentDateTime === next.currentDateTime &&
-      lastNotifiedRange.rangeStart === next.rangeStart &&
-      lastNotifiedRange.rangeEnd === next.rangeEnd
-    ) {
+  }
+
+  /** 2 つの {@link RangeSnapshot} が同じ内容かどうかを判定する。 */
+  function rangeSnapshotsEqual(a: RangeSnapshot, b: RangeSnapshot): boolean {
+    return (
+      a.view === b.view &&
+      a.currentDateTime === b.currentDateTime &&
+      a.rangeStart === b.rangeStart &&
+      a.rangeEnd === b.rangeEnd
+    );
+  }
+
+  /**
+   * `onRangeChange` が登録されていれば、現在のビュー・基準日・表示範囲を通知する。
+   * 未登録なら何もしない。`currentDate` は複製してから渡す（公開境界での複製。
+   * 呼び出し側が `info.currentDate` を変更しても内部状態に影響しないようにするため）。
+   */
+  function emitRangeChange(range: DateRange): void {
+    if (onRangeChange === undefined) {
       return;
     }
-    lastNotifiedRange = next;
     const info: CalendarRangeChangeInfo = {
       view,
-      currentDate,
+      currentDate: new Date(currentDate.getTime()),
       rangeStart: range.start,
       rangeEnd: range.end,
     };
     onRangeChange(info);
+  }
+
+  /**
+   * `onRangeChange` の発火判定を行う。ビュー・基準日・表示範囲（の計算結果）が
+   * 直前の比較基準と 1 つでも異なる場合のみ 1 回発火する。表示範囲は
+   * {@link getVisibleRange}（イベント展開にも使う既存の範囲計算）をそのまま
+   * 再利用し、別の計算式を持たない。比較基準の更新自体は `onRangeChange` の
+   * 登録有無に関わらず常に行う。
+   */
+  function notifyRangeChangeIfNeeded(): void {
+    const range = getVisibleRange();
+    const next = computeRangeSnapshot(range);
+    const changed = lastNotifiedRange === null || !rangeSnapshotsEqual(lastNotifiedRange, next);
+    lastNotifiedRange = next;
+    if (!changed) {
+      return;
+    }
+    emitRangeChange(range);
   }
 
   /**
@@ -380,6 +430,9 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
   /** イベント一覧を置き換え、onEventsChange に通知する。 */
   function applyEventsChange(next: readonly CalendarEvent[]): void {
     events = next;
+    // 内部変更により events が直近の入力参照と対応しなくなるため無効化する
+    // （無効化しないと、後で同じ入力配列を setEvents に渡し直しても no-op 扱いになってしまう）。
+    lastEventsInput = null;
     commit(true);
     onEventsChange?.(events);
   }
@@ -493,7 +546,10 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       if (stateCache === null) {
         stateCache = {
           view,
-          currentDate,
+          // 公開境界での複製。呼び出し側が戻り値の currentDate を変更しても
+          // 内部状態に影響しないようにする（このオブジェクト自体は状態が
+          // 変わるまでキャッシュされ、同一参照を返し続ける）。
+          currentDate: new Date(currentDate.getTime()),
           timeZone,
           events,
           resources,
@@ -541,7 +597,8 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
     },
 
     today(): void {
-      currentDate = resolvedOptions.now();
+      // now() の戻り値は呼び出しごとに同一の Date インスタンスであり得るため複製する
+      currentDate = new Date(resolvedOptions.now().getTime());
       commit(true);
     },
 
@@ -550,7 +607,8 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       if (date.getTime() === currentDate.getTime()) {
         return;
       }
-      currentDate = date;
+      // 引数の Date をそのまま保持せず複製する（事後の外部変更から保護するため）
+      currentDate = new Date(date.getTime());
       commit(true);
     },
 
@@ -563,7 +621,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       commit(true);
     },
 
-    updateOptions(patch: Partial<Omit<CalendarOptions, 'initialView' | 'initialDate'>>): void {
+    updateOptions(patch: CalendarOptionsPatch): void {
       // 更新の原子性を保つため、いずれかのフィールドをミューテートする前に
       // すべてのバリデーションを完了させる（resolveOptions は timeAxisZones を検証する）。
       if (patch.timeZone !== undefined && patch.timeZone !== timeZone) {
@@ -576,21 +634,32 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
         timeZone = patch.timeZone;
         changed = true;
       }
-      if (patch.events !== undefined && patch.events !== events) {
-        events = patch.events;
+      if (
+        patch.events !== undefined &&
+        patch.events !== events &&
+        patch.events !== lastEventsInput
+      ) {
+        lastEventsInput = patch.events;
+        events = [...patch.events];
         changed = true;
       }
-      if (patch.resources !== undefined && patch.resources !== resources) {
-        resources = patch.resources;
+      if (
+        patch.resources !== undefined &&
+        patch.resources !== resources &&
+        patch.resources !== lastResourcesInput
+      ) {
+        lastResourcesInput = patch.resources;
+        resources = [...patch.resources];
         changed = true;
       }
       if (patch.onEventsChange !== undefined) {
-        // コールバックの差し替えは state スナップショットに影響しないため通知しない
-        onEventsChange = patch.onEventsChange;
+        // コールバックの差し替えは state スナップショットに影響しないため通知しない。
+        // null は「解除」を意味するため内部表現の undefined へ落とす。
+        onEventsChange = patch.onEventsChange === null ? undefined : patch.onEventsChange;
       }
       if (patch.onRangeChange !== undefined) {
         // 同上。差し替え自体では発火せず、以後の実際の変更で新しいコールバックが呼ばれる
-        onRangeChange = patch.onRangeChange;
+        onRangeChange = patch.onRangeChange === null ? undefined : patch.onRangeChange;
       }
       if (!resolvedOptionsEqual(nextResolved, resolvedOptions)) {
         resolvedOptions = nextResolved;
@@ -607,6 +676,14 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       commit(true);
     },
 
+    notifyRangeChange(): void {
+      // notifyRangeChangeIfNeeded と異なり、差分の有無に関わらず常に比較基準を
+      // 更新し、登録済みなら必ず通知する（React 層がマウント後に初期通知するために使う）。
+      const range = getVisibleRange();
+      lastNotifiedRange = computeRangeSnapshot(range);
+      emitRangeChange(range);
+    },
+
     // --- イベント CRUD ---
 
     getEvents(): readonly CalendarEvent[] {
@@ -614,11 +691,15 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
     },
 
     setEvents(next: readonly CalendarEvent[]): void {
-      if (next === events) {
+      // next が「現在の内部配列」または「直近に受け取った入力参照」と同じなら no-op。
+      // 呼び出し側の配列参照をそのまま保持せず浅く複製するため、この 2 系統の
+      // 比較を両方行わないと、複製後の再代入のたびに毎回変更扱いになってしまう。
+      if (next === events || next === lastEventsInput) {
         return;
       }
       // 外部同期の入口なので onEventsChange は呼ばない（呼び出しの循環防止）
-      events = next;
+      lastEventsInput = next;
+      events = [...next];
       commit(true);
     },
 
@@ -629,13 +710,14 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
     },
 
     setResources(next: readonly CalendarResource[]): void {
-      if (next === resources) {
+      if (next === resources || next === lastResourcesInput) {
         return;
       }
       // ID 重複の除外などの正規化は行わない（events と同じ扱い）。
       // 重複 ID はビュービルダーが先勝ちで決定論的に処理し、
       // 開発ビルドの警告は React 層の責務とする
-      resources = next;
+      lastResourcesInput = next;
+      resources = [...next];
       commit(true);
     },
 

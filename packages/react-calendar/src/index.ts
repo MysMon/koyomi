@@ -92,6 +92,7 @@ export type {
   CalendarEventInput,
   CalendarEventPatch,
   CalendarOptions,
+  CalendarOptionsPatch,
   CalendarRangeChangeInfo,
   CalendarResource,
   CalendarState,

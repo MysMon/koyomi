@@ -759,11 +759,18 @@ export interface CalendarOptions {
    * **作成時のみ有効**。作成後にビューを変更するには {@link CalendarApi.setView} を使う。
    */
   initialView?: CalendarViewType;
-  /** 初期イベント。 */
+  /**
+   * 初期イベント。既定は `[]`。
+   *
+   * 渡した配列・各イベントオブジェクトは、カレンダーに渡した後は変更しないこと
+   * （変更してもカレンダー内部の状態には反映されず、表示との食い違いを招く）。
+   * 動的に変更するには {@link CalendarApi.setEvents} を使う。
+   */
   events?: readonly CalendarEvent[];
   /**
    * 初期リソース（会議室・担当者など、予定の割当先）。既定は `[]`。
-   * `events` と同様に状態の初期値であり、作成後の変更には
+   * `events` と同様に状態の初期値であり、渡した配列・各リソースオブジェクトは
+   * カレンダーに渡した後は変更しないこと。作成後の変更には
    * {@link CalendarApi.setResources} を使う。
    */
   resources?: readonly CalendarResource[];
@@ -862,6 +869,29 @@ export interface CalendarOptions {
 }
 
 /**
+ * {@link CalendarApi.updateOptions} に渡すパッチの型。
+ *
+ * `initialView` / `initialDate` を除く {@link CalendarOptions} のフィールドを
+ * 部分的に指定できる。`onEventsChange` / `onRangeChange` の 2 つだけは
+ * `null` を渡すことで登録済みのコールバックを解除できる（フィールド自体を
+ * 省略した場合は「変更しない」、`null` を渡した場合は「解除する」の意味になる）。
+ */
+export type CalendarOptionsPatch = Partial<
+  Omit<CalendarOptions, 'initialView' | 'initialDate' | 'onEventsChange' | 'onRangeChange'>
+> & {
+  /**
+   * イベント一覧が変更されたときに呼ばれるコールバック。
+   * `null` を渡すと登録済みのコールバックを解除する。
+   */
+  onEventsChange?: CalendarOptions['onEventsChange'] | null;
+  /**
+   * 表示ビュー・基準日・表示範囲のいずれかが変わったときに呼ばれるコールバック。
+   * `null` を渡すと登録済みのコールバックを解除する。
+   */
+  onRangeChange?: CalendarOptions['onRangeChange'] | null;
+};
+
+/**
  * {@link CalendarOptions.onRangeChange} に渡される、変更後のビュー・基準日・表示範囲。
  */
 export interface CalendarRangeChangeInfo {
@@ -957,8 +987,11 @@ export interface CalendarApi {
    * `initialView` / `initialDate` は作成時専用のため型レベルで受け付けない
    * （ビュー・基準日の変更には `setView` / `goTo` / `today` を使う）。
    * 値が実際に変わらないパッチでは通知は発生しない。
+   *
+   * `onEventsChange` / `onRangeChange` に `null` を渡すと、登録済みの
+   * コールバックを解除できる（{@link CalendarOptionsPatch} を参照）。
    */
-  updateOptions(patch: Partial<Omit<CalendarOptions, 'initialView' | 'initialDate'>>): void;
+  updateOptions(patch: CalendarOptionsPatch): void;
   /**
    * ビューモデルを再構築して購読者に通知する。
    *
@@ -967,19 +1000,45 @@ export interface CalendarApi {
    * 定期的に呼び出す（React では `useCalendar` の `refreshSeconds` を使う）。
    */
   refresh(): void;
+  /**
+   * 現在のビュー・基準日・表示範囲を {@link CalendarOptions.onRangeChange} へ
+   * 直前の通知内容との差分に関わらず即時通知する。
+   *
+   * 比較基準（以後 `setView` / `goTo` 等が実際に表示範囲を変えたかどうかを
+   * 判定する基準値）もこの呼び出し時点の値へ更新される。`onRangeChange` が
+   * 未登録の場合は比較基準の更新のみを行い、コールバックの呼び出しは行わない。
+   */
+  notifyRangeChange(): void;
 
   // --- イベント CRUD ---
 
-  /** すべてのソースイベントを返す。 */
+  /**
+   * すべてのソースイベントを返す。
+   *
+   * 戻り値の配列・各イベントオブジェクトは変更しないこと
+   * （変更してもカレンダー内部の状態には反映されない）。
+   */
   getEvents(): readonly CalendarEvent[];
-  /** イベント一覧を置き換える（外部ストアとの同期用）。 */
+  /**
+   * イベント一覧を置き換える（外部ストアとの同期用）。
+   *
+   * 渡した配列・各イベントオブジェクトは、渡した後は変更しないこと。
+   */
   setEvents(events: readonly CalendarEvent[]): void;
 
   // --- リソース ---
 
-  /** すべてのリソースを返す（表示順）。 */
+  /**
+   * すべてのリソースを返す（表示順）。
+   *
+   * 戻り値の配列・各リソースオブジェクトは変更しないこと。
+   */
   getResources(): readonly CalendarResource[];
-  /** リソース一覧を置き換える（外部ストアとの同期用）。 */
+  /**
+   * リソース一覧を置き換える（外部ストアとの同期用）。
+   *
+   * 渡した配列・各リソースオブジェクトは、渡した後は変更しないこと。
+   */
   setResources(resources: readonly CalendarResource[]): void;
   /**
    * イベントを作成する。

@@ -53,12 +53,13 @@ unsubscribe();
 | `today` | `(): void` | 今日へ移動する |
 | `goTo` | `(date: Date): void` | 指定日へ移動する |
 | `setTimeZone` | `(timeZone: TimeZoneId): void` | 表示タイムゾーンを変更する |
-| `updateOptions` | `(patch: Partial<Omit<CalendarOptions, 'initialView' \| 'initialDate'>>): void` | オプションを部分的に更新する（`initialView` / `initialDate` は作成時専用のため型レベルで受け付けない） |
+| `updateOptions` | `(patch: CalendarOptionsPatch): void` | オプションを部分的に更新する（`initialView` / `initialDate` は作成時専用のため型レベルで受け付けない。`onEventsChange` / `onRangeChange` は `null` で解除できる） |
 | `refresh` | `(): void` | 状態を変えずにビューモデルを再構築して通知する（`now()` の再評価。現在時刻線の追従用） |
-| `getEvents` | `(): readonly CalendarEvent[]` | すべてのソースイベントを返す |
-| `setEvents` | `(events: readonly CalendarEvent[]): void` | イベント一覧を置き換える（外部ストア同期用。`onEventsChange` は呼ばれない） |
-| `getResources` | `(): readonly CalendarResource[]` | すべてのリソースを返す（表示順） |
-| `setResources` | `(resources: readonly CalendarResource[]): void` | リソース一覧を置き換える（外部ストア同期用。`events`/`setEvents` と同じ流儀） |
+| `notifyRangeChange` | `(): void` | 現在のビュー・基準日・表示範囲を、直前の通知内容との差分に関わらず `onRangeChange` へ即時通知する（比較基準も更新される。未登録なら基準の更新のみ） |
+| `getEvents` | `(): readonly CalendarEvent[]` | すべてのソースイベントを返す（戻り値の配列・各イベントオブジェクトは変更しないこと） |
+| `setEvents` | `(events: readonly CalendarEvent[]): void` | イベント一覧を置き換える（外部ストア同期用。`onEventsChange` は呼ばれない。渡した配列・各イベントオブジェクトは以後変更しないこと） |
+| `getResources` | `(): readonly CalendarResource[]` | すべてのリソースを返す（表示順。戻り値の配列・各リソースオブジェクトは変更しないこと） |
+| `setResources` | `(resources: readonly CalendarResource[]): void` | リソース一覧を置き換える（外部ストア同期用。`events`/`setEvents` と同じ流儀。渡した配列・各リソースオブジェクトは以後変更しないこと） |
 | `createEvent` | `(input: CalendarEventInput): CalendarEvent` | イベントを作成し、`id` 確定済みのイベントを返す |
 | `updateEvent` | `(id: EventId, patch: CalendarEventPatch, target?: { occurrenceStart: Date; scope: RecurringEditScope }): readonly EventChangeEntry[]` | イベントを更新する。繰り返しは `target` でスコープを指定。戻り値は影響を受けた各イベントの before/after 一覧（undo 用途） |
 | `deleteEvent` | `(id: EventId, target?: { occurrenceStart: Date; scope: RecurringEditScope }): readonly EventChangeEntry[]` | イベントを削除する。戻り値は `updateEvent` と同様 |
@@ -154,6 +155,7 @@ interface UseCalendarOptions extends CalendarOptions {
 
 - `options` は**初期値として一度だけ**使われます（後から変更しても反映されません。動的に変更する場合は `api.updateOptions` / `api.setEvents` / `api.setResources` / `api.setTimeZone` を使います）。マウント後に異なる `events` / `resources` 参照を渡し続けた場合、開発ビルドではそれぞれ一度だけ警告が表示されます。
 - `onEventsChange` / `onRangeChange` コールバックと `refreshSeconds` だけは常に最新の値が反映されます。
+- `onRangeChange` はマウント後（`useEffect` 内）に登録され、登録直後に現在のビュー・基準日・表示範囲で 1 回呼ばれます。レンダー中・SSR（`renderToString`）では呼ばれません。以後は表示範囲に影響する操作のたびに呼ばれます（詳細は [予定の管理: onRangeChange](./events.md#onrangechange-で表示範囲の変更を検知する) を参照）。
 - 戻り値の `api` は再レンダリングを跨いで安定した参照です（`useEffect` の依存に安全に使えます）。
 - SSR（`renderToString` / Next.js）でも例外なく初期状態を描画できます（`getServerSnapshot` 対応済み）。Next.js App Router では `'use client'` が必要です。
 
@@ -829,8 +831,8 @@ interface ToolbarLabels {
 | --- | --- | --- |
 | `initialDate?` | `Date` | 現在時刻 |
 | `initialView?` | `CalendarViewType` | `'month'` |
-| `events?` | `readonly CalendarEvent[]` | `[]` |
-| `resources?` | `readonly CalendarResource[]` | `[]` |
+| `events?` | `readonly CalendarEvent[]` | `[]`（渡した配列・各イベントオブジェクトは渡した後は変更しないこと） |
+| `resources?` | `readonly CalendarResource[]` | `[]`（渡した配列・各リソースオブジェクトは渡した後は変更しないこと） |
 | `timeZone?` | `TimeZoneId` | 実行環境のローカルタイムゾーン（不正な IANA タイムゾーン ID を指定すると `createCalendar` 呼び出し自体が `Error` を投げる。`setTimeZone` と同じ検証規則） |
 | `weekStartsOn?` | `Weekday` | `0`（日曜日） |
 | `dayMaxEvents?` | `number` | `4` |
@@ -852,6 +854,8 @@ interface ToolbarLabels {
 | `onRangeChange?` | `(info: CalendarRangeChangeInfo) => void` | なし（ビュー・基準日・表示範囲のいずれかが変わるたびに 1 回発火。作成直後にも 1 回発火する。FullCalendar の `datesSet` 相当。詳細は [イベントの管理: onRangeChange](./events.md#onrangechange-で表示範囲の変更を検知する) を参照） |
 
 `initialDate` / `initialView` は**作成時専用**です（`updateOptions` は型レベルで受け付けません。変更には `goTo` / `setView` を使います）。
+
+`updateOptions` の引数は `CalendarOptions` そのものではなく `CalendarOptionsPatch` 型です。`initialView` / `initialDate` を受け付けない点は同じですが、`onEventsChange` / `onRangeChange` の 2 フィールドだけは型が異なり、`null` を渡すと登録済みのコールバックを解除できます（フィールドを省略した場合は「変更しない」、`null` を渡した場合は「解除する」の意味になります）。
 
 `resources` は `events` と完全に同型の扱いです（状態の初期値。`ResolvedCalendarOptions` には含まれません）。動的な変更には `getResources` / `setResources`（[予定の管理: リソース](./events.md#リソース)を参照）を使います。
 

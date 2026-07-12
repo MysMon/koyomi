@@ -153,6 +153,10 @@ calendar.setResources([{ id: 'room-a', title: '会議室A（改称）' }]);
 
 `resourceId` を持たないイベント、または `resources` に存在しない ID を指すイベント（参照先のないリソース ID）は「未割り当て」として扱われます。黙って非表示にはならず、リソース/タイムラインビューでは専用のレーンに表示されます。
 
+`events` と同様、`resources`（初期値）・`setResources` に渡した配列、
+`getResources()` の戻り値の配列、それぞれに含まれる各 `CalendarResource`
+オブジェクトは、渡した後・受け取った後に変更しないでください。
+
 ## イベントの CRUD
 
 `CalendarApi`（`createCalendar` の戻り値、または `useCalendar().api`）は
@@ -171,6 +175,12 @@ calendar.setResources([{ id: 'room-a', title: '会議室A（改称）' }]);
 繰り返しイベントに対する `updateEvent` / `deleteEvent` の第 3 引数
 `target`（対象オカレンスと適用範囲）については [繰り返し予定](./recurrence.md) を
 参照してください。単発イベントでは省略します。
+
+`events`（初期値）・`setEvents` に渡した配列、`getEvents()` の戻り値の配列、
+それぞれに含まれる各 `CalendarEvent` オブジェクトは、カレンダーに渡した後・
+受け取った後に変更しないでください。変更してもカレンダー内部の状態には
+反映されず、`state` や表示との食い違いを招きます。動的に変更する場合は、
+新しい配列・オブジェクトを作って `setEvents` / `updateEvent` などに渡してください。
 
 `updateEvent` / `deleteEvent` の戻り値（`EventChangeEntry[]`）を使った
 undo（元に戻す）UI の実装方法は
@@ -281,7 +291,7 @@ function useCalendarSyncedWithServer(initialEvents: CalendarEvent[], saveToServe
 
 ## onRangeChange で表示範囲の変更を検知する
 
-`onRangeChange` は、表示ビュー・基準日・表示範囲のいずれかが変わったときに 1 回呼ばれます（FullCalendar の `datesSet` 相当）。**作成直後（初期化時）にも 1 回発火**します。
+`onRangeChange` は、表示ビュー・基準日・表示範囲のいずれかが変わったときに 1 回呼ばれます（FullCalendar の `datesSet` 相当）。`useCalendar` では**マウント後に 1 回発火**します（レンダー本体・SSR では呼ばれません）。`createCalendar` を直接使う場合は**作成直後に同期的に 1 回発火**します。
 
 ```tsx
 import { useCalendar } from '@koyomi-cal/react';
@@ -302,7 +312,8 @@ function useCalendarWithFetch() {
 }
 
 // 期待される動作:
-// - useCalendar() 呼び出し直後に 1 回発火する（初期表示分の取得に使える）
+// - コンポーネントのマウント後に 1 回発火する（初期表示分の取得に使える。
+//   レンダー本体・SSR では呼ばれない）
 // - setView / goTo / next / prev のたびに、新しい表示範囲で発火する
 // - createEvent / updateEvent / deleteEvent / setEvents など、
 //   ビュー・基準日・表示範囲に無関係な変更では発火しない

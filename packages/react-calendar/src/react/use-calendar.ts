@@ -34,6 +34,11 @@ export interface UseCalendarOptions extends CalendarOptions {
  *   `api.updateOptions` / `api.setEvents` / `api.setTimeZone` を使う）。
  *   ただし `onEventsChange` / `onRangeChange` コールバックと `refreshSeconds` は
  *   例外で、常に最新の値が反映される。
+ *
+ * `onRangeChange` はマウント後（`useEffect` 内）に登録され、登録直後に現在の
+ * ビュー・基準日・表示範囲で 1 回呼ばれる。そのためレンダー中や SSR
+ * （`renderToString`）では呼ばれない。以後は `setView` / `goTo` / `next` /
+ * `prev` など表示範囲に影響する操作のたびに呼ばれる。
  * @returns {@link UseCalendarResult}
  *
  * @example
@@ -59,7 +64,7 @@ export function useCalendar(options?: UseCalendarOptions): UseCalendarResult {
   const onEventsChangeRef = useRef(options?.onEventsChange);
   onEventsChangeRef.current = options?.onEventsChange;
 
-  /** 最新の `onRangeChange` を保持する参照。エンジンには安定ラッパのみを渡す。 */
+  /** 最新の `onRangeChange` を保持する参照。マウント後の effect から安定ラッパ経由で登録する。 */
   const onRangeChangeRef = useRef(options?.onRangeChange);
   onRangeChangeRef.current = options?.onRangeChange;
 
@@ -67,20 +72,40 @@ export function useCalendar(options?: UseCalendarOptions): UseCalendarResult {
    * エンジンをマウント時に一度だけ生成する。
    * `options` は初回値のみが使われ、以後の変更は無視する
    * （`onEventsChange` / `onRangeChange` だけは安定ラッパ経由で常に最新を呼ぶ）。
+   *
+   * `onRangeChange` はここでは渡さない。`createCalendar` は作成直後に
+   * `onRangeChange` を同期的に呼ぶため、ここで渡すとレンダー本体（あるいは
+   * SSR 中）に副作用が発生してしまう。代わりにマウント後の `useEffect` で
+   * 登録する（下記）。
    */
   const apiRef = useRef<ReturnType<typeof createCalendar> | null>(null);
   if (apiRef.current === null) {
+    // options.onRangeChange はスプレッドに含めない（下の effect が登録するまで未設定にする）
+    const { onRangeChange: _initialOnRangeChange, ...engineOptions } = options ?? {};
     apiRef.current = createCalendar({
-      ...options,
+      ...engineOptions,
       onEventsChange: (events: readonly CalendarEvent[]) => {
         onEventsChangeRef.current?.(events);
-      },
-      onRangeChange: (info: CalendarRangeChangeInfo) => {
-        onRangeChangeRef.current?.(info);
       },
     });
   }
   const api = apiRef.current;
+
+  // onRangeChange はマウント後に登録し、登録直後に現在の表示範囲を 1 回通知する。
+  // レンダー中・SSR では副作用を起こさないため。アンマウント時は解除する。
+  // Strict Mode の開発時再マウントでは、このエフェクトも再実行される
+  // （解除 → 再登録・再通知）。これは effect の標準的な挙動であり、
+  // 初期通知が複数回になり得る点は許容する。
+  useEffect(() => {
+    const rangeChangeWrapper = (info: CalendarRangeChangeInfo) => {
+      onRangeChangeRef.current?.(info);
+    };
+    api.updateOptions({ onRangeChange: rangeChangeWrapper });
+    api.notifyRangeChange();
+    return () => {
+      api.updateOptions({ onRangeChange: null });
+    };
+  }, [api]);
 
   // 「events はマウント時の初期値のみ有効」という仕様は、fetch した配列を
   // そのまま props として渡し続ける利用者が黙ってハマりやすい。開発時のみ、
