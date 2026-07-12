@@ -48,7 +48,8 @@
     "./theme.css": "./dist/theme.css"
   },
   "files": [
-    "dist"
+    "dist",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "engines": {
     "node": ">=20.19.0"
@@ -71,8 +72,7 @@
   },
   "dependencies": {
     "@date-fns/tz": "^1.2.0",
-    "date-fns": "^4.1.0",
-    "rrule": "^2.8.1"
+    "date-fns": "^4.1.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.0",
@@ -85,6 +85,7 @@
     "jsdom": "^29.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "rrule": "^2.8.1",
     "tsup": "^8.3.0",
     "vitest": "^4.1.10"
   }
