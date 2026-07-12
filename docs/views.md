@@ -101,9 +101,9 @@ function App() {
 // - input / textarea / select やフォーカス中の contenteditable 要素の中では無効
 ```
 
-### 年ビューなど新ビューを有効にする（opt-in）
+### 年・複数月・リソース・タイムラインビューを有効にする（opt-in）
 
-年・複数月・リソース・タイムラインビューは既定では `Toolbar` のボタン列にも `useCalendarShortcuts` のキーにも現れません（既存利用者の見た目・挙動を変えないための方針）。有効にしたい場合は、両方に `views` を渡します。
+年・複数月・リソース・タイムラインビューは既定では `Toolbar` のボタン列にも `useCalendarShortcuts` のキーにも現れません。有効にするには、両方に `views` を渡します。
 
 ```tsx
 import { CalendarProvider, CalendarView, Toolbar, useCalendar, useCalendarShortcuts } from '@koyomi-cal/react';
@@ -284,7 +284,7 @@ function BareMonthGrid() {
 | `hiddenWeekdays` | `readonly Weekday[]` | `[]` | 月・週・複数月ビューの列から除外する曜日（下記参照）。年・日・リソース・タイムラインビューは無視する |
 | `resources` | `readonly CalendarResource[]` | `[]` | リソースビュー・タイムラインビューの列/行になるリソース一覧（表示順）。他ビューには影響しない。詳細は [予定の管理: リソース](./events.md#リソース) を参照 |
 | `timelineDays` | `number` | `1` | タイムラインビューが表示する日数。`next()`/`prev()` の移動単位にもなる |
-| `unassignedLane` | `'auto' \| 'always'` | `'auto'` | リソース/タイムラインビューの未割り当てレーンの生成規則。`'auto'` は該当する予定があるときのみ末尾に生成、`'always'` は常に生成する（「未割り当てへ戻す」D&D を使う場合に必要。詳細は [新ビューを有効にする](#年ビューなど新ビューを有効にするopt-in) を参照） |
+| `unassignedLane` | `'auto' \| 'always'` | `'auto'` | リソース/タイムラインビューの未割り当てレーンの生成規則。`'auto'` は該当する予定があるときのみ末尾に生成、`'always'` は常に生成する（「未割り当てへ戻す」D&D を使う場合に必要。詳細は [対象ビューを有効にする](#年複数月リソースタイムラインビューを有効にするopt-in) を参照） |
 | `showWeekNumbers` | `boolean` | `false` | 月ビューの週行・週ビューのヘッダーに ISO 8601 週番号を表示するか。詳細は [週番号](#週番号showweeknumbers) を参照 |
 | `businessHours` | `readonly BusinessHoursRule[]` | `[]` | 週/日・リソース・タイムラインビューの営業時間の指定。詳細は [営業時間](#営業時間businesshours) を参照 |
 
@@ -447,7 +447,7 @@ handleRef.current?.scrollToResource('crane-5');
 
 ## 複数タイムゾーン軸（timeAxisZones）
 
-週/日ビュー（時間グリッド）の時間軸に、表示タイムゾーン以外の時間軸を並べて表示できます（Google カレンダーのセカンダリタイムゾーン相当）。`CalendarOptions.timeAxisZones` に IANA タイムゾーン ID の配列を渡すと、その順番で追加の軸が主軸（表示タイムゾーン）の右に並びます。省略時は従来どおり主軸のみです。
+週/日ビュー（時間グリッド）の時間軸に、表示タイムゾーン以外の時間軸を並べて表示できます（Google カレンダーのセカンダリタイムゾーン相当）。`CalendarOptions.timeAxisZones` に IANA タイムゾーン ID の配列を渡すと、その順番で追加の軸が主軸（表示タイムゾーン）の右に並びます。省略時は主軸のみです。
 
 ```tsx
 import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
@@ -478,7 +478,7 @@ function App() {
 
 ただし `TimeGridViewModel.timeAxes` は週全体で 1 組だけ（表示範囲の最初の日基準）を共有するため、`viewType: 'week'` で追加軸のタイムゾーンが表示範囲の途中に DST 切替を挟む場合、切替後の日については実際のオフセットとずれます（`TimeGridView` が単一の軸列しか描画しないための制約）。日ごとに正しいオフセットが必要な場合は各日の `TimeGridDay.timeAxes`（その日自身の 0:00 を基準に個別算出）を使ってください。
 
-`timeAxisZones` 未指定時は `timeAxes`（`TimeGridViewModel` / 各 `TimeGridDay` とも）が主軸のみの 1 要素配列になり、既存の `slots` フィールドも含めビューモデルの出力は従来と変わりません。
+`timeAxisZones` 未指定時は `timeAxes`（`TimeGridViewModel` / 各 `TimeGridDay` とも）が主軸のみの 1 要素配列になります。
 
 ## 週番号（showWeekNumbers）
 
@@ -506,7 +506,7 @@ function App() {
 
 なお、一意なのは「7 日間の週」に対する番号であって、週の区切り方自体は `weekStartsOn` に依存します。そのため同じ日付でも、週の区切りが変われば異なる番号の週の行に表示されることがあります（顕著なのは `weekStartsOn: 4`（木曜始まり）で、月曜始まりの ISO 週と区切りが大きくずれるため、例えば 2026-07-01 は他の週開始曜日では第 27 週の行に入るのに対し、木曜始まりでは第 26 週の行に入ります）。これは月曜週前提の ISO 週番号を任意区切りの週に割り当てることに固有の性質です。
 
-`MonthWeek.weekNumber` / `TimeGridViewModel.weekNumber`（`viewType: 'day'` では常に `null`）としてビューモデルからも参照できます。属性のみを付与するヘッドレスな設計のため、実際に数字を表示するには CSS（`content: attr(data-koyomi-week-number)` 等）や `renderDayCell` 等のカスタム描画スロットを使ってください。`showWeekNumbers` 未指定時（既定）は `weekNumber` が常に `null` で、DOM 属性も出力されません（従来どおりの出力）。
+`MonthWeek.weekNumber` / `TimeGridViewModel.weekNumber`（`viewType: 'day'` では常に `null`）としてビューモデルからも参照できます。属性のみを付与するヘッドレスな設計のため、実際に数字を表示するには CSS（`content: attr(data-koyomi-week-number)` 等）や `renderDayCell` 等のカスタム描画スロットを使ってください。`showWeekNumbers` 未指定時（既定）は `weekNumber` が常に `null` で、DOM 属性も出力されません。
 
 ## 営業時間（businessHours）
 
@@ -547,7 +547,7 @@ businessHours: [
 
 ハイライトの判定はスロット単位（各スロットの開始時刻が営業時間内かどうか）で行います。そのため `startTime` / `endTime` が `slotMinutes` の区切りに合っていない場合（例: `slotMinutes: 30` で `startTime: '09:15'`）、ハイライトは次のスロット境界（9:30）から始まります。スロットより細かい粒度の表現が必要な場合は、`TimeGridDay.businessHourSlots` を参照して独自に描画してください。
 
-`TimeGridDay.businessHourSlots`（`slots` と同じ並びの `{ minutes, isBusinessHours }[]`）としてビューモデルからも参照できます。`businessHours` 未指定時（既定 `[]`）はすべてのスロットが `isBusinessHours: false` になり、DOM 属性も出力されません（従来どおりの出力）。`startTime` が `endTime` 以降、または `'HH:mm'` 形式でない値を指定すると `Error` になります。
+`TimeGridDay.businessHourSlots`（`slots` と同じ並びの `{ minutes, isBusinessHours }[]`）としてビューモデルからも参照できます。`businessHours` 未指定時（既定 `[]`）はすべてのスロットが `isBusinessHours: false` になり、DOM 属性も出力されません。`startTime` が `endTime` 以降、または `'HH:mm'` 形式でない値を指定すると `Error` になります。
 
 ### リソースビュー（ResourceView / VirtualResourceView）
 
@@ -557,7 +557,7 @@ businessHours: [
 
 タイムラインは横軸が「表示分」（範囲先頭からの分、全日を等幅 1440 分として扱う座標系）のため、スロット単位ではなく区間そのものを描画します。表示日ごとに該当曜日のルールを日オフセット付きの表示分の区間へ変換し、隣接・重複する区間はマージしたうえで、各行の時間トラック内に `[data-koyomi="timeline-business-hours"]`（`aria-hidden`）という下敷きの帯を `insetInlineStart` / `width`（% 指定）で描画します。帯はイベントの帯（`timeline-item`）より背面に表示されます。
 
-`TimelineViewModel.businessHourRanges`（`{ startMinutes, endMinutes }[]`、開始分昇順・マージ済み）としてビューモデルからも参照できます。`businessHours` 未指定時（既定 `[]`）は空配列になり、DOM 要素も描画されません（従来どおりの出力）。
+`TimelineViewModel.businessHourRanges`（`{ startMinutes, endMinutes }[]`、開始分昇順・マージ済み）としてビューモデルからも参照できます。`businessHours` 未指定時（既定 `[]`）は空配列になり、DOM 要素も描画されません。
 
 ## 関連ページ
 

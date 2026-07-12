@@ -184,7 +184,7 @@ function App() {
 
 **`onEventContextMenu` は `preventDefault` しません**: ライブラリはコールバックを呼ぶだけで、ブラウザ既定のコンテキストメニューの抑制は行いません。カスタムメニューを出す場合はアプリ側で `nativeEvent.preventDefault()` を呼んでください。
 
-**未指定時は DOM リスナー自体を付けない**: これら 4 つはいずれも省略可能で、省略した場合は対応する要素に `onDoubleClick` / `onContextMenu` / `onPointerEnter` / `onPointerLeave` の DOM props 自体が付きません（省略時の DOM 構造が従来と完全に一致します）。
+**未指定時は DOM リスナー自体を付けない**: これら 4 つはいずれも省略可能で、省略した場合は対応する要素に `onDoubleClick` / `onContextMenu` / `onPointerEnter` / `onPointerLeave` の DOM props 自体が付きません。
 
 ## リソースビュー・タイムラインビューのドラッグ操作
 
@@ -197,7 +197,7 @@ function App() {
 
 - **移動** — ドラッグした先の時間とリソースの両方が同時に変わります。確定時は、時間の変更と `resourceId` の変更を**1 つのパッチに合成した 1 回の `updateEvent`** として適用します（`onEventChange` には合成後の `resourceId` 付きの `EventChange` が渡されます）。リソースだけが変わり時間が変わらない操作（列/行をまたぐだけの移動）も同じ経路です
 - **リサイズ** — 時間のみが変わり、リソースは不変です（既存の時間グリッドと同じ規則）
-- **未割り当てへの移動** — 未割り当てレーン（`resource: null`）へ移動すると `{ resourceId: undefined }` のパッチが発行されます（`CalendarEventPatch` の削除セマンティクスに従い、`resourceId` フィールドが削除されます）。未割り当てレーンが存在しない場合（`unassignedLane: 'auto'` で未割り当ての予定が 1 件も無いとき）はドロップ先が無いため、この操作はできません。運用したい場合は `unassignedLane: 'always'` を指定してください（詳細は [ビュー](./views.md#年ビューなど新ビューを有効にするopt-in) を参照）
+- **未割り当てへの移動** — 未割り当てレーン（`resource: null`）へ移動すると `{ resourceId: undefined }` のパッチが発行されます（`CalendarEventPatch` の削除セマンティクスに従い、`resourceId` フィールドが削除されます）。未割り当てレーンが存在しない場合（`unassignedLane: 'auto'` で未割り当ての予定が 1 件も無いとき）はドロップ先が無いため、この操作はできません。運用したい場合は `unassignedLane: 'always'` を指定してください（詳細は [ビュー](./views.md#年複数月リソースタイムラインビューを有効にするopt-in) を参照）
 - **既定作成（`onSelectRange` 未指定時の即時作成）** — 選択したレーンの `resourceId` が `createEvent` の入力に含まれます（未割り当てレーンでは `resourceId` を付けません）
 - **終日行/終日の帯** — リソースビューの終日行はクリックで当日 1 日分の終日イベントを作成でき、ドラッグで列間（リソース間）の移動ができます（リサイズはありません）。タイムラインの終日の帯は日単位スナップで横移動できます
 - **allDay ⇔ 時間指定の変換** — 週/日ビューにあるような越境変換ドラッグは、リソース/タイムラインビューでは提供しません
@@ -273,7 +273,7 @@ async function resolveRecurringScope(): Promise<RecurringEditScope | null> {
 - `onBeforeSelectRange?: (selection: RangeSelection) => boolean | Promise<boolean>` — 空き領域のクリック・ドラッグによる範囲選択の適用前に呼ばれる。`false` を返すと `onSelectRange` は呼ばれない（省略時の既定の即時作成も行われない）
 - `onBeforeEventDelete?: (occurrence: EventOccurrence) => boolean | Promise<boolean>` — キーボード操作（Delete/Backspace）による削除の適用前に呼ばれる。`false` を返すと削除されず `onEventDelete` も呼ばれない。確認ダイアログなど、ユーザーの応答を待つ必要がある UI 向けに `Promise` を返せる（`window.confirm` 相当の非同期確認）
 
-いずれも省略時は常に許可（`true`）として扱われ、従来と完全に同じ動作になります。
+いずれも省略時は常に許可（`true`）として扱われます。
 
 ```tsx
 import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
@@ -372,7 +372,7 @@ function App() {
 
 大文字・小文字は区別しません。`Ctrl` / `Cmd` / `Alt` などの修飾キーを伴う場合は無視されます。`input` / `textarea` / `select` にフォーカスがある間、および `contenteditable` 要素の内側では、すべてのショートカットが無効になります。`enabled: false` を渡すと一時的に無効化できます。
 
-新ビュー（年・複数月・リソース・タイムラインビュー等）への切替キーは既定では無効です。`views` オプション（既定 `['month', 'week', 'day', 'list']`）に対象のビューを追加すると、そのビューへの切替キーだけが有効になります（`Toolbar` の `views` prop と同じ opt-in 方針。詳細は [ビュー](./views.md#年ビューなど新ビューを有効にするopt-in) を参照）。
+年・複数月・リソース・タイムラインビューへの切替キーは既定では無効です。`views` オプション（既定 `['month', 'week', 'day', 'list']`）に対象のビューを追加すると、そのビューへの切替キーだけが有効になります（`Toolbar` の `views` prop と同じ既定値です。詳細は [ビュー](./views.md#年複数月リソースタイムラインビューを有効にするopt-in) を参照）。
 
 ```tsx
 useCalendarShortcuts({

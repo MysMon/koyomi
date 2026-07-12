@@ -169,7 +169,7 @@ function buildBusinessHourRanges(
  * @param params.now - 現在時刻（`isToday` 判定・現在時刻線に使用）
  * @param params.businessHours - 営業時間の指定一覧（{@link TimelineViewModel.businessHourRanges}
  *   を算出する）。表示日ごとに該当曜日のルールを日オフセット付きの表示分の区間へ変換し、
- *   隣接・重複する区間はマージする。省略時は `[]`（従来どおり）
+ *   隣接・重複する区間はマージする。省略時は `[]`
  * @returns タイムラインビューのビューモデル
  * @example
  * ```ts

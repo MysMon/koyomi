@@ -684,7 +684,7 @@ export interface TimelineViewModel {
    * {@link TimelineItem.startMinutes} と同じ座標系）へ変換した区間一覧。
    * 各表示日について該当曜日のルールを日オフセット付きで変換し、開始分昇順に
    * ソート、隣接・重複する区間はマージ済み（複数ルールが同一区間を指しても
-   * 重複した帯を描画しない）。`businessHours` 未指定時は `[]`（従来どおり）。
+   * 重複した帯を描画しない）。`businessHours` 未指定時は `[]`。
    */
   businessHourRanges: readonly BusinessHourRange[];
 }
@@ -834,7 +834,7 @@ export interface CalendarOptions {
    */
   showWeekNumbers?: boolean;
   /**
-   * 週/日ビュー（時間グリッド）の営業時間の指定。既定は `[]`（無効。従来どおりの表示）。
+   * 週/日ビュー（時間グリッド）の営業時間の指定。既定は `[]`（無効）。
    * 指定した曜日・時間帯のスロットに `data-koyomi-business-hours` 属性が付き、
    * デフォルトテーマでは控えめな背景色でハイライトされる
    * （詳細は [ビュー: 営業時間](./views.md#営業時間businesshours) を参照）。
