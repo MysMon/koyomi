@@ -48,8 +48,8 @@ unsubscribe();
 | `getState` | `(): CalendarState` | 現在の状態のスナップショットを返す |
 | `subscribe` | `(listener: () => void): () => void` | 状態変更の通知を購読する。戻り値で購読解除 |
 | `setView` | `(view: CalendarViewType): void` | ビューを切り替える |
-| `next` | `(): void` | 現在のビュー単位で次の期間へ移動する |
-| `prev` | `(): void` | 現在のビュー単位で前の期間へ移動する |
+| `next` | `(): void` | 現在のビュー単位で次の期間へ移動する（移動幅は下記参照） |
+| `prev` | `(): void` | 現在のビュー単位で前の期間へ移動する（移動幅は下記参照） |
 | `today` | `(): void` | 今日へ移動する |
 | `goTo` | `(date: Date): void` | 指定日へ移動する |
 | `setTimeZone` | `(timeZone: TimeZoneId): void` | 表示タイムゾーンを変更する |
@@ -66,6 +66,19 @@ unsubscribe();
 | `getVisibleRange` | `(): DateRange` | 現在のビューが表示している日時範囲を返す |
 | `getOccurrences` | `(range: DateRange): readonly EventOccurrence[]` | 指定範囲のオカレンス一覧を開始時刻順で返す |
 | `setDragPreview` | `(preview: DragPreview | null): void` | ドラッグ操作のプレビューを設定する（`null` で解除） |
+
+`next` / `prev` の移動幅はビューごとに異なります。
+
+| ビュー | 移動幅 |
+| --- | --- |
+| `month` | 1 ヶ月（月初基準） |
+| `week` | 7 日 |
+| `day` | 1 日 |
+| `list` | `listDays` 日 |
+| `year` | 1 年（年初基準） |
+| `multiMonth` | `multiMonthCount` ヶ月（月初基準） |
+| `resource` | 1 日（`day` と同じ） |
+| `timeline` | `timelineDays` 日 |
 
 ```ts
 import { createCalendar } from '@koyomi-cal/react';
@@ -818,7 +831,7 @@ interface ToolbarLabels {
 | `initialView?` | `CalendarViewType` | `'month'` |
 | `events?` | `readonly CalendarEvent[]` | `[]` |
 | `resources?` | `readonly CalendarResource[]` | `[]` |
-| `timeZone?` | `TimeZoneId` | 実行環境のローカルタイムゾーン |
+| `timeZone?` | `TimeZoneId` | 実行環境のローカルタイムゾーン（不正な IANA タイムゾーン ID を指定すると `createCalendar` 呼び出し自体が `Error` を投げる。`setTimeZone` と同じ検証規則） |
 | `weekStartsOn?` | `Weekday` | `0`（日曜日） |
 | `dayMaxEvents?` | `number` | `4` |
 | `snapMinutes?` | `number` | `15` |
@@ -831,7 +844,7 @@ interface ToolbarLabels {
 | `timelineDays?` | `number` | `1` |
 | `unassignedLane?` | `'auto' \| 'always'` | `'auto'` |
 | `locale?` | `string` | `'ja'` |
-| `hiddenWeekdays?` | `readonly Weekday[]` | `[]`（非表示にする曜日。7 曜日全指定は無効） |
+| `hiddenWeekdays?` | `readonly Weekday[]` | `[]`（非表示にする曜日。7 曜日全指定は無効な設定として無視され、既定の空配列（すべて表示）にフォールバックする。詳細は [ビュー: hiddenWeekdays](./views.md#週末などの曜日を隠すhiddenweekdays) を参照） |
 | `showWeekNumbers?` | `boolean` | `false`（月・週ビューに ISO 8601 週番号を表示するか。詳細は [ビュー: 週番号](./views.md#週番号showweeknumbers) を参照） |
 | `businessHours?` | `readonly BusinessHoursRule[]` | `[]`（週/日・リソース・タイムラインビューの営業時間の指定。詳細は [ビュー: 営業時間](./views.md#営業時間businesshours) を参照） |
 | `now?` | `() => Date` | `() => new Date()` |

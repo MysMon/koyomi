@@ -255,6 +255,108 @@ describe('オーバーライドの日時解釈の 3 段フォールバック（d
   });
 });
 
+describe('単発イベントへの target 明示指定は無視される（docs/recurrence.md 「繰り返しの編集・削除とスコープ」）', () => {
+  // 出典: docs/recurrence.md「繰り返しの編集・削除とスコープ」節（本追記分）:
+  // 「単発イベント（rrule も recurringEventId も持たないイベント）に対して target を
+  //  明示的に渡しても無視され、updateEvent は patch をそのまま適用し、deleteEvent は
+  //  target の内容にかかわらずイベントを取り除きます。」
+  it('単発イベントの updateEvent に target を明示的に渡しても、無視されて patch がそのまま適用される', () => {
+    const calendar = createCalendar({ timeZone: TOKYO });
+    calendar.createEvent({ id: 'single', title: '単発予定', start: '2026-07-01T09:00:00' });
+    calendar.updateEvent(
+      'single',
+      { title: '更新後' },
+      { occurrenceStart: new Date('2026-07-05T00:00:00Z'), scope: 'this' },
+    );
+    expect(calendar.getEvents()).toHaveLength(1);
+    expect(calendar.getEvents()[0]?.title).toBe('更新後');
+  });
+
+  it('単発イベントの deleteEvent に target を明示的に渡しても、無視されてイベントが取り除かれる', () => {
+    const calendar = createCalendar({ timeZone: TOKYO });
+    calendar.createEvent({ id: 'single', title: '単発予定', start: '2026-07-01T09:00:00' });
+    calendar.deleteEvent('single', {
+      occurrenceStart: new Date('2026-07-05T00:00:00Z'),
+      scope: 'all',
+    });
+    expect(calendar.getEvents()).toHaveLength(0);
+  });
+});
+
+describe('occurrenceStart が実在するオカレンスと一致しない場合（docs/recurrence.md 「繰り返しの編集・削除とスコープ」）', () => {
+  // 出典: docs/recurrence.md「繰り返しの編集・削除とスコープ」節（本追記分）:
+  // 「occurrenceStart に、実在するオカレンスの本来の開始時刻と一致しない値
+  //  （範囲外の値や、既にオーバーライドされたオカレンスの移動後の現在の開始時刻を
+  //  誤って渡した場合など）を指定した場合、「一致するオーバーライドが無い」ものとして
+  //  扱われます。updateEvent の scope: 'this' は渡した occurrenceStart を originalStart
+  //  とする新しいオーバーライドイベントが作成されます（既存のオーバーライドや繰り返し
+  //  本体は変更されません）。」
+  it('既にオーバーライド済みのオカレンスの『移動後の現在の開始時刻』を occurrenceStart に渡すと、既存のオーバーライドは変更されず新しいオーバーライドが作られる', () => {
+    const calendar = createCalendar({ timeZone: TOKYO });
+    calendar.createEvent({
+      id: 'standup',
+      title: '朝会',
+      start: '2026-07-01T09:00:00',
+      rrule: 'FREQ=DAILY;COUNT=5',
+    });
+    // 7/3 のオカレンスを 10:00 へ移動する（正しい occurrenceStart = 7/3 09:00 JST）
+    calendar.updateEvent(
+      'standup',
+      { start: '2026-07-03T10:00:00', end: '2026-07-03T11:00:00' },
+      { occurrenceStart: new Date('2026-07-03T00:00:00Z'), scope: 'this' },
+    );
+    const beforeSecondUpdate = calendar.getEvents();
+    expect(beforeSecondUpdate).toHaveLength(2); // マスター + 1 個目のオーバーライド
+
+    // 誤って「移動後の現在の開始時刻」（7/3 10:00 JST）を occurrenceStart に渡す
+    calendar.updateEvent(
+      'standup',
+      { title: '別の変更' },
+      { occurrenceStart: new Date('2026-07-03T01:00:00Z'), scope: 'this' }, // 7/3 10:00 JST
+    );
+    const events = calendar.getEvents();
+    // 一致するオーバーライドが無いものとして扱われ、新しいオーバーライドが追加される
+    expect(events).toHaveLength(3);
+    const firstOverride = events.find(
+      (e) =>
+        e.recurringEventId === 'standup' &&
+        e.originalStart instanceof Date &&
+        e.originalStart.getTime() === new Date('2026-07-03T00:00:00Z').getTime(),
+    );
+    // 既存のオーバーライドは変更されない（title は元の patch のまま）
+    expect(firstOverride?.title).toBe('朝会');
+    const newOverride = events.find((e) => e.title === '別の変更');
+    expect(newOverride?.recurringEventId).toBe('standup');
+    expect(newOverride?.originalStart).toEqual(new Date('2026-07-03T01:00:00Z'));
+  });
+
+  // 出典: docs/recurrence.md「繰り返しの編集・削除とスコープ」節（本追記分）:
+  // 「deleteEvent の scope: 'this' も同様に「一致するオーバーライドが無い」ものとして
+  //  扱われ、渡した occurrenceStart の値がそのままマスターの exdates に追加されます。」
+  it('一致するオカレンスが無い occurrenceStart で deleteEvent(scope: this) を呼ぶと、その値がそのまま exdates に追加される', () => {
+    const calendar = createCalendar({ timeZone: TOKYO });
+    calendar.createEvent({
+      id: 'standup',
+      title: '朝会',
+      start: '2026-07-01T09:00:00',
+      rrule: 'FREQ=DAILY;COUNT=5',
+    });
+    const bogusOccurrenceStart = new Date('2026-07-03T01:23:45Z'); // どのオカレンスの本来の開始時刻とも一致しない
+    calendar.deleteEvent('standup', { occurrenceStart: bogusOccurrenceStart, scope: 'this' });
+
+    const master = calendar.getEvents().find((e) => e.id === 'standup');
+    expect(master?.exdates).toHaveLength(1);
+    expect(master?.exdates?.[0]).toEqual(bogusOccurrenceStart);
+
+    // 一致するオカレンスが元々無いため、5 回すべてがそのまま展開される（EXDATE は無害）
+    const occurrences = calendar.getOccurrences({
+      start: new Date('2026-07-01T00:00:00Z'),
+      end: new Date('2026-07-10T00:00:00Z'),
+    });
+    expect(occurrences).toHaveLength(5);
+  });
+});
+
 describe('RDATE のオカレンス長（docs/recurrence.md 「RDATE — パターン外のオカレンスを追加する」）', () => {
   it('マスターに end が無ければ rdate 由来のオカレンスも既定長（defaultEventMinutes）になる', () => {
     // 出典: docs/recurrence.md L389

@@ -257,6 +257,8 @@ if (vm.type === 'month') {
 | `weekdayInZone(date, timeZone)` | 指定タイムゾーンにおける曜日（0=日曜日〜6=土曜日）を返す |
 | `formatSlotLabel(minutes)` | その日の 0:00 からの分数を `'HH:mm'` 形式のラベルにする |
 | `parseDateValue(value, timeZone, allDay)` | `CalendarEvent.start` / `end` と同じ解釈規則で日時の値を絶対時刻に変換する |
+| `isoWeekNumberInZone(date, timeZone)` | 指定タイムゾーンにおける ISO 8601 週番号を返す（詳細は [ビュー: 週番号](./views.md#週番号showweeknumbers) を参照） |
+| `parseTimeOfDay(time)` | `'HH:mm'` 形式の時刻文字列を、その日の 0:00 からの分（0〜1439）に変換する。`formatSlotLabel` の逆変換。形式が不正なら `Error` |
 
 ```tsx
 import {
@@ -298,6 +300,51 @@ console.log(isSameDayInZone(instant, new Date('2026-07-01T10:00:00Z'), 'Asia/Tok
 // CalendarEvent.start/end と同じ規則で汎用的に日時を解釈する
 console.log(parseDateValue('2026-07-01T10:00', 'Asia/Tokyo', false).toISOString());
 // => '2026-07-01T01:00:00.000Z'（オフセットなし ISO は現地時刻として解釈）
+```
+
+### 存在しない時刻・曖昧な時刻の解決規則（DST）
+
+`fromWallClock`（および内部的にこれを使う `parseDateValue` のオフセットなし文字列解釈、
+`startOfDayInZone`、`dateFromKey`、`addMinutesInZone`）に、DST の切り替えにより
+「存在しない現地時刻」（例: 春に時計が 2:00 → 3:00 へ進むゾーンでの 2:30）や
+「二重に存在する現地時刻」（例: 秋に時計が戻るゾーンでの、切り替え前後どちらにも
+現れる時刻）を渡した場合、次の規則で解決されます。
+
+- **存在しない時刻** — 直後の実在する時刻に**繰り上げ**て解決します（例:
+  2:00 → 3:00 に進むゾーンで 2:30 を指定すると 3:30 として解決される）
+- **曖昧な時刻**（2 回現れる時刻） — 2 回のうち**早い方のオフセット**で解決します
+
+`startOfDayInZone` / `dateFromKey` が返す「その日の 0:00」自体が、DST により
+その日に存在しないケース（真夜中に時計が進むゾーンで、ある日の 0:00 がそのまま
+1:00 などへ切り替わる場合）でも同じ規則が適用され、直後の実在時刻（例: 1:00）に
+繰り上げて解決されます。
+
+```tsx
+// America/Santiago は 2026-09-06 の 0:00 → 1:00 に夏時間へ切り替わり、
+// その日の現地 0:00 は存在しない
+console.log(startOfDayInZone(new Date('2026-09-06T12:00:00Z'), 'America/Santiago'));
+// => 現地 1:00（0:00 は存在しないため直後の実在時刻へ繰り上げられる）
+```
+
+`WallClockParts`（`fromWallClock` の第 1 引数）の各成分に暦上の範囲外の値
+（`month: 13` や `day: 32`、`day: 0` など）を渡した場合は `Error` にはならず、
+`Date` の setter と同じ繰り上げ/繰り下げ（オーバーフロー）で正規化されます
+（例: `{ year: 2026, month: 1, day: 32 }` は `2026-02-01` として解決される）。
+
+`fromWallClock` / `getWallClock` に不正な IANA タイムゾーン ID（存在しない ID や空文字列など）
+を渡した場合は、`setTimeZone` や `timeAxisZones` とは異なり `Error` にはなりません。
+両者とも無言で `NaN` を返します。
+
+- `fromWallClock` — `time` が `NaN` の Invalid Date を返す
+- `getWallClock` — 全成分（`year` / `month` / `day` / `hours` / `minutes` / `seconds` /
+  `milliseconds`）が `NaN` の `WallClockParts` を返す
+
+```tsx
+const invalid = fromWallClock({ year: 2026, month: 7, day: 1 }, 'Not/AZone');
+console.log(Number.isNaN(invalid.getTime())); // => true
+
+const invalidWall = getWallClock(new Date('2026-07-01T00:00:00Z'), 'Not/AZone');
+console.log(Number.isNaN(invalidWall.year)); // => true
 ```
 
 ## 関連ページ

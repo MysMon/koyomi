@@ -139,6 +139,25 @@ expandRecurrence({
 - `occurrenceStart` — 対象オカレンスの**本来の**開始時刻。既にオーバーライド済みのオカレンスの場合は、移動・変更される前の元の開始時刻（`originalStart`）を渡す（オーバーライドで移動済みの現在の開始時刻ではない点に注意）
 - `scope` — `'this'`（この予定のみ）/ `'thisAndFollowing'`（これ以降のすべて）/ `'all'`（すべて）
 
+単発イベント（`rrule` も `recurringEventId` も持たないイベント）に対して `target` を
+明示的に渡しても無視され、`updateEvent` は `patch` をそのまま適用し、`deleteEvent` は
+`target` の内容にかかわらずイベントを取り除きます。
+
+`occurrenceStart` に、実在するオカレンスの本来の開始時刻と一致しない値（範囲外の値や、
+既にオーバーライドされたオカレンスの**移動後の現在の開始時刻**を誤って渡した場合など）
+を指定した場合、「一致するオーバーライドが無い」ものとして扱われます。
+
+- `updateEvent` の `scope: 'this'` — 渡した `occurrenceStart` を `originalStart` と
+  する新しいオーバーライドイベントが作成されます（既存のオーバーライドや繰り返し
+  本体は変更されません。対応する実際のオカレンスが存在しないため、このオーバーライドは
+  「参照先はあるが対応するオカレンスの無い」孤立した単発イベントとして振る舞います）
+- `deleteEvent` の `scope: 'this'` — 渡した `occurrenceStart` の値がそのままマスターの
+  `exdates` に追加されます。対応する実際のオカレンスが存在しない場合、この EXDATE は
+  将来同じ時刻にオカレンスが生成されない限り実質的な効果を持ちません
+
+いずれも `Error` にはならず、`occurrenceStart` には常に対象オカレンスの本来の開始時刻を
+正確に渡す必要があります。
+
 ### scope: 'this' — この予定のみ
 
 対象オカレンスを、`recurringEventId`（マスターの ID）と `originalStart`（本来の

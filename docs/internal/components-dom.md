@@ -270,6 +270,11 @@ div[data-koyomi="multimonth"]
 - 前後月の日付セルは `interactiveOutsideDays: false` で共有 parts に渡されるため、単体の
   `MonthView`（`interactiveOutsideDays: true`）と異なり**非インタラクティブ**になる
   （`tabIndex` なし・`data-koyomi-date` なし・ポインタ/キーボードハンドラなし。日番号のみ表示）
+- `data-today` / `aria-current="date"` は `interactiveOutsideDays` に関わらず付与される
+  （`day.isToday` の判定と DOM 属性付与は非インタラクティブ化と独立しているため）。そのため
+  前後月の日付セル（`data-outside`）がたまたま「今日」と一致する場合も、他の可視日と同様に
+  `aria-current="date"` が付く（`docs/accessibility.md` の「今日を表す要素には
+  `aria-current="date"` を全ビューで一貫して付与する」という規則どおり）
 - 予定の帯（`month-event`）は自分の月グリッドにのみ描画される（`buildMonthViewModel` の
   `segmentRange` で月本体にクランプするため）。月境界をまたぐ帯は隣接する 2 つの月グリッドの
   それぞれにセグメントとして現れ、`continuesBefore` / `continuesAfter` で「←続く／続く→」を示す
@@ -329,7 +334,7 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"]
   div[data-koyomi="resource-empty"]?                        … isEmpty のとき emptyLabel（既定「リソースがありません」）
 ```
 
-- `isEmpty` の場合は `div[data-koyomi="resource"]` の直下に `resource-empty` のみを描画する（上記の内部構造は出力しない。`resource-grid` も生成しない）
+- `isEmpty` の場合は `div[data-koyomi="resource"]` の直下に `resource-empty` のみを描画する（上記の内部構造は出力しない。`resource-grid` も生成しない）。この場合ルート自身の `data-koyomi-columns` 属性も出力されない（`"0"` にはならず、属性自体が付かない）
 - イベントの aria-label は「タイトル、開始〜終了、リソース名」（週/日ビューの aria-label にリソース名を付け足した形。未割り当て列はリソース名部分を省略）
 - a11y: 列見出し行・終日行は離散セルなので、両者だけをまとめた `resource-grid`
   （`role="grid"`）の中で row/columnheader/gridcell を構成する（週/日ビューと同じ方針）。
