@@ -117,6 +117,15 @@ describe('Intl.DateTimeFormat のキャッシュ', () => {
   const CACHE_TEST_LOCALE = 'fr-FR';
   const CACHE_TEST_TZ = 'Europe/Paris';
 
+  // spy の実装は `new` の対象になるため、コンストラクタとして呼べる関数宣言で
+  // 元の Intl.DateTimeFormat（spy 適用前に捕捉）へ委譲する。arrow だと new できず失敗する。
+  const OriginalDateTimeFormat = Intl.DateTimeFormat;
+  function createRealDateTimeFormat(
+    ...args: ConstructorParameters<typeof Intl.DateTimeFormat>
+  ): Intl.DateTimeFormat {
+    return new OriginalDateTimeFormat(...args);
+  }
+
   it('同じ locale/timeZone/書式種別の組み合わせでは Intl.DateTimeFormat を再生成しない', () => {
     const date = new Date('2026-07-15T01:00:00Z');
     formatTime(date, CACHE_TEST_TZ, CACHE_TEST_LOCALE); // ウォームアップ
@@ -132,11 +141,7 @@ describe('Intl.DateTimeFormat のキャッシュ', () => {
     const date = new Date('2026-07-15T01:00:00Z');
     formatTime(date, CACHE_TEST_TZ, CACHE_TEST_LOCALE); // ウォームアップ
 
-    // spy 実装は `new` の対象になるため、コンストラクタとして呼べる function 式で元へ委譲する
-    const OriginalDateTimeFormat = Intl.DateTimeFormat;
-    const spy = vi
-      .spyOn(Intl, 'DateTimeFormat')
-      .mockImplementation((...args) => new OriginalDateTimeFormat(...args));
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(createRealDateTimeFormat);
     formatTime(date, CACHE_TEST_TZ, 'de-DE');
     expect(spy).toHaveBeenCalledTimes(1);
     spy.mockRestore();
@@ -146,11 +151,7 @@ describe('Intl.DateTimeFormat のキャッシュ', () => {
     const date = new Date('2026-07-15T01:00:00Z');
     formatTime(date, CACHE_TEST_TZ, CACHE_TEST_LOCALE); // ウォームアップ（'time' 種別）
 
-    // spy 実装は `new` の対象になるため、コンストラクタとして呼べる function 式で元へ委譲する
-    const OriginalDateTimeFormat = Intl.DateTimeFormat;
-    const spy = vi
-      .spyOn(Intl, 'DateTimeFormat')
-      .mockImplementation((...args) => new OriginalDateTimeFormat(...args));
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(createRealDateTimeFormat);
     formatMonthTitle(date, CACHE_TEST_TZ, CACHE_TEST_LOCALE); // 'month-title' 種別は未キャッシュ
     expect(spy).toHaveBeenCalledTimes(1);
     spy.mockRestore();
