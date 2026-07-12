@@ -183,7 +183,7 @@ export interface CalendarInteractionCallbacks {
    * 詳細表示や編集ダイアログを直接開く起点に使う。
    *
    * 未指定の場合、対応する要素に `onDoubleClick` リスナー自体を付けない
-   * （省略時の DOM props が従来と完全に一致する）。
+   * （省略時は対応する DOM props 自体を付けない）。
    */
   onEventDoubleClick?: (occurrence: EventOccurrence, nativeEvent: MouseEvent) => void;
   /**
@@ -195,7 +195,7 @@ export interface CalendarInteractionCallbacks {
    * `nativeEvent.preventDefault()` を呼ぶこと。
    *
    * 未指定の場合、対応する要素に `onContextMenu` リスナー自体を付けない
-   * （省略時の DOM props が従来と完全に一致する）。
+   * （省略時は対応する DOM props 自体を付けない）。
    */
   onEventContextMenu?: (occurrence: EventOccurrence, nativeEvent: MouseEvent) => void;
   /**
@@ -203,7 +203,7 @@ export interface CalendarInteractionCallbacks {
    * ツールチップ表示の起点に使う。
    *
    * 未指定の場合、対応する要素に `onPointerEnter` リスナー自体を付けない
-   * （省略時の DOM props が従来と完全に一致する）。
+   * （省略時は対応する DOM props 自体を付けない）。
    */
   onEventHover?: (occurrence: EventOccurrence, nativeEvent: MouseEvent) => void;
   /**
@@ -212,7 +212,7 @@ export interface CalendarInteractionCallbacks {
    * 閉じる起点に使う。
    *
    * 未指定の場合、対応する要素に `onPointerLeave` リスナー自体を付けない
-   * （省略時の DOM props が従来と完全に一致する）。
+   * （省略時は対応する DOM props 自体を付けない）。
    */
   onEventHoverEnd?: (occurrence: EventOccurrence, nativeEvent: MouseEvent) => void;
   /**

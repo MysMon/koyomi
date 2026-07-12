@@ -62,7 +62,7 @@ function isIgnoredTarget(target: EventTarget | null): boolean {
  * @param params.onCreate - `C` キーが押されたときに呼ばれる（作成 UI の起点）。
  *   省略時は何もしない
  * @param params.views - ビュー切替キーを有効にするビューの一覧。
- *   既定は `['month', 'week', 'day', 'list']`（既存 4 ビュー。既定挙動は従来と不変）。
+ *   既定は `['month', 'week', 'day', 'list']`。
  *   新ビューのキー（`Y` / `Q` / `R` / `L`）を使う場合はここに含める
  *   （`Toolbar` の `views` と同じ opt-in）
  *

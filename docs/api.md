@@ -183,7 +183,7 @@ Google カレンダー準拠のキーボードショートカットを有効に�
 | `K`, `P` | 前の期間へ |
 | `C` | `onCreate` を呼ぶ（予定作成 UI の起点） |
 
-`views`（既定 `['month', 'week', 'day', 'list']`）でビュー切替キーの対象ビューを制限します。新ビュー（年・複数月・リソース・タイムライン）のキーは opt-in で、既定では無効です。`Toolbar` の `views` prop（下記）と同じ既定値・同じ opt-in 方針です。
+`views`（既定 `['month', 'week', 'day', 'list']`）でビュー切替キーの対象ビューを制限します。年・複数月・リソース・タイムラインビューのキーは既定では無効で、`views` に追加すると有効になります（`Toolbar` の `views` prop（下記）と同じ既定値です）。
 
 ```tsx
 import { CalendarProvider, CalendarView, useCalendar, useCalendarShortcuts } from '@koyomi-cal/react';
@@ -718,7 +718,7 @@ interface ToolbarProps {
   labels?: ToolbarLabels;
   /**
    * ビュー切替ボタンとして表示するビューの一覧（並び順もこの配列に従う）。
-   * 既定は `['month', 'week', 'day', 'list']`（新ビューは opt-in）。
+   * 既定は `['month', 'week', 'day', 'list']`。年・複数月・リソース・タイムラインは追加した場合のみ有効。
    */
   views?: readonly CalendarViewType[];
 }
@@ -842,7 +842,7 @@ interface ToolbarLabels {
 
 `resources` は `events` と完全に同型の扱いです（状態の初期値。`ResolvedCalendarOptions` には含まれません）。動的な変更には `getResources` / `setResources`（[予定の管理: リソース](./events.md#リソース)を参照）を使います。
 
-`timelineDays` はタイムラインビューの表示日数、`unassignedLane` はリソース/タイムラインビューの未割り当てレーンの生成規則です（`'auto'` = 該当する予定があるときのみ末尾に生成、`'always'` = 常に生成。詳細は [ビュー](./views.md#年ビューなど新ビューを有効にするopt-in) を参照）。
+`timelineDays` はタイムラインビューの表示日数、`unassignedLane` はリソース/タイムラインビューの未割り当てレーンの生成規則です（`'auto'` = 該当する予定があるときのみ末尾に生成、`'always'` = 常に生成。詳細は [ビュー](./views.md#年複数月リソースタイムラインビューを有効にするopt-in) を参照）。
 
 `ResolvedCalendarOptions` は既定値適用後の型で、`onEventsChange` を除くすべてのフィールドが必須になったものです（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `timeAxisZones` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `multiMonthCount` / `timelineDays` / `unassignedLane` / `locale` / `hiddenWeekdays` / `showWeekNumbers` / `businessHours` / `now`）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' | 'resource' | 'timeline'` です。
 
@@ -1129,7 +1129,7 @@ console.log(shortcutForKey('s')); // => null（該当なし）
 
 | 関数 | 説明 |
 | --- | --- |
-| `buildMonthViewModel(params): MonthViewModel` | 月ビューのビューモデル（週・日・帯セグメント）を構築する。`hiddenWeekdays` で列を除外できる。`params.showWeekNumbers`（省略時 `false`）で各週の `weekNumber` を算出する。`params.segmentRange`（省略可）でセグメント生成と「+N 件」の計上を指定範囲の日に限定できる（複数月ビューが月ごとにクランプするための引数。省略時は従来どおりグリッド全域が対象で、単体の月ビューの挙動は不変） |
+| `buildMonthViewModel(params): MonthViewModel` | 月ビューのビューモデル（週・日・帯セグメント）を構築する。`hiddenWeekdays` で列を除外できる。`params.showWeekNumbers`（省略時 `false`）で各週の `weekNumber` を算出する。`params.segmentRange`（省略可）でセグメント生成と「+N 件」の計上を指定範囲の日に限定できる（省略時はグリッド全域が対象。複数月表示のように月ごとにセグメントを区切りたい場合に使う） |
 | `buildTimeGridViewModel(params): TimeGridViewModel` | 週/日ビューのビューモデル（終日行・時間グリッド配置）を構築する。`hiddenWeekdays` 対応。`params.showWeekNumbers`（省略時 `false`）で `viewType: 'week'` のときの `weekNumber` を算出し、`params.businessHours`（省略時 `[]`）で各日の `businessHourSlots` を算出する |
 | `buildListViewModel(params): ListViewModel` | リストビューのビューモデル（日付ごとのオカレンス一覧）を構築する |
 | `buildYearViewModel(params): YearViewModel` | 年ビューのビューモデル（12 ヶ月分のミニ月グリッド・日ごとの予定件数）を構築する。`hiddenWeekdays` は無視する |
@@ -1315,7 +1315,7 @@ type EnUsLabels = {
 };
 ```
 
-各コンポーネントが持つ `*Label` 系 props（既定値は日本語）を英語化したプリセットです。`toolbar` / `list` / `month` / `multiMonth` / `resource` / `timeline` / `year` はそれぞれ同名のビルトインコンポーネント（`VirtualListView` 等の仮想化版も含む）の props にそのままスプレッドできます。`calendarView` だけは `CalendarView` が転送用に持つプレフィックス付き props（`listAllDayLabel` 等）向けの形です。`eventAriaLabel` 系は、既定 aria-label 文字列が使う日本語の区切り記号（読点「、」・波ダッシュ「〜」）を英語表記（カンマ・en dash）に置き換えます（日付・時刻自体は `locale` オプションにより Intl で整形済みのため触れません）。既定値（日本語）自体は変更されないため、渡さない限り既存の見た目は変わりません。使用例は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照してください。
+各コンポーネントが持つ `*Label` 系 props（既定値は日本語）を英語化したプリセットです。`toolbar` / `list` / `month` / `multiMonth` / `resource` / `timeline` / `year` はそれぞれ同名のビルトインコンポーネント（`VirtualListView` 等の仮想化版も含む）の props にそのままスプレッドできます。`calendarView` だけは `CalendarView` が転送用に持つプレフィックス付き props（`listAllDayLabel` 等）向けの形です。`eventAriaLabel` 系は、既定 aria-label 文字列が使う日本語の区切り記号（読点「、」・波ダッシュ「〜」）を英語表記（カンマ・en dash）に置き換えます（日付・時刻自体は `locale` オプションにより Intl で整形済みのため触れません）。渡さない場合は既定の日本語文言のままです。使用例は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照してください。
 
 ## 関連ページ
 

@@ -181,7 +181,7 @@ if (vm.type === 'timeGrid') {
 }
 ```
 
-`timeAxisZones` を省略した場合は従来どおり主軸のみで、`TimeGridViewModel.timeAxes` は主軸 1 要素の配列になり `slots` の内容と一致します（既存の挙動と完全互換）。`TimeGridView` は `timeAxes` の数だけ時間軸の列を描画し、各列に `data-koyomi-timezone` 属性でどのタイムゾーンの軸かを識別できます（詳細は [ビュー: 複数タイムゾーン軸](./views.md#複数タイムゾーン軸timeaxiszones) を参照）。
+`timeAxisZones` を省略した場合は主軸のみで、`TimeGridViewModel.timeAxes` は主軸 1 要素の配列になり `slots` の内容と一致します。`TimeGridView` は `timeAxes` の数だけ時間軸の列を描画し、各列に `data-koyomi-timezone` 属性でどのタイムゾーンの軸かを識別できます（詳細は [ビュー: 複数タイムゾーン軸](./views.md#複数タイムゾーン軸timeaxiszones) を参照）。
 
 `TimeGridViewModel.timeAxes` は週全体で共有する 1 組の値で、表示範囲の**最初の日**を基準に算出します。そのため `viewType: 'week'` で追加軸のタイムゾーンが表示範囲の途中に DST 切替を挟む週では、切替後の日については実際のオフセットとずれます（既定の `TimeGridView` が単一の軸列しか描画しないための制約）。日ごとに正しいオフセットが必要な場合は、各日の `TimeGridDay.timeAxes`（その日自身の 0:00 を基準に個別算出）を使います。
 

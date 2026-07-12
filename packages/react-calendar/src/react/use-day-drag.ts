@@ -708,7 +708,7 @@ export function useDayDrag(params: {
     const base: SegmentProps = {
       onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
         // editable: false や副ボタンでは何もせず、伝播も止めない（外側の祖先の
-        // 利用側リスナーへ従来どおり届ける）。セルの作成ドラッグとの二重処理は
+        // 利用側リスナーへそのまま届ける）。セルの作成ドラッグとの二重処理は
         // getDayCellProps 側が由来（data-koyomi-occurrence）を確認して防ぐ
         if (event.button !== 0 || occurrence.event.editable === false) {
           return;
@@ -728,7 +728,7 @@ export function useDayDrag(params: {
         callbacksRef.current?.onEventClick?.(occurrence, event.nativeEvent);
       },
       onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
-        // 伝播は止めない（外側の祖先の利用側リスナーへ従来どおり届ける）。セルの
+        // 伝播は止めない（外側の祖先の利用側リスナーへそのまま届ける）。セルの
         // Enter/Space（範囲選択）との二重発火は getDayCellProps 側がイベントの
         // 由来（data-koyomi-occurrence）を確認して防ぐ
         if (event.key === 'Enter' || event.key === ' ') {

@@ -96,7 +96,7 @@ function daySpanOf(occurrence: EventOccurrence, timeZone: TimeZoneId): Occurrenc
  *   `[月初, 翌月初)` を渡す。範囲外へはみ出す帯はこの範囲の日にクランプされ、
  *   実際のスパンが範囲外へ続く場合は `continuesBefore` / `continuesAfter` が立つ。
  *   範囲と重ならないオカレンスはセグメントを生成せず、あふれにも数えない。
- *   **省略時は従来どおりグリッド全域**（単体の月ビューの挙動は不変）
+ *   **省略時はグリッド全域**が対象
  */
 export function buildMonthViewModel(params: {
   currentDate: Date;
