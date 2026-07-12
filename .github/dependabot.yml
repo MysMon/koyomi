@@ -1,0 +1,43 @@
+# Dependabot の設定。
+# pnpm ワークスペース全体（ルートの pnpm-lock.yaml）と GitHub Actions を対象にする。
+version: 2
+updates:
+  # npm 依存（pnpm ワークスペース全体をルートのロックファイル経由で更新する）
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+    groups:
+      # minor / patch は 1 本の PR にまとめてノイズを減らす。
+      # major は破壊的変更の確認が必要なため依存ごとに個別 PR にする
+      # （例: @date-fns/tz は更新時にタイムゾーンキャッシュ挙動の再確認が必要）。
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 10
+
+  # GitHub Actions（.github/workflows/ 配下の uses: を更新する）
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
