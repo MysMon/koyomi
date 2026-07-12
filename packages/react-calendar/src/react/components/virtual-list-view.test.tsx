@@ -299,7 +299,7 @@ describe('VirtualListView', () => {
       throw new Error('pinned セクションが見つかりません');
     }
     expect(pinned.style.position).toBe('absolute');
-    expect(pinned.style.insetInlineStart).toBe('0');
+    expect(pinned.style.insetInlineStart).toBe('0px');
     expect(pinned.style.width).toBe('100%');
     expect(pinned.style.top).not.toBe('');
   });
