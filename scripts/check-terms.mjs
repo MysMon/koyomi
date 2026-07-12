@@ -5,6 +5,10 @@
  * 直訳調・不正確な訳語（例:「壁時計」「契約」）がコメント・TSDoc・docs・テストに
  * 再混入するのを機械的に防ぐ。用語の方針は docs/internal/terminology.md に集約する。
  *
+ * あわせて、利用者向けドキュメント（docs/internal/ を除く docs と README）に限り、
+ * 内部事情・変更経緯の文体（「従来どおり」「後方互換」等）も禁止する。
+ * 文体の方針は docs/internal/docs-style.md に集約する。
+ *
  * `pnpm terms`（`pnpm check` からも呼ばれる）で実行し、違反があれば非ゼロ終了する。
  * 正当な例外がある行には `koyomi-terms-ok` というコメントを付けると除外される。
  */
@@ -22,6 +26,7 @@ const EXCLUDE_DIR_NAMES = new Set(['node_modules', 'dist']);
 const EXCLUDE_FILES = new Set([
   'scripts/check-terms.mjs',
   'docs/internal/terminology.md',
+  'docs/internal/docs-style.md',
   'CLAUDE.md',
 ]);
 
@@ -46,6 +51,26 @@ const RULES = [
   { re: /契約/, preferred: '仕様' },
   { re: /発生(?![すしさせ])/, preferred: 'オカレンス（名詞のとき。動詞「発生する」は可）' },
 ];
+
+/**
+ * 利用者向けドキュメント（docs/internal/ を除く docs/*.md と README.md）に限る禁止パターン。
+ * 利用者向け文書は常に「現在の仕様」を記述し、内部事情・変更経緯を書かない
+ * （経緯は CHANGELOG.md と docs/internal/ の担当領域）。方針は docs/internal/docs-style.md。
+ */
+const USER_DOCS_RULES = [
+  { re: /従来/, preferred: '現在の仕様として書く（例:「省略時は〜」）' },
+  { re: /後方互換|下位互換/, preferred: '互換性の経緯は書かない（CHANGELOG の領分）' },
+  { re: /既存の利用者|既存利用者/, preferred: '利用者区分の経緯は書かない' },
+  { re: /今回の/, preferred: 'リリース単位の指示語は書かない' },
+  { re: /以前は/, preferred: '過去の挙動は書かない（CHANGELOG の領分）' },
+  { re: /(追加|変更|導入|拡張)されました/, preferred: '現在形で仕様として書く（例:「〜できます」）' },
+];
+
+/** 利用者向けドキュメント（USER_DOCS_RULES の適用対象）か。 */
+function isUserDocs(rel) {
+  if (rel === 'README.md') return true;
+  return rel.startsWith('docs/') && !rel.startsWith('docs/internal/') && rel.endsWith('.md');
+}
 
 /** 走査対象ファイルを再帰的に集める。 */
 function walk(dir, out) {
@@ -82,12 +107,23 @@ for (const abs of files) {
         violations++;
       }
     }
+    if (isUserDocs(rel)) {
+      for (const rule of USER_DOCS_RULES) {
+        if (rule.re.test(line)) {
+          console.error(
+            `${rel}:${i + 1}: 利用者向け文書の禁止表現 /${rule.re.source}/ → ${rule.preferred}`,
+          );
+          console.error(`    ${line.trim()}`);
+          violations++;
+        }
+      }
+    }
   });
 }
 
 if (violations > 0) {
   console.error(
-    `\n✖ 禁止用語が ${violations} 件見つかりました。docs/internal/terminology.md を参照してください。`,
+    `\n✖ 禁止用語が ${violations} 件見つかりました。docs/internal/terminology.md / docs/internal/docs-style.md を参照してください。`,
   );
   console.error('  正当な例外は行に `koyomi-terms-ok` コメントを付けて除外できます。');
   process.exit(1);

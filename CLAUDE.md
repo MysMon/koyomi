@@ -35,8 +35,8 @@ TypeScript/React 製のヘッドレスカレンダーライブラリのモノレ
 
 ## 開発ルール
 
-- **TDD 必須**: 実装より先に失敗するテストを書く（Red → Green → Refactor）。テストは実装ファイルと同階層の `*.test.ts(x)`。仕様（docs）との役割分担・describe の構造・境界条件の考え方は `docs/internal/testing.md` に従う
-- **日本語**: コメント・TSDoc・ドキュメント・コミットメッセージはすべて日本語
+- **TDD 必須**: 実装より先に失敗するテストを書く（Red → Green → Refactor）。テストは実装ファイルと同階層の `*.test.ts(x)`。テストの位置づけ（テストが仕様）・docs との役割分担・describe の構造・境界条件の考え方は `docs/internal/testing.md` に従う
+- **日本語**: コメント・TSDoc・ドキュメント・コミットメッセージはすべて日本語。利用者向けドキュメント・公開 TSDoc は常に「現在の仕様」だけを書き、内部事情・変更経緯を書かない（`docs/internal/docs-style.md`。代表パターンは `pnpm check` で機械検出される）
 - **用語**: 直訳調・不正確な訳語を避け、確定した訳語に統一する（例: wall clock =「現地時刻」、EventOccurrence の名詞 =「オカレンス」、contract =「仕様」）。方針は `docs/internal/terminology.md` に集約し、禁止語は `pnpm check`（`pnpm terms` = `scripts/check-terms.mjs`）で機械的に強制される。新しい直訳語を見つけたら推奨語を決め、用語集とチェックスクリプトの両方に追記する
 - **TSDoc 必須**: `export` するすべての型・関数・コンポーネントに日本語 TSDoc（`@param` / `@returns` / `@example` を適切に）
 - **型の厳しさ**: `any` 禁止（Biome でエラー）。`as` キャストは原則禁止、必要なら理由をコメントで併記。`noUncheckedIndexedAccess` / `exactOptionalPropertyTypes` 有効
