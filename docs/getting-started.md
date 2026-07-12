@@ -12,13 +12,13 @@ Koyomi はロジックとマークアップのみを提供する**ヘッドレ�
 pnpm add @koyomi-cal/react
 ```
 
-`react` と `react-dom` は peerDependencies です。バージョン 18 以上が必要です。
+`react` と `react-dom` は peerDependencies です。バージョン 19 系が必要です。
 
 ```json
 {
   "peerDependencies": {
-    "react": ">=18",
-    "react-dom": ">=18"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   }
 }
 ```

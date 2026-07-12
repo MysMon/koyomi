@@ -67,8 +67,8 @@
     "prepublishOnly": "pnpm typecheck && pnpm test && pnpm run build"
   },
   "peerDependencies": {
-    "react": ">=18",
-    "react-dom": ">=18"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "dependencies": {
     "@date-fns/tz": "^1.2.0",

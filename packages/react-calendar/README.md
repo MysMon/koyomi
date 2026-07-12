@@ -19,7 +19,7 @@ pnpm add @koyomi-cal/react
 # npm install @koyomi-cal/react / yarn add @koyomi-cal/react
 ```
 
-`react` / `react-dom` 18 以上が peerDependencies です。ESM のみで配布しています。
+`react` / `react-dom` 19 系が peerDependencies です。ESM のみで配布しています。
 
 ## クイックスタート
 
