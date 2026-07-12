@@ -136,9 +136,7 @@ describe('Intl.DateTimeFormat のキャッシュ', () => {
     const OriginalDateTimeFormat = Intl.DateTimeFormat;
     const spy = vi
       .spyOn(Intl, 'DateTimeFormat')
-      .mockImplementation(function (...args) {
-        return new OriginalDateTimeFormat(...args);
-      });
+      .mockImplementation((...args) => new OriginalDateTimeFormat(...args));
     formatTime(date, CACHE_TEST_TZ, 'de-DE');
     expect(spy).toHaveBeenCalledTimes(1);
     spy.mockRestore();
@@ -152,9 +150,7 @@ describe('Intl.DateTimeFormat のキャッシュ', () => {
     const OriginalDateTimeFormat = Intl.DateTimeFormat;
     const spy = vi
       .spyOn(Intl, 'DateTimeFormat')
-      .mockImplementation(function (...args) {
-        return new OriginalDateTimeFormat(...args);
-      });
+      .mockImplementation((...args) => new OriginalDateTimeFormat(...args));
     formatMonthTitle(date, CACHE_TEST_TZ, CACHE_TEST_LOCALE); // 'month-title' 種別は未キャッシュ
     expect(spy).toHaveBeenCalledTimes(1);
     spy.mockRestore();
