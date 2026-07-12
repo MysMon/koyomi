@@ -23,6 +23,13 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # TypeScript 7 系（ネイティブ実装）は tsup の dts 生成
+      # （rollup-plugin-dts が typescript ^4.5 || ^5 || ^6 のみ対応）が
+      # 未対応のためビルド不能。ツールチェーン対応後に手動で更新する。
+      - dependency-name: "typescript"
+        update-types:
+          - "version-update:semver-major"
     open-pull-requests-limit: 10
 
   # GitHub Actions（.github/workflows/ 配下の uses: を更新する）
