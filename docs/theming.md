@@ -51,6 +51,8 @@ import '@koyomi-cal/react/theme.css';
 | `--koyomi-timeline-lanes` | タイムライン行の高さ計算に使うレーン数。`--koyomi-event-color` と同様、`TimelineView` が行ごとに inline で自動設定する内部変数で、通常は利用者が直接上書きするものではない | `1`（フォールバック値） |
 | `--koyomi-month-lanes` | 月ビューの週行（`month-days`）の最小高さ計算に使うレーン数。`MonthView` / `MultiMonthView` が `dayMaxEvents` の実際の値をルート要素に inline で自動設定する内部変数で、通常は利用者が直接上書きするものではない | `4`（フォールバック値） |
 
+`event.color` / `resource.color` は任意の CSS 色を受け付けます。カスタム色を使う場合は、背景色と `--koyomi-event-fg` のコントラスト比が WCAG AA（通常文字は 4.5:1 以上）になる組み合わせを選んでください。ライト/ダークで同じ予定色を使う場合は、各テーマで文字色を明示的に上書きする必要があります。
+
 `--koyomi-month-header-height` / `--koyomi-lane-height` / `--koyomi-hour-height` はコンポーネント側の inline style（`calc()`）からも参照されるため、単なる見た目の変数ではなく実際のレイアウト寸法を決めます。値を変える場合は、対応する CSS（`min-height` など）も一緒に見直すことをおすすめします。
 
 `VirtualListView` を使う場合は、`--koyomi-virtual-list-max-height` を設定するか `[data-koyomi="list"][data-koyomi-virtualized]` に直接 `height` / `max-height` を当てて、スクロールの境界高を必ず与えてください（境界高が無いと仮想化は無効化されます）。詳細は [ビュー: リストの仮想化](./views.md#リストの仮想化大量の予定長期間) を参照。

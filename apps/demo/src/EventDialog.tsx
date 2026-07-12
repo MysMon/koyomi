@@ -80,17 +80,17 @@ const RECURRENCE_OPTIONS: readonly { value: RecurrenceOption; label: string }[] 
 ];
 
 /** 既定の予定の色（スウォッチの先頭）。 */
-const DEFAULT_EVENT_COLOR = '#7986cb';
+const DEFAULT_EVENT_COLOR = '#3f51b5';
 
 /** 色スウォッチの選択肢一覧。 */
 const EVENT_COLORS: readonly { value: string; label: string }[] = [
   { value: DEFAULT_EVENT_COLOR, label: 'ブルーベリー' },
-  { value: '#33b679', label: 'セージ' },
+  { value: '#137333', label: 'セージ' },
   { value: '#8e24aa', label: 'グレープ' },
-  { value: '#e67c73', label: 'フラミンゴ' },
-  { value: '#f6bf26', label: 'バナナ' },
-  { value: '#f4511e', label: 'タンジェリン' },
-  { value: '#039be5', label: 'ピーコック' },
+  { value: '#b3261e', label: 'フラミンゴ' },
+  { value: '#8d6e00', label: 'バナナ' },
+  { value: '#c53929', label: 'タンジェリン' },
+  { value: '#006b75', label: 'ピーコック' },
   { value: '#616161', label: 'グラファイト' },
 ];
 

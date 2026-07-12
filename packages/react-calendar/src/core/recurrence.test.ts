@@ -270,6 +270,19 @@ describe('expandRecurrence', () => {
     expect(toISO(result)[0]).toBe('2026-07-01T00:00:00.000Z');
   });
 
+  it('dtstart が BYDAY と一致しない場合は評価起点にのみ使い、オカレンスには合成しない', () => {
+    const result = expandRecurrence({
+      rrule: 'FREQ=WEEKLY;COUNT=2;BYDAY=MO',
+      dtstart: new Date('2026-07-07T09:00:00Z'), // 火曜日
+      timeZone: UTC,
+      range: {
+        start: new Date('2026-07-01T00:00:00Z'),
+        end: new Date('2026-07-21T00:00:00Z'),
+      },
+    });
+    expect(toISO(result)).toEqual(['2026-07-13T09:00:00.000Z', '2026-07-20T09:00:00.000Z']);
+  });
+
   it('範囲 end は排他であり、end ちょうどに開始するオカレンスは含まれない', () => {
     const dtstart = new Date('2026-07-01T00:00:00Z');
     const result = expandRecurrence({

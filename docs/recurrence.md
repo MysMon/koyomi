@@ -14,6 +14,10 @@ RFC 5545 の RRULE 文字列による繰り返し予定の指定方法と、Goog
 `DTSTART`（繰り返しの起点）は自分で書く必要はありません。`CalendarEvent.start`
 から自動的に補われます。
 
+`start` は RRULE の評価起点です。`BYDAY` / `BYMONTHDAY` などを指定した場合、
+`start` 自身がその条件と一致すれば最初のオカレンスに含まれます。一致しない場合は
+RRULE が生成する最初の日時から始まり、`start` を別のオカレンスとして合成しません。
+
 ```ts
 import { createCalendar } from '@koyomi-cal/react';
 
@@ -408,6 +412,8 @@ const occurrences = calendar.getOccurrences({
 - オカレンスの長さはマスターのオカレンスと同じ（`end - start`、なければ既定長）
 - 「これ以降を編集/削除」でシリーズを分割した場合、`rdates` も分割点で
   旧シリーズ・新シリーズに振り分けられます（`exdates` と同じ規則）
+- `rdates` のみの場合も各オカレンスは繰り返し扱いになり、「この予定のみ」では
+  オーバーライド/EXDATE、「これ以降」では有限の RDATE 集合の前後分割が行われます
 
 ```ts
 calendar.setEvents([

@@ -7,7 +7,7 @@
 - ⌨️ **キーボード対応** — ショートカット（t/m/w/d/a/y/q/r/l/j/k/c）に加え、フォーカス中の予定への矢印キーでの移動・リサイズ・削除・作成
 - 🎨 **ヘッドレス設計** — クラス名を持たず、`data-koyomi-*` 属性のみを出力。スタイルは自由に当てられ、デフォルトテーマ（ダークモード・RTL 対応）も同梱。UI 文言はすべて props で差し替え可能
 - 🌏 **マルチタイムゾーン** — 予定ごとのタイムゾーンと表示タイムゾーンの切り替え、DST に完全対応（date-fns v4 + @date-fns/tz）
-- 🔁 **RRULE 完全対応** — RFC 5545 の繰り返しパターンに加え、RDATE / EXDATE 相当（`rdates` / `exdates`）をサポート（rrule）
+- 🔁 **RRULE 対応** — RFC 5545 の主要な繰り返しパターンに加え、RDATE / EXDATE 相当（`rdates` / `exdates`）をサポート（rrule）
 - ♿ **アクセシブル** — WAI-ARIA grid ロール、完全な日付の `aria-label`、フォーカスリング、主要な予定操作のキーボード対応（既知の制限は [アクセシビリティ](https://github.com/koyomi-cal/koyomi/blob/main/docs/accessibility.md) を参照）
 - 🖥️ **SSR 対応** — Next.js 等のサーバーレンダリングでも例外なく初期描画が可能
 - 📜 **大量の予定に対応** — 可視範囲だけを描画するリストの仮想化（`VirtualListView`、opt-in）

@@ -213,6 +213,18 @@ function assertValidDate(date: Date): void {
   }
 }
 
+/** 有効なビュー名の一覧（{@link CalendarViewType} と同期させる）。 */
+const VIEW_TYPES: readonly CalendarViewType[] = [
+  'month',
+  'week',
+  'day',
+  'list',
+  'year',
+  'multiMonth',
+  'resource',
+  'timeline',
+];
+
 /**
  * カレンダーエンジンを作成する。
  *
@@ -250,18 +262,6 @@ function assertValidDate(date: Date): void {
  * calendar.setView('week');
  * ```
  */
-/** 有効なビュー名の一覧（{@link CalendarViewType} と同期させる）。 */
-const VIEW_TYPES: readonly CalendarViewType[] = [
-  'month',
-  'week',
-  'day',
-  'list',
-  'year',
-  'multiMonth',
-  'resource',
-  'timeline',
-];
-
 /**
  * ビュー名を検証し、未知の値なら Error を投げる。
  *

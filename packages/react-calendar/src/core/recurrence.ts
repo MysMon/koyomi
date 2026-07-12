@@ -148,7 +148,8 @@ export function normalizeRRuleString(rrule: string): string {
 /**
  * 繰り返しを展開し、指定範囲内に開始するオカレンスの開始時刻（絶対時刻）を返す。
  *
- * - `dtstart` 自身も繰り返しの最初のオカレンスとして扱われる（RRULE の仕様どおり）
+ * - `dtstart` は RRULE の評価起点になる。BYDAY / BYMONTHDAY 等の条件と一致する場合は
+ *   最初のオカレンスとして含まれ、一致しない場合はオカレンスへ別途合成しない
  * - `COUNT` / `UNTIL` を尊重する（`UNTIL` はイベント TZ の現地時刻として解釈される）
  * - `exdates` に含まれる開始時刻のオカレンスは除外する（ミリ秒単位の一致で判定）
  * - オカレンスは昇順で返す

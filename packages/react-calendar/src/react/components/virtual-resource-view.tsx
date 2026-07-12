@@ -682,6 +682,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
   }, []);
 
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
+  const focusedOccurrenceRef = useRef<string | null>(null);
   const pinnedKeys = useMemo(
     () => (focusedKey !== null ? new Set([focusedKey]) : undefined),
     [focusedKey],
@@ -745,6 +746,8 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
     const cell = target.closest('[data-koyomi-column-key]');
     const key = cell?.getAttribute('data-koyomi-column-key') ?? null;
     if (key !== null) {
+      focusedOccurrenceRef.current =
+        target.closest('[data-koyomi-occurrence]')?.getAttribute('data-koyomi-occurrence') ?? null;
       setFocusedKey(key);
     }
   }, []);
@@ -755,8 +758,23 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
     if (next instanceof Node && event.currentTarget.contains(next)) {
       return;
     }
+    focusedOccurrenceRef.current = null;
     setFocusedKey(null);
   }, []);
+
+  // 可視列から pinned 列へ切り替わる瞬間は同じキーの要素でも DOM が置き換わるため、
+  // ブラウザが body へ戻したフォーカスを対応するオカレンスへ復元する。
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const occurrenceKey = focusedOccurrenceRef.current;
+    if (root === null || occurrenceKey === null || root.contains(document.activeElement)) {
+      return;
+    }
+    const target = Array.from(root.querySelectorAll<HTMLElement>('[data-koyomi-occurrence]')).find(
+      (element) => element.getAttribute('data-koyomi-occurrence') === occurrenceKey,
+    );
+    target?.focus({ preventScroll: true });
+  });
 
   if (viewModel.type !== 'resource') {
     return null;

@@ -657,7 +657,7 @@ function ResourceView(props: ResourceViewProps): ReactElement | null
 | `emptyLabel` | `ReactNode` | 空状態（列が 1 つもない）のメッセージ（既定「リソースがありません」） |
 | `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | イベントブロックの aria-label。`defaultLabel` に既定文字列（日時＋リソース名、`ariaLabelWithResource` の結果）を渡すので加工・置換できる。省略時は既定文字列のまま |
 
-イベントブロック・リサイズハンドル・現在時刻線・プレビューは週/日ビューと同じ部位名（`timegrid-event` 等）を使い、デフォルトテーマのスタイルを共有します。a11y は週/日ビューの現状（grid 系 role なし）に合わせ、操作要素は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
+イベントブロック・リサイズハンドル・現在時刻線・プレビューは週/日ビューと同じ部位名（`timegrid-event` 等）を使い、デフォルトテーマのスタイルを共有します。列見出し行と終日行は `resource-grid` の `role="grid"` 内で `row` / `columnheader` / `gridcell` を構成し、連続時間軸の本文は grid の外に置きます。操作要素は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
 
 ### `TimelineView`
 
@@ -676,7 +676,7 @@ function TimelineView(props: TimelineViewProps): ReactElement | null
 | `cornerLabel` | `string` | ヘッダー行の角セル（行見出し列の列見出し）の `aria-label`（既定「リソース」） |
 | `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | 帯の aria-label。`defaultLabel` に既定文字列（日時＋リソース名）を渡すので加工・置換できる。省略時は既定文字列のまま |
 
-水平位置は `表示分 / totalMinutes` の % を inline で出力します（位置決めの数値のみ）。スクロールは単一の横スクロールコンテナ（`timeline-body`）で行い、行見出しはテーマ CSS の `position: sticky` で固定します（スクロール同期の JS は持ちません）。目盛りが 1,000 個を超える構成（`timelineDays × ceil(1440 / slotMinutes)`）では開発ビルドで一度だけ警告します。a11y は週/日ビューの現状に合わせ、帯は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
+水平位置は `表示分 / totalMinutes` の % を inline で出力します（位置決めの数値のみ）。スクロールは単一の横スクロールコンテナ（`timeline-body`）で行い、行見出しはテーマ CSS の `position: sticky` で固定します（スクロール同期の JS は持ちません）。目盛りが 1,000 個を超える構成（`timelineDays × ceil(1440 / slotMinutes)`）では開発ビルドで一度だけ警告します。ビュー全体が `role="grid"` で、各行は `rowheader` と時間トラックの `gridcell` を持ちます。帯は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
 
 ### `VirtualResourceView`
 

@@ -27,7 +27,7 @@
  */
 
 import { countOccurrencesBefore, normalizeRRuleString, truncateRRule } from './recurrence';
-import { parseDateValue } from './timezone';
+import { addDaysInZone, dateFromKey, dateKeyInZone, parseDateValue } from './timezone';
 import type {
   CalendarEvent,
   CalendarEventInput,
@@ -86,6 +86,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** 1 分のミリ秒数。 */
 const MINUTE_MS = 60 * 1000;
+
+/** 終日の日付キー演算に使う、DST のない基準タイムゾーン。 */
+const DATE_KEY_ZONE: TimeZoneId = 'UTC';
 
 /** {@link applyPatch} が削除を許可しない必須フィールド。 */
 const REQUIRED_KEYS: ReadonlySet<string> = new Set(['id', 'title', 'start']);
@@ -165,6 +168,48 @@ function resolveTimeZone(
   return event.timeZone ?? master?.timeZone ?? context.displayTimeZone;
 }
 
+/** RRULE または RDATE により複数オカレンスへ展開されるイベントか。 */
+function hasRecurrence(event: CalendarEvent): boolean {
+  return event.rrule !== undefined || (event.rdates?.length ?? 0) > 0;
+}
+
+/** 終日の入力値を、解釈に用いるタイムゾーンにおける日付キーへ変換する。 */
+function allDayKeyFromValue(value: Date | string, timeZone: TimeZoneId): string {
+  return dateKeyInZone(parseDateValue(value, timeZone, true), timeZone);
+}
+
+/** 表示中の終日オカレンスの絶対時刻を、表示上の日付キーへ変換する。 */
+function targetAllDayKey(occurrenceStart: Date, context: MutationContext): string {
+  return dateKeyInZone(occurrenceStart, context.displayTimeZone);
+}
+
+/** 日付キーに暦日数を加えた日付キーを返す。 */
+function addDaysToKey(key: string, amount: number): string {
+  return dateKeyInZone(
+    addDaysInZone(dateFromKey(key, DATE_KEY_ZONE), amount, DATE_KEY_ZONE),
+    DATE_KEY_ZONE,
+  );
+}
+
+/** 終日イベント 1 オカレンス分の日数を返す。 */
+function occurrenceDayCount(
+  event: CalendarEvent,
+  context: MutationContext,
+  master?: CalendarEvent,
+): number {
+  if (event.end === undefined) {
+    return 1;
+  }
+  const timeZone = resolveTimeZone(event, context, master);
+  const startKey = allDayKeyFromValue(event.start, timeZone);
+  const endKey = allDayKeyFromValue(event.end, timeZone);
+  return Math.round(
+    (dateFromKey(endKey, DATE_KEY_ZONE).getTime() -
+      dateFromKey(startKey, DATE_KEY_ZONE).getTime()) /
+      DAY_MS,
+  );
+}
+
 /** イベントの開始を絶対時刻として解釈する。 */
 function parseStart(event: CalendarEvent, context: MutationContext, master?: CalendarEvent): Date {
   return parseDateValue(
@@ -194,6 +239,30 @@ function parseOriginalStart(
 }
 
 /**
+ * 終日マスターに属するオーバーライドの本来の日付キーを返す。
+ *
+ * 内部生成する `originalStart` は日付キー文字列だが、既存データとの互換のため
+ * `Date` も受け付ける。`Date` は {@link EventOccurrence.originalStart} と同じ
+ * 「表示タイムゾーンへ投影済みの 0:00」として日付キーを取り出す。
+ */
+function overrideAllDayAnchorKey(
+  event: CalendarEvent,
+  context: MutationContext,
+  master: CalendarEvent,
+): string {
+  if (event.originalStart instanceof Date) {
+    return dateKeyInZone(event.originalStart, context.displayTimeZone);
+  }
+  if (event.originalStart !== undefined) {
+    return allDayKeyFromValue(event.originalStart, resolveTimeZone(event, context, master));
+  }
+  if (event.allDay === true) {
+    return allDayKeyFromValue(event.start, resolveTimeZone(event, context, master));
+  }
+  return dateKeyInZone(parseStart(event, context, master), context.displayTimeZone);
+}
+
+/**
  * オーバーライドが対象とするオカレンスの開始時刻を返す。
  * 通常は `originalStart`、欠落している場合は現在の開始で代用する。
  *
@@ -205,6 +274,9 @@ function overrideAnchor(
   context: MutationContext,
   master?: CalendarEvent,
 ): Date {
+  if (master?.allDay === true) {
+    return dateFromKey(overrideAllDayAnchorKey(event, context, master), context.displayTimeZone);
+  }
   return parseOriginalStart(event, context, master) ?? parseStart(event, context, master);
 }
 
@@ -242,10 +314,19 @@ function withRdates(event: CalendarEvent, rdates: readonly (Date | string)[]): C
 }
 
 /** 対象オカレンスの開始を EXDATE の末尾に追加した複製を返す。 */
-function appendExdate(event: CalendarEvent, occurrenceStart: Date): CalendarEvent {
+function appendExdate(
+  event: CalendarEvent,
+  occurrenceStart: Date,
+  context: MutationContext,
+): CalendarEvent {
   return {
     ...event,
-    exdates: [...(event.exdates ?? []), new Date(occurrenceStart.getTime())],
+    exdates: [
+      ...(event.exdates ?? []),
+      event.allDay === true
+        ? targetAllDayKey(occurrenceStart, context)
+        : new Date(occurrenceStart.getTime()),
+    ],
   };
 }
 
@@ -268,6 +349,14 @@ function findOverrideFor(
   occurrenceStart: Date,
   context: MutationContext,
 ): CalendarEvent | undefined {
+  if (master.allDay === true) {
+    const key = targetAllDayKey(occurrenceStart, context);
+    return events.find(
+      (event) =>
+        event.recurringEventId === master.id &&
+        overrideAllDayAnchorKey(event, context, master) === key,
+    );
+  }
   const time = occurrenceStart.getTime();
   return events.find((event) => {
     if (event.recurringEventId !== master.id) {
@@ -324,14 +413,27 @@ function buildOverride(
   occurrenceStart: Date,
   context: MutationContext,
 ): CalendarEvent {
-  const base: CalendarEvent = {
-    id: context.generateId(),
-    title: master.title,
-    start: new Date(occurrenceStart.getTime()),
-    end: new Date(occurrenceStart.getTime() + occurrenceDurationMs(master, context)),
-    recurringEventId: master.id,
-    originalStart: new Date(occurrenceStart.getTime()),
-  };
+  const base: CalendarEvent = (() => {
+    if (master.allDay === true) {
+      const startKey = targetAllDayKey(occurrenceStart, context);
+      return {
+        id: context.generateId(),
+        title: master.title,
+        start: startKey,
+        end: addDaysToKey(startKey, occurrenceDayCount(master, context)),
+        recurringEventId: master.id,
+        originalStart: startKey,
+      };
+    }
+    return {
+      id: context.generateId(),
+      title: master.title,
+      start: new Date(occurrenceStart.getTime()),
+      end: new Date(occurrenceStart.getTime() + occurrenceDurationMs(master, context)),
+      recurringEventId: master.id,
+      originalStart: new Date(occurrenceStart.getTime()),
+    };
+  })();
   // 表示系フィールドの継承（存在するもののみコピーする）
   if (master.allDay !== undefined) {
     base.allDay = master.allDay;
@@ -379,6 +481,75 @@ function updateThisOccurrence(
   return [...events, buildOverride(master, patch, occurrenceStart, context)];
 }
 
+/** 終日 RRULE シリーズを日付キー基準で「これ以降」に分割する。 */
+function splitAllDaySeries(
+  events: readonly CalendarEvent[],
+  master: CalendarEvent,
+  rrule: string,
+  patch: CalendarEventPatch,
+  splitPoint: Date,
+  context: MutationContext,
+): CalendarEvent[] {
+  const timeZone = resolveTimeZone(master, context);
+  const masterStartKey = allDayKeyFromValue(master.start, timeZone);
+  const splitKey = targetAllDayKey(splitPoint, context);
+  if (splitKey === masterStartKey) {
+    return mapPatch(events, master.id, patch);
+  }
+
+  const oldExdates: (Date | string)[] = [];
+  const movedExdates: (Date | string)[] = [];
+  for (const exdate of master.exdates ?? []) {
+    (allDayKeyFromValue(exdate, timeZone) < splitKey ? oldExdates : movedExdates).push(exdate);
+  }
+  const oldRdates: (Date | string)[] = [];
+  const movedRdates: (Date | string)[] = [];
+  for (const rdate of master.rdates ?? []) {
+    (allDayKeyFromValue(rdate, timeZone) < splitKey ? oldRdates : movedRdates).push(rdate);
+  }
+
+  const recurrenceStart = dateFromKey(masterStartKey, DATE_KEY_ZONE);
+  const recurrenceSplit = dateFromKey(splitKey, DATE_KEY_ZONE);
+  const truncated = truncateRRule({
+    rrule,
+    dtstart: recurrenceStart,
+    timeZone: DATE_KEY_ZONE,
+    until: recurrenceSplit,
+  });
+  const oldMaster = withRdates(withExdates({ ...master, rrule: truncated }, oldExdates), oldRdates);
+
+  const newId = context.generateId();
+  const base = withRdates(
+    withExdates(
+      {
+        ...master,
+        id: newId,
+        start: splitKey,
+        rrule: remainingRRule(rrule, recurrenceStart, DATE_KEY_ZONE, recurrenceSplit),
+      },
+      movedExdates,
+    ),
+    movedRdates,
+  );
+  if (master.end !== undefined) {
+    base.end = addDaysToKey(splitKey, occurrenceDayCount(master, context));
+  }
+  const created = applyPatch(base, patch);
+
+  const reassigned = events.map((event) => {
+    if (event.id === master.id) {
+      return oldMaster;
+    }
+    if (event.recurringEventId !== master.id) {
+      return event;
+    }
+    return overrideAllDayAnchorKey(event, context, master) >= splitKey
+      ? { ...event, recurringEventId: newId }
+      : event;
+  });
+  return [...reassigned, created];
+}
+
 /**
  * `scope: 'thisAndFollowing'` の更新（シリーズ分割）。
  *
@@ -395,6 +566,9 @@ function splitSeries(
   splitPoint: Date,
   context: MutationContext,
 ): CalendarEvent[] {
+  if (master.allDay === true) {
+    return splitAllDaySeries(events, master, rrule, patch, splitPoint, context);
+  }
   const masterStart = parseStart(master, context);
   if (splitPoint.getTime() === masterStart.getTime()) {
     return mapPatch(events, master.id, patch);
@@ -466,6 +640,46 @@ function splitSeries(
   return [...reassigned, created];
 }
 
+/** 終日 RRULE シリーズを日付キー基準で分割点より前へ打ち切る。 */
+function truncateAllDaySeries(
+  events: readonly CalendarEvent[],
+  master: CalendarEvent,
+  rrule: string,
+  splitPoint: Date,
+  context: MutationContext,
+): CalendarEvent[] {
+  const timeZone = resolveTimeZone(master, context);
+  const masterStartKey = allDayKeyFromValue(master.start, timeZone);
+  const splitKey = targetAllDayKey(splitPoint, context);
+  if (splitKey === masterStartKey) {
+    return events.filter((event) => event.id !== master.id && event.recurringEventId !== master.id);
+  }
+
+  const keptExdates = (master.exdates ?? []).filter(
+    (exdate) => allDayKeyFromValue(exdate, timeZone) < splitKey,
+  );
+  const keptRdates = (master.rdates ?? []).filter(
+    (rdate) => allDayKeyFromValue(rdate, timeZone) < splitKey,
+  );
+  const truncated = truncateRRule({
+    rrule,
+    dtstart: dateFromKey(masterStartKey, DATE_KEY_ZONE),
+    timeZone: DATE_KEY_ZONE,
+    until: dateFromKey(splitKey, DATE_KEY_ZONE),
+  });
+  const updatedMaster = withRdates(
+    withExdates({ ...master, rrule: truncated }, keptExdates),
+    keptRdates,
+  );
+  return events
+    .filter(
+      (event) =>
+        event.recurringEventId !== master.id ||
+        overrideAllDayAnchorKey(event, context, master) < splitKey,
+    )
+    .map((event) => (event.id === master.id ? updatedMaster : event));
+}
+
 /**
  * `scope: 'thisAndFollowing'` の削除（シリーズ打ち切り）。
  *
@@ -480,6 +694,9 @@ function truncateSeries(
   splitPoint: Date,
   context: MutationContext,
 ): CalendarEvent[] {
+  if (master.allDay === true) {
+    return truncateAllDaySeries(events, master, rrule, splitPoint, context);
+  }
   const masterStart = parseStart(master, context);
   if (splitPoint.getTime() === masterStart.getTime()) {
     return events.filter((event) => event.id !== master.id && event.recurringEventId !== master.id);
@@ -505,6 +722,134 @@ function truncateSeries(
         return true;
       }
       return overrideAnchor(event, context, master).getTime() < splitTime;
+    })
+    .map((event) => (event.id === master.id ? updatedMaster : event));
+}
+
+/** RDATE-only シリーズ内の値が分割点より前かを判定する。 */
+function seriesValueIsBefore(
+  master: CalendarEvent,
+  value: Date | string,
+  splitPoint: Date,
+  context: MutationContext,
+): boolean {
+  if (master.allDay === true) {
+    return (
+      allDayKeyFromValue(value, resolveTimeZone(master, context)) <
+      targetAllDayKey(splitPoint, context)
+    );
+  }
+  return (
+    parseDateValue(value, resolveTimeZone(master, context), false).getTime() < splitPoint.getTime()
+  );
+}
+
+/** RDATE-only シリーズ内の値が分割点と一致するかを判定する。 */
+function seriesValueIsAt(
+  master: CalendarEvent,
+  value: Date | string,
+  splitPoint: Date,
+  context: MutationContext,
+): boolean {
+  if (master.allDay === true) {
+    return (
+      allDayKeyFromValue(value, resolveTimeZone(master, context)) ===
+      targetAllDayKey(splitPoint, context)
+    );
+  }
+  return (
+    parseDateValue(value, resolveTimeZone(master, context), false).getTime() ===
+    splitPoint.getTime()
+  );
+}
+
+/** RDATE-only シリーズを「これ以降」に分割する。 */
+function splitRdateSeries(
+  events: readonly CalendarEvent[],
+  master: CalendarEvent,
+  patch: CalendarEventPatch,
+  splitPoint: Date,
+  context: MutationContext,
+): CalendarEvent[] {
+  if (seriesValueIsAt(master, master.start, splitPoint, context)) {
+    return mapPatch(events, master.id, patch);
+  }
+
+  const oldExdates: (Date | string)[] = [];
+  const movedExdates: (Date | string)[] = [];
+  for (const exdate of master.exdates ?? []) {
+    (seriesValueIsBefore(master, exdate, splitPoint, context) ? oldExdates : movedExdates).push(
+      exdate,
+    );
+  }
+  const oldRdates: (Date | string)[] = [];
+  const movedRdates: (Date | string)[] = [];
+  for (const rdate of master.rdates ?? []) {
+    if (seriesValueIsBefore(master, rdate, splitPoint, context)) {
+      oldRdates.push(rdate);
+    } else if (!seriesValueIsAt(master, rdate, splitPoint, context)) {
+      // 分割点自身は新シリーズの start が表すため、rdates へ重複して持たせない。
+      movedRdates.push(rdate);
+    }
+  }
+
+  const oldMaster = withRdates(withExdates(master, oldExdates), oldRdates);
+  const newId = context.generateId();
+  const splitStart: Date | string =
+    master.allDay === true ? targetAllDayKey(splitPoint, context) : new Date(splitPoint.getTime());
+  const base = withRdates(
+    withExdates({ ...master, id: newId, start: splitStart }, movedExdates),
+    movedRdates,
+  );
+  if (master.end !== undefined) {
+    base.end =
+      master.allDay === true
+        ? addDaysToKey(String(splitStart), occurrenceDayCount(master, context))
+        : new Date(splitPoint.getTime() + occurrenceDurationMs(master, context));
+  }
+  const created = applyPatch(base, patch);
+
+  const reassigned = events.map((event) => {
+    if (event.id === master.id) {
+      return oldMaster;
+    }
+    if (event.recurringEventId !== master.id) {
+      return event;
+    }
+    const atOrAfter =
+      master.allDay === true
+        ? overrideAllDayAnchorKey(event, context, master) >= targetAllDayKey(splitPoint, context)
+        : overrideAnchor(event, context, master).getTime() >= splitPoint.getTime();
+    return atOrAfter ? { ...event, recurringEventId: newId } : event;
+  });
+  return [...reassigned, created];
+}
+
+/** RDATE-only シリーズを分割点より前へ打ち切る。 */
+function truncateRdateSeries(
+  events: readonly CalendarEvent[],
+  master: CalendarEvent,
+  splitPoint: Date,
+  context: MutationContext,
+): CalendarEvent[] {
+  if (seriesValueIsAt(master, master.start, splitPoint, context)) {
+    return events.filter((event) => event.id !== master.id && event.recurringEventId !== master.id);
+  }
+  const keptExdates = (master.exdates ?? []).filter((exdate) =>
+    seriesValueIsBefore(master, exdate, splitPoint, context),
+  );
+  const keptRdates = (master.rdates ?? []).filter((rdate) =>
+    seriesValueIsBefore(master, rdate, splitPoint, context),
+  );
+  const updatedMaster = withRdates(withExdates(master, keptExdates), keptRdates);
+  return events
+    .filter((event) => {
+      if (event.recurringEventId !== master.id) {
+        return true;
+      }
+      return master.allDay === true
+        ? overrideAllDayAnchorKey(event, context, master) < targetAllDayKey(splitPoint, context)
+        : overrideAnchor(event, context, master).getTime() < splitPoint.getTime();
     })
     .map((event) => (event.id === master.id ? updatedMaster : event));
 }
@@ -589,7 +934,7 @@ export function updateEventIn(
   }
 
   // 単発イベント（オーバーライド自身を含む）または target 省略時は直接適用する
-  if (event.rrule === undefined || target === undefined) {
+  if (!hasRecurrence(event) || target === undefined) {
     return mapPatch(events, id, patch);
   }
 
@@ -598,6 +943,9 @@ export function updateEventIn(
   }
   if (target.scope === 'this') {
     return updateThisOccurrence(events, event, patch, target.occurrenceStart, context);
+  }
+  if (event.rrule === undefined) {
+    return splitRdateSeries(events, event, patch, target.occurrenceStart, context);
   }
   return splitSeries(events, event, event.rrule, patch, target.occurrenceStart, context);
 }
@@ -647,7 +995,7 @@ export function deleteEventIn(
       // オーバーライドを除去し、元のオカレンス（originalStart）を親の EXDATE に追加する
       const original = overrideAnchor(event, context, parentEvent);
       return remaining.map((other) =>
-        other.id === parentId ? appendExdate(other, original) : other,
+        other.id === parentId ? appendExdate(other, original, context) : other,
       );
     }
     // 'thisAndFollowing' / 'all' は親シリーズに対して適用する
@@ -658,7 +1006,7 @@ export function deleteEventIn(
   }
 
   // 単発イベントは target にかかわらず取り除く
-  if (event.rrule === undefined) {
+  if (!hasRecurrence(event)) {
     return events.filter((other) => other.id !== id);
   }
 
@@ -674,13 +1022,16 @@ export function deleteEventIn(
       const original = overrideAnchor(override, context, event);
       return events
         .filter((other) => other.id !== override.id)
-        .map((other) => (other.id === id ? appendExdate(other, original) : other));
+        .map((other) => (other.id === id ? appendExdate(other, original, context) : other));
     }
     return events.map((other) =>
-      other.id === id ? appendExdate(other, target.occurrenceStart) : other,
+      other.id === id ? appendExdate(other, target.occurrenceStart, context) : other,
     );
   }
 
+  if (event.rrule === undefined) {
+    return truncateRdateSeries(events, event, target.occurrenceStart, context);
+  }
   return truncateSeries(events, event, event.rrule, target.occurrenceStart, context);
 }
 
@@ -903,36 +1254,45 @@ export function moveOccurrenceIn(
   context: MutationContext,
 ): CalendarEvent[] {
   const event = findEventOrThrow(events, id);
-  const isRecurring = event.rrule !== undefined || event.recurringEventId !== undefined;
+  const isRecurring = hasRecurrence(event) || event.recurringEventId !== undefined;
   if (isRecurring && params.scope === undefined) {
     throw new Error(`繰り返しイベントの移動には scope の指定が必要です: '${id}'`);
   }
   // マスターの ID + 本来の開始時刻（originalStart）で「オーバーライド済みのオカレンス」を
   // 移動する場合は、マスターの既定の長さではなく、そのオーバーライド固有の長さを維持する
-  const override =
-    event.rrule !== undefined
-      ? findOverrideFor(events, event, params.occurrenceStart, context)
-      : undefined;
+  const override = hasRecurrence(event)
+    ? findOverrideFor(events, event, params.occurrenceStart, context)
+    : undefined;
   // 対象オカレンスの変換前の allDay フラグ（オーバーライド済みならオーバーライド自身の値）
   const currentAllDay = (override ?? event).allDay ?? false;
   const allDayChanges = params.allDay !== undefined && params.allDay !== currentAllDay;
-  const end =
-    params.newEnd !== undefined
-      ? new Date(params.newEnd.getTime())
-      : allDayChanges
-        ? // allDay が変化する変換で newEnd 省略時は、変換前の実ミリ秒差をそのまま
-          // 引き継がず、終日化はちょうど 1 日・時間指定化は defaultEventMinutes を使う
-          new Date(
-            params.newStart.getTime() +
-              (params.allDay === true ? DAY_MS : context.defaultEventMinutes * MINUTE_MS),
-          )
-        : new Date(
-            params.newStart.getTime() +
-              (override !== undefined
-                ? occurrenceDurationMs(override, context, event)
-                : occurrenceDurationMs(event, context)),
-          );
-  const patch: CalendarEventPatch = { start: new Date(params.newStart.getTime()), end };
+  const destinationAllDay = params.allDay ?? currentAllDay;
+  let patch: CalendarEventPatch;
+  if (destinationAllDay) {
+    const startKey = targetAllDayKey(params.newStart, context);
+    const dayCount = allDayChanges
+      ? 1
+      : occurrenceDayCount(override ?? event, context, override === undefined ? undefined : event);
+    const endKey =
+      params.newEnd === undefined
+        ? addDaysToKey(startKey, dayCount)
+        : targetAllDayKey(params.newEnd, context);
+    patch = { start: startKey, end: endKey };
+  } else {
+    const end =
+      params.newEnd !== undefined
+        ? new Date(params.newEnd.getTime())
+        : allDayChanges
+          ? // 終日から時間指定への変換で newEnd 省略時は defaultEventMinutes を使う
+            new Date(params.newStart.getTime() + context.defaultEventMinutes * MINUTE_MS)
+          : new Date(
+              params.newStart.getTime() +
+                (override !== undefined
+                  ? occurrenceDurationMs(override, context, event)
+                  : occurrenceDurationMs(event, context)),
+            );
+    patch = { start: new Date(params.newStart.getTime()), end };
+  }
   if (params.allDay !== undefined) {
     patch.allDay = params.allDay;
   }

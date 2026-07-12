@@ -54,6 +54,15 @@
   --demo-shadow: 0 8px 28px rgba(32, 33, 36, 0.18);
 }
 
+/* デモの予定色はライト/ダーク共通の濃色パレットなので、ダークテーマでも
+ * 白文字を維持して WCAG AA のコントラストを確保する。 */
+:root[data-koyomi-theme="dark"] [data-koyomi="month-event"][data-all-day],
+:root[data-koyomi-theme="dark"] [data-koyomi="allday-event"],
+:root[data-koyomi-theme="dark"] [data-koyomi="timegrid-event"],
+:root[data-koyomi-theme="dark"] [data-koyomi="timeline-item"] {
+  --koyomi-event-fg: #ffffff;
+}
+
 * {
   box-sizing: border-box;
 }

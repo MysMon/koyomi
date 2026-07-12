@@ -1,5 +1,5 @@
 # CI: Lint（Biome）・型チェック（tsc）・テスト（Vitest・カバレッジ付き）・ビルド（tsup）
-# ・パッケージ検査（publint / attw / pack スモークテスト）を実行する。
+# ・実ブラウザ E2E（Playwright）・パッケージ検査（publint / attw / pack スモークテスト）を実行する。
 # Node の互換性を確認するため、下限（20.19.0）と最新 LTS（24）の 2 レグで検証する。
 name: CI
 
@@ -36,6 +36,10 @@ jobs:
         if: matrix.id == 'main'
         run: pnpm terms
 
+      - name: 実装・テスト対応チェック（main レグのみ）
+        if: matrix.id == 'main'
+        run: pnpm test:pairs
+
       - name: Lint（Biome）（main レグのみ）
         if: matrix.id == 'main'
         run: pnpm lint
@@ -58,6 +62,14 @@ jobs:
       - name: デモのビルド（main レグのみ）
         if: matrix.id == 'main'
         run: pnpm --filter @koyomi-cal/demo build
+
+      - name: Playwright ブラウザのインストール（main レグのみ）
+        if: matrix.id == 'main'
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
+
+      - name: 実ブラウザ E2E（main レグのみ）
+        if: matrix.id == 'main'
+        run: pnpm test:e2e
 
       - name: パッケージ検査（publint / arethetypeswrong、main レグのみ）
         if: matrix.id == 'main'

@@ -106,7 +106,7 @@ export const sampleEvents: CalendarEvent[] = [
     end: `${dayKey(2)}T10:15:00`,
     recurringEventId: 'sample-daily-standup',
     originalStart: `${dayKey(2)}T09:00:00`,
-    color: '#ab47bc',
+    color: '#7b1fa2',
     location: '会議室 A',
     description: '朝会を 1 時間後ろ倒しにした回（振替）。',
   },
@@ -118,7 +118,7 @@ export const sampleEvents: CalendarEvent[] = [
     start: `${dayKey(0)}T14:00:00`,
     end: `${dayKey(0)}T15:00:00`,
     rrule: `FREQ=WEEKLY;BYDAY=${todayByDayCode()}`,
-    color: '#039be5',
+    color: '#006b75',
     location: '会議室 A',
     description: '週次の進捗確認とふりかえり。',
   },
@@ -131,7 +131,7 @@ export const sampleEvents: CalendarEvent[] = [
     end: `${dayKey(1)}T14:00:00`,
     rrule: `FREQ=WEEKLY;BYDAY=${byDayCodeForOffset(1)}`,
     exdates: [`${dayKey(15)}T13:00:00`],
-    color: '#7cb342',
+    color: '#2e7d32',
     location: '会議室 B',
     description: '2 週間後の回は EXDATE により休会（表示されない）。',
   },
@@ -143,7 +143,7 @@ export const sampleEvents: CalendarEvent[] = [
     start: `${dayKey(-2)}T16:00:00`,
     end: `${dayKey(-2)}T17:30:00`,
     rrule: `FREQ=WEEKLY;BYDAY=${byDayCodeForOffset(-2)};COUNT=5`,
-    color: '#fb8c00',
+    color: '#a14600',
     location: '会議室 B',
     description: '全 5 回のシリーズ（COUNT=5）。',
   },
@@ -154,7 +154,7 @@ export const sampleEvents: CalendarEvent[] = [
     start: `${dayKey(0)}T08:00:00`,
     end: `${dayKey(0)}T08:30:00`,
     rrule: `FREQ=DAILY;UNTIL=${untilAt(10, 8, 30)}`,
-    color: '#00acc1',
+    color: '#006978',
     description: '施策終了予定日まで毎日実施（UNTIL 付き）。',
   },
   {
@@ -177,7 +177,7 @@ export const sampleEvents: CalendarEvent[] = [
     resourceId: 'room-b',
     start: `${dayKey(0)}T10:00:00`,
     end: `${dayKey(0)}T11:00:00`,
-    color: '#e67c73',
+    color: '#b3261e',
     location: '会議室 B',
     extendedProps: { department: '営業部', dealStage: '提案' },
   },
@@ -188,7 +188,7 @@ export const sampleEvents: CalendarEvent[] = [
     resourceId: 'room-b',
     start: `${dayKey(0)}T10:00:00`,
     end: `${dayKey(0)}T11:00:00`,
-    color: '#f4511e',
+    color: '#c53929',
     location: '会議室 C',
     extendedProps: { department: '人事部', candidateId: 'C-1042' },
   },
@@ -199,7 +199,7 @@ export const sampleEvents: CalendarEvent[] = [
     start: dayKey(0),
     end: dayKey(1),
     allDay: true,
-    color: '#33b679',
+    color: '#137333',
   },
   {
     // 明日から 3 日間にまたがる終日イベント（end は排他的なので +3 日）。
@@ -229,7 +229,7 @@ export const sampleEvents: CalendarEvent[] = [
     start: `${dayKey(1)}T21:00:00`,
     end: `${dayKey(1)}T21:30:00`,
     timeZone: 'America/New_York',
-    color: '#8ab4f8',
+    color: '#315da8',
     description: 'ニューヨークオフィスとの定例ミーティング（NY時間 21:00 開始）。',
   },
   {
@@ -249,7 +249,7 @@ export const sampleEvents: CalendarEvent[] = [
     resourceId: 'room-a',
     start: `${dayKey(1)}T15:00:00`,
     end: `${dayKey(1)}T15:30:00`,
-    color: '#7986cb',
+    color: '#3f51b5',
   },
 ];
 
@@ -307,15 +307,15 @@ const MEMBER_SURNAMES: readonly string[] = [
 /** {@link makeManyResources} / {@link makeManyEvents} が使う色のローテーション。 */
 const MEMBER_COLORS: readonly string[] = [
   '#3f51b5',
-  '#00897b',
-  '#ef6c00',
+  '#00695c',
+  '#a64200',
   '#8e24aa',
-  '#039be5',
-  '#e67c73',
-  '#7cb342',
+  '#006b75',
+  '#b3261e',
+  '#2e7d32',
   '#5e35b1',
-  '#fb8c00',
-  '#00acc1',
+  '#a14600',
+  '#006978',
 ];
 
 /**

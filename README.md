@@ -7,9 +7,9 @@
 - ⌨️ **キーボード完結** — ショートカットに加え、矢印キーでの予定の移動・リサイズ・削除・作成
 - 🎨 **ヘッドレス設計** — ロジックとマークアップのみを提供し、スタイルは自由。デフォルトテーマ（ダークモード・RTL 対応）も同梱
 - 🌏 **マルチタイムゾーン** — 予定ごとのタイムゾーンと表示タイムゾーンの切り替えに対応（date-fns v4 + @date-fns/tz）
-- 🔁 **RRULE 完全対応** — RFC 5545 の繰り返しパターンに加え、RDATE / EXDATE 相当（`rdates` / `exdates`）をサポート（rrule）
+- 🔁 **RRULE 対応** — RFC 5545 の主要な繰り返しパターンに加え、RDATE / EXDATE 相当（`rdates` / `exdates`）をサポート（rrule）
 - 📜 **大量の予定に対応** — 可視範囲だけを描画するリストの仮想化（`VirtualListView`、opt-in）
-- 🧪 **TDD** — Vitest によるテスト駆動開発（750 超のテスト）
+- 🧪 **TDD** — Vitest によるテスト駆動開発（1,800 超のテスト）
 
 ## ドキュメント
 
@@ -35,7 +35,8 @@ pnpm add @koyomi-cal/react
 
 ```bash
 pnpm install
-pnpm check   # Lint + 型チェック + テスト
+pnpm check   # 用語・テスト配置 + Lint + 型チェック + Vitest
+pnpm test:e2e # Playwright（Chromium / Firefox / WebKit / touch / axe）
 pnpm demo    # デモアプリを起動
 ```
 

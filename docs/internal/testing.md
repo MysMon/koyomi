@@ -11,12 +11,13 @@ Koyomi のテストの位置づけ・書き方・置き場所を定める。用�
 ## `.test.ts` と `.spec.ts` の使い分け
 
 - **`.test.ts(x)`** — Vitest で実行する単体・結合テスト（jsdom 含む）。本リポジトリのテストは現在すべてこれに該当する
-- **`.spec.ts(x)`** — 実ブラウザで実行する E2E・ビジュアル回帰などの**別レイヤーのテスト専用**に予約する（Playwright 等を導入した場合）。Vitest のテストに `.spec` を使わない
+- **`.spec.ts(x)`** — `e2e/` 配下で Playwright が実行する実ブラウザ E2E 専用。Vitest のテストに `.spec` を使わない
 - つまり接尾辞は「テストの実行レイヤー」を表す。同じレイヤー内での目的の違い（振る舞いの確定か回帰防止か等）は接尾辞・ファイル分割で表現しない
 
 ## 置き場所と構造
 
 - Vitest のテストは**実装ファイルと同階層の `*.test.ts(x)`**（1 実装ファイルにつき 1 テストファイル）。目的別の別ファイルや専用ディレクトリは作らない
+- `pnpm test:pairs` が実装と同名の `.test.ts` / `.test.tsx` の存在を検査する。型宣言だけの `types.ts` と公開 barrel の `index.ts` は対象外
 - **describe はテスト対象の振る舞い・機能で分類する。**経緯・手法（「リグレッション」「監査で追加」等）によるグループ化はしない
 - 複数モジュールにまたがる検証は、対象モジュールごとに分割してそれぞれのテストファイルへ置く
 
@@ -31,6 +32,7 @@ Koyomi のテストの位置づけ・書き方・置き場所を定める。用�
 - テストプロセスは `TZ=Asia/Tokyo` 固定（`vitest.config.ts`）。他タイムゾーンの検証は `TZDate` や明示的な IANA ID 指定で行う
 - DOM を伴うテストは jsdom。`getBoundingClientRect` / `elementsFromPoint` / `PointerEvent` など jsdom が実装しない API は既存テストのモックパターン（`mockRect` / `mockElementsFromPoint` / `MouseEvent` 代用）に倣う
 - 単一ファイルの実行: `pnpm --filter @koyomi-cal/react exec vitest run <path>`。コミット前は必ず `pnpm check`
+- 実ブラウザ E2E: `pnpm test:e2e`。Chromium / Firefox / WebKit で主要操作、Chromium の実タッチ入力、仮想化スクロールとフォーカス保持、axe による WCAG 2.0 A/AA の自動検査を行う
 
 ## カバレッジの考え方
 

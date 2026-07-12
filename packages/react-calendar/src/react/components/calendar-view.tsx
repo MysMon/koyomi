@@ -221,8 +221,10 @@ export interface CalendarViewProps {
 }
 
 /**
- * 現在のビュー（`state.view`）に応じて `MonthView` / `TimeGridView` /
- * `ListView` を出し分けるコンポーネント。
+ * 現在のビュー（`state.view`）に応じて、月・週/日・リスト・年・複数月・
+ * リソース・タイムラインの各ビューコンポーネントを出し分ける。
+ * `virtualizeList` / `virtualizeResource` / `virtualizeTimeline` を指定したビューでは、
+ * 対応する仮想化版コンポーネントを描画する。
  *
  * `CalendarProvider` の配下で使用する。ルート要素には
  * `data-koyomi="root"` と `data-koyomi-view` が付き、デフォルトテーマの

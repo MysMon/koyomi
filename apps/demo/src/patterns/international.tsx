@@ -101,7 +101,7 @@ const internationalOnlyEvents: CalendarEvent[] = [
     start: `${dayKey(0)}T09:00:00`,
     end: `${dayKey(0)}T09:20:00`,
     timeZone: 'America/New_York',
-    color: '#8ab4f8',
+    color: '#315da8',
     description: 'ニューヨークオフィスの朝会（NY 時間 9:00 開始）。',
   },
   {
@@ -110,7 +110,7 @@ const internationalOnlyEvents: CalendarEvent[] = [
     start: `${dayKey(1)}T15:00:00`,
     end: `${dayKey(1)}T16:00:00`,
     timeZone: 'Europe/London',
-    color: '#33b679',
+    color: '#137333',
     location: 'ロンドンオフィス',
     description: 'ロンドンオフィスとのデザインレビュー（ロンドン時間 15:00 開始）。',
   },
@@ -119,7 +119,7 @@ const internationalOnlyEvents: CalendarEvent[] = [
     title: '三極定例（東京・NY・ロンドン）',
     start: `${dayKey(2)}T22:00:00`,
     end: `${dayKey(2)}T22:30:00`,
-    color: '#f4511e',
+    color: '#c53929',
     description: '東京・ニューヨーク・ロンドンの三拠点が参加しやすい時間帯に設定した定例。',
   },
 ];

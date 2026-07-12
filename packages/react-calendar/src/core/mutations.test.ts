@@ -12,6 +12,7 @@
  * - 開始: 2026-03-08 02:00（EST(UTC-5) → EDT(UTC-4)、9:00 は 14:00Z → 13:00Z になる）
  */
 import { describe, expect, it } from 'vitest';
+import { expandEvents } from './expansion';
 import {
   applyPatch,
   createEventIn,
@@ -476,8 +477,8 @@ describe("updateEventIn: scope 'this'（オーバーライド作成）", () => {
     );
     const override = findById(result, 'gen-1');
     expect(override.allDay).toBe(true);
-    expect(override.start).toEqual(new Date('2026-07-07T15:00:00Z'));
-    expect(override.end).toEqual(new Date('2026-07-08T15:00:00Z')); // 1 日分
+    expect(override.start).toBe('2026-07-08');
+    expect(override.end).toBe('2026-07-09'); // 1 暦日分
   });
 
   it('既にオーバーライドされたオカレンス（originalStart 一致）への再編集はオーバーライドに直接適用する', () => {
@@ -1305,7 +1306,8 @@ describe('moveOccurrenceIn', () => {
     );
     const moved = findById(result, 'single-1');
     expect(moved.allDay).toBe(true);
-    expect(moved.start).toEqual(new Date('2026-07-01T15:00:00Z'));
+    expect(moved.start).toBe('2026-07-02');
+    expect(moved.end).toBe('2026-07-03');
   });
 
   it('allDay: false + newEnd 指定で終日 → 時間指定に変換できる', () => {
@@ -1355,8 +1357,8 @@ describe('moveOccurrenceIn', () => {
     );
     const moved = findById(result, 'timed-1');
     expect(moved.allDay).toBe(true);
-    expect(moved.start).toEqual(new Date('2026-07-10T00:00:00Z'));
-    expect(moved.end).toEqual(new Date('2026-07-11T00:00:00Z')); // ちょうど 1 日後（26 時間ではない）
+    expect(moved.start).toBe('2026-07-10');
+    expect(moved.end).toBe('2026-07-11'); // ちょうど 1 暦日後（26 時間ではない）
   });
 
   it('allDay: false への変換で newEnd 省略時、変換前の長さ（3 日間）を引き継がず defaultEventMinutes になる', () => {
@@ -1482,6 +1484,682 @@ describe('moveOccurrenceIn', () => {
         makeContext(),
       ),
     ).toThrow(/イベントが見つかりません/);
+  });
+});
+
+describe('終日繰り返しの変更境界', () => {
+  const auditRange = {
+    start: new Date('2026-06-29T00:00:00Z'),
+    end: new Date('2026-11-10T00:00:00Z'),
+  };
+
+  function occurrenceTitles(
+    events: readonly CalendarEvent[],
+    displayTimeZone: string,
+  ): readonly [string, string][] {
+    return expandEvents({
+      events,
+      range: auditRange,
+      displayTimeZone,
+      defaultEventMinutes: 60,
+    }).map((occurrence) => [occurrence.start.toISOString(), occurrence.event.title]);
+  }
+
+  it('イベント TZ と表示 TZ が異なっても this 更新は対象の日付だけに作用する', () => {
+    const master: CalendarEvent = {
+      id: 'cross-zone-all-day',
+      title: '変更前',
+      start: '2026-07-01',
+      end: '2026-07-02',
+      allDay: true,
+      timeZone: NY,
+      rrule: 'FREQ=DAILY;COUNT=3',
+    };
+    // 東京 7/2 0:00。ニューヨークでは 7/1 11:00 だが、終日は東京表示上の
+    // 日付キー 7/2 を対象として維持しなければならない。
+    const target = new Date('2026-07-01T15:00:00Z');
+    const result = updateEventIn(
+      [master],
+      master.id,
+      { title: '変更後' },
+      { occurrenceStart: target, scope: 'this' },
+      makeContext({ displayTimeZone: TOKYO }),
+    );
+
+    expect(occurrenceTitles(result, TOKYO).slice(0, 3)).toEqual([
+      ['2026-06-30T15:00:00.000Z', '変更前'],
+      ['2026-07-01T15:00:00.000Z', '変更後'],
+      ['2026-07-02T15:00:00.000Z', '変更前'],
+    ]);
+  });
+
+  it('イベント TZ と表示 TZ が異なっても this 削除は対象の日付だけを除外する', () => {
+    const master: CalendarEvent = {
+      id: 'cross-zone-delete',
+      title: '終日',
+      start: '2026-07-01',
+      end: '2026-07-02',
+      allDay: true,
+      timeZone: NY,
+      rrule: 'FREQ=DAILY;COUNT=3',
+    };
+    const result = deleteEventIn(
+      [master],
+      master.id,
+      { occurrenceStart: new Date('2026-07-01T15:00:00Z'), scope: 'this' },
+      makeContext({ displayTimeZone: TOKYO }),
+    );
+
+    expect(occurrenceTitles(result, TOKYO).slice(0, 3)).toEqual([
+      ['2026-06-30T15:00:00.000Z', '終日'],
+      ['2026-07-02T15:00:00.000Z', '終日'],
+    ]);
+  });
+
+  it('イベント TZ と表示 TZ が異なっても thisAndFollowing の分割日はずれない', () => {
+    const master: CalendarEvent = {
+      id: 'cross-zone-following',
+      title: '変更前',
+      start: '2026-07-01',
+      end: '2026-07-02',
+      allDay: true,
+      timeZone: NY,
+      rrule: 'FREQ=DAILY;COUNT=3',
+    };
+    const result = updateEventIn(
+      [master],
+      master.id,
+      { title: '変更後' },
+      {
+        occurrenceStart: new Date('2026-07-01T15:00:00Z'),
+        scope: 'thisAndFollowing',
+      },
+      makeContext({ displayTimeZone: TOKYO }),
+    );
+
+    expect(occurrenceTitles(result, TOKYO).slice(0, 3)).toEqual([
+      ['2026-06-30T15:00:00.000Z', '変更前'],
+      ['2026-07-01T15:00:00.000Z', '変更後'],
+      ['2026-07-02T15:00:00.000Z', '変更後'],
+    ]);
+  });
+
+  it('イベント TZ と表示 TZ が異なる this 移動も対象の日付キーを維持する', () => {
+    const master: CalendarEvent = {
+      id: 'cross-zone-move',
+      title: '終日',
+      start: '2026-07-01',
+      end: '2026-07-02',
+      allDay: true,
+      timeZone: NY,
+      rrule: 'FREQ=DAILY;COUNT=3',
+    };
+    const result = moveOccurrenceIn(
+      [master],
+      master.id,
+      {
+        occurrenceStart: new Date('2026-07-01T15:00:00Z'),
+        newStart: new Date('2026-07-04T15:00:00Z'),
+        scope: 'this',
+      },
+      makeContext({ displayTimeZone: TOKYO }),
+    );
+
+    expect(
+      occurrenceTitles(result, TOKYO)
+        .slice(0, 3)
+        .map(([start]) => start),
+    ).toEqual(['2026-06-30T15:00:00.000Z', '2026-07-02T15:00:00.000Z', '2026-07-04T15:00:00.000Z']);
+    const override = result.find((event) => event.recurringEventId === master.id);
+    expect(override?.originalStart).toBe('2026-07-02');
+    expect(override?.start).toBe('2026-07-05');
+    expect(override?.end).toBe('2026-07-06');
+  });
+
+  it('DST 終了日の this 更新でも終日オカレンスが 1 暦日のまま残る', () => {
+    const master: CalendarEvent = {
+      id: 'dst-fall-all-day',
+      title: '変更前',
+      start: '2026-10-25',
+      allDay: true,
+      rrule: 'FREQ=WEEKLY;COUNT=3',
+    };
+    const target = new Date('2026-11-01T04:00:00Z'); // NY 11/1 0:00（25 時間の日）
+    const result = updateEventIn(
+      [master],
+      master.id,
+      { title: '変更後' },
+      { occurrenceStart: target, scope: 'this' },
+      makeContext({ displayTimeZone: NY }),
+    );
+    const occurrences = expandEvents({
+      events: result,
+      range: auditRange,
+      displayTimeZone: NY,
+      defaultEventMinutes: 60,
+    });
+
+    expect(occurrences).toHaveLength(3);
+    const changed = occurrences.find((occurrence) => occurrence.event.title === '変更後');
+    expect(changed?.start.toISOString()).toBe('2026-11-01T04:00:00.000Z');
+    expect(changed?.end.toISOString()).toBe('2026-11-02T05:00:00.000Z');
+  });
+
+  it('DST 開始日の this 更新でも終日オカレンスが 1 暦日のまま残る', () => {
+    const master: CalendarEvent = {
+      id: 'dst-spring-all-day',
+      title: '変更前',
+      start: '2026-03-01',
+      allDay: true,
+      rrule: 'FREQ=WEEKLY;COUNT=3',
+    };
+    const result = updateEventIn(
+      [master],
+      master.id,
+      { title: '変更後' },
+      { occurrenceStart: new Date('2026-03-08T05:00:00Z'), scope: 'this' },
+      makeContext({ displayTimeZone: NY }),
+    );
+    const occurrences = expandEvents({
+      events: result,
+      range: {
+        start: new Date('2026-02-28T00:00:00Z'),
+        end: new Date('2026-03-20T00:00:00Z'),
+      },
+      displayTimeZone: NY,
+      defaultEventMinutes: 60,
+    });
+
+    expect(occurrences).toHaveLength(3);
+    const changed = occurrences.find((occurrence) => occurrence.event.title === '変更後');
+    expect(changed?.start.toISOString()).toBe('2026-03-08T05:00:00.000Z');
+    expect(changed?.end.toISOString()).toBe('2026-03-09T04:00:00.000Z');
+  });
+
+  it('明示 end を持つ複数日の終日予定も DST 終了日に同じ暦日数を維持する', () => {
+    const master: CalendarEvent = {
+      id: 'dst-explicit-end',
+      title: '変更前',
+      start: '2026-10-25',
+      end: '2026-10-27',
+      allDay: true,
+      rrule: 'FREQ=WEEKLY;COUNT=3',
+    };
+    const result = updateEventIn(
+      [master],
+      master.id,
+      { title: '変更後' },
+      { occurrenceStart: new Date('2026-11-01T04:00:00Z'), scope: 'this' },
+      makeContext({ displayTimeZone: NY }),
+    );
+    const changed = expandEvents({
+      events: result,
+      range: auditRange,
+      displayTimeZone: NY,
+      defaultEventMinutes: 60,
+    }).find((occurrence) => occurrence.event.title === '変更後');
+
+    expect(changed?.start.toISOString()).toBe('2026-11-01T04:00:00.000Z');
+    expect(changed?.end.toISOString()).toBe('2026-11-03T05:00:00.000Z');
+  });
+
+  it('DST 終了日の終日オカレンス移動で newEnd を省略しても 1 暦日を維持する', () => {
+    const master: CalendarEvent = {
+      id: 'dst-move',
+      title: '終日',
+      start: '2026-10-25',
+      allDay: true,
+      rrule: 'FREQ=WEEKLY;COUNT=3',
+    };
+    const result = moveOccurrenceIn(
+      [master],
+      master.id,
+      {
+        occurrenceStart: new Date('2026-11-01T04:00:00Z'),
+        newStart: new Date('2026-11-03T05:00:00Z'),
+        scope: 'this',
+      },
+      makeContext({ displayTimeZone: NY }),
+    );
+    const override = result.find((event) => event.recurringEventId === master.id);
+
+    expect(override?.originalStart).toBe('2026-11-01');
+    expect(override?.start).toBe('2026-11-03');
+    expect(override?.end).toBe('2026-11-04');
+  });
+});
+
+describe('rdates のみの繰り返しスコープ', () => {
+  const master: CalendarEvent = {
+    id: 'rdates-only',
+    title: '変更前',
+    start: '2026-07-01T09:00:00Z',
+    end: '2026-07-01T10:00:00Z',
+    rdates: ['2026-07-02T09:00:00Z', '2026-07-03T09:00:00Z'],
+  };
+  const context = makeContext({ displayTimeZone: 'UTC' });
+  const range = {
+    start: new Date('2026-07-01T00:00:00Z'),
+    end: new Date('2026-07-05T00:00:00Z'),
+  };
+
+  function expand(events: readonly CalendarEvent[]) {
+    return expandEvents({ events, range, displayTimeZone: 'UTC', defaultEventMinutes: 60 });
+  }
+
+  it('this 更新は選択した RDATE オカレンスだけを変更する', () => {
+    const result = updateEventIn(
+      [master],
+      master.id,
+      { title: '変更後' },
+      { occurrenceStart: new Date('2026-07-02T09:00:00Z'), scope: 'this' },
+      context,
+    );
+
+    expect(expand(result).map((occurrence) => occurrence.event.title)).toEqual([
+      '変更前',
+      '変更後',
+      '変更前',
+    ]);
+  });
+
+  it('this 削除は選択した RDATE オカレンスだけを除外する', () => {
+    const result = deleteEventIn(
+      [master],
+      master.id,
+      { occurrenceStart: new Date('2026-07-02T09:00:00Z'), scope: 'this' },
+      context,
+    );
+
+    expect(expand(result).map((occurrence) => occurrence.start.toISOString())).toEqual([
+      '2026-07-01T09:00:00.000Z',
+      '2026-07-03T09:00:00.000Z',
+    ]);
+  });
+
+  it('thisAndFollowing 更新は RDATE 集合を前後のシリーズへ分割する', () => {
+    const result = updateEventIn(
+      [master],
+      master.id,
+      { title: '変更後' },
+      { occurrenceStart: new Date('2026-07-02T09:00:00Z'), scope: 'thisAndFollowing' },
+      context,
+    );
+
+    expect(
+      expand(result).map((occurrence) => [occurrence.start.toISOString(), occurrence.event.title]),
+    ).toEqual([
+      ['2026-07-01T09:00:00.000Z', '変更前'],
+      ['2026-07-02T09:00:00.000Z', '変更後'],
+      ['2026-07-03T09:00:00.000Z', '変更後'],
+    ]);
+  });
+
+  it('thisAndFollowing 削除は分割点より前のオカレンスだけを残す', () => {
+    const result = deleteEventIn(
+      [master],
+      master.id,
+      { occurrenceStart: new Date('2026-07-02T09:00:00Z'), scope: 'thisAndFollowing' },
+      context,
+    );
+
+    expect(expand(result).map((occurrence) => occurrence.start.toISOString())).toEqual([
+      '2026-07-01T09:00:00.000Z',
+    ]);
+  });
+
+  it('moveOccurrenceIn は scope を要求し、this で選択した RDATE だけを移動する', () => {
+    expect(() =>
+      moveOccurrenceIn(
+        [master],
+        master.id,
+        {
+          occurrenceStart: new Date('2026-07-02T09:00:00Z'),
+          newStart: new Date('2026-07-02T11:00:00Z'),
+        },
+        context,
+      ),
+    ).toThrow('scope');
+
+    const result = moveOccurrenceIn(
+      [master],
+      master.id,
+      {
+        occurrenceStart: new Date('2026-07-02T09:00:00Z'),
+        newStart: new Date('2026-07-02T11:00:00Z'),
+        scope: 'this',
+      },
+      context,
+    );
+    expect(expand(result).map((occurrence) => occurrence.start.toISOString())).toEqual([
+      '2026-07-01T09:00:00.000Z',
+      '2026-07-02T11:00:00.000Z',
+      '2026-07-03T09:00:00.000Z',
+    ]);
+  });
+});
+
+describe('終日シリーズの分割データ移送', () => {
+  const makeAllDayContext = (): MutationContext => makeContext({ displayTimeZone: TOKYO });
+
+  it('RRULE の thisAndFollowing 更新で EXDATE・RDATE・オーバーライドを前後へ振り分ける', () => {
+    const master: CalendarEvent = {
+      id: 'all-day-rrule-split',
+      title: '変更前',
+      start: '2026-07-01',
+      end: '2026-07-03',
+      allDay: true,
+      rrule: 'FREQ=DAILY;COUNT=5',
+      exdates: ['2026-07-02', '2026-07-04'],
+      rdates: ['2026-06-30', '2026-07-06'],
+    };
+    const beforeOverride: CalendarEvent = {
+      id: 'before-override',
+      title: '前',
+      start: '2026-07-02',
+      allDay: true,
+      recurringEventId: master.id,
+      originalStart: '2026-07-02',
+    };
+    const afterOverride: CalendarEvent = {
+      id: 'after-override',
+      title: '後',
+      start: '2026-07-04',
+      allDay: true,
+      recurringEventId: master.id,
+      originalStart: '2026-07-04',
+    };
+    const unrelated: CalendarEvent = {
+      id: 'unrelated',
+      title: '無関係',
+      start: '2026-07-01',
+      allDay: true,
+    };
+    const result = updateEventIn(
+      [master, beforeOverride, afterOverride, unrelated],
+      master.id,
+      { title: '変更後' },
+      {
+        occurrenceStart: new Date('2026-07-02T15:00:00Z'),
+        scope: 'thisAndFollowing',
+      },
+      makeAllDayContext(),
+    );
+
+    const oldMaster = findById(result, master.id);
+    const newMaster = findById(result, 'gen-1');
+    expect(oldMaster.exdates).toEqual(['2026-07-02']);
+    expect(oldMaster.rdates).toEqual(['2026-06-30']);
+    expect(newMaster).toMatchObject({
+      title: '変更後',
+      start: '2026-07-03',
+      end: '2026-07-05',
+      exdates: ['2026-07-04'],
+      rdates: ['2026-07-06'],
+    });
+    expect(findById(result, beforeOverride.id).recurringEventId).toBe(master.id);
+    expect(findById(result, afterOverride.id).recurringEventId).toBe('gen-1');
+    expect(findById(result, unrelated.id)).toEqual(unrelated);
+  });
+
+  it('RRULE の thisAndFollowing 削除で分割点以降の付随データだけを除く', () => {
+    const master: CalendarEvent = {
+      id: 'all-day-rrule-truncate',
+      title: '終日',
+      start: '2026-07-01',
+      allDay: true,
+      rrule: 'FREQ=DAILY;COUNT=5',
+      exdates: ['2026-07-02', '2026-07-04'],
+      rdates: ['2026-06-30', '2026-07-06'],
+    };
+    const beforeOverride: CalendarEvent = {
+      id: 'kept-override',
+      title: '前',
+      start: '2026-07-02',
+      allDay: true,
+      recurringEventId: master.id,
+      originalStart: '2026-07-02',
+    };
+    const afterOverride: CalendarEvent = {
+      id: 'removed-override',
+      title: '後',
+      start: '2026-07-04',
+      allDay: true,
+      recurringEventId: master.id,
+      originalStart: '2026-07-04',
+    };
+    const unrelated: CalendarEvent = {
+      id: 'truncate-unrelated',
+      title: '無関係',
+      start: '2026-07-01',
+    };
+    const result = deleteEventIn(
+      [master, beforeOverride, afterOverride, unrelated],
+      master.id,
+      {
+        occurrenceStart: new Date('2026-07-02T15:00:00Z'),
+        scope: 'thisAndFollowing',
+      },
+      makeAllDayContext(),
+    );
+
+    expect(findById(result, master.id).exdates).toEqual(['2026-07-02']);
+    expect(findById(result, master.id).rdates).toEqual(['2026-06-30']);
+    expect(result.map((event) => event.id)).toEqual([master.id, beforeOverride.id, unrelated.id]);
+  });
+
+  it('RRULE の先頭から thisAndFollowing 削除するとマスターとオーバーライドを削除する', () => {
+    const master: CalendarEvent = {
+      id: 'all-day-delete-first',
+      title: '終日',
+      start: '2026-07-01',
+      allDay: true,
+      rrule: 'FREQ=DAILY;COUNT=2',
+    };
+    const override: CalendarEvent = {
+      id: 'first-override',
+      title: '変更',
+      start: '2026-07-02',
+      allDay: true,
+      recurringEventId: master.id,
+      originalStart: '2026-07-02',
+    };
+    const unrelated: CalendarEvent = { id: 'first-unrelated', title: '残る', start: '2026-07-01' };
+
+    expect(
+      deleteEventIn(
+        [master, override, unrelated],
+        master.id,
+        {
+          occurrenceStart: new Date('2026-06-30T15:00:00Z'),
+          scope: 'thisAndFollowing',
+        },
+        makeAllDayContext(),
+      ),
+    ).toEqual([unrelated]);
+  });
+
+  it('終日 RDATE-only の thisAndFollowing 更新で日数と付随データを維持する', () => {
+    const master: CalendarEvent = {
+      id: 'all-day-rdates-split',
+      title: '変更前',
+      start: '2026-07-01',
+      end: '2026-07-03',
+      allDay: true,
+      rdates: ['2026-07-03', '2026-07-05'],
+      exdates: ['2026-07-02', '2026-07-04'],
+    };
+    const beforeOverride: CalendarEvent = {
+      id: 'rdate-before',
+      title: '前',
+      start: '2026-07-02',
+      allDay: true,
+      recurringEventId: master.id,
+      originalStart: '2026-07-02',
+    };
+    const afterOverride: CalendarEvent = {
+      id: 'rdate-after',
+      title: '後',
+      start: '2026-07-05',
+      allDay: true,
+      recurringEventId: master.id,
+      originalStart: new Date('2026-07-04T15:00:00Z'),
+    };
+    const unrelated: CalendarEvent = {
+      id: 'rdate-unrelated',
+      title: '無関係',
+      start: '2026-07-01',
+    };
+    const result = updateEventIn(
+      [master, beforeOverride, afterOverride, unrelated],
+      master.id,
+      { title: '変更後' },
+      {
+        occurrenceStart: new Date('2026-07-02T15:00:00Z'),
+        scope: 'thisAndFollowing',
+      },
+      makeAllDayContext(),
+    );
+
+    expect(findById(result, master.id)).toMatchObject({
+      exdates: ['2026-07-02'],
+    });
+    expect(findById(result, master.id).rdates).toBeUndefined();
+    expect(findById(result, 'gen-1')).toMatchObject({
+      title: '変更後',
+      start: '2026-07-03',
+      end: '2026-07-05',
+      exdates: ['2026-07-04'],
+      rdates: ['2026-07-05'],
+    });
+    expect(findById(result, beforeOverride.id).recurringEventId).toBe(master.id);
+    expect(findById(result, afterOverride.id).recurringEventId).toBe('gen-1');
+    expect(findById(result, unrelated.id)).toEqual(unrelated);
+  });
+
+  it('終日 RDATE-only の thisAndFollowing 削除で分割点より前だけを残す', () => {
+    const master: CalendarEvent = {
+      id: 'all-day-rdates-truncate',
+      title: '終日',
+      start: '2026-07-01',
+      allDay: true,
+      rdates: ['2026-07-03', '2026-07-05'],
+      exdates: ['2026-07-02', '2026-07-04'],
+    };
+    const beforeOverride: CalendarEvent = {
+      id: 'rdate-kept',
+      title: '前',
+      start: '2026-07-02',
+      allDay: true,
+      recurringEventId: master.id,
+      originalStart: '2026-07-02',
+    };
+    const afterOverride: CalendarEvent = {
+      id: 'rdate-removed',
+      title: '後',
+      start: '2026-07-05',
+      allDay: true,
+      recurringEventId: master.id,
+      originalStart: '2026-07-05',
+    };
+    const unrelated: CalendarEvent = {
+      id: 'rdate-truncate-unrelated',
+      title: '残る',
+      start: '2026-07-01',
+    };
+    const result = deleteEventIn(
+      [master, beforeOverride, afterOverride, unrelated],
+      master.id,
+      {
+        occurrenceStart: new Date('2026-07-02T15:00:00Z'),
+        scope: 'thisAndFollowing',
+      },
+      makeAllDayContext(),
+    );
+
+    expect(findById(result, master.id).exdates).toEqual(['2026-07-02']);
+    expect(findById(result, master.id).rdates).toBeUndefined();
+    expect(result.map((event) => event.id)).toEqual([master.id, beforeOverride.id, unrelated.id]);
+  });
+
+  it('終日 RDATE-only の先頭から thisAndFollowing 削除すると関連イベントを全削除する', () => {
+    const master: CalendarEvent = {
+      id: 'all-day-rdates-first',
+      title: '終日',
+      start: '2026-07-01',
+      allDay: true,
+      rdates: ['2026-07-03'],
+    };
+    const override: CalendarEvent = {
+      id: 'rdates-first-override',
+      title: '変更',
+      start: '2026-07-03',
+      allDay: true,
+      recurringEventId: master.id,
+      originalStart: '2026-07-03',
+    };
+
+    expect(
+      deleteEventIn(
+        [master, override],
+        master.id,
+        {
+          occurrenceStart: new Date('2026-06-30T15:00:00Z'),
+          scope: 'thisAndFollowing',
+        },
+        makeAllDayContext(),
+      ),
+    ).toEqual([]);
+  });
+
+  it('既存終日オーバーライドは originalStart の Date・文字列・欠落を照合できる', () => {
+    const master: CalendarEvent = {
+      id: 'anchor-master',
+      title: '終日',
+      start: '2026-07-01',
+      allDay: true,
+      rrule: 'FREQ=DAILY;COUNT=4',
+    };
+    const cases: readonly CalendarEvent[] = [
+      {
+        id: 'anchor-date',
+        title: 'Date',
+        start: '2026-07-02',
+        allDay: true,
+        recurringEventId: master.id,
+        originalStart: new Date('2026-07-01T15:00:00Z'),
+      },
+      {
+        id: 'anchor-string',
+        title: '文字列',
+        start: '2026-07-03',
+        allDay: true,
+        recurringEventId: master.id,
+        originalStart: '2026-07-03',
+      },
+      {
+        id: 'anchor-start',
+        title: 'start',
+        start: '2026-07-04',
+        allDay: true,
+        recurringEventId: master.id,
+      },
+    ];
+
+    for (const [index, override] of cases.entries()) {
+      const day = index + 2;
+      const result = updateEventIn(
+        [master, ...cases],
+        master.id,
+        { title: `更新${day}` },
+        {
+          occurrenceStart: new Date(`2026-07-0${day - 1}T15:00:00Z`),
+          scope: 'this',
+        },
+        makeAllDayContext(),
+      );
+      expect(findById(result, override.id).title).toBe(`更新${day}`);
+    }
   });
 });
 

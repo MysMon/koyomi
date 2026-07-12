@@ -385,6 +385,7 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
   // フォーカス中の行のキー。窓外へスクロールしても DOM を保持し続け、
   // フォーカス喪失を防ぐため pinnedKeys に渡す（VirtualListView と同じ方式）。
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
+  const focusedOccurrenceRef = useRef<string | null>(null);
   const pinnedKeys = useMemo(
     () => (focusedKey !== null ? new Set([focusedKey]) : undefined),
     [focusedKey],
@@ -458,6 +459,8 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
     const rowGroup = target.closest('[data-koyomi="timeline-row-group"]');
     const key = rowGroup?.getAttribute('data-koyomi-row-key') ?? null;
     if (key !== null) {
+      focusedOccurrenceRef.current =
+        target.closest('[data-koyomi-occurrence]')?.getAttribute('data-koyomi-occurrence') ?? null;
       setFocusedKey(key);
     }
   }, []);
@@ -468,8 +471,22 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
     if (next instanceof Node && event.currentTarget.contains(next)) {
       return;
     }
+    focusedOccurrenceRef.current = null;
     setFocusedKey(null);
   }, []);
+
+  // 可視行から pinned 行への DOM 置換で失われたイベントフォーカスを復元する。
+  useLayoutEffect(() => {
+    const root = scrollRef.current;
+    const occurrenceKey = focusedOccurrenceRef.current;
+    if (root === null || occurrenceKey === null || root.contains(document.activeElement)) {
+      return;
+    }
+    const target = Array.from(root.querySelectorAll<HTMLElement>('[data-koyomi-occurrence]')).find(
+      (element) => element.getAttribute('data-koyomi-occurrence') === occurrenceKey,
+    );
+    target?.focus({ preventScroll: true });
+  });
 
   if (viewModel.type !== 'timeline') {
     return null;

@@ -431,6 +431,38 @@ describe('useTimeGridDrag', () => {
     expect(override).toMatchObject({ start: at(`${WED}T12:00`), end: at(`${WED}T13:00`) });
   });
 
+  it('RDATE-only の移動でも this スコープが選択したオカレンスだけに適用される', async () => {
+    const resolveRecurringScope = vi.fn().mockResolvedValue('this' as RecurringEditScope);
+    const event: CalendarEvent = {
+      id: 'rdates-only-drag',
+      title: '臨時開催',
+      start: `${WED}T10:00`,
+      end: `${WED}T11:00`,
+      rdates: [`${THU}T10:00`],
+    };
+    const { sink } = renderHarness({ events: [event], callbacks: { resolveRecurringScope } });
+    const occurrenceKey = `rdates-only-drag@${at(`${THU}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(THU);
+
+    firePointerDown(eventEl, x, 600);
+    movePointer(x, 720);
+    await releasePointerAsync(x, 720);
+
+    expect(resolveRecurringScope).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: 'rdates-only-drag' }),
+      'move',
+    );
+    const occurrences = sink.current?.calendar.api.getOccurrences({
+      start: at(`${WED}T00:00`),
+      end: at(`${FRI}T00:00`),
+    });
+    expect(occurrences?.map((occurrence) => occurrence.start.toISOString())).toEqual([
+      at(`${WED}T10:00`).toISOString(),
+      at(`${THU}T12:00`).toISOString(),
+    ]);
+  });
+
   it('繰り返しイベントの移動で resolveRecurringScope が null を返すとキャンセルされる', async () => {
     const resolveRecurringScope = vi.fn(
       async (

@@ -1,7 +1,7 @@
 {
   "name": "@koyomi-cal/react",
   "version": "0.2.0",
-  "description": "ヘッドレスな TypeScript/React カレンダーライブラリ（月・週・日・リスト表示、Google カレンダー相当のインタラクティブ操作、マルチタイムゾーン、RRULE 完全対応）",
+  "description": "ヘッドレスな TypeScript/React カレンダーライブラリ（月・週・日・リスト・年・複数月・リソース・タイムライン表示、インタラクティブ操作、マルチタイムゾーン、RRULE 対応）",
   "keywords": [
     "react",
     "calendar",

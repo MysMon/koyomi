@@ -8,6 +8,8 @@
   "scripts": {
     "build": "pnpm --filter @koyomi-cal/react build",
     "test": "pnpm --filter @koyomi-cal/react test",
+    "test:e2e": "playwright test",
+    "test:pairs": "node scripts/check-test-pairs.mjs",
     "test:watch": "pnpm --filter @koyomi-cal/react test:watch",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
@@ -15,10 +17,12 @@
     "format": "biome format --write .",
     "demo": "pnpm --filter @koyomi-cal/demo dev",
     "terms": "node scripts/check-terms.mjs",
-    "check": "pnpm terms && pnpm lint && pnpm typecheck && pnpm test"
+    "check": "pnpm terms && pnpm test:pairs && pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@biomejs/biome": "^2.5.3",
+    "@playwright/test": "^1.61.1",
     "typescript": "^5.9.0"
   },
   "pnpm": {
