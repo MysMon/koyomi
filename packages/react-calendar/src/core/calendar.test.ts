@@ -505,6 +505,16 @@ describe('createCalendar', () => {
       expect(calendar.getState().options.slotMinutes).toBe(60);
     });
 
+    it('updateOptions({ eventConstraint: null }) で配置制約を解除できる', () => {
+      const calendar = makeCalendar({ eventConstraint: 'businessHours' });
+      expect(calendar.getState().options.eventConstraint).toBe('businessHours');
+      calendar.updateOptions({ eventConstraint: null });
+      expect(calendar.getState().options.eventConstraint).toBeNull();
+      // 省略した場合は「変更しない」（null クリア後もそのまま）
+      calendar.updateOptions({ dayMaxEvents: 2 });
+      expect(calendar.getState().options.eventConstraint).toBeNull();
+    });
+
     it('updateOptions({ events }) でイベント一覧を差し替えられる（onEventsChange は呼ばれない）', () => {
       const onEventsChange = vi.fn();
       const calendar = makeCalendar({ onEventsChange });

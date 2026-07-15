@@ -1051,9 +1051,9 @@ export interface CalendarOptions {
  *
  * `initialView` / `initialDate` / `initialCollapsedResourceIds` を除く
  * {@link CalendarOptions} のフィールドを部分的に指定できる。`onEventsChange` /
- * `onRangeChange` の 2 つだけは `null` を渡すことで登録済みのコールバックを
- * 解除できる（フィールド自体を省略した場合は「変更しない」、`null` を渡した場合は
- * 「解除する」の意味になる）。
+ * `onRangeChange` / `eventConstraint` の 3 つだけは `null` を渡すことで
+ * 「登録済みのコールバックの解除」「配置制約の解除」ができる（フィールド自体を
+ * 省略した場合は「変更しない」、`null` を渡した場合は「解除する」の意味になる）。
  */
 export type CalendarOptionsPatch = Partial<
   Omit<
@@ -1063,8 +1063,14 @@ export type CalendarOptionsPatch = Partial<
     | 'initialCollapsedResourceIds'
     | 'onEventsChange'
     | 'onRangeChange'
+    | 'eventConstraint'
   >
 > & {
+  /**
+   * イベントのドロップ先を制限する既定値（{@link CalendarOptions.eventConstraint}）。
+   * `null` を渡すと設定済みの配置制約を解除する（制約なしに戻す）。
+   */
+  eventConstraint?: CalendarOptions['eventConstraint'] | null;
   /**
    * イベント一覧が変更されたときに呼ばれるコールバック。
    * `null` を渡すと登録済みのコールバックを解除する。

@@ -106,7 +106,12 @@ function normalizePositiveInt(value: number, min: number): number {
  * そのまま保持せず、浅く複製する（事後変更が内部状態に影響しないようにするため）。
  */
 function resolveOptions(
-  options: Omit<CalendarOptions, 'onEventsChange' | 'onRangeChange'> | undefined,
+  options:
+    | (Omit<CalendarOptions, 'onEventsChange' | 'onRangeChange' | 'eventConstraint'> & {
+        /** `null` は「配置制約を解除する」（{@link CalendarOptionsPatch.eventConstraint}）。 */
+        eventConstraint?: CalendarOptions['eventConstraint'] | null;
+      })
+    | undefined,
   base?: ResolvedCalendarOptions,
 ): ResolvedCalendarOptions {
   const current = base ?? { ...DEFAULT_OPTIONS, now: () => new Date() };
