@@ -66,6 +66,7 @@ import {
   useStableTimelineDrag,
   withDepthStyle,
   withLaneCountStyle,
+  withTimelineDaysStyle,
 } from './timeline-view-parts';
 
 /** `estimateRowHeight` 省略時の 1 レーンあたりの推定高（px、既定テーマの `--koyomi-timeline-lane-height` と同じ値）。 */
@@ -601,6 +602,7 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
       data-koyomi-scale={scale}
       data-koyomi-virtualized="true"
       data-koyomi-days={String(days.length)}
+      style={withTimelineDaysStyle(days.length)}
       role="grid"
       onFocus={handleFocus}
       onBlur={handleBlur}

@@ -109,6 +109,8 @@ describe('TimelineView - DOM 構造', () => {
     const { container } = render(<Harness resources={[CRANE_1]} timelineDays={3} />);
     const root = container.querySelector('[data-koyomi="timeline"]');
     expect(root).toHaveAttribute('data-koyomi-days', '3');
+    // トラック幅の計算（テーマ CSS の min-width calc）が参照する表示日数の CSS 変数
+    expect(root?.getAttribute('style')).toContain('--koyomi-timeline-days: 3');
     expect(root?.querySelector('[data-koyomi="timeline-body"]')).not.toBeNull();
     expect(container.querySelectorAll('[data-koyomi="timeline-day-header"]')).toHaveLength(3);
     // slotMinutes 既定 60 分 × 3 日 = 72 個

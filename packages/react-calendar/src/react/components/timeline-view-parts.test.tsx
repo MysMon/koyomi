@@ -9,6 +9,7 @@ import {
   sameTimelineRow,
   withDepthStyle,
   withLaneCountStyle,
+  withTimelineDaysStyle,
 } from './timeline-view-parts';
 
 /** テスト用の TimelineRow を作る。 */
@@ -29,6 +30,11 @@ describe('timeline-view-parts', () => {
   it('レーン数を 1 以上へクランプして CSS 変数にする', () => {
     expect(withLaneCountStyle(0)).toEqual({ '--koyomi-timeline-lanes': '1' });
     expect(withLaneCountStyle(3)).toEqual({ '--koyomi-timeline-lanes': '3' });
+  });
+
+  it('表示日数を 1 以上へクランプして CSS 変数にする', () => {
+    expect(withTimelineDaysStyle(0)).toEqual({ '--koyomi-timeline-days': '1' });
+    expect(withTimelineDaysStyle(180)).toEqual({ '--koyomi-timeline-days': '180' });
   });
 
   it('リソースと営業時間帯を表示内容で比較する', () => {

@@ -75,6 +75,18 @@ export function withLaneCountStyle(laneCount: number): CSSProperties {
 }
 
 /**
+ * 表示日数を CSS 変数 `--koyomi-timeline-days` として style にする。
+ * テーマ CSS がトラック幅（`timeline-axis` / `timeline-row` の `min-width`）の
+ * 計算に参照する（{@link withLaneCountStyle} と同じ、位置決めの数値のみを
+ * inline に出す既存規約の範囲内）。
+ */
+export function withTimelineDaysStyle(days: number): CSSProperties {
+  // 'as' 使用理由: 上記 withLaneCountStyle と同様（--koyomi-timeline-days も
+  // CSSProperties の型定義に含まれない）。
+  return { '--koyomi-timeline-days': String(Math.max(1, days)) } as CSSProperties;
+}
+
+/**
  * ツリー内の深さを CSS 変数 `--koyomi-timeline-row-depth` として `style` に加える。
  * テーマ CSS 側の階層インデント計算（{@link withLaneCountStyle} と同じ、位置決めの
  * 数値のみを inline に出す既存規約の範囲内）が参照する。

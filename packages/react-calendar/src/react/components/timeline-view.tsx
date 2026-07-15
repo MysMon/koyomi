@@ -54,6 +54,7 @@ import {
   useStableTimelineDrag,
   withDepthStyle,
   withLaneCountStyle,
+  withTimelineDaysStyle,
 } from './timeline-view-parts';
 
 /** 開発ビルドで目盛り数の警告を出す閾値。 */
@@ -194,6 +195,7 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
       data-koyomi="timeline"
       data-koyomi-scale={scale}
       data-koyomi-days={String(days.length)}
+      style={withTimelineDaysStyle(days.length)}
       role="grid"
     >
       {/* grid と row の間に挟まるスクロールコンテナ。role="presentation" で

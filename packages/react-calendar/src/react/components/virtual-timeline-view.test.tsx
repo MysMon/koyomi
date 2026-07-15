@@ -120,6 +120,8 @@ describe('VirtualTimelineView', () => {
     const root = container.querySelector('[data-koyomi="timeline"]');
     expect(root?.getAttribute('data-koyomi-virtualized')).toBe('true');
     expect(root?.getAttribute('role')).toBe('grid');
+    // トラック幅計算が参照する表示日数の CSS 変数（TimelineView と同じ。既定 timelineDays = 1）
+    expect(root?.getAttribute('style')).toContain('--koyomi-timeline-days: 1');
 
     const spacers = container.querySelectorAll('[data-koyomi="timeline-row-spacer"]');
     expect(spacers).toHaveLength(2);

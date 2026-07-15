@@ -1250,35 +1250,27 @@
  * （timeline-slots / timeline-row）に対する割合で指定している（inline style。
  * コンポーネント側の仕様）。そのため親に実寸の min-width を与えないと
  * 横スクロールが機能しない。
- * 表示日数（timelineDays）はルート [data-koyomi="timeline"] の data-koyomi-days
- * 属性にしか現れず、CSS の calc() で属性値を数値として取り出す標準的な方法はない
- * （attr() の数値変換は現時点で全ブラウザには広まっていない）。そのため既定では
- * 1 日分（ライブラリの既定 timelineDays）を仮定した固定値を当てる。
- * timelineDays を 1 より大きくして使う場合は、利用側で data-koyomi-days の値に
- * 応じた上書きを追加する（例: 7 日分）:
- *
- *   [data-koyomi="timeline"][data-koyomi-days="7"] [data-koyomi="timeline-axis"],
- *   [data-koyomi="timeline"][data-koyomi-days="7"] [data-koyomi="timeline-row"] {
- *     min-width: calc(var(--koyomi-timeline-day-width, 720px) * 7);
- *   }
+ * 表示日数は --koyomi-timeline-days（内部変数。TimelineView / VirtualTimelineView が
+ * ルート要素に timelineDays の値を inline で自動設定する。既定 1）で受ける
+ * （--koyomi-month-lanes / --koyomi-timegrid-hours と同じ方式）。
  */
 [data-koyomi="timeline-axis"],
 [data-koyomi="timeline-row"] {
-  min-width: calc(var(--koyomi-timeline-day-width, 720px) * 1);
+  min-width: calc(var(--koyomi-timeline-day-width, 720px) * var(--koyomi-timeline-days, 1));
 }
 
 /*
  * timelineScale が 'hour' 以外（'day'/'week'/'month'）のときは、1 日あたりの
  * 実寸を --koyomi-timeline-slot-width（既定 96px）に切り替える。'hour' のトラック幅
  * （--koyomi-timeline-day-width）とは役割が異なる（1 日 = 24 時間分の幅 vs
- * 1 日 = 1 目盛りの幅）ため、既定値も個別に持つ。timelineDays を 1 より大きくして
- * 使う場合は、上記と同様に data-koyomi-days の値に応じた上書きを追加する。
+ * 1 日 = 1 目盛りの幅）ため、既定値も個別に持つ。表示日数は上記と同じく
+ * --koyomi-timeline-days で受ける。
  */
 [data-koyomi="timeline"][data-koyomi-scale]:not([data-koyomi-scale="hour"])
   [data-koyomi="timeline-axis"],
 [data-koyomi="timeline"][data-koyomi-scale]:not([data-koyomi-scale="hour"])
   [data-koyomi="timeline-row"] {
-  min-width: calc(var(--koyomi-timeline-slot-width, 96px) * 1);
+  min-width: calc(var(--koyomi-timeline-slot-width, 96px) * var(--koyomi-timeline-days, 1));
 }
 
 [data-koyomi="timeline-day-headers"],
@@ -1350,6 +1342,10 @@
   align-items: center;
   height: calc(var(--koyomi-timeline-lane-height, 28px) - 2px);
   padding: 2px 4px;
+  /* 帯が狭いときにタイトルが折り返してレーン高からはみ出さないよう、
+     1 行のまま省略記号で切り詰める */
+  white-space: nowrap;
+  text-overflow: ellipsis;
   border-radius: var(--koyomi-radius);
   background-color: var(--koyomi-event-color, var(--koyomi-accent));
   box-shadow: 0 0 0 1px var(--koyomi-bg);
