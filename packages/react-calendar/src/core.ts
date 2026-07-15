@@ -67,6 +67,20 @@ export {
   previousOccurrenceStart,
   truncateRRule,
 } from './core/recurrence';
+// 繰り返しルールエディタ
+export {
+  buildRecurrenceRuleString,
+  describeRecurrenceRule,
+  type MonthlyRecurrencePattern,
+  type ParsedRecurrenceRule,
+  parseRecurrenceRule,
+  type RecurrenceEnd,
+  type RecurrenceFrequency,
+  type RecurrenceRuleState,
+  type RecurrenceValidationIssue,
+  type RecurrenceWeekdayOrdinal,
+  validateRecurrenceRuleState,
+} from './core/recurrence-editor';
 // タイムゾーンユーティリティ
 export {
   addDaysInZone,

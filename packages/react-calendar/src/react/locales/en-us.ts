@@ -12,7 +12,12 @@
  */
 
 import type { ReactNode } from 'react';
-import type { EventOccurrence, ListDay, YearDay } from '../../core/types';
+import type {
+  RecurrenceEnd,
+  RecurrenceRuleState,
+  RecurrenceWeekdayOrdinal,
+} from '../../core/recurrence-editor';
+import type { EventOccurrence, ListDay, Weekday, YearDay } from '../../core/types';
 import type { CalendarViewProps } from '../components/calendar-view';
 import type { ListViewProps } from '../components/list-view';
 import type { MonthViewProps } from '../components/month-view';
@@ -24,6 +29,7 @@ import type { VirtualListViewProps } from '../components/virtual-list-view';
 import type { VirtualResourceViewProps } from '../components/virtual-resource-view';
 import type { VirtualTimelineViewProps } from '../components/virtual-timeline-view';
 import type { YearViewProps } from '../components/year-view';
+import type { UseRecurrenceRuleEditorOptions } from '../use-recurrence-rule-editor';
 
 /**
  * `T` のうち、プロパティ名が `Label` で終わるキーだけを抽出する型。
@@ -83,6 +89,179 @@ function yearDayAriaLabelEn(_day: YearDay, defaultLabel: string): string {
 function listDayAriaLabelEn(day: ListDay, defaultLabel: string): string {
   const header = defaultLabel.replace(/\s*予定\d+件$/, '');
   return `${header} ${dayCountLabelEn(day.occurrences.length)}`;
+}
+
+/** {@link Weekday} の英語 3 文字略称。 */
+function weekdayAbbrEn(weekday: Weekday): string {
+  switch (weekday) {
+    case 0:
+      return 'Sun';
+    case 1:
+      return 'Mon';
+    case 2:
+      return 'Tue';
+    case 3:
+      return 'Wed';
+    case 4:
+      return 'Thu';
+    case 5:
+      return 'Fri';
+    case 6:
+      return 'Sat';
+  }
+}
+
+/** {@link Weekday} の英語のフルネーム。 */
+function weekdayFullEn(weekday: Weekday): string {
+  switch (weekday) {
+    case 0:
+      return 'Sunday';
+    case 1:
+      return 'Monday';
+    case 2:
+      return 'Tuesday';
+    case 3:
+      return 'Wednesday';
+    case 4:
+      return 'Thursday';
+    case 5:
+      return 'Friday';
+    case 6:
+      return 'Saturday';
+  }
+}
+
+/** {@link RecurrenceWeekdayOrdinal} の英語の序数表記（"1st"・"last" 等）。 */
+function ordinalWordEn(ordinal: RecurrenceWeekdayOrdinal): string {
+  switch (ordinal) {
+    case 1:
+      return '1st';
+    case 2:
+      return '2nd';
+    case 3:
+      return '3rd';
+    case 4:
+      return '4th';
+    case -1:
+      return 'last';
+  }
+}
+
+/** UTC の月番号（0 起点）から英語の月略称（"Jan" 等）を返す。 */
+function monthAbbrEn(monthIndexZeroBased: number): string {
+  switch (monthIndexZeroBased) {
+    case 0:
+      return 'Jan';
+    case 1:
+      return 'Feb';
+    case 2:
+      return 'Mar';
+    case 3:
+      return 'Apr';
+    case 4:
+      return 'May';
+    case 5:
+      return 'Jun';
+    case 6:
+      return 'Jul';
+    case 7:
+      return 'Aug';
+    case 8:
+      return 'Sep';
+    case 9:
+      return 'Oct';
+    case 10:
+      return 'Nov';
+    case 11:
+      return 'Dec';
+    default:
+      // Date#getUTCMonth は常に 0〜11 を返すため、ここには到達しない
+      return String(monthIndexZeroBased + 1);
+  }
+}
+
+/** WEEKLY の曜日部分のテキスト（"Mon, Wed" 等）。情報がなければ `null`。 */
+function weeklyWeekdaysEn(state: RecurrenceRuleState): string | null {
+  const byWeekday = state.byWeekday;
+  if (byWeekday === undefined || byWeekday.length === 0) {
+    return null;
+  }
+  return [...byWeekday]
+    .sort((a, b) => a - b)
+    .map((weekday) => weekdayAbbrEn(weekday))
+    .join(', ');
+}
+
+/** MONTHLY のパターン部分のテキスト（"day 15"・"the 2nd Monday" 等）。情報がなければ `null`。 */
+function monthlyPatternTextEn(state: RecurrenceRuleState): string | null {
+  const monthlyPattern = state.monthlyPattern;
+  if (monthlyPattern === undefined) {
+    return null;
+  }
+  if (monthlyPattern.kind === 'dayOfMonth') {
+    return monthlyPattern.day === -1 ? 'the last day' : `day ${monthlyPattern.day}`;
+  }
+  const { ordinal, weekday } = monthlyPattern;
+  return `the ${ordinalWordEn(ordinal)} ${weekdayFullEn(weekday)}`;
+}
+
+/** 頻度ごとの基本文言を組み立てる（終了条件は含まない）。 */
+function describeBaseEn(state: RecurrenceRuleState, interval: number): string {
+  switch (state.freq) {
+    case 'daily':
+      return interval <= 1 ? 'Daily' : `Every ${interval} days`;
+    case 'weekly': {
+      const weekdays = weeklyWeekdaysEn(state);
+      if (interval <= 1) {
+        return weekdays === null ? 'Weekly' : `Weekly on ${weekdays}`;
+      }
+      return weekdays === null
+        ? `Every ${interval} weeks`
+        : `Every ${interval} weeks on ${weekdays}`;
+    }
+    case 'monthly': {
+      const pattern = monthlyPatternTextEn(state);
+      if (interval <= 1) {
+        return pattern === null ? 'Monthly' : `Monthly on ${pattern}`;
+      }
+      return pattern === null
+        ? `Every ${interval} months`
+        : `Every ${interval} months on ${pattern}`;
+    }
+    case 'yearly':
+      return interval <= 1 ? 'Annually' : `Every ${interval} years`;
+  }
+}
+
+/** `until` を英語の日付表記（"Jul 5, 2026"）に整形する（UTC 成分を使用）。 */
+function formatUntilDateEn(until: Date): string {
+  return `${monthAbbrEn(until.getUTCMonth())} ${until.getUTCDate()}, ${until.getUTCFullYear()}`;
+}
+
+/** 終了条件の末尾テキスト（" (for 5 occurrences)"・" (until Jul 5, 2026)" 等）。`never` は空文字列。 */
+function describeEndSuffixEn(end: RecurrenceEnd): string {
+  if (end.type === 'count') {
+    return end.count === 1 ? ' (for 1 occurrence)' : ` (for ${end.count} occurrences)`;
+  }
+  if (end.type === 'until') {
+    return ` (until ${formatUntilDateEn(end.until)})`;
+  }
+  return '';
+}
+
+/**
+ * `useRecurrenceRuleEditor` の `describeRule` オプション用の英語実装。
+ *
+ * `eventAriaLabelEn` 等のような `defaultDescription`（日本語）の文字列後処理では
+ * 自然な英語にならないため、`state` から直接英語文を組み立てる（`defaultDescription`
+ * は使用しない）。`YEARLY` の月日は `state` に持たないため、`context` を持たない
+ * このコールバックの制約上、常に月日を欠いた文言（`Annually` / `Every N years`）になる
+ * （`describeRecurrenceRule` の日本語版が `context` なしで曜日・日にちを欠いた
+ * 文言にフォールバックするのと同じ制約）。
+ */
+function describeRecurrenceRuleEn(state: RecurrenceRuleState, _defaultDescription: string): string {
+  const interval = Number.isInteger(state.interval) && state.interval >= 1 ? state.interval : 1;
+  return `${describeBaseEn(state, interval)}${describeEndSuffixEn(state.end)}`;
 }
 
 const toolbar = {
@@ -157,6 +336,22 @@ const calendarView = {
 } satisfies RequiredLabels<CalendarViewProps>;
 
 /**
+ * `useRecurrenceRuleEditor` の `describeRule` オプションと同じ形の英語文言。
+ *
+ * `RequiredLabels<T>`（`*Label` で終わる props 名を対象にした網羅性チェック）とは
+ * 異なり、フックの単一オプション（`describeRule`）が対象のため、
+ * `UseRecurrenceRuleEditorOptions` から直接その型を取り出して `satisfies` する
+ * （このモジュール内でのみ使用する軽量なキー網羅性チェック）。
+ */
+interface RecurrenceEditorLabels {
+  describeRule: NonNullable<UseRecurrenceRuleEditorOptions['describeRule']>;
+}
+
+const recurrenceEditor = {
+  describeRule: describeRecurrenceRuleEn,
+} satisfies RecurrenceEditorLabels;
+
+/**
  * 英語 (en-US) の既定文言プリセット。
  *
  * キーは対象コンポーネント名ごとにまとめてあり、対応する props にそのまま
@@ -176,6 +371,8 @@ const calendarView = {
  * <YearView {...enUsLabels.year} />
  * // CalendarView はプレフィックス付き props をまとめて受け取る
  * <CalendarView {...enUsLabels.calendarView} />
+ * // useRecurrenceRuleEditor の describeRule には recurrenceEditor.describeRule を渡す
+ * useRecurrenceRuleEditor({ start, timeZone, describeRule: enUsLabels.recurrenceEditor.describeRule });
  * ```
  */
 export const enUsLabels = {
@@ -187,6 +384,7 @@ export const enUsLabels = {
   timeline,
   year,
   calendarView,
+  recurrenceEditor,
 } as const;
 
 /**

@@ -62,6 +62,20 @@ export {
   previousOccurrenceStart,
   truncateRRule,
 } from './core/recurrence';
+// 繰り返しルールエディタ
+export {
+  buildRecurrenceRuleString,
+  describeRecurrenceRule,
+  type MonthlyRecurrencePattern,
+  type ParsedRecurrenceRule,
+  parseRecurrenceRule,
+  type RecurrenceEnd,
+  type RecurrenceFrequency,
+  type RecurrenceRuleState,
+  type RecurrenceValidationIssue,
+  type RecurrenceWeekdayOrdinal,
+  validateRecurrenceRuleState,
+} from './core/recurrence-editor';
 // タイムゾーンユーティリティ
 export {
   addDaysInZone,
@@ -208,6 +222,11 @@ export {
   type UseExternalDragParams,
   useExternalDrag,
 } from './react/use-external-drag';
+export {
+  type UseRecurrenceRuleEditorOptions,
+  type UseRecurrenceRuleEditorResult,
+  useRecurrenceRuleEditor,
+} from './react/use-recurrence-rule-editor';
 export {
   type ResourceAllDayCellProps,
   type ResourceColumnProps,

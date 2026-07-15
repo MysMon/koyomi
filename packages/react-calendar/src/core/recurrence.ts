@@ -52,8 +52,16 @@ function errorMessage(cause: unknown): string {
  * ミリ秒も往復させる（{@link fromFakeUTC} と対で使う）。ミリ秒を落とすと
  * dtstart 自身が最初のオカレンスとして一致しなくなったり、ミリ秒付き exdate の
  * 一致判定が常に失敗したりするため。
+ *
+ * このモジュール外（`core/recurrence-editor.ts` 等）から低レベル API として
+ * 再利用するために `export` しているが、`index.ts` / `core.ts` からは
+ * re-export しない（公開 API ではない）。
+ *
+ * @param date - 絶対時刻
+ * @param timeZone - イベントのタイムゾーン
+ * @returns fake-UTC 日時（UTC 成分がイベント TZ の現地時刻の成分と一致する `Date`）
  */
-function toFakeUTC(date: Date, timeZone: TimeZoneId): Date {
+export function toFakeUTC(date: Date, timeZone: TimeZoneId): Date {
   const wall = getWallClock(date, timeZone);
   return new Date(
     Date.UTC(
@@ -72,8 +80,16 @@ function toFakeUTC(date: Date, timeZone: TimeZoneId): Date {
  * fake-UTC 日時を絶対時刻に戻す。
  *
  * fake-UTC の UTC 成分をイベント TZ の現地時刻と見なして絶対時刻を再構築する。
+ *
+ * このモジュール外（`core/recurrence-editor.ts` 等）から低レベル API として
+ * 再利用するために `export` しているが、`index.ts` / `core.ts` からは
+ * re-export しない（公開 API ではない）。
+ *
+ * @param fake - fake-UTC 日時（{@link toFakeUTC} の戻り値と同じ形）
+ * @param timeZone - イベントのタイムゾーン
+ * @returns 対応する絶対時刻
  */
-function fromFakeUTC(fake: Date, timeZone: TimeZoneId): Date {
+export function fromFakeUTC(fake: Date, timeZone: TimeZoneId): Date {
   return fromWallClock(
     {
       year: fake.getUTCFullYear(),
@@ -94,8 +110,16 @@ function fromFakeUTC(fake: Date, timeZone: TimeZoneId): Date {
  * `RRule.parseString` は FREQ の欠落や値の不正（`FREQ=BOGUS` など）を例外に
  * しないため、ここで明示的に検証する。BYDAY の不正値などは `new RRule` の
  * 構築時に検出されるので、試験的に構築して検証する。
+ *
+ * このモジュール外（`core/recurrence-editor.ts` 等）から低レベル API として
+ * 再利用するために `export` しているが、`index.ts` / `core.ts` からは
+ * re-export しない（公開 API ではない）。
+ *
+ * @param rrule - RRULE 文字列（`'RRULE:'` プレフィックスの有無を問わない）
+ * @returns 検証済みの rrule オプション（`dtstart` / `tzid` は含まない）
+ * @throws 不正な RRULE の場合は `Error`（メッセージに原因を含む）
  */
-function parseRRuleOptions(rrule: string): Partial<Options> {
+export function parseRRuleOptions(rrule: string): Partial<Options> {
   const body = stripRRulePrefix(rrule.trim());
   let parsed: Partial<Options>;
   try {
