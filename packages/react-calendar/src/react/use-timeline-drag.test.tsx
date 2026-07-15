@@ -19,6 +19,7 @@ import type {
   CalendarEvent,
   CalendarResource,
   RecurringEditScope,
+  TimelineScale,
 } from '../core/types';
 import { TimelineView } from './components/timeline-view';
 import { CalendarProvider } from './context';
@@ -60,6 +61,7 @@ interface HarnessProps {
   resources?: readonly CalendarResource[];
   unassignedLane?: 'auto' | 'always';
   timelineDays?: number;
+  timelineScale?: TimelineScale;
   callbacks?: CalendarInteractionCallbacks;
   snapMinutes?: number;
   defaultEventMinutes?: number;
@@ -80,6 +82,7 @@ function Harness(props: HarnessProps): ReactElement {
     resources: props.resources ?? EMPTY_EVENTS,
     unassignedLane: props.unassignedLane ?? 'auto',
     ...(props.timelineDays !== undefined ? { timelineDays: props.timelineDays } : {}),
+    ...(props.timelineScale !== undefined ? { timelineScale: props.timelineScale } : {}),
     ...(props.snapMinutes !== undefined ? { snapMinutes: props.snapMinutes } : {}),
     ...(props.defaultEventMinutes !== undefined
       ? { defaultEventMinutes: props.defaultEventMinutes }
@@ -469,6 +472,212 @@ describe('useTimelineDrag - 終日帯の日単位移動', () => {
       resourceId: 'crane-1',
       changes: [{ before: event, after: events[0] }],
     });
+  });
+});
+
+describe("useTimelineDrag - timelineScale !== 'hour' の日単位スナップ", () => {
+  it('時間指定の帯をドラッグすると日単位スナップで移動する（時刻は維持）', () => {
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-week-move',
+      title: '荷揚げ',
+      start: `${DAY0}T10:00`,
+      end: `${DAY0}T11:00`,
+      resourceId: 'crane-1',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 3,
+      timelineScale: 'week',
+      events: [event],
+      callbacks: { onEventChange },
+    });
+    mockAllRowRects(container, 3);
+    const itemEl = getItemElement(container, 'ev-week-move', `${DAY0}T10:00`);
+
+    firePointerDown(itemEl, dm(0, 10, 0), rowCenterY(0));
+    movePointer(dm(1, 15, 0), rowCenterY(0)); // 2 日目のどこでも 1 日分の移動になる（分は無視）
+    releasePointer(dm(1, 15, 0), rowCenterY(0));
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      start: at(`${DAY1}T10:00`),
+      end: at(`${DAY1}T11:00`),
+      resourceId: 'crane-1',
+    });
+    expect(onEventChange).toHaveBeenCalledWith({
+      occurrence: expect.objectContaining({ eventId: 'ev-week-move' }),
+      newRange: { start: at(`${DAY1}T10:00`), end: at(`${DAY1}T11:00`) },
+      allDay: false,
+      scope: null,
+      resourceId: 'crane-1',
+      changes: [{ before: event, after: events[0] }],
+    });
+  });
+
+  it('新規作成のドラッグは日単位（終日ドラッグ相当の計算）になる（作成イベント自体は allDay: false）', () => {
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 3,
+      timelineScale: 'week',
+    });
+    mockAllRowRects(container, 3);
+    const rowEl = container.querySelector('[data-koyomi="timeline-row"]');
+    if (rowEl === null) {
+      throw new Error('行が見つかりません');
+    }
+
+    firePointerDown(rowEl, dm(0, 10, 0), rowCenterY(0));
+    movePointer(dm(1, 15, 0), rowCenterY(0));
+    releasePointer(dm(1, 15, 0), rowCenterY(0));
+
+    const events = sink.current?.api.getEvents() ?? [];
+    // allDay: false は既定作成の付与規則により省略される（createDefaultEvent）
+    expect(events[0]).not.toHaveProperty('allDay');
+    expect(events[0]).toMatchObject({
+      start: at(`${DAY0}T00:00`),
+      end: at('2026-07-17T00:00'),
+    });
+  });
+
+  it('複数日にまたがる帯の終了ハンドルを掴んでも動かさなければ変更されない（アンカー日は掴んだ位置の日）', () => {
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-multiday-resize-nomove',
+      title: '長期作業',
+      start: `${DAY0}T10:00`,
+      end: `${DAY1}T11:00`, // 1 日目 10:00 〜 2 日目 11:00（日をまたぐ）
+      resourceId: 'crane-1',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 3,
+      timelineScale: 'week',
+      events: [event],
+      callbacks: { onEventChange },
+    });
+    mockAllRowRects(container, 3);
+    const itemEl = getItemElement(container, 'ev-multiday-resize-nomove', `${DAY0}T10:00`);
+    const handle = itemEl.querySelector('[data-koyomi-resize-handle="end"]');
+    if (handle === null) {
+      throw new Error('リサイズハンドルが見つかりません');
+    }
+
+    firePointerDown(handle, dm(1, 11, 0), rowCenterY(0)); // 終了（2 日目 11:00）の位置を掴む
+    movePointer(dm(1, 11, 0), rowCenterY(0)); // 動かさない
+    releasePointer(dm(1, 11, 0), rowCenterY(0));
+
+    expect(onEventChange).not.toHaveBeenCalled();
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: `${DAY0}T10:00`, end: `${DAY1}T11:00` });
+  });
+
+  it('複数日にまたがる帯の終了ハンドルを 1 日先へドラッグすると終了日が 1 日延長される（時刻は維持）', () => {
+    const event: CalendarEvent = {
+      id: 'ev-multiday-resize-move',
+      title: '長期作業',
+      start: `${DAY0}T10:00`,
+      end: `${DAY1}T11:00`,
+      resourceId: 'crane-1',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 3,
+      timelineScale: 'week',
+      events: [event],
+    });
+    mockAllRowRects(container, 3);
+    const itemEl = getItemElement(container, 'ev-multiday-resize-move', `${DAY0}T10:00`);
+    const handle = itemEl.querySelector('[data-koyomi-resize-handle="end"]');
+    if (handle === null) {
+      throw new Error('リサイズハンドルが見つかりません');
+    }
+
+    firePointerDown(handle, dm(1, 11, 0), rowCenterY(0));
+    movePointer(dm(2, 11, 0), rowCenterY(0)); // 3 日目へ（+1 日）
+    releasePointer(dm(2, 11, 0), rowCenterY(0));
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      start: at(`${DAY0}T10:00`),
+      end: at('2026-07-17T11:00'),
+    });
+  });
+
+  it('非終日アイテムも ArrowRight で 1 日先へ移動する（hour スケールの ±snapMinutes 分から変わる）', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-week-arrow',
+      title: '荷揚げ',
+      start: `${DAY0}T10:00`,
+      end: `${DAY0}T11:00`,
+      resourceId: 'crane-1',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 3,
+      timelineScale: 'week',
+      events: [event],
+    });
+    const itemEl = getItemElement(container, 'ev-week-arrow', `${DAY0}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(itemEl, { key: 'ArrowRight' });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: at(`${DAY1}T10:00`), end: at(`${DAY1}T11:00`) });
+  });
+
+  it('非終日アイテムの Shift+ArrowRight は終了日を 1 日延長する（新規: hour スケールでは分単位）', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-week-shift-arrow',
+      title: '荷揚げ',
+      start: `${DAY0}T10:00`,
+      end: `${DAY0}T11:00`,
+      resourceId: 'crane-1',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 3,
+      timelineScale: 'week',
+      events: [event],
+    });
+    const itemEl = getItemElement(container, 'ev-week-shift-arrow', `${DAY0}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(itemEl, { key: 'ArrowRight', shiftKey: true });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: at(`${DAY0}T10:00`), end: at(`${DAY1}T11:00`) });
+  });
+
+  it('終日アイテムは timelineScale に関わらず Shift+矢印キーのリサイズを提供しない（既存の制限を維持）', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-week-allday-shift',
+      title: '定期点検',
+      start: DAY0,
+      end: DAY1,
+      allDay: true,
+      resourceId: 'crane-1',
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 3,
+      timelineScale: 'week',
+      events: [event],
+    });
+    const itemEl = container.querySelector('[data-koyomi="timeline-item"][data-all-day="true"]');
+    if (itemEl === null) {
+      throw new Error('終日の帯が見つかりません');
+    }
+
+    await act(async () => {
+      fireEvent.keyDown(itemEl, { key: 'ArrowRight', shiftKey: true });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: DAY0, end: DAY1 });
   });
 });
 

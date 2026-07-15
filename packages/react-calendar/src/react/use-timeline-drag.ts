@@ -3,10 +3,13 @@
  * タイムラインビュー（横 = 時間 × 行 = リソース）のドラッグインタラクション。
  *
  * - 空き領域のクリック / 横ドラッグ → 範囲選択（新規作成。行は開始行に固定）
- * - 帯のドラッグ → 移動（横 = 時間、縦 = 行の同時変更）。終日の帯は日単位スナップ
- * - 左右端ハンドルのドラッグ → リサイズ（時間のみ。行不変）
- * - キーボード — `←`/`→` = `snapMinutes` 分移動（終日は ∓/± 1 日）、
- *   `Shift+←`/`→` = リサイズ、`↑`/`↓` = 隣の行へ移動（画面上の視覚軸に対応する操作）
+ * - 帯のドラッグ → 移動（横 = 時間、縦 = 行の同時変更）。
+ *   終日の帯、または {@link CalendarOptions.timelineScale} が `'hour'` 以外
+ *   （日単位スナップ、`daySnap`）のときは日単位スナップになる
+ * - 左右端ハンドルのドラッグ → リサイズ（時間のみ。行不変。`daySnap` のときは日単位）
+ * - キーボード — `←`/`→` = `snapMinutes` 分移動（`daySnap` は ∓/± 1 日）、
+ *   `Shift+←`/`→` = リサイズ（終日の帯は非対応）、`↑`/`↓` = 隣の行へ移動
+ *   （画面上の視覚軸に対応する操作）
  * - ドラッグ中は Escape / pointercancel でキャンセルし、画面端で横に自動スクロールする
  *
  * 横位置 → 日時の変換は行要素の矩形と {@link timeAtTimelineOffset}（表示分の座標系）で
@@ -14,6 +17,10 @@
  * 確定時は時間の変更と `resourceId` の変更を 1 つのパッチに合成して 1 回の
  * `updateEvent` にする（{@link ./use-resource-grid-drag} と同じ規則）。
  * allDay⇔時間指定の越境変換は提供しない。
+ *
+ * `daySnap`（`occurrence?.allDay === true || options.timelineScale !== 'hour'`）は
+ * セッション開始時に固定される。`updateOptions` で `timelineScale` を変更しても、
+ * 進行中のドラッグセッションには反映されない（次回セッションから新しい設定が使われる）。
  */
 
 import type {
@@ -29,7 +36,12 @@ import {
   occurrenceBlocksOverlap,
   resolveConstraintRules,
 } from '../core/constraints';
-import { dayDragPreviewRange, dragPreviewRange, timeAtTimelineOffset } from '../core/interaction';
+import {
+  type DayDragMode,
+  dayDragPreviewRange,
+  dragPreviewRange,
+  timeAtTimelineOffset,
+} from '../core/interaction';
 import {
   addDaysInZone,
   addMinutesInZone,
@@ -147,15 +159,20 @@ interface RowEntry {
 
 /** ドラッグセッション（開始から終了までの内部状態）。 */
 interface DragSession {
-  /** 操作の種類。`allday-move` は終日の帯の日単位移動。 */
-  mode: 'create' | 'move' | 'resize' | 'resize-start' | 'allday-move';
+  /** 操作の種類。 */
+  mode: 'create' | 'move' | 'resize' | 'resize-start';
   /** 対象のオカレンス（`create` では `null`）。 */
   occurrence: EventOccurrence | null;
-  /** ドラッグ開始時のポインタ位置に対応する日時（スナップ済み）。 */
+  /** ドラッグ開始時のポインタ位置に対応する日時（スナップ済み）。`daySnap` では未使用。 */
   anchor: Date;
-  /** `allday-move` 用: ドラッグ開始時のポインタ位置が属する日の 0:00。 */
+  /** ドラッグ開始時のポインタ位置が属する日の 0:00（`daySnap` の日数差計算の基準）。 */
   anchorDay: Date;
-  /** 対象レーンのリソース ID（`move` / `allday-move` はポインタ行に追従）。 */
+  /**
+   * 日単位スナップを適用するか（セッション開始時に固定）。
+   * `occurrence?.allDay === true || options.timelineScale !== 'hour'` で決まる。
+   */
+  daySnap: boolean;
+  /** 対象レーンのリソース ID（`move` はポインタ行に追従）。 */
   targetResourceId: string | null;
   /** ドラッグ開始時点のリソース ID（変更検出用）。 */
   initialResourceId: string | null;
@@ -394,13 +411,15 @@ export function useTimelineDrag(params: {
     clientY: number,
   ): DateRange | null {
     const { state } = paramsRef.current.calendar;
-    if (session.mode === 'allday-move') {
+    if (session.daySnap) {
       const pointerDay = pointerDayAt(clientX, clientY);
-      if (pointerDay === null || session.occurrence === null) {
+      if (pointerDay === null) {
         return null;
       }
+      // DragSession.mode（'resize' = 終了端）を DayDragMode（'resize-end'）へマップする
+      const dayMode: DayDragMode = session.mode === 'resize' ? 'resize-end' : session.mode;
       return dayDragPreviewRange(
-        { mode: 'move', occurrence: session.occurrence },
+        { mode: dayMode, occurrence: session.occurrence },
         pointerDay,
         session.anchorDay,
         state.timeZone,
@@ -411,7 +430,6 @@ export function useTimelineDrag(params: {
     if (pointer === null) {
       return null;
     }
-    // 'allday-move' は冒頭で早期リターン済みのため、ここでは時間グリッド系のモードに確定している
     return dragPreviewRange(
       { mode: session.mode, occurrence: session.occurrence, anchor: session.anchor },
       pointer,
@@ -419,12 +437,19 @@ export function useTimelineDrag(params: {
     );
   }
 
-  /** クリック（移動なし）による新規作成範囲（`defaultEventMinutes` 分の長さ）を返す。 */
-  function clickRangeForCreate(anchor: Date): DateRange {
+  /**
+   * クリック（移動なし）による新規作成範囲を返す。
+   * `daySnap` のときは掴んだ日 1 日分（`anchorDay` 〜 +1 日）、それ以外は
+   * `defaultEventMinutes` 分の長さ。
+   */
+  function clickRangeForCreate(session: DragSession): DateRange {
     const { state } = paramsRef.current.calendar;
+    if (session.daySnap) {
+      return { start: session.anchorDay, end: addDaysInZone(session.anchorDay, 1, state.timeZone) };
+    }
     return {
-      start: anchor,
-      end: addMinutesInZone(anchor, state.options.defaultEventMinutes, state.timeZone),
+      start: session.anchor,
+      end: addMinutesInZone(session.anchor, state.options.defaultEventMinutes, state.timeZone),
     };
   }
 
@@ -553,8 +578,7 @@ export function useTimelineDrag(params: {
       ) {
         return;
       }
-      const action: 'move' | 'resize' =
-        session.mode === 'move' || session.mode === 'allday-move' ? 'move' : 'resize';
+      const action: 'move' | 'resize' = session.mode === 'move' ? 'move' : 'resize';
       const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
         occurrence,
         range: validationRange,
@@ -597,7 +621,7 @@ export function useTimelineDrag(params: {
       try {
         range = session.hasMoved
           ? computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY)
-          : clickRangeForCreate(session.anchor);
+          : clickRangeForCreate(session);
       } catch (error) {
         reportError(error);
         paramsRef.current.calendar.api.setDragPreview(null);
@@ -624,12 +648,23 @@ export function useTimelineDrag(params: {
     dragSessionRef.current?.cleanup();
 
     const { state } = paramsRef.current.calendar;
+    // 終日イベント、または timelineScale が 'hour' 以外のときは日単位スナップを適用する
+    // （セッション開始時に固定。updateOptions による事後の timelineScale 変更は
+    // 進行中のセッションには反映されない）
+    const daySnap = occurrence?.allDay === true || state.options.timelineScale !== 'hour';
     const baselineRange =
       occurrence === null
-        ? dragPreviewRange({ mode: 'create', occurrence: null, anchor }, anchor, {
-            timeZone: state.timeZone,
-            snap: state.options.snapMinutes,
-          })
+        ? daySnap
+          ? dayDragPreviewRange(
+              { mode: 'create', occurrence: null },
+              anchorDay,
+              anchorDay,
+              state.timeZone,
+            )
+          : dragPreviewRange({ mode: 'create', occurrence: null, anchor }, anchor, {
+              timeZone: state.timeZone,
+              snap: state.options.snapMinutes,
+            })
         : { start: occurrence.start, end: occurrence.end };
 
     // 横方向のオートスクロール（コンテナは timeline-body）
@@ -654,6 +689,7 @@ export function useTimelineDrag(params: {
       occurrence,
       anchor,
       anchorDay,
+      daySnap,
       targetResourceId: initialResourceId,
       initialResourceId,
       baselineRange,
@@ -677,7 +713,7 @@ export function useTimelineDrag(params: {
       updateAutoScroll(clientX, clientY);
 
       // 縦方向（行 = リソース）の追従。create は開始行に固定、resize 系は元の行のまま
-      if (session.mode === 'move' || session.mode === 'allday-move') {
+      if (session.mode === 'move') {
         const row = findRowForClientY(clientY);
         if (row !== null && row.resourceId !== session.targetResourceId) {
           session.targetResourceId = row.resourceId;
@@ -705,12 +741,7 @@ export function useTimelineDrag(params: {
         session.targetResourceId,
       );
       paramsRef.current.calendar.api.setDragPreview({
-        kind:
-          session.mode === 'move' || session.mode === 'allday-move'
-            ? 'move'
-            : session.mode === 'create'
-              ? 'create'
-              : 'resize',
+        kind: session.mode === 'move' ? 'move' : session.mode === 'create' ? 'create' : 'resize',
         occurrenceKey: session.occurrence?.key ?? null,
         range,
         allDay: previewAllDay,
@@ -780,13 +811,7 @@ export function useTimelineDrag(params: {
     const anchorDay =
       pointerDayAt(event.clientX, event.clientY) ??
       startOfDayInZone(occurrence.start, state.timeZone);
-    startSession(
-      occurrence.allDay ? 'allday-move' : 'move',
-      occurrence,
-      anchor,
-      anchorDay,
-      occurrenceLaneId(occurrence),
-    );
+    startSession('move', occurrence, anchor, anchorDay, occurrenceLaneId(occurrence));
   }
 
   /** リサイズハンドルのドラッグを開始する。 */
@@ -805,11 +830,16 @@ export function useTimelineDrag(params: {
     const fallback = edge === 'start' ? occurrence.start : occurrence.end;
     const anchor = pointerDateAt(event.clientX, event.clientY, edge === 'end') ?? fallback;
     const { state } = paramsRef.current.calendar;
+    // anchorDay は掴んだハンドルの位置（ポインタの日）を基準にする。
+    // occurrence.start の日に固定すると、終了ハンドル（end）が別日にある
+    // 複数日アイテムで daySnap の日数差計算が開始時点からずれてしまう
+    const anchorDay =
+      pointerDayAt(event.clientX, event.clientY) ?? startOfDayInZone(fallback, state.timeZone);
     startSession(
       edge === 'start' ? 'resize-start' : 'resize',
       occurrence,
       anchor,
-      startOfDayInZone(occurrence.start, state.timeZone),
+      anchorDay,
       occurrenceLaneId(occurrence),
     );
   }
@@ -961,17 +991,27 @@ export function useTimelineDrag(params: {
     const timeZone = state.timeZone;
     const snap = state.options.snapMinutes;
     const direction = event.key === 'ArrowLeft' ? -1 : 1;
+    // 終日の帯、または timelineScale が 'hour' 以外のときは日単位で移動・リサイズする
+    const daySnap = occurrence.allDay || state.options.timelineScale !== 'hour';
     let range: DateRange;
     let action: 'move' | 'resize' = 'move';
-    if (occurrence.allDay) {
-      // 終日の帯は日単位で移動する（Shift リサイズは提供しない）
+    if (daySnap) {
       if (event.shiftKey) {
-        return;
+        if (occurrence.allDay) {
+          // 終日の帯のキーボードリサイズは提供しない（既存の制限を維持）
+          return;
+        }
+        action = 'resize';
+        const candidate = addDaysInZone(occurrence.end, direction, timeZone);
+        const minEnd = addDaysInZone(occurrence.start, 1, timeZone);
+        const end = candidate.getTime() < minEnd.getTime() ? occurrence.end : candidate;
+        range = { start: occurrence.start, end };
+      } else {
+        range = {
+          start: addDaysInZone(occurrence.start, direction, timeZone),
+          end: addDaysInZone(occurrence.end, direction, timeZone),
+        };
       }
-      range = {
-        start: addDaysInZone(occurrence.start, direction, timeZone),
-        end: addDaysInZone(occurrence.end, direction, timeZone),
-      };
     } else if (event.shiftKey) {
       action = 'resize';
       const candidate = addMinutesInZone(occurrence.end, direction * snap, timeZone);

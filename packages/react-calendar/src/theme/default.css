@@ -28,6 +28,10 @@
  *   --koyomi-hour-height         時間グリッド 1 時間分の高さ
  *   --koyomi-resource-column-width  リソースビューの列の最小幅（列数が多いと横スクロール）
  *   --koyomi-timeline-day-width     タイムラインビューの 1 日分のトラック幅
+ *                                    （data-koyomi-scale="hour"、および属性なしの場合のみ）
+ *   --koyomi-timeline-slot-width    タイムラインビューの 1 日分のトラック幅
+ *                                    （data-koyomi-scale が "hour" 以外、すなわち
+ *                                    "day"/"week"/"month" の場合のみ）
  *   --koyomi-timeline-lane-height   タイムラインビューの帯 1 レーンの高さ
  *   --koyomi-timeline-header-width  タイムラインビューの行見出し列（左端固定列）の幅
  *   --koyomi-now-color              現在時刻線（now-indicator）の色
@@ -80,6 +84,7 @@
   --koyomi-time-axis-width: 56px;
   --koyomi-resource-column-width: 160px;
   --koyomi-timeline-day-width: 720px;
+  --koyomi-timeline-slot-width: 96px;
   --koyomi-timeline-lane-height: 28px;
   --koyomi-timeline-header-width: 120px;
   --koyomi-now-color: #ea4335;
@@ -1226,12 +1231,28 @@
   min-width: calc(var(--koyomi-timeline-day-width, 720px) * 1);
 }
 
-[data-koyomi="timeline-day-headers"] {
+/*
+ * timelineScale が 'hour' 以外（'day'/'week'/'month'）のときは、1 日あたりの
+ * 実寸を --koyomi-timeline-slot-width（既定 96px）に切り替える。'hour' のトラック幅
+ * （--koyomi-timeline-day-width）とは役割が異なる（1 日 = 24 時間分の幅 vs
+ * 1 日 = 1 目盛りの幅）ため、既定値も個別に持つ。timelineDays を 1 より大きくして
+ * 使う場合は、上記と同様に data-koyomi-days の値に応じた上書きを追加する。
+ */
+[data-koyomi="timeline"][data-koyomi-scale]:not([data-koyomi-scale="hour"])
+  [data-koyomi="timeline-axis"],
+[data-koyomi="timeline"][data-koyomi-scale]:not([data-koyomi-scale="hour"])
+  [data-koyomi="timeline-row"] {
+  min-width: calc(var(--koyomi-timeline-slot-width, 96px) * 1);
+}
+
+[data-koyomi="timeline-day-headers"],
+[data-koyomi="timeline-group-headers"] {
   display: flex;
   border-bottom: 1px solid var(--koyomi-border);
 }
 
-[data-koyomi="timeline-day-header"] {
+[data-koyomi="timeline-day-header"],
+[data-koyomi="timeline-group-header"] {
   flex: none;
   min-width: 0;
   padding: 4px;
@@ -1239,11 +1260,13 @@
   text-align: center;
 }
 
-[data-koyomi="timeline-day-header"]:first-child {
+[data-koyomi="timeline-day-header"]:first-child,
+[data-koyomi="timeline-group-header"]:first-child {
   border-inline-start: none;
 }
 
-[data-koyomi="timeline-day-header"][data-today] {
+[data-koyomi="timeline-day-header"][data-today],
+[data-koyomi="timeline-group-header"][data-today] {
   background-color: var(--koyomi-today-bg);
 }
 

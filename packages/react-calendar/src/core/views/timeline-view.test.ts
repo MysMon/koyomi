@@ -11,7 +11,9 @@ import type {
   CalendarEvent,
   CalendarResource,
   EventOccurrence,
+  TimelineScale,
   TimeZoneId,
+  Weekday,
 } from '../types';
 import { buildTimelineViewModel } from './timeline-view';
 
@@ -65,6 +67,8 @@ function build(params: {
   unassignedLane?: 'auto' | 'always';
   timelineDays?: number;
   slotMinutes?: number;
+  timelineScale?: TimelineScale;
+  weekStartsOn?: Weekday;
   currentDate?: Date;
   now?: Date;
   timeZone?: TimeZoneId;
@@ -78,6 +82,8 @@ function build(params: {
     unassignedLane: params.unassignedLane ?? 'auto',
     timelineDays: params.timelineDays ?? 3,
     slotMinutes: params.slotMinutes ?? 60,
+    timelineScale: params.timelineScale ?? 'hour',
+    weekStartsOn: params.weekStartsOn ?? 0,
     now: params.now ?? at('2026-07-10T10:30'),
     ...(params.businessHours !== undefined ? { businessHours: params.businessHours } : {}),
   });
@@ -383,6 +389,103 @@ describe('buildTimelineViewModel', () => {
       // 2 日目の現地時刻 10:00 = 表示分 1440 + 600（実時間の 23 時間は影響しない）
       expect(item?.startMinutes).toBe(1440 + 600);
       expect(vm.nowIndicatorMinutes).toBe(1440 + 600);
+    });
+  });
+
+  describe('timelineScale（ズーム粒度）', () => {
+    it("省略時は既定 'hour' になり、headerGroups は null（既存挙動の回帰確認）", () => {
+      const vm = build({});
+      expect(vm.scale).toBe('hour');
+      expect(vm.headerGroups).toBeNull();
+    });
+
+    it('day スケールでは slots が常に空配列、headerGroups は null、days は不変', () => {
+      const vm = build({ timelineScale: 'day', timelineDays: 3, slotMinutes: 60 });
+      expect(vm.scale).toBe('day');
+      expect(vm.slots).toEqual([]);
+      expect(vm.headerGroups).toBeNull();
+      expect(vm.days).toHaveLength(3);
+    });
+
+    it('day/hour スケールでは weekStartsOn に関係なく headerGroups が null', () => {
+      const vmDay = build({ timelineScale: 'day', weekStartsOn: 3 });
+      const vmHour = build({ timelineScale: 'hour', weekStartsOn: 3 });
+      expect(vmDay.headerGroups).toBeNull();
+      expect(vmHour.headerGroups).toBeNull();
+    });
+
+    describe('week スケール', () => {
+      it('weekStartsOn=0 で週境界ごとにグループ化し、先頭/末尾が部分週になる', () => {
+        // 表示: 2026-07-10(金)〜07-19（10日間）。weekStartsOn=0（日曜始まり）
+        const vm = build({
+          timelineScale: 'week',
+          weekStartsOn: 0,
+          currentDate: at('2026-07-10T00:00'),
+          timelineDays: 10,
+        });
+        expect(vm.scale).toBe('week');
+        const groups = vm.headerGroups;
+        expect(groups).not.toBeNull();
+        expect(groups?.map((g) => g.key)).toEqual(['2026-07-10', '2026-07-12', '2026-07-19']);
+        expect(groups?.map((g) => [g.startMinutes, g.endMinutes])).toEqual([
+          [0, 2 * 1440],
+          [2 * 1440, 9 * 1440],
+          [9 * 1440, 10 * 1440],
+        ]);
+        expect(groups?.[0]?.start.getTime()).toBe(at('2026-07-10T00:00').getTime());
+        expect(groups?.[2]?.end.getTime()).toBe(at('2026-07-20T00:00').getTime());
+      });
+
+      it('weekStartsOn を変えるとグループ境界がずれる', () => {
+        const vm = build({
+          timelineScale: 'week',
+          weekStartsOn: 1,
+          currentDate: at('2026-07-10T00:00'),
+          timelineDays: 10,
+        });
+        expect(vm.headerGroups?.map((g) => g.key)).toEqual(['2026-07-10', '2026-07-13']);
+      });
+
+      it('containsToday はグループ内に「今日」を含むかで決まる', () => {
+        const vm = build({
+          timelineScale: 'week',
+          weekStartsOn: 0,
+          currentDate: at('2026-07-10T00:00'),
+          timelineDays: 10,
+          now: at('2026-07-15T10:00'), // 第 2 グループ（07-12〜07-18）内
+        });
+        expect(vm.headerGroups?.map((g) => g.containsToday)).toEqual([false, true, false]);
+      });
+    });
+
+    describe('month スケール', () => {
+      it('月境界でグループ化し、部分月がクランプされる（31日と28日の月が混在）', () => {
+        // 2027 年は平年（2月28日）。表示: 2027-01-20〜（45日間） = 1/20-31(12日)+2月(28日)+3/1-5(5日)
+        const vm = build({
+          timelineScale: 'month',
+          currentDate: at('2027-01-20T00:00'),
+          timelineDays: 45,
+        });
+        expect(vm.scale).toBe('month');
+        const groups = vm.headerGroups;
+        expect(groups?.map((g) => g.key)).toEqual(['2027-01-20', '2027-02-01', '2027-03-01']);
+        expect((groups?.[0]?.endMinutes ?? 0) - (groups?.[0]?.startMinutes ?? 0)).toBe(12 * 1440);
+        expect((groups?.[1]?.endMinutes ?? 0) - (groups?.[1]?.startMinutes ?? 0)).toBe(28 * 1440);
+        expect((groups?.[2]?.endMinutes ?? 0) - (groups?.[2]?.startMinutes ?? 0)).toBe(5 * 1440);
+      });
+    });
+
+    describe('slots（週/月スケールの日番号目盛り）', () => {
+      it('week/month スケールでは 1 日 1 件、label が日番号の文字列になる', () => {
+        const vm = build({
+          timelineScale: 'month',
+          currentDate: at('2027-01-30T00:00'),
+          timelineDays: 3, // 1/30, 1/31, 2/1
+        });
+        expect(vm.slots.map((s) => s.label)).toEqual(['30', '31', '1']);
+        expect(vm.slots.map((s) => s.minutes)).toEqual([0, 1440, 2880]);
+        expect(vm.slots.map((s) => s.dayKey)).toEqual(['2027-01-30', '2027-01-31', '2027-02-01']);
+      });
     });
   });
 });

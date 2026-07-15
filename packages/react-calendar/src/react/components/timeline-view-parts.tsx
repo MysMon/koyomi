@@ -14,17 +14,26 @@
  * `rowRef` / 窓外フォーカス保持の `pinned` / 絶対配置の `style` / タブ順制御の
  * `itemTabbable` という仮想化専用の追加 props を持つため、DOM 構造・props が
  * 完全には一致しない。無理に統合せずそれぞれのファイルに残している。
+ *
+ * ヘッダー軸（日ヘッダー or 週/月グループヘッダー ＋ 時刻/日番号の目盛り）は
+ * 両ビューで完全に同一の DOM のため、{@link TimelineAxisHeader} として統合する。
  */
 
-import type { CSSProperties, Ref } from 'react';
-import { useRef, useState } from 'react';
+import type { CSSProperties, ReactElement, Ref } from 'react';
+import { memo, useRef, useState } from 'react';
 import type {
   BusinessHourRange,
   CalendarResource,
+  TimelineDay,
+  TimelineHeaderGroup,
   TimelineItem,
   TimelineRow,
+  TimelineScale,
+  TimelineSlot,
+  TimeZoneId,
 } from '../../core/types';
 import type { TimelineDragHandlers, TimelinePreviewSegment } from '../use-timeline-drag';
+import { formatDayHeader, formatMonthTitle, formatRangeTitle } from './format';
 
 /** 1 日の分（24:00 = 1440 分）。 */
 export const MINUTES_PER_DAY = 1440;
@@ -197,3 +206,163 @@ export function samePreviewSegment(
     (a.invalid ?? false) === (b.invalid ?? false)
   );
 }
+
+/** `TimelineDay` 配列の、ヘッダー表示に影響する内容が等しいかどうかを比較する。 */
+export function sameTimelineDays(a: readonly TimelineDay[], b: readonly TimelineDay[]): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((day, index) => {
+    const other = b[index];
+    return (
+      other !== undefined &&
+      day.key === other.key &&
+      day.isToday === other.isToday &&
+      day.date.getTime() === other.date.getTime()
+    );
+  });
+}
+
+/** `TimelineSlot` 配列の内容が等しいかどうかを比較する。 */
+export function sameTimelineSlots(a: readonly TimelineSlot[], b: readonly TimelineSlot[]): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((slot, index) => {
+    const other = b[index];
+    return other !== undefined && slot.minutes === other.minutes && slot.label === other.label;
+  });
+}
+
+/**
+ * `TimelineViewModel.headerGroups` の内容が等しいかどうかを比較する
+ * （`sameBusinessHourRanges` と同型）。
+ */
+export function sameHeaderGroups(
+  a: readonly TimelineHeaderGroup[] | null,
+  b: readonly TimelineHeaderGroup[] | null,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a === null || b === null) {
+    return false;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((group, index) => {
+    const other = b[index];
+    return (
+      other !== undefined &&
+      group.key === other.key &&
+      group.startMinutes === other.startMinutes &&
+      group.endMinutes === other.endMinutes &&
+      group.containsToday === other.containsToday
+    );
+  });
+}
+
+/** {@link TimelineAxisHeaderImpl} の props。 */
+interface TimelineAxisHeaderProps {
+  /** 表示日一覧（`headerGroups` が `null` のときの日ヘッダーに使う）。 */
+  days: readonly TimelineDay[];
+  /** 時間軸の目盛り（内容は `scale` 依存）。 */
+  slots: readonly TimelineSlot[];
+  /** ヘッダー上段のグループ（`scale` が `'week'`/`'month'` のときのみ非 `null`）。 */
+  headerGroups: readonly TimelineHeaderGroup[] | null;
+  /** 適用中のズーム粒度（グループ見出しの書式選択に使う）。 */
+  scale: TimelineScale;
+  totalMinutes: number;
+  timeZone: TimeZoneId;
+  locale: string;
+}
+
+/**
+ * タイムラインのヘッダー軸（日ヘッダー or 週/月グループヘッダー ＋ 時刻/日番号の目盛り）。
+ *
+ * `headerGroups` が `null`（`scale` が `'hour'`/`'day'`）のときは日ヘッダー
+ * （`timeline-day-headers`/`timeline-day-header`。既存 DOM と同一）、それ以外
+ * （`'week'`/`'month'`）のときは週/月グループ見出し（`timeline-group-headers`/
+ * `timeline-group-header`）に切り替わる（両者は排他。同時には出さない）。
+ * 目盛り（`timeline-slots`）は常に描画し、内容のみ `slots` に従う。
+ */
+function TimelineAxisHeaderImpl(props: TimelineAxisHeaderProps): ReactElement {
+  const { days, slots, headerGroups, scale, totalMinutes, timeZone, locale } = props;
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA columnheader（TimelineView と同じ方針。日ヘッダー・時刻目盛りをまとめた1セル）
+    // biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない（ネイティブ <th> も単体ではタブ移動対象にならない）
+    <div data-koyomi="timeline-axis" role="columnheader">
+      {headerGroups === null ? (
+        <div data-koyomi="timeline-day-headers">
+          {days.map((day) => (
+            <div
+              key={day.key}
+              data-koyomi="timeline-day-header"
+              data-today={day.isToday ? 'true' : undefined}
+              aria-current={day.isToday ? 'date' : undefined}
+              style={{ width: `${(MINUTES_PER_DAY / totalMinutes) * 100}%` }}
+            >
+              {formatDayHeader(day.date, timeZone, locale)}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div data-koyomi="timeline-group-headers">
+          {headerGroups.map((group) => (
+            <div
+              key={group.key}
+              data-koyomi="timeline-group-header"
+              data-koyomi-group-start={group.key}
+              data-today={group.containsToday ? 'true' : undefined}
+              aria-current={group.containsToday ? 'date' : undefined}
+              style={{
+                width: `${((group.endMinutes - group.startMinutes) / totalMinutes) * 100}%`,
+              }}
+            >
+              {scale === 'month'
+                ? formatMonthTitle(group.start, timeZone, locale)
+                : formatRangeTitle({ start: group.start, end: group.end }, timeZone, locale)}
+            </div>
+          ))}
+        </div>
+      )}
+      <div data-koyomi="timeline-slots">
+        {slots.map((slot) => (
+          <div
+            key={slot.minutes}
+            data-koyomi="timeline-slot-label"
+            style={{ insetInlineStart: `${(slot.minutes / totalMinutes) * 100}%` }}
+          >
+            {slot.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * {@link TimelineAxisHeaderImpl} を `memo` でラップしたもの。
+ *
+ * ヘッダー軸は行のドラッグ状態など無関係な再レンダーの影響を受けないよう、
+ * 表示に影響する値だけを比較するカスタム比較関数を使う
+ * （`TimelineRowGroup` と同じ設計）。
+ */
+export const TimelineAxisHeader = memo(TimelineAxisHeaderImpl, (prev, next) => {
+  return (
+    sameTimelineDays(prev.days, next.days) &&
+    sameTimelineSlots(prev.slots, next.slots) &&
+    sameHeaderGroups(prev.headerGroups, next.headerGroups) &&
+    prev.scale === next.scale &&
+    prev.totalMinutes === next.totalMinutes &&
+    prev.timeZone === next.timeZone &&
+    prev.locale === next.locale
+  );
+});

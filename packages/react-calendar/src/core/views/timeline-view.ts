@@ -12,11 +12,13 @@
  * 終日・時間指定の区別なく同じレーン空間に配置する。
  */
 
+import { startOfMonthInZone, startOfWeekInZone } from '../date-utils';
 import { layoutIntervalLanes } from '../layout/interval-lane-layout';
 import {
   addDaysInZone,
   dateKeyInZone,
   formatSlotLabel,
+  getWallClock,
   isSameDayInZone,
   minutesOfDayInZone,
   parseTimeOfDay,
@@ -29,11 +31,14 @@ import type {
   CalendarResource,
   EventOccurrence,
   TimelineDay,
+  TimelineHeaderGroup,
   TimelineItem,
   TimelineRow,
+  TimelineScale,
   TimelineSlot,
   TimelineViewModel,
   TimeZoneId,
+  Weekday,
 } from '../types';
 import { laneKeyForResource, UNASSIGNED_LANE_KEY } from './lane-key';
 
@@ -141,6 +146,76 @@ function buildBusinessHourRanges(
 }
 
 /**
+ * 表示日を週/月境界でグループ化し、{@link TimelineViewModel.headerGroups} を構築する。
+ *
+ * `timelineScale` が `'hour'` / `'day'` のときは `null`（`days` をそのままヘッダーに使う）。
+ * `'week'` / `'month'` のときは、各日の週初め（{@link startOfWeekInZone}）・月初め
+ * （{@link startOfMonthInZone}）が一致する連続区間をひとまとめにする。`days` 自体が
+ * すでに表示範囲でクランプ済みのため、先頭/末尾のグループも自然に部分週/部分月として
+ * クランプされる（週/月の境界そのものを再計算する必要はない）。
+ *
+ * @param days - 表示日一覧（表示範囲でクランプ済み、日付昇順）
+ * @param timeZone - 表示タイムゾーン
+ * @param weekStartsOn - 週の開始曜日（`'week'` スケールのグループ境界に使用）
+ * @param timelineScale - ズーム粒度
+ * @param rangeEnd - 表示範囲の終了（排他）。最終グループの `end` に使う
+ * @returns グループ一覧、または `null`（`'hour'`/`'day'`）
+ */
+function buildHeaderGroups(
+  days: readonly TimelineDay[],
+  timeZone: TimeZoneId,
+  weekStartsOn: Weekday,
+  timelineScale: TimelineScale,
+  rangeEnd: Date,
+): readonly TimelineHeaderGroup[] | null {
+  if (timelineScale !== 'week' && timelineScale !== 'month') {
+    return null;
+  }
+  const firstDay = days[0];
+  if (firstDay === undefined) {
+    // days は呼び出し元（buildTimelineViewModel）で 1 件以上に正規化済みのため到達しない
+    return [];
+  }
+
+  const groupKeyOf = (day: TimelineDay): string =>
+    dateKeyInZone(
+      timelineScale === 'week'
+        ? startOfWeekInZone(day.date, timeZone, weekStartsOn)
+        : startOfMonthInZone(day.date, timeZone),
+      timeZone,
+    );
+
+  const groups: TimelineHeaderGroup[] = [];
+  let groupStartIndex = 0;
+  let currentKey = groupKeyOf(firstDay);
+  for (let index = 1; index <= days.length; index += 1) {
+    const day = days[index];
+    const key = day === undefined ? null : groupKeyOf(day);
+    if (key === currentKey) {
+      continue;
+    }
+    const startDay = days[groupStartIndex];
+    if (startDay === undefined) {
+      // groupStartIndex は常に有効な範囲を指す（防御的分岐、到達しない）
+      continue;
+    }
+    groups.push({
+      start: startDay.date,
+      end: day === undefined ? rangeEnd : day.date,
+      key: startDay.key,
+      startMinutes: groupStartIndex * MINUTES_PER_DAY,
+      endMinutes: index * MINUTES_PER_DAY,
+      containsToday: days.slice(groupStartIndex, index).some((candidate) => candidate.isToday),
+    });
+    groupStartIndex = index;
+    if (key !== null) {
+      currentKey = key;
+    }
+  }
+  return groups;
+}
+
+/**
  * タイムラインビューのビューモデルを構築する。
  *
  * 処理内容:
@@ -165,7 +240,9 @@ function buildBusinessHourRanges(
  * @param params.resources - リソース一覧（表示順）
  * @param params.unassignedLane - 未割り当てレーンの生成規則
  * @param params.timelineDays - 表示日数
- * @param params.slotMinutes - 時間軸の目盛り間隔（分）
+ * @param params.slotMinutes - 時間軸の目盛り間隔（分）。`timelineScale` が `'hour'` のときのみ使用
+ * @param params.timelineScale - ズーム粒度。`'hour'` 以外では目盛り・ヘッダーの構成が変わる
+ * @param params.weekStartsOn - 週の開始曜日（`timelineScale: 'week'` のグループ境界に使用）
  * @param params.now - 現在時刻（`isToday` 判定・現在時刻線に使用）
  * @param params.businessHours - 営業時間の指定一覧（{@link TimelineViewModel.businessHourRanges}
  *   を算出する）。表示日ごとに該当曜日のルールを日オフセット付きの表示分の区間へ変換し、
@@ -181,6 +258,8 @@ function buildBusinessHourRanges(
  *   unassignedLane: 'auto',
  *   timelineDays: 7,
  *   slotMinutes: 60,
+ *   timelineScale: 'hour',
+ *   weekStartsOn: 0,
  *   now: new Date(),
  * });
  * viewModel.totalMinutes; // => 10080
@@ -194,6 +273,8 @@ export function buildTimelineViewModel(params: {
   unassignedLane: 'auto' | 'always';
   timelineDays: number;
   slotMinutes: number;
+  timelineScale: TimelineScale;
+  weekStartsOn: Weekday;
   now: Date;
   businessHours?: readonly BusinessHoursRule[];
 }): TimelineViewModel {
@@ -205,6 +286,8 @@ export function buildTimelineViewModel(params: {
     unassignedLane,
     timelineDays,
     slotMinutes,
+    timelineScale,
+    weekStartsOn,
     now,
     businessHours = [],
   } = params;
@@ -234,17 +317,30 @@ export function buildTimelineViewModel(params: {
   }));
   const dayIndexByKey = new Map<string, number>(days.map((day, index) => [day.key, index]));
 
-  // 目盛り: 日ごとに slotMinutes 刻み（1440 の非約数では日ごとに切り上げ個数になる）
+  // 目盛り: scale で分岐する。
+  // - 'hour'        — 日ごとに slotMinutes 刻み（1440 の非約数では日ごとに切り上げ個数になる。既存挙動）
+  // - 'day'         — 時刻目盛りは表示しない（空配列）
+  // - 'week'/'month' — 1 日 1 件、ラベルは日番号（週スケールと一貫。密な月は利用者側 CSS で間引く運用に委ねる）
   const slots: TimelineSlot[] = [];
-  if (Number.isFinite(slotMinutes) && slotMinutes > 0) {
+  if (timelineScale === 'hour') {
+    if (Number.isFinite(slotMinutes) && slotMinutes > 0) {
+      days.forEach((day, dayIndex) => {
+        for (let minutes = 0; minutes < MINUTES_PER_DAY; minutes += slotMinutes) {
+          slots.push({
+            minutes: dayIndex * MINUTES_PER_DAY + minutes,
+            dayKey: day.key,
+            label: formatSlotLabel(minutes),
+          });
+        }
+      });
+    }
+  } else if (timelineScale === 'week' || timelineScale === 'month') {
     days.forEach((day, dayIndex) => {
-      for (let minutes = 0; minutes < MINUTES_PER_DAY; minutes += slotMinutes) {
-        slots.push({
-          minutes: dayIndex * MINUTES_PER_DAY + minutes,
-          dayKey: day.key,
-          label: formatSlotLabel(minutes),
-        });
-      }
+      slots.push({
+        minutes: dayIndex * MINUTES_PER_DAY,
+        dayKey: day.key,
+        label: String(getWallClock(day.date, timeZone).day),
+      });
     });
   }
 
@@ -397,5 +493,7 @@ export function buildTimelineViewModel(params: {
     totalMinutes,
     nowIndicatorMinutes: nowInRange ? displayMinutesOf(now) : null,
     businessHourRanges: buildBusinessHourRanges(days, businessHours),
+    scale: timelineScale,
+    headerGroups: buildHeaderGroups(days, timeZone, weekStartsOn, timelineScale, rangeEnd),
   };
 }

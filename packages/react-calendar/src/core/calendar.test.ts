@@ -283,6 +283,7 @@ describe('createCalendar', () => {
       calendar.updateOptions({}); // 空パッチ
       calendar.updateOptions({ dayMaxEvents: 4, locale: 'ja' }); // 既定値と同じ
       calendar.updateOptions({ eventOverlap: true }); // 既定値と同じ
+      calendar.updateOptions({ timelineScale: 'hour' }); // 既定値と同じ
 
       expect(listener).not.toHaveBeenCalled();
       expect(calendar.getState()).toBe(before);
@@ -1437,6 +1438,27 @@ describe('createCalendar', () => {
 
       calendar.updateOptions({ timelineDays: -3 });
       expect(calendar.getState().options.timelineDays).toBe(1);
+    });
+
+    it("timelineScale の既定は 'hour' で、既存挙動（headerGroups なし）と一致する", () => {
+      const calendar = makeCalendar({ resources: [ROOM] });
+      calendar.setView('timeline');
+      expect(calendar.getState().options.timelineScale).toBe('hour');
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'timeline') throw new Error('unreachable');
+      expect(vm.scale).toBe('hour');
+      expect(vm.headerGroups).toBeNull();
+    });
+
+    it('timelineScale を updateOptions で変更するとタイムラインビューモデルに反映される', () => {
+      const calendar = makeCalendar({ resources: [ROOM] });
+      calendar.setView('timeline');
+      calendar.updateOptions({ timelineDays: 10, timelineScale: 'week' });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'timeline') throw new Error('unreachable');
+      expect(vm.scale).toBe('week');
+      expect(vm.headerGroups).not.toBeNull();
+      expect(calendar.getState().options.timelineScale).toBe('week');
     });
 
     it("unassignedLane の既定は 'auto'（該当オカレンスがなければ未割り当て列/行を生成しない）", () => {

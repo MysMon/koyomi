@@ -15,6 +15,8 @@ import type {
   CalendarViewType,
   TimelineItem,
   TimelineRow,
+  TimelineScale,
+  Weekday,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { UseCalendarResult } from '../types';
@@ -45,6 +47,10 @@ interface HarnessProps {
   unassignedLane?: 'auto' | 'always';
   /** 表示日数。 */
   timelineDays?: number;
+  /** ズーム粒度。 */
+  timelineScale?: TimelineScale;
+  /** 週の開始曜日。 */
+  weekStartsOn?: Weekday;
   /** 時間軸の目盛り間隔（分）。 */
   slotMinutes?: number;
   /** 営業時間の指定（{@link CalendarOptions.businessHours}）。 */
@@ -66,6 +72,8 @@ function Harness(props: HarnessProps): ReactElement {
     resources: props.resources ?? EMPTY_RESOURCES,
     unassignedLane: props.unassignedLane ?? 'auto',
     ...(props.timelineDays !== undefined ? { timelineDays: props.timelineDays } : {}),
+    ...(props.timelineScale !== undefined ? { timelineScale: props.timelineScale } : {}),
+    ...(props.weekStartsOn !== undefined ? { weekStartsOn: props.weekStartsOn } : {}),
     ...(props.slotMinutes !== undefined ? { slotMinutes: props.slotMinutes } : {}),
     ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
   });
@@ -168,6 +176,95 @@ describe('TimelineView - 空状態', () => {
     expect(root?.querySelector('[data-koyomi="timeline-body"]')).toBeNull();
     expect(root?.children).toHaveLength(1);
     expect(root?.firstElementChild).toHaveAttribute('data-koyomi', 'timeline-empty');
+  });
+
+  it('空状態でも data-koyomi-scale は常に出力される', () => {
+    const { container } = render(<Harness resources={[]} events={[]} timelineScale="week" />);
+    const root = container.querySelector('[data-koyomi="timeline"]');
+    expect(root).toHaveAttribute('data-koyomi-scale', 'week');
+  });
+});
+
+describe('TimelineView - timelineScale（ズーム粒度）', () => {
+  it("既定（省略時）は data-koyomi-scale='hour' で、既存の日ヘッダー・時刻目盛りの DOM が不変", () => {
+    const { container } = render(<Harness resources={[CRANE_1]} timelineDays={3} />);
+    const root = container.querySelector('[data-koyomi="timeline"]');
+    expect(root).toHaveAttribute('data-koyomi-scale', 'hour');
+    expect(container.querySelector('[data-koyomi="timeline-day-headers"]')).not.toBeNull();
+    expect(container.querySelector('[data-koyomi="timeline-group-headers"]')).toBeNull();
+    expect(container.querySelectorAll('[data-koyomi="timeline-day-header"]')).toHaveLength(3);
+    expect(container.querySelectorAll('[data-koyomi="timeline-slot-label"]')).toHaveLength(72);
+  });
+
+  it('day スケールでは日ヘッダーのみで時刻目盛りが出ない', () => {
+    const { container } = render(
+      <Harness resources={[CRANE_1]} timelineDays={3} timelineScale="day" />,
+    );
+    const root = container.querySelector('[data-koyomi="timeline"]');
+    expect(root).toHaveAttribute('data-koyomi-scale', 'day');
+    expect(container.querySelector('[data-koyomi="timeline-day-headers"]')).not.toBeNull();
+    expect(container.querySelectorAll('[data-koyomi="timeline-day-header"]')).toHaveLength(3);
+    expect(container.querySelector('[data-koyomi="timeline-group-headers"]')).toBeNull();
+    expect(container.querySelectorAll('[data-koyomi="timeline-slot-label"]')).toHaveLength(0);
+  });
+
+  it('week スケールでは日ヘッダーの代わりに週グループ見出しが出て、目盛りは日番号になる', () => {
+    // 2026-07-15(水) から 10 日間、weekStartsOn=0（日曜始まり）
+    const { container } = render(
+      <Harness resources={[CRANE_1]} timelineDays={10} timelineScale="week" weekStartsOn={0} />,
+    );
+    const root = container.querySelector('[data-koyomi="timeline"]');
+    expect(root).toHaveAttribute('data-koyomi-scale', 'week');
+    expect(container.querySelector('[data-koyomi="timeline-day-headers"]')).toBeNull();
+    const groupHeaders = container.querySelectorAll('[data-koyomi="timeline-group-header"]');
+    // 07-15(水)〜07-18(土): 第1週（部分）/ 07-19(日)〜07-24(金): 第2週（部分、表示終端）
+    expect(groupHeaders).toHaveLength(2);
+    expect(groupHeaders[0]).toHaveAttribute('data-koyomi-group-start', '2026-07-15');
+    expect(groupHeaders[1]).toHaveAttribute('data-koyomi-group-start', '2026-07-19');
+    const slotLabels = container.querySelectorAll('[data-koyomi="timeline-slot-label"]');
+    expect(slotLabels).toHaveLength(10);
+    expect(Array.from(slotLabels).map((el) => el.textContent)).toEqual([
+      '15',
+      '16',
+      '17',
+      '18',
+      '19',
+      '20',
+      '21',
+      '22',
+      '23',
+      '24',
+    ]);
+  });
+
+  it('month スケールでは月グループ見出しが出て、containsToday を含むグループに data-today/aria-current が付く', () => {
+    // 2026-07-15(水) から 20 日間 = 7/15〜8/3。今日(2026-07-15)は 7 月グループ内
+    const { container } = render(
+      <Harness resources={[CRANE_1]} timelineDays={20} timelineScale="month" />,
+    );
+    const groupHeaders = container.querySelectorAll('[data-koyomi="timeline-group-header"]');
+    expect(groupHeaders).toHaveLength(2);
+    expect(groupHeaders[0]).toHaveAttribute('data-koyomi-group-start', '2026-07-15');
+    expect(groupHeaders[0]).toHaveAttribute('data-today', 'true');
+    expect(groupHeaders[0]).toHaveAttribute('aria-current', 'date');
+    expect(groupHeaders[1]).toHaveAttribute('data-koyomi-group-start', '2026-08-01');
+    expect(groupHeaders[1]).not.toHaveAttribute('data-today');
+    expect(groupHeaders[1]).not.toHaveAttribute('aria-current');
+  });
+
+  it('updateOptions({ timelineScale }) で再ビルド後に DOM が切り替わる', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(<Harness resources={[CRANE_1]} timelineDays={10} sink={sink} />);
+    expect(container.querySelector('[data-koyomi="timeline-group-headers"]')).toBeNull();
+
+    act(() => {
+      sink.current?.api.updateOptions({ timelineScale: 'week' });
+    });
+
+    const root = container.querySelector('[data-koyomi="timeline"]');
+    expect(root).toHaveAttribute('data-koyomi-scale', 'week');
+    expect(container.querySelector('[data-koyomi="timeline-group-headers"]')).not.toBeNull();
+    expect(container.querySelector('[data-koyomi="timeline-day-headers"]')).toBeNull();
   });
 });
 

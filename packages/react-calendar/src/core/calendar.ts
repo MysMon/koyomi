@@ -62,6 +62,7 @@ const DEFAULT_OPTIONS: Omit<ResolvedCalendarOptions, 'now'> = {
   listDays: 30,
   multiMonthCount: 3,
   timelineDays: 1,
+  timelineScale: 'hour',
   unassignedLane: 'auto',
   locale: 'ja',
   hiddenWeekdays: [],
@@ -139,6 +140,7 @@ function resolveOptions(
     listDays: normalizePositiveInt(options?.listDays ?? current.listDays, 1),
     multiMonthCount: normalizePositiveInt(options?.multiMonthCount ?? current.multiMonthCount, 1),
     timelineDays: normalizePositiveInt(options?.timelineDays ?? current.timelineDays, 1),
+    timelineScale: options?.timelineScale ?? current.timelineScale,
     unassignedLane: options?.unassignedLane ?? current.unassignedLane,
     locale: options?.locale ?? current.locale,
     hiddenWeekdays:
@@ -209,6 +211,7 @@ function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOpt
     a.listDays === b.listDays &&
     a.multiMonthCount === b.multiMonthCount &&
     a.timelineDays === b.timelineDays &&
+    a.timelineScale === b.timelineScale &&
     a.unassignedLane === b.unassignedLane &&
     a.locale === b.locale &&
     a.now === b.now &&
@@ -604,6 +607,8 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           unassignedLane: resolvedOptions.unassignedLane,
           timelineDays: resolvedOptions.timelineDays,
           slotMinutes: resolvedOptions.slotMinutes,
+          timelineScale: resolvedOptions.timelineScale,
+          weekStartsOn: resolvedOptions.weekStartsOn,
           businessHours: resolvedOptions.businessHours,
           now,
         });

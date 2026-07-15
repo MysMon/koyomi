@@ -276,6 +276,8 @@ interface AllDayCellProps {
   drag: ResourceColumnDragHandlers;
   isDragging: boolean;
   isPreviewTarget: boolean;
+  /** `isPreviewTarget` のときに反映する `dragPreview.invalid`（省略時は `false` 相当）。 */
+  isPreviewInvalid: boolean;
   /** 表示タイムゾーン（終日アイテムの aria-label 生成に使う）。 */
   timeZone: TimeZoneId;
   /** 書式ロケール（終日アイテムの aria-label 生成に使う）。 */
@@ -299,6 +301,7 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
     drag,
     isDragging,
     isPreviewTarget,
+    isPreviewInvalid,
     timeZone,
     locale,
     pinned,
@@ -330,6 +333,7 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
         column.resource?.title ?? ariaLabelText(unassignedLabel, DEFAULT_UNASSIGNED_LABEL)
       }
       data-koyomi-preview-target={isPreviewTarget ? 'true' : undefined}
+      data-koyomi-invalid={isPreviewTarget && isPreviewInvalid ? 'true' : undefined}
       {...(pinned === true ? { 'data-koyomi-pinned': 'true' } : {})}
       style={style}
     >
@@ -362,6 +366,7 @@ const AllDayCell = memo(AllDayCellImpl, (prev, next) => {
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&
     prev.isPreviewTarget === next.isPreviewTarget &&
+    prev.isPreviewInvalid === next.isPreviewInvalid &&
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
     prev.pinned === next.pinned &&
@@ -596,6 +601,7 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
           data-koyomi="timegrid-preview"
           data-kind={preview.kind}
           aria-hidden="true"
+          {...(preview.invalid ? { 'data-koyomi-invalid': 'true' } : {})}
           style={{
             top: `${percentOfSlotRange(preview.startMinutes, slotMinTimeMinutes, slotMaxTimeMinutes)}%`,
             height: `${percentOfSlotRange(preview.endMinutes - preview.startMinutes, 0, rangeWidth)}%`,
@@ -842,6 +848,8 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
   const { slots, businessHourSlots, nowIndicatorMinutes, isToday, isEmpty } = viewModel;
   const { timeZone, options } = state;
   const { locale } = options;
+  // 終日プレビュー対象列（isAllDayPreviewTarget）に反映する invalid（ResourceView と同じ計算）
+  const isPreviewInvalid = state.dragPreview?.invalid ?? false;
   // businessHours 未指定（既定 []）のときは `timegrid-slot` 罫線 div 自体を描画しない
   // （businessHours 拡張前の VirtualResourceView は列本文にスロット罫線を持たなかった
   // ため、既定出力を旧版と一致させる。ResourceView は元々無条件描画のためこの分岐は不要）。
@@ -937,6 +945,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                   drag={stableDrag}
                   isDragging={drag.isDragging}
                   isPreviewTarget={drag.isAllDayPreviewTarget(column)}
+                  isPreviewInvalid={isPreviewInvalid}
                   timeZone={timeZone}
                   locale={locale}
                   renderAllDayItem={renderAllDayItem}
@@ -961,6 +970,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                   drag={stableDrag}
                   isDragging={drag.isDragging}
                   isPreviewTarget={drag.isAllDayPreviewTarget(column)}
+                  isPreviewInvalid={isPreviewInvalid}
                   timeZone={timeZone}
                   locale={locale}
                   pinned

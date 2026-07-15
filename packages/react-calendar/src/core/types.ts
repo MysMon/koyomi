@@ -660,6 +660,16 @@ export interface ResourceViewModel {
   businessHourSlots: readonly BusinessHourSlot[];
 }
 
+/**
+ * タイムラインビューの横軸のズーム粒度。
+ *
+ * - `hour` — 時刻目盛り（{@link CalendarOptions.slotMinutes} 間隔）
+ * - `day` — 日単位。時刻目盛りは表示しない
+ * - `week` — 週単位のグループ見出し＋日番号の目盛り
+ * - `month` — 月単位のグループ見出し＋日番号の目盛り
+ */
+export type TimelineScale = 'hour' | 'day' | 'week' | 'month';
+
 /** タイムラインの時間軸の目盛り 1 つ分。 */
 export interface TimelineSlot {
   /**
@@ -714,6 +724,26 @@ export interface TimelineRow {
   laneCount: number;
 }
 
+/**
+ * タイムラインのヘッダー上段グループ（{@link TimelineViewModel.headerGroups}）。
+ *
+ * {@link CalendarOptions.timelineScale} が `'week'` または `'month'` のときのみ生成される。
+ */
+export interface TimelineHeaderGroup {
+  /** グループの開始（表示タイムゾーンの 0:00。表示範囲でクランプ済み）。 */
+  start: Date;
+  /** グループの終了（排他。表示範囲でクランプ済み）。 */
+  end: Date;
+  /** React の `key` 等に使う一意なキー（`start` の `'YYYY-MM-DD'`）。 */
+  key: string;
+  /** グループの表示分の開始（{@link TimelineItem.startMinutes} と同じ座標系）。 */
+  startMinutes: number;
+  /** グループの表示分の終了（排他）。 */
+  endMinutes: number;
+  /** グループが「今日」を含むか。 */
+  containsToday: boolean;
+}
+
 /** タイムラインビューのビューモデル。 */
 export interface TimelineViewModel {
   type: 'timeline';
@@ -740,6 +770,14 @@ export interface TimelineViewModel {
    * 重複した帯を描画しない）。`businessHours` 未指定時は `[]`。
    */
   businessHourRanges: readonly BusinessHourRange[];
+  /** 適用中のズーム粒度（{@link CalendarOptions.timelineScale}）。 */
+  scale: TimelineScale;
+  /**
+   * ヘッダー上段のグループ（週/月の見出し）。
+   * `scale` が `'week'` または `'month'` のときのみ配列、それ以外（`'hour'`/`'day'`）は `null`
+   * （`days` をそのままヘッダーに使うため）。
+   */
+  headerGroups: readonly TimelineHeaderGroup[] | null;
 }
 
 /** 現在のビューに対応するビューモデル。 */
@@ -874,6 +912,18 @@ export interface CalendarOptions {
    * `next()` / `prev()` の移動単位にもなる。
    */
   timelineDays?: number;
+  /**
+   * タイムラインビューの横軸のズーム粒度。既定は `'hour'`。
+   *
+   * - `'hour'`  — 時刻目盛り（`slotMinutes` 間隔）。既存の挙動と完全に同一
+   * - `'day'`   — 日単位。時刻目盛りは表示しない
+   * - `'week'`  — 週単位のグループ見出し＋日番号の目盛り
+   * - `'month'` — 月単位のグループ見出し＋日番号の目盛り
+   *
+   * `next()` / `prev()` の移動単位は {@link CalendarOptions.timelineDays} のみで決まり、
+   * この値には連動しない。
+   */
+  timelineScale?: TimelineScale;
   /**
    * リソース/タイムラインビューの未割り当てレーン（`resourceId` を持たない予定の
    * 表示先）の生成規則。既定は `'auto'`。
@@ -1022,6 +1072,8 @@ export interface ResolvedCalendarOptions {
   multiMonthCount: number;
   /** タイムラインビューが表示する日数。 */
   timelineDays: number;
+  /** タイムラインビューの横軸のズーム粒度。 */
+  timelineScale: TimelineScale;
   /** 未割り当てレーンの生成規則。 */
   unassignedLane: 'auto' | 'always';
   /** ロケール。 */

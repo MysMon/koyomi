@@ -34,7 +34,6 @@ import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
 import type { TimelinePreviewSegment } from '../use-timeline-drag';
 import { useTimelineDrag } from '../use-timeline-drag';
-import { formatDayHeader } from './format';
 import {
   formatEventAriaLabel,
   resolveEventAriaLabel,
@@ -45,10 +44,10 @@ import {
   DEFAULT_CORNER_LABEL,
   DEFAULT_EMPTY_LABEL,
   DEFAULT_UNASSIGNED_LABEL,
-  MINUTES_PER_DAY,
   sameBusinessHourRanges,
   samePreviewSegment,
   sameTimelineRow,
+  TimelineAxisHeader,
   toDivRef,
   useStableTimelineDrag,
   withLaneCountStyle,
@@ -131,8 +130,17 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
     return null;
   }
 
-  const { days, slots, rows, totalMinutes, nowIndicatorMinutes, isEmpty, businessHourRanges } =
-    viewModel;
+  const {
+    days,
+    slots,
+    rows,
+    totalMinutes,
+    nowIndicatorMinutes,
+    isEmpty,
+    businessHourRanges,
+    scale,
+    headerGroups,
+  } = viewModel;
   const { timeZone, options } = state;
   const { locale } = options;
 
@@ -149,7 +157,7 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
 
   if (isEmpty) {
     return (
-      <div data-koyomi="timeline">
+      <div data-koyomi="timeline" data-koyomi-scale={scale}>
         <div data-koyomi="timeline-empty">{emptyLabel}</div>
       </div>
     );
@@ -157,7 +165,12 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: DOM 仕様が定める div ベースの ARIA grid（TimeGridView と同じ方針。<table> はテーマ CSS と噛み合わないため不採用）
-    <div data-koyomi="timeline" data-koyomi-days={String(days.length)} role="grid">
+    <div
+      data-koyomi="timeline"
+      data-koyomi-scale={scale}
+      data-koyomi-days={String(days.length)}
+      role="grid"
+    >
       {/* grid と row の間に挟まるスクロールコンテナ。role="presentation" で
           所有関係を透過させる（grid の required owned elements 違反を避ける） */}
       <div data-koyomi="timeline-body" role="presentation">
@@ -170,34 +183,15 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
           {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA columnheader */}
           {/* biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない（ネイティブ <th> も単体ではタブ移動対象にならない） */}
           <div data-koyomi="timeline-corner" role="columnheader" aria-label={cornerLabel} />
-          {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA columnheader（日ヘッダー・時刻目盛りをまとめた 1 セル） */}
-          {/* biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない（ネイティブ <th> も単体ではタブ移動対象にならない） */}
-          <div data-koyomi="timeline-axis" role="columnheader">
-            <div data-koyomi="timeline-day-headers">
-              {days.map((day) => (
-                <div
-                  key={day.key}
-                  data-koyomi="timeline-day-header"
-                  data-today={day.isToday ? 'true' : undefined}
-                  aria-current={day.isToday ? 'date' : undefined}
-                  style={{ width: `${(MINUTES_PER_DAY / totalMinutes) * 100}%` }}
-                >
-                  {formatDayHeader(day.date, timeZone, locale)}
-                </div>
-              ))}
-            </div>
-            <div data-koyomi="timeline-slots">
-              {slots.map((slot) => (
-                <div
-                  key={slot.minutes}
-                  data-koyomi="timeline-slot-label"
-                  style={{ insetInlineStart: `${(slot.minutes / totalMinutes) * 100}%` }}
-                >
-                  {slot.label}
-                </div>
-              ))}
-            </div>
-          </div>
+          <TimelineAxisHeader
+            days={days}
+            slots={slots}
+            headerGroups={headerGroups}
+            scale={scale}
+            totalMinutes={totalMinutes}
+            timeZone={timeZone}
+            locale={locale}
+          />
         </div>
         {rows.map((row) => (
           <TimelineRowGroup

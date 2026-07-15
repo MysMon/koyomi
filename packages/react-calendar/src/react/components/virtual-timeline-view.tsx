@@ -46,7 +46,6 @@ import { isDevBuild } from '../is-dev-build';
 import type { TimelinePreviewSegment } from '../use-timeline-drag';
 import { useTimelineDrag } from '../use-timeline-drag';
 import { useVirtualizer } from '../use-virtualizer';
-import { formatDayHeader } from './format';
 import {
   formatEventAriaLabel,
   resolveEventAriaLabel,
@@ -57,10 +56,10 @@ import {
   DEFAULT_CORNER_LABEL,
   DEFAULT_EMPTY_LABEL,
   DEFAULT_UNASSIGNED_LABEL,
-  MINUTES_PER_DAY,
   sameBusinessHourRanges,
   samePreviewSegment,
   sameTimelineRow,
+  TimelineAxisHeader,
   toDivRef,
   useStableTimelineDrag,
   withLaneCountStyle,
@@ -271,6 +270,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
             data-koyomi="timeline-preview"
             data-kind={preview.kind}
             aria-hidden="true"
+            {...(preview.invalid ? { 'data-koyomi-invalid': 'true' } : {})}
             style={{
               insetInlineStart: `${(preview.startMinutes / totalMinutes) * 100}%`,
               width: `${((preview.endMinutes - preview.startMinutes) / totalMinutes) * 100}%`,
@@ -492,13 +492,22 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
     return null;
   }
 
-  const { days, slots, totalMinutes, nowIndicatorMinutes, isEmpty, businessHourRanges } = viewModel;
+  const {
+    days,
+    slots,
+    totalMinutes,
+    nowIndicatorMinutes,
+    isEmpty,
+    businessHourRanges,
+    scale,
+    headerGroups,
+  } = viewModel;
   const { timeZone, options } = state;
   const { locale } = options;
 
   if (isEmpty) {
     return (
-      <div data-koyomi="timeline">
+      <div data-koyomi="timeline" data-koyomi-scale={scale}>
         <div data-koyomi="timeline-empty">{emptyLabel}</div>
       </div>
     );
@@ -534,6 +543,7 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
     // biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA grid（TimelineView と同じ方針）
     <div
       data-koyomi="timeline"
+      data-koyomi-scale={scale}
       data-koyomi-virtualized="true"
       data-koyomi-days={String(days.length)}
       role="grid"
@@ -547,34 +557,15 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
           {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA columnheader */}
           {/* biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない */}
           <div data-koyomi="timeline-corner" role="columnheader" aria-label={cornerLabel} />
-          {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA columnheader */}
-          {/* biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない */}
-          <div data-koyomi="timeline-axis" role="columnheader">
-            <div data-koyomi="timeline-day-headers">
-              {days.map((day) => (
-                <div
-                  key={day.key}
-                  data-koyomi="timeline-day-header"
-                  data-today={day.isToday ? 'true' : undefined}
-                  aria-current={day.isToday ? 'date' : undefined}
-                  style={{ width: `${(MINUTES_PER_DAY / totalMinutes) * 100}%` }}
-                >
-                  {formatDayHeader(day.date, timeZone, locale)}
-                </div>
-              ))}
-            </div>
-            <div data-koyomi="timeline-slots">
-              {slots.map((slot) => (
-                <div
-                  key={slot.minutes}
-                  data-koyomi="timeline-slot-label"
-                  style={{ insetInlineStart: `${(slot.minutes / totalMinutes) * 100}%` }}
-                >
-                  {slot.label}
-                </div>
-              ))}
-            </div>
-          </div>
+          <TimelineAxisHeader
+            days={days}
+            slots={slots}
+            headerGroups={headerGroups}
+            scale={scale}
+            totalMinutes={totalMinutes}
+            timeZone={timeZone}
+            locale={locale}
+          />
         </div>
         <div data-koyomi="timeline-rows" role="presentation">
           <div

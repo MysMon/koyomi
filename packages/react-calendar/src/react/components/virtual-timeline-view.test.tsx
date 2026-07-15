@@ -13,6 +13,7 @@ import type {
   CalendarEvent,
   CalendarResource,
   CalendarViewType,
+  TimelineScale,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from '../types';
@@ -59,6 +60,7 @@ interface HarnessProps {
   events?: readonly CalendarEvent[];
   resources?: readonly CalendarResource[];
   timelineDays?: number;
+  timelineScale?: TimelineScale;
   businessHours?: readonly BusinessHoursRule[];
   callbacks?: CalendarInteractionCallbacks;
   viewProps?: VirtualTimelineViewProps;
@@ -76,6 +78,7 @@ function Harness(props: HarnessProps): ReactElement {
     resources: props.resources ?? [],
     unassignedLane: 'auto',
     ...(props.timelineDays !== undefined ? { timelineDays: props.timelineDays } : {}),
+    ...(props.timelineScale !== undefined ? { timelineScale: props.timelineScale } : {}),
     ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
   });
   if (props.sink) {
@@ -374,6 +377,102 @@ describe('VirtualTimelineView', () => {
       'リソースがありません',
     );
     expect(container.querySelector('[data-koyomi-virtualized]')).toBeNull();
+  });
+});
+
+describe('VirtualTimelineView - timelineScale（ズーム粒度）', () => {
+  it("既定（省略時）は data-koyomi-scale='hour' で、日ヘッダー DOM は TimelineView と同一", () => {
+    const { container } = render(<Harness resources={makeResources(2)} timelineDays={3} />);
+    const root = container.querySelector('[data-koyomi="timeline"]');
+    expect(root).toHaveAttribute('data-koyomi-scale', 'hour');
+    expect(container.querySelector('[data-koyomi="timeline-day-headers"]')).not.toBeNull();
+    expect(container.querySelector('[data-koyomi="timeline-group-headers"]')).toBeNull();
+  });
+
+  it('week スケールでは日ヘッダーの代わりに週グループ見出しが出る', () => {
+    const { container } = render(
+      <Harness resources={makeResources(2)} timelineDays={10} timelineScale="week" />,
+    );
+    const root = container.querySelector('[data-koyomi="timeline"]');
+    expect(root).toHaveAttribute('data-koyomi-scale', 'week');
+    expect(container.querySelector('[data-koyomi="timeline-day-headers"]')).toBeNull();
+    expect(
+      container.querySelectorAll('[data-koyomi="timeline-group-header"]').length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('空状態でも data-koyomi-scale は常に出力される', () => {
+    const { container } = render(<Harness resources={[]} timelineScale="month" />);
+    const root = container.querySelector('[data-koyomi="timeline"]');
+    expect(root).toHaveAttribute('data-koyomi-scale', 'month');
+  });
+});
+
+describe('VirtualTimelineView - ドラッグプレビュー', () => {
+  it('setDragPreview 後、対象行にのみ timeline-preview が出現する', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(<Harness resources={makeResources(2)} sink={sink} />);
+
+    act(() => {
+      sink.current?.api.setDragPreview({
+        kind: 'resize',
+        occurrenceKey: 'e1@2026-07-15T01:00:00.000Z',
+        range: {
+          start: new Date('2026-07-15T01:00:00Z'),
+          end: new Date('2026-07-15T03:00:00Z'),
+        },
+        allDay: false,
+        resourceId: 'r0',
+      });
+    });
+
+    const rows = container.querySelectorAll('[data-koyomi="timeline-row"]');
+    expect(rows[0]?.querySelector('[data-koyomi="timeline-preview"]')).not.toBeNull();
+    expect(rows[1]?.querySelector('[data-koyomi="timeline-preview"]')).toBeNull();
+  });
+
+  it('dragPreview.invalid: true のとき timeline-preview に data-koyomi-invalid="true" が付与される', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(<Harness resources={makeResources(1)} sink={sink} />);
+
+    act(() => {
+      sink.current?.api.setDragPreview({
+        kind: 'move',
+        occurrenceKey: 'e1@2026-07-15T01:00:00.000Z',
+        range: {
+          start: new Date('2026-07-15T01:00:00Z'),
+          end: new Date('2026-07-15T03:00:00Z'),
+        },
+        allDay: false,
+        resourceId: 'r0',
+        invalid: true,
+      });
+    });
+
+    const preview = container.querySelector('[data-koyomi="timeline-preview"]');
+    expect(preview).toHaveAttribute('data-koyomi-invalid', 'true');
+  });
+
+  it('dragPreview.invalid 省略時は timeline-preview に data-koyomi-invalid 属性が付かない', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(<Harness resources={makeResources(1)} sink={sink} />);
+
+    act(() => {
+      sink.current?.api.setDragPreview({
+        kind: 'move',
+        occurrenceKey: 'e1@2026-07-15T01:00:00.000Z',
+        range: {
+          start: new Date('2026-07-15T01:00:00Z'),
+          end: new Date('2026-07-15T03:00:00Z'),
+        },
+        allDay: false,
+        resourceId: 'r0',
+      });
+    });
+
+    const preview = container.querySelector('[data-koyomi="timeline-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).not.toHaveAttribute('data-koyomi-invalid');
   });
 });
 
