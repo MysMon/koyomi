@@ -67,6 +67,7 @@ unsubscribe();
 | `getVisibleRange` | `(): DateRange` | 現在のビューが表示している日時範囲を返す |
 | `getOccurrences` | `(range: DateRange): readonly EventOccurrence[]` | 指定範囲のオカレンス一覧を開始時刻順で返す |
 | `setDragPreview` | `(preview: DragPreview | null): void` | ドラッグ操作のプレビューを設定する（`null` で解除） |
+| `toggleResourceCollapsed` | `(resourceId: string): void` | リソースの折りたたみ状態をトグルする（タイムラインビューのみに影響）。対象が現在のリソース一覧に存在しない ID でも例外を投げない |
 
 `next` / `prev` の移動幅はビューごとに異なります。
 
@@ -124,6 +125,45 @@ console.log(occurrences[0]?.event.title); // => '会議'
 
 繰り返しイベントの `updateEvent` / `deleteEvent` におけるスコープの意味づけ、`moveOccurrenceIn` のような便利関数の詳細は [予定の管理](./events.md) と [繰り返し予定](./recurrence.md) を参照してください。
 
+### `createEventHistory`
+
+```ts
+function createEventHistory(options: CalendarEventHistoryOptions): CalendarEventHistory
+
+interface CalendarEventHistoryOptions {
+  api: CalendarApi;
+  limit?: number; // 既定 100。1 未満・非有限値（NaN 等）は 1 にクランプする
+}
+
+interface CalendarEventHistory {
+  push(changes: readonly EventChangeEntry[]): void;
+  undo(): boolean;
+  redo(): boolean;
+  canUndo(): boolean;
+  canRedo(): boolean;
+  clear(): void;
+  subscribe(listener: () => void): () => void;
+}
+```
+
+イベント変更の undo/redo 履歴マネージャです（フレームワーク非依存）。「1 操作 = 1 履歴単位」で `EventChangeEntry` の一覧をスタックに積み、`undo`/`redo` は `applyEventChangeEntries` を `api.getEvents()` の内容へ適用した結果を `api.setEvents()` に渡します（`setEvents` は `onEventsChange` を発火させないため、適用自体が新たな履歴を生みません）。React では薄いラッパー `useCalendarHistory` を使うのが基本です。
+
+```ts
+import { createEventHistory } from '@koyomi-cal/react';
+
+const history = createEventHistory({ api: calendar.api });
+const changes = calendar.api.updateEvent(id, { title: '変更後' });
+history.push(changes);
+history.undo(); // タイトルを元に戻す
+history.redo(); // もう一度変更後の状態にする
+```
+
+- `push` — `changes` が空配列なら何もしない。非空なら積み、`redo` スタックを破棄する。`limit` 超過分は最古のエントリから破棄する
+- `undo`/`redo` — 対象がなければ `false` を返す。適用直前に期待する状態と食い違うエントリ（`applyEventChangeEntries` のドリフト検出）は安全にスキップする
+- `api.subscribe` は監視しない（`setEvents` 以外の要因による状態変化は自動検出しない）
+
+詳細な運用（`push` を呼ぶタイミング、`clear()` を呼ぶべきタイミングなど）は [予定の管理: undo（元に戻す）を実装する](./events.md#undo元に戻すを実装する) を参照してください。
+
 ### `@koyomi-cal/react/core`（React 非依存の単体エントリ）
 
 `createCalendar` / `CalendarApi` を含む `src/core/` 配下の公開 API は、`@koyomi-cal/react` のトップレベルエントリだけでなく、**React を一切 import しない**専用エントリ `@koyomi-cal/react/core` からも利用できます。`createCalendar`・`buildXxxViewModel`（月・週日・年・複数月・リソース・タイムライン・リストの全 7 種）・`expandEvents` / `occurrenceKey` / `resolveOccurrence`・繰り返しルールユーティリティ（`expandRecurrence` 等）・タイムゾーンユーティリティ（`fromWallClock` 等）・`applyPatch` や `*InWithChanges` 系のイベント変更関数・関連する公開型（`CalendarApi` / `CalendarEvent` / `EventChangeEntry` 等）を再エクスポートしており、`@koyomi-cal/react` のトップレベルエントリが `./core/*` から再エクスポートしている集合と一致します（React コンポーネント・フックは含まれません）。
@@ -172,6 +212,123 @@ function App() {
 }
 // => ルート要素に data-koyomi="root" と data-koyomi-view="month" が付く
 ```
+
+### `useCalendarAnnouncer`
+
+```ts
+function useCalendarAnnouncer(options: UseCalendarAnnouncerOptions): UseCalendarAnnouncerResult
+
+interface UseCalendarAnnouncerOptions {
+  calendar: UseCalendarResult;
+  politeness?: 'polite' | 'assertive'; // 既定 'polite'
+  announce?: AnnouncerTargets;
+  messages?: AnnouncerMessages;
+}
+
+interface UseCalendarAnnouncerResult {
+  liveRegionProps: LiveRegionProps;
+  message: string;
+  announce: (text: string) => void;
+  wrapCallbacks: (callbacks?: CalendarInteractionCallbacks) => CalendarInteractionCallbacks;
+  wrapRangeChange: (
+    onRangeChange?: (info: CalendarRangeChangeInfo) => void,
+  ) => (info: CalendarRangeChangeInfo) => void;
+}
+```
+
+予定の変更・作成・削除、およびビュー・基準日・表示範囲の変更を `aria-live` リージョンへ通知するヘッドレスなフックです。`CalendarProvider` の `callbacks` を `wrapCallbacks` で、`useCalendar` の `onRangeChange` を `wrapRangeChange` でラップします。詳細・カスタマイズ方法（`AnnouncerMessages` / `AnnouncerTargets` / `AnnouncerFormatterContext` の各フィールド、既定文言、英語化）は [アクセシビリティ: 変更の読み上げ通知](./accessibility.md#変更の読み上げ通知usecalendarannouncer) を参照してください。
+
+```tsx
+import { CalendarProvider, CalendarView, useCalendar, useCalendarAnnouncer } from '@koyomi-cal/react';
+
+function App() {
+  const calendar = useCalendar();
+  const announcer = useCalendarAnnouncer({ calendar });
+  return (
+    <div>
+      <div {...announcer.liveRegionProps}>{announcer.message}</div>
+      <CalendarProvider value={calendar} callbacks={announcer.wrapCallbacks()}>
+        <CalendarView />
+      </CalendarProvider>
+    </div>
+  );
+}
+```
+
+### `useCalendarHistory`
+
+```ts
+function useCalendarHistory(options: UseCalendarHistoryOptions): UseCalendarHistoryResult
+
+interface UseCalendarHistoryOptions {
+  calendar: UseCalendarResult;
+  limit?: number; // createEventHistory と同じ。マウント時のみ有効
+  keyboardShortcuts?: boolean; // 既定 false
+}
+
+interface UseCalendarHistoryResult {
+  canUndo: boolean;
+  canRedo: boolean;
+  undo(): boolean;
+  redo(): boolean;
+  push(changes: readonly EventChangeEntry[]): void;
+  clear(): void;
+}
+```
+
+イベント変更の undo/redo 履歴（`createEventHistory`）を React に接続するフックです。`canUndo`/`canRedo` は `useSyncExternalStore` で購読され再レンダーに反映されます。`keyboardShortcuts: true` にすると `Ctrl/Cmd+Z`（undo）・`Ctrl/Cmd+Shift+Z` または `Ctrl/Cmd+Y`（redo）が有効になります（`input`/`textarea`/`select`/`contentEditable` にフォーカス中は無効）。UI は提供しないため、undo/redo ボタン等は利用側で組み、`push` は `onEventChange`/`onEventDelete` コールバック内などから明示的に呼びます。詳細は [予定の管理: undo（元に戻す）を実装する](./events.md#undo元に戻すを実装する) を参照してください。
+
+```tsx
+import { CalendarProvider, CalendarView, useCalendar, useCalendarHistory } from '@koyomi-cal/react';
+
+function App() {
+  const calendar = useCalendar();
+  const history = useCalendarHistory({ calendar, keyboardShortcuts: true });
+  return (
+    <div>
+      <button type="button" disabled={!history.canUndo} onClick={() => history.undo()}>
+        元に戻す
+      </button>
+      <CalendarProvider
+        value={calendar}
+        callbacks={{ onEventChange: (change) => history.push(change.changes) }}
+      >
+        <CalendarView />
+      </CalendarProvider>
+    </div>
+  );
+}
+```
+
+### `useRecurrenceRuleEditor`
+
+```ts
+function useRecurrenceRuleEditor(options: UseRecurrenceRuleEditorOptions): UseRecurrenceRuleEditorResult
+
+interface UseRecurrenceRuleEditorOptions {
+  start: Date; // 作成時のみ有効
+  timeZone: TimeZoneId; // 作成時のみ有効
+  rrule?: string; // 作成時のみ有効。省略時は「繰り返しなし」
+  describeRule?: (state: RecurrenceRuleState, defaultDescription: string) => string;
+}
+
+interface UseRecurrenceRuleEditorResult {
+  state: RecurrenceRuleState | null; // null は「繰り返しなし」
+  unsupported: { rawRRule: string; reason: string } | null;
+  setFrequency(freq: RecurrenceFrequency): void;
+  setInterval(interval: number): void;
+  setByWeekday(weekdays: readonly Weekday[]): void;
+  setMonthlyPattern(pattern: MonthlyRecurrencePattern): void;
+  setEnd(end: RecurrenceEnd): void;
+  enable(): void;
+  clear(): void;
+  errors: readonly RecurrenceValidationIssue[];
+  rruleString: string | null;
+  description: string | null;
+}
+```
+
+繰り返しルールをフォーム入力向けの構造化状態として編集するヘッドレスなフックです。RRULE 文字列の相互変換・検証・説明文生成は `core/recurrence-editor` の純関数（`parseRecurrenceRule` 等）に委譲し、React の状態管理のみを担います。`start`/`timeZone`/`rrule` は作成時のみ有効（`useCalendar` の `events` と同じ規約）で、編集対象を切り替える場合はこのフックを使うコンポーネントに一意な `key` を指定して再マウントします。対応範囲・使用例の詳細は [繰り返し予定: 繰り返しルールエディタ](./recurrence.md#繰り返しルールエディタ構造化状態での編集) を参照してください。
 
 ### `useCalendarShortcuts`
 
@@ -234,6 +391,7 @@ function useDayDrag(params: {
 | `getSegmentProps` | `(segment: EventSegment): SegmentProps` | 帯セグメント要素に付与する props を返す |
 | `getSegmentResizeHandleProps` | `(segment: EventSegment, edge: 'start' \| 'end'): SegmentResizeHandleProps` | 帯の左右端リサイズハンドル用の props を返す |
 | `previewRange` | `DateRange | null` | 現在のドラッグプレビューの日範囲（時間グリッドへの変換プレビュー中は `null`） |
+| `previewInvalid` | `boolean` | プレビューが宣言的制約（`eventOverlap`/`eventConstraint`）に違反しているか（`previewRange` が `null` の間は常に `false`） |
 | `isDragging` | `boolean` | ドラッグ操作が進行中か |
 
 **関連する props 型**
@@ -288,7 +446,7 @@ function useTimeGridDrag(params: {
 | `TimeGridDayProps` | `ref`, `onPointerDown`, `'data-koyomi-date'` |
 | `TimeGridEventProps` | `onPointerDown`, `onClick`, `onKeyDown`, `tabIndex`, `'data-koyomi-occurrence'`, `'data-koyomi-dragging'?` |
 | `TimeGridResizeHandleProps` | `onPointerDown`, `onClick`, `'data-koyomi-resize-handle': 'start' \| 'end'` |
-| `TimeGridPreviewSegment` | `kind: 'create' | 'move' | 'resize'`, `startMinutes: number`, `endMinutes: number` |
+| `TimeGridPreviewSegment` | `kind: 'create' | 'move' | 'resize'`, `startMinutes: number`, `endMinutes: number`, `invalid?: boolean`（宣言的制約違反時のみ `true`） |
 
 ```tsx
 import { renderHook } from '@testing-library/react';
@@ -343,7 +501,7 @@ function useResourceGridDrag(params: {
 | `ResourceAllDayCellProps` | `onClick`, `'data-koyomi-resource'` |
 | `ResourceEventProps` | `onPointerDown`, `onClick`, `onKeyDown`, `tabIndex`, `'data-koyomi-occurrence'`, `'data-koyomi-dragging'?` |
 | `ResourceResizeHandleProps` | `onPointerDown`, `onClick`, `'data-koyomi-resize-handle': 'start' \| 'end'` |
-| `ResourcePreviewSegment` | `kind: 'create' | 'move' | 'resize'`, `startMinutes: number`, `endMinutes: number` |
+| `ResourcePreviewSegment` | `kind: 'create' | 'move' | 'resize'`, `startMinutes: number`, `endMinutes: number`, `invalid?: boolean`（宣言的制約違反時のみ `true`） |
 
 ### `useTimelineDrag`
 
@@ -373,7 +531,7 @@ function useTimelineDrag(params: {
 | `TimelineRowProps` | `ref`, `onPointerDown`, `'data-koyomi-resource'` |
 | `TimelineItemProps` | `onPointerDown`, `onClick`, `onKeyDown`, `tabIndex`, `'data-koyomi-occurrence'`, `'data-koyomi-dragging'?` |
 | `TimelineResizeHandleProps` | `onPointerDown`, `onClick`, `'data-koyomi-resize-handle': 'start' \| 'end'` |
-| `TimelinePreviewSegment` | `kind: 'create' | 'move' | 'resize'`, `startMinutes: number`, `endMinutes: number` |
+| `TimelinePreviewSegment` | `kind: 'create' | 'move' | 'resize'`, `startMinutes: number`, `endMinutes: number`, `invalid?: boolean`（宣言的制約違反時のみ `true`） |
 
 リソース/タイムラインの D&D の縦横の軸・合成パッチ・キーボード操作の詳細は [インタラクション: リソースビュー・タイムラインビューのドラッグ操作](./interactions.md#リソースビュータイムラインビューのドラッグ操作) を参照してください。
 
@@ -503,6 +661,7 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `renderTimeGridAllDayEvent` | `(segment: EventSegment) => ReactNode` | 週/日ビューの終日行の帯のカスタム描画（`TimeGridView.renderAllDayEvent` へ転送）。省略時はタイトルのみ |
 | `renderTimeGridDayHeader` | `(day: TimeGridDay, defaultContent: ReactNode) => ReactNode` | 週/日ビューの日ヘッダーのカスタム描画（`TimeGridView.renderDayHeader` へ転送） |
 | `timeGridEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | 週/日ビューのイベントブロック（終日行含む）の aria-label（`TimeGridView.eventAriaLabel` へ転送） |
+| `timeGridInitialScrollTime` | `string`（`'HH:mm'`） | 週/日ビューの初期スクロール位置（`TimeGridView.initialScrollTime` へ転送）。`ref` は転送されない |
 | `renderListEvent` | `(occurrence: EventOccurrence) => ReactNode` | リストビューのイベント行のカスタム描画 |
 | `listAllDayLabel` | `ReactNode` | リストビューの終日ラベル（既定「終日」） |
 | `listEmptyLabel` | `ReactNode` | リストビューの空状態メッセージ（既定「予定はありません」） |
@@ -527,6 +686,7 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `resourceUnassignedLabel` | `ReactNode` | リソースビューの未割り当て列ラベル（既定「未割り当て」。`ResourceView` / `VirtualResourceView` の `unassignedLabel` へ転送） |
 | `resourceEmptyLabel` | `ReactNode` | リソースビューの空状態メッセージ（既定「リソースがありません」。`ResourceView` / `VirtualResourceView` の `emptyLabel` へ転送） |
 | `resourceEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | リソースビューのイベントブロックの aria-label（`ResourceView` / `VirtualResourceView` の `eventAriaLabel` へ転送） |
+| `resourceInitialScrollTime` | `string`（`'HH:mm'`） | リソースビューの初期スクロール位置（`ResourceView` / `VirtualResourceView` の `initialScrollTime` へ転送）。`ref` は転送されない |
 | `virtualizeResource` | `boolean` | リソースビューを仮想化する（`ResourceView` の代わりに `VirtualResourceView`）。既定 `false` |
 | `renderTimelineEvent` | `(item: TimelineItem) => ReactNode` | タイムラインの帯のカスタム描画（`TimelineView` / `VirtualTimelineView` の `renderEvent` へ転送） |
 | `renderTimelineRowHeader` | `(row: TimelineRow, defaultContent: ReactNode) => ReactNode` | タイムラインの行見出しのカスタム描画（`TimelineView` / `VirtualTimelineView` の `renderRowHeader` へ転送） |
@@ -534,6 +694,7 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `timelineEmptyLabel` | `ReactNode` | タイムラインの空状態メッセージ（既定「リソースがありません」。`TimelineView` / `VirtualTimelineView` の `emptyLabel` へ転送） |
 | `timelineCornerLabel` | `string` | タイムラインのヘッダー行の角セルの `aria-label`（既定「リソース」。`TimelineView` / `VirtualTimelineView` の `cornerLabel` へ転送） |
 | `timelineEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | タイムラインの帯の aria-label（`TimelineView` / `VirtualTimelineView` の `eventAriaLabel` へ転送） |
+| `timelineResourceToggleAriaLabel` | `(resource: CalendarResource, collapsed: boolean, defaultLabel: string) => string` | タイムラインの折りたたみトグルボタンの aria-label（`TimelineView` / `VirtualTimelineView` の `resourceToggleAriaLabel` へ転送） |
 | `virtualizeTimeline` | `boolean` | タイムラインを仮想化する（`TimelineView` の代わりに `VirtualTimelineView`）。既定 `false` |
 
 ### `MonthView`
@@ -568,6 +729,8 @@ function TimeGridView(props: TimeGridViewProps): ReactElement | null
 | `renderAllDayEvent` | `(segment: EventSegment) => ReactNode` | 終日行（`allday-event`）の帯の表示内容。省略時はタイトルのみ |
 | `renderDayHeader` | `(day: TimeGridDay, defaultContent: ReactNode) => ReactNode` | 日ヘッダー（曜日・日番号）の内容 |
 | `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | イベントボタン（時間指定・終日行の両方）の aria-label。`defaultLabel` に既定文字列を渡すので加工・置換できる。省略時は既定文字列のまま |
+| `initialScrollTime` | `string`（`'HH:mm'`） | マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置。事後の変更は再適用されない |
+| `ref` | `Ref<TimeGridViewHandle>` | `scrollToTime(time: string): void` を公開する命令的 API（`[data-koyomi="timegrid-body"]` を対象にスクロール） |
 
 ### `ListView`
 
@@ -656,6 +819,8 @@ function ResourceView(props: ResourceViewProps): ReactElement | null
 | `unassignedLabel` | `ReactNode` | 未割り当て列の見出しラベル（既定「未割り当て」） |
 | `emptyLabel` | `ReactNode` | 空状態（列が 1 つもない）のメッセージ（既定「リソースがありません」） |
 | `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | イベントブロックの aria-label。`defaultLabel` に既定文字列（日時＋リソース名、`ariaLabelWithResource` の結果）を渡すので加工・置換できる。省略時は既定文字列のまま |
+| `initialScrollTime` | `string`（`'HH:mm'`） | マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置。事後の変更は再適用されない |
+| `ref` | `Ref<ResourceViewHandle>` | `scrollToTime(time: string): void` を公開する命令的 API（`[data-koyomi="resource-body"]` を対象にスクロール） |
 
 イベントブロック・リサイズハンドル・現在時刻線・プレビューは週/日ビューと同じ部位名（`timegrid-event` 等）を使い、デフォルトテーマのスタイルを共有します。列見出し行と終日行は `resource-grid` の `role="grid"` 内で `row` / `columnheader` / `gridcell` を構成し、連続時間軸の本文は grid の外に置きます。操作要素は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
 
@@ -675,6 +840,7 @@ function TimelineView(props: TimelineViewProps): ReactElement | null
 | `emptyLabel` | `ReactNode` | 空状態（行が 1 つもない）のメッセージ（既定「リソースがありません」） |
 | `cornerLabel` | `string` | ヘッダー行の角セル（行見出し列の列見出し）の `aria-label`（既定「リソース」） |
 | `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | 帯の aria-label。`defaultLabel` に既定文字列（日時＋リソース名）を渡すので加工・置換できる。省略時は既定文字列のまま |
+| `resourceToggleAriaLabel` | `(resource: CalendarResource, collapsed: boolean, defaultLabel: string) => string` | 折りたたみトグルボタン（`TimelineRow.hasChildren` が `true` の行のみ）の aria-label。`defaultLabel` に既定文字列（「〈リソース名〉を折りたたむ」/「〈リソース名〉を展開する」）を渡すので加工・置換できる |
 
 水平位置は `表示分 / totalMinutes` の % を inline で出力します（位置決めの数値のみ）。スクロールは単一の横スクロールコンテナ（`timeline-body`）で行い、行見出しはテーマ CSS の `position: sticky` で固定します（スクロール同期の JS は持ちません）。目盛りが 1,000 個を超える構成（`timelineDays × ceil(1440 / slotMinutes)`）では開発ビルドで一度だけ警告します。ビュー全体が `role="grid"` で、各行は `rowheader` と時間トラックの `gridcell` を持ちます。帯は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
 
@@ -692,12 +858,14 @@ function VirtualResourceView(props: VirtualResourceViewProps): ReactElement | nu
 | --- | --- | --- |
 | `columnWidth` | `number` | 列 1 本分の幅（px、既定 160 = `--koyomi-resource-column-width` の既定値と同じ）。列幅は固定 |
 | `overscan` | `number` | 前後の追加描画列数（既定 3） |
+| `initialScrollTime` | `string`（`'HH:mm'`） | マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置。事後の変更は再適用されない |
 
 **`VirtualResourceViewHandle`**（`ref` で取得）
 
 | メンバー | シグネチャ | 説明 |
 | --- | --- | --- |
 | `scrollToResource` | `(resourceId: string \| null, options?: { align?: 'auto' \| 'start' \| 'center' }) => void` | 指定リソースの列を可視域へスクロールする（`resourceId: null` は未割り当て列） |
+| `scrollToTime` | `(time: string) => void` | ルート `[data-koyomi="resource"]`（横スクロールと共有）を指定時刻の位置へスクロールする |
 
 **境界幅は CSS で指定（必須）**。スクロールコンテナはルート `[data-koyomi="resource"][data-koyomi-virtualized]`（横スクロールを担う要素は非仮想化版と同じ）です。境界幅が無いと仮想化は無害に無効化されます（開発ビルドで一度警告）。フォーカス中の列は窓外へスクロールしても列見出し・終日セル・本文列の 3 箇所がまとめて DOM を保持します。詳細は [ビュー: レーンの仮想化](./views.md#レーンの仮想化リソースタイムラインビュー) を参照してください。
 
@@ -776,7 +944,7 @@ interface ToolbarLabels {
 | `EventOccurrence` | イベントのオカレンス。下表参照 |
 | `RecurringEditScope` | `'this' | 'thisAndFollowing' | 'all'`。繰り返しの編集・削除の適用範囲 |
 | `CalendarResource` | カレンダーのリソース（会議室・設備・担当者など、予定の割当先）。下表参照 |
-| `DragPreview` | `{ kind: 'create' | 'move' | 'resize'; occurrenceKey: string | null; range: DateRange; allDay: boolean; resourceId?: string | null }`。`resourceId` はリソース/タイムラインビューでの操作時のみ設定される（既存ビューでは省略） |
+| `DragPreview` | `{ kind: 'create' | 'move' | 'resize'; occurrenceKey: string | null; range: DateRange; allDay: boolean; resourceId?: string | null; invalid?: boolean }`。`resourceId` はリソース/タイムラインビューでの操作時のみ設定される（既存ビューでは省略）。`invalid` は宣言的制約（`eventOverlap`/`eventConstraint`）に違反しているか（省略時は `false` 相当） |
 
 **`CalendarEvent` のフィールド**
 
@@ -798,6 +966,8 @@ interface ToolbarLabels {
 | `description?` | `string` | 説明文 |
 | `editable?` | `boolean` | 変更操作（ドラッグ・キーボードの移動/リサイズ/削除）を許可するか（既定 `true`） |
 | `resourceId?` | `string` | 割当先リソースの ID（[予定の管理: リソース](./events.md#リソース)を参照） |
+| `overlap?` | `boolean` | このイベントに他のイベントを重ねてよいか。省略時は `CalendarOptions.eventOverlap`（既定 `true`）に従う |
+| `constraint?` | `'businessHours' \| readonly BusinessHoursRule[]` | このイベントのドロップ先を制限する。省略時は `CalendarOptions.eventConstraint` に従う。終日イベントには適用されない |
 | `extendedProps?` | `Record<string, unknown>` | 利用者定義の任意データ |
 
 **`CalendarResource` のフィールド**
@@ -807,6 +977,7 @@ interface ToolbarLabels {
 | `id` | `string` | 一意な ID。重複時は先頭のリソースが優先される（先勝ち） |
 | `title` | `string` | 表示名 |
 | `color?` | `string` | 表示色（CSS の color 値）。リソース/タイムラインビューの列/行見出しと既定色に使用（イベント自身の `color` が優先） |
+| `parentId?` | `string` | 親リソースの ID。タイムラインビューでこのリソースを子としてツリー内に配置する（深さは任意段）。参照先のない ID・循環参照（自己参照含む）は孤立したルート（深さ 0）として扱う。リソースビューの列順には影響しない（常にフラット） |
 | `extendedProps?` | `Record<string, unknown>` | 利用者定義の任意データ |
 
 **`EventOccurrence` のフィールド**
@@ -834,6 +1005,7 @@ interface ToolbarLabels {
 | `initialView?` | `CalendarViewType` | `'month'` |
 | `events?` | `readonly CalendarEvent[]` | `[]`（渡した配列・各イベントオブジェクトは渡した後は変更しないこと） |
 | `resources?` | `readonly CalendarResource[]` | `[]`（渡した配列・各リソースオブジェクトは渡した後は変更しないこと） |
+| `initialCollapsedResourceIds?` | `readonly string[]` | `[]`（初期状態で折りたたむリソース ID。**作成時専用**。詳細は [ビュー: リソースの階層グルーピング](./views.md#リソースの階層グルーピングparentid折りたたみ) を参照） |
 | `timeZone?` | `TimeZoneId` | 実行環境のローカルタイムゾーン（不正な IANA タイムゾーン ID を指定すると `createCalendar` 呼び出し自体が `Error` を投げる。`setTimeZone` と同じ検証規則） |
 | `weekStartsOn?` | `Weekday` | `0`（日曜日） |
 | `dayMaxEvents?` | `number` | `4` |
@@ -845,11 +1017,16 @@ interface ToolbarLabels {
 | `listDays?` | `number` | `30` |
 | `multiMonthCount?` | `number` | `3` |
 | `timelineDays?` | `number` | `1` |
+| `timelineScale?` | `TimelineScale`（`'hour' \| 'day' \| 'week' \| 'month'`） | `'hour'`（タイムラインビューの横軸のズーム粒度。詳細は [ビュー: タイムラインのズーム粒度](./views.md#タイムラインのズーム粒度timelinescale) を参照） |
 | `unassignedLane?` | `'auto' \| 'always'` | `'auto'` |
 | `locale?` | `string` | `'ja'` |
 | `hiddenWeekdays?` | `readonly Weekday[]` | `[]`（非表示にする曜日。7 曜日全指定は無効な設定として無視され、既定の空配列（すべて表示）にフォールバックする。詳細は [ビュー: hiddenWeekdays](./views.md#週末などの曜日を隠すhiddenweekdays) を参照） |
 | `showWeekNumbers?` | `boolean` | `false`（月・週ビューに ISO 8601 週番号を表示するか。詳細は [ビュー: 週番号](./views.md#週番号showweeknumbers) を参照） |
 | `businessHours?` | `readonly BusinessHoursRule[]` | `[]`（週/日・リソース・タイムラインビューの営業時間の指定。詳細は [ビュー: 営業時間](./views.md#営業時間businesshours) を参照） |
+| `eventOverlap?` | `boolean` | `true`（イベントの重なりを許可するかどうかの既定値。詳細は [インタラクション: 宣言的な重なり・配置制約](./interactions.md#宣言的な重なり配置制約eventoverlap--eventconstraint) を参照） |
+| `eventConstraint?` | `'businessHours' \| readonly BusinessHoursRule[]` | 未指定（制約なし。詳細は [インタラクション: 宣言的な重なり・配置制約](./interactions.md#宣言的な重なり配置制約eventoverlap--eventconstraint) を参照） |
+| `slotMinTime?` | `string`（`'HH:mm'`） | `'00:00'`（週/日・リソースビューで表示する時間帯の開始。詳細は [ビュー: 表示時間帯](./views.md#表示時間帯slotmintimeslotmaxtime) を参照） |
+| `slotMaxTime?` | `string`（`'HH:mm'`） | `'24:00'`（表示する時間帯の終了、排他的。`'24:00'` も指定可） |
 | `now?` | `() => Date` | `() => new Date()` |
 | `onEventsChange?` | `(events: readonly CalendarEvent[]) => void` | なし |
 | `onRangeChange?` | `(info: CalendarRangeChangeInfo) => void` | なし（ビュー・基準日・表示範囲のいずれかが変わるたびに 1 回発火。作成直後にも 1 回発火する。FullCalendar の `datesSet` 相当。詳細は [イベントの管理: onRangeChange](./events.md#onrangechange-で表示範囲の変更を検知する) を参照） |
@@ -862,7 +1039,7 @@ interface ToolbarLabels {
 
 `timelineDays` はタイムラインビューの表示日数、`unassignedLane` はリソース/タイムラインビューの未割り当てレーンの生成規則です（`'auto'` = 該当する予定があるときのみ末尾に生成、`'always'` = 常に生成。詳細は [ビュー](./views.md#年複数月リソースタイムラインビューを有効にするopt-in) を参照）。
 
-`ResolvedCalendarOptions` は、表示・展開に使う既定値適用後のオプションだけを持つ型です（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `timeAxisZones` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `multiMonthCount` / `timelineDays` / `unassignedLane` / `locale` / `hiddenWeekdays` / `showWeekNumbers` / `businessHours` / `now`。コールバック類や `initialView` / `initialDate` / `resources` は含みません）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' | 'resource' | 'timeline'` です。
+`ResolvedCalendarOptions` は、表示・展開に使う既定値適用後のオプションだけを持つ型です（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `timeAxisZones` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `multiMonthCount` / `timelineDays` / `timelineScale` / `unassignedLane` / `locale` / `hiddenWeekdays` / `showWeekNumbers` / `businessHours` / `eventOverlap` / `eventConstraint`（未指定は `null`） / `slotMinTime` / `slotMaxTime` / `now`。コールバック類や `initialView` / `initialDate` / `resources` / `initialCollapsedResourceIds` は含みません）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' | 'resource' | 'timeline'` です。
 
 `BusinessHoursRule` は `{ daysOfWeek: readonly Weekday[]; startTime: string; endTime: string }`（`startTime` / `endTime` は `'HH:mm'` 形式。`startTime` が `endTime` 以降、または形式が不正だと `Error`）です。
 
@@ -872,18 +1049,18 @@ interface ToolbarLabels {
 
 | 型 | 説明 |
 | --- | --- |
-| `CalendarState` | `{ view; currentDate; timeZone; events; resources; dragPreview; options: ResolvedCalendarOptions }`。`getState()` の戻り値 |
+| `CalendarState` | `{ view; currentDate; timeZone; events; resources; dragPreview; collapsedResourceIds: ReadonlySet<string>; options: ResolvedCalendarOptions }`。`getState()` の戻り値。`collapsedResourceIds` は折りたたみ中のリソース ID の集合（タイムラインビューのみが参照。`toggleResourceCollapsed` で変更） |
 | `CalendarViewModel` | `MonthViewModel | TimeGridViewModel | ListViewModel | YearViewModel | MultiMonthViewModel | ResourceViewModel | TimelineViewModel`。`getViewModel()` の戻り値 |
 | `MonthViewModel` | `{ type: 'month'; anchor: Date; weeks: readonly MonthWeek[]; weekdays: readonly Weekday[] }` |
 | `MonthWeek` | `{ days: readonly MonthDay[]; segments: readonly EventSegment[]; laneCount: number; weekNumber: number \| null }`。`weekNumber` は `showWeekNumbers: true` のときだけ ISO 8601 週番号が入る（既定 `null`） |
 | `MonthDay` | `{ date; key; inCurrentMonth; isToday; overflowCount }` |
 | `EventSegment` | `{ occurrence; startCol; span; lane; continuesBefore; continuesAfter; hidden }`。月ビュー・終日行・複数月ビューの帯セグメント |
-| `TimeGridViewModel` | `{ type: 'timeGrid'; viewType: 'week' | 'day'; days; allDaySegments; allDayLaneCount; slots; timeAxes: readonly TimeAxis[]; nowIndicator; weekNumber: number \| null }`。`weekNumber` は `viewType: 'week'` かつ `showWeekNumbers: true` のときだけ ISO 8601 週番号が入る（それ以外は `null`） |
+| `TimeGridViewModel` | `{ type: 'timeGrid'; viewType: 'week' | 'day'; days; allDaySegments; allDayLaneCount; slots; slotMinTimeMinutes: number; slotMaxTimeMinutes: number; timeAxes: readonly TimeAxis[]; nowIndicator; weekNumber: number \| null }`。`weekNumber` は `viewType: 'week'` かつ `showWeekNumbers: true` のときだけ ISO 8601 週番号が入る（それ以外は `null`）。`slotMinTimeMinutes`/`slotMaxTimeMinutes` は `slotMinTime`/`slotMaxTime` を分に変換した値（既定 `0`/`1440`） |
 | `TimeGridDay` | `{ date; key; isToday; weekday; items: readonly PositionedOccurrence[]; timeAxes: readonly TimeAxis[]; businessHourSlots: readonly BusinessHourSlot[] }`。`timeAxes` はこの日自身の 0:00 基準（`TimeGridViewModel.timeAxes` は週全体で共有する表示範囲最初の日基準。両者の違いは [タイムゾーン: 複数 TZ 軸](./timezones.md#複数タイムゾーン軸secondary-time-zone)を参照）。`businessHourSlots` は `slots` と同じ並びの営業時間内フラグ（`businessHours` 未指定時はすべて `false`） |
 | `BusinessHourSlot` | `{ minutes: number; isBusinessHours: boolean }`。`minutes` は `TimeSlot.minutes` と同じ並び |
 | `TimeSlot` | `{ minutes: number; label: string }` |
 | `TimeAxis` | `{ timeZone: TimeZoneId; slots: readonly TimeSlot[] }`。時間グリッドの時間軸 1 本分。`timeAxes` は先頭が主軸（表示 TZ、`slots` と同内容）、以降が `timeAxisZones` の指定順の追加軸（[タイムゾーン: 複数 TZ 軸](./timezones.md#複数タイムゾーン軸secondary-time-zone)を参照） |
-| `PositionedOccurrence` | `{ occurrence; startMinutes; endMinutes; left; width; continuesBefore; continuesAfter }`。時間グリッドに配置されたオカレンス（割合・分単位） |
+| `PositionedOccurrence` | `{ occurrence; startMinutes; endMinutes; left; width; continuesBefore; continuesAfter }`。時間グリッドに配置されたオカレンス（割合・分単位）。`continuesBefore`/`continuesAfter` は日境界に加え、表示時間帯（`slotMinTime`/`slotMaxTime`）の境界でも付与される |
 | `ListViewModel` | `{ type: 'list'; days: readonly ListDay[]; isEmpty: boolean }` |
 | `ListDay` | `{ date; key; isToday; occurrences: readonly EventOccurrence[] }` |
 | `YearViewModel` | `{ type: 'year'; anchor: Date; months: readonly YearMonth[]; weekdays: readonly Weekday[] }` |
@@ -891,13 +1068,15 @@ interface ToolbarLabels {
 | `YearDay` | `{ date; key; inCurrentMonth; isToday; eventCount }`。前後月の日付（`inCurrentMonth: false`）は常に `eventCount: 0` |
 | `MultiMonthViewModel` | `{ type: 'multiMonth'; anchor: Date; months: readonly MultiMonthMonth[]; weekdays: readonly Weekday[] }` |
 | `MultiMonthMonth` | `{ anchor: Date; key: string; weeks: readonly MonthWeek[] }`。`weeks` は月ビューと同じ `MonthWeek` だが、前後月の日付セルにはセグメントを配置しない |
-| `ResourceViewModel` | `{ type: 'resource'; date: Date; dateKey: string; isToday: boolean; columns: readonly ResourceColumn[]; isEmpty: boolean; slots: readonly TimeSlot[]; nowIndicatorMinutes: number \| null; businessHourSlots: readonly BusinessHourSlot[] }`。`businessHourSlots` は `slots` と同じ並びの営業時間内フラグ（表示日の曜日基準で判定した 1 本を全列で共有。`businessHours` 未指定時はすべて `false`） |
+| `ResourceViewModel` | `{ type: 'resource'; date: Date; dateKey: string; isToday: boolean; columns: readonly ResourceColumn[]; isEmpty: boolean; slots: readonly TimeSlot[]; slotMinTimeMinutes: number; slotMaxTimeMinutes: number; nowIndicatorMinutes: number \| null; businessHourSlots: readonly BusinessHourSlot[] }`。`businessHourSlots` は `slots` と同じ並びの営業時間内フラグ（表示日の曜日基準で判定した 1 本を全列で共有。`businessHours` 未指定時はすべて `false`）。`slotMinTimeMinutes`/`slotMaxTimeMinutes` は `TimeGridViewModel` と同じ意味 |
 | `ResourceColumn` | `{ resource: CalendarResource \| null; key: string; items: readonly PositionedOccurrence[]; allDayItems: readonly EventOccurrence[] }`。`resource: null` は未割り当て列。`key` は `` `r:${id}` `` または `'unassigned'` |
-| `TimelineViewModel` | `{ type: 'timeline'; days: readonly TimelineDay[]; slots: readonly TimelineSlot[]; rows: readonly TimelineRow[]; isEmpty: boolean; totalMinutes: number; nowIndicatorMinutes: number \| null; businessHourRanges: readonly BusinessHourRange[] }`。`businessHourRanges` は営業時間を表示分座標系へ変換し、隣接・重複をマージした区間一覧（開始分昇順。`businessHours` 未指定時は `[]`） |
+| `TimelineViewModel` | `{ type: 'timeline'; days: readonly TimelineDay[]; slots: readonly TimelineSlot[]; rows: readonly TimelineRow[]; isEmpty: boolean; totalMinutes: number; nowIndicatorMinutes: number \| null; businessHourRanges: readonly BusinessHourRange[]; scale: TimelineScale; headerGroups: readonly TimelineHeaderGroup[] \| null }`。`businessHourRanges` は営業時間を表示分座標系へ変換し、隣接・重複をマージした区間一覧（開始分昇順。`businessHours` 未指定時は `[]`）。`scale` は適用中のズーム粒度、`headerGroups` は `scale` が `'week'`/`'month'` のときのみ配列（それ以外は `null`） |
+| `TimelineScale` | `'hour' \| 'day' \| 'week' \| 'month'`。タイムラインビューの横軸のズーム粒度 |
+| `TimelineHeaderGroup` | `{ start: Date; end: Date; key: string; startMinutes: number; endMinutes: number; containsToday: boolean }`。`TimelineViewModel.headerGroups` の要素（週/月単位のヘッダー見出し 1 本分）。`start`/`end` は表示範囲でクランプ済み |
 | `BusinessHourRange` | `{ startMinutes: number; endMinutes: number }`。表示分座標系（範囲先頭からの分）の営業時間帯 1 本分。`endMinutes` は排他的 |
 | `TimelineDay` | `{ date: Date; key: string; isToday: boolean; weekday: Weekday }` |
-| `TimelineSlot` | `{ minutes: number; dayKey: string; label: string }`。`minutes` は「表示分」（範囲先頭からの分。既存 `TimeSlot` と異なり複数日で 1439 を超えうる） |
-| `TimelineRow` | `{ resource: CalendarResource \| null; key: string; items: readonly TimelineItem[]; laneCount: number }`。`resource: null` は未割り当て行 |
+| `TimelineSlot` | `{ minutes: number; dayKey: string; label: string }`。`minutes` は「表示分」（範囲先頭からの分。既存 `TimeSlot` と異なり複数日で 1439 を超えうる）。`scale: 'day'` のときは常に空配列 |
+| `TimelineRow` | `{ resource: CalendarResource \| null; key: string; items: readonly TimelineItem[]; laneCount: number; depth: number; hasChildren: boolean; collapsed: boolean }`。`resource: null` は未割り当て行。`depth`/`hasChildren`/`collapsed` は `CalendarResource.parentId` によるツリー内の情報（`parentId` 未使用時・未割り当て行は常に `depth: 0`/`hasChildren: false`/`collapsed: false`） |
 | `TimelineItem` | `{ occurrence: EventOccurrence; startMinutes: number; endMinutes: number; lane: number; continuesBefore: boolean; continuesAfter: boolean }`。`startMinutes` / `endMinutes` は表示分 |
 
 `nowIndicator` は `{ dayKey: string; minutes: number } | null`（表示範囲内に「今日」がない場合は `null`）です。ビューごとの表示仕様は [ビュー](./views.md) を参照してください。
@@ -960,6 +1139,7 @@ interface ToolbarLabels {
 | `formatSlotLabel(minutes: number): string` | 分数を `'HH:mm'` 形式のラベルにする |
 | `isoWeekNumberInZone(date, timeZone): number` | 指定タイムゾーンにおける ISO 8601 週番号を返す |
 | `parseTimeOfDay(time: string): number` | `'HH:mm'` 形式の時刻文字列をその日の 0:00 からの分に変換する（`formatSlotLabel` の逆変換） |
+| `parseSlotBoundaryTime(time: string): number` | `'HH:mm'` を分に変換する（`slotMinTime`/`slotMaxTime` 用）。`'24:00'` のみ特例で `1440` を返し、それ以外は `parseTimeOfDay` と同じ |
 | `WallClockParts`（型） | `{ year; month; day; hours?; minutes?; seconds?; milliseconds? }` |
 
 ```ts
@@ -1030,6 +1210,35 @@ const starts = expandRecurrence({
 console.log(starts.length); // => 3
 ```
 
+### 繰り返しルールエディタ（`core/recurrence-editor`）
+
+RRULE 文字列とフォーム入力向けの構造化状態（`RecurrenceRuleState`）を相互変換する純粋関数です。対応範囲は `FREQ=DAILY/WEEKLY/MONTHLY/YEARLY`・`INTERVAL`・`BYDAY`（週の曜日集合、または月の第 n 曜日）・`BYMONTHDAY`（単一値）・`COUNT`/`UNTIL` のみで、範囲外の指定は `parseRecurrenceRule` が `unsupported` として元の文字列を保持します。React では `useRecurrenceRuleEditor` がこれらをラップします。使用例・対応範囲の詳細は [繰り返し予定: 繰り返しルールエディタ](./recurrence.md#繰り返しルールエディタ構造化状態での編集) を参照してください。
+
+| 関数 / 型 | 説明 |
+| --- | --- |
+| `parseRecurrenceRule(params): ParsedRecurrenceRule` | RRULE 文字列を構造化状態に変換する（`params.rrule`/`dtstart`/`timeZone`）。対応範囲外・不正な RRULE は `{ kind: 'unsupported', rawRRule, reason }` |
+| `validateRecurrenceRuleState(state): readonly RecurrenceValidationIssue[]` | `state` のフィールド単位の検証エラーを返す（空配列なら有効）。副作用・例外のない純関数 |
+| `buildRecurrenceRuleString(params): string` | `state` を RRULE 本体文字列に変換する（`params.state`/`dtstart`/`timeZone`）。検証エラーがあると `Error` を投げる |
+| `describeRecurrenceRule(state, context?): string` | `state` を日本語の説明文にする。検証を要求しない best-effort な整形（例外を投げない） |
+| `RecurrenceFrequency`（型） | `'daily' \| 'weekly' \| 'monthly' \| 'yearly'` |
+| `RecurrenceWeekdayOrdinal`（型） | `1 \| 2 \| 3 \| 4 \| -1`（第 n 週。`-1` は最終週） |
+| `MonthlyRecurrencePattern`（型） | `{ kind: 'dayOfMonth'; day: number } \| { kind: 'nthWeekday'; ordinal: RecurrenceWeekdayOrdinal; weekday: Weekday }` |
+| `RecurrenceEnd`（型） | `{ type: 'never' } \| { type: 'count'; count: number } \| { type: 'until'; until: Date }`。`until` はイベント TZ の現地時刻として解釈される |
+| `RecurrenceRuleState`（型） | `{ freq: RecurrenceFrequency; interval: number; byWeekday?: readonly Weekday[]; monthlyPattern?: MonthlyRecurrencePattern; end: RecurrenceEnd }` |
+| `RecurrenceValidationIssue`（型） | `{ field: 'interval' \| 'byWeekday' \| 'monthlyPattern' \| 'count' \| 'until'; message: string }` |
+| `ParsedRecurrenceRule`（型） | `{ kind: 'none' } \| { kind: 'editable'; state: RecurrenceRuleState } \| { kind: 'unsupported'; rawRRule: string; reason: string }` |
+
+```ts
+import { buildRecurrenceRuleString, parseRecurrenceRule } from '@koyomi-cal/react';
+
+const dtstart = new Date('2026-07-01T00:00:00Z'); // 東京 7/1 9:00
+const parsed = parseRecurrenceRule({ rrule: 'FREQ=WEEKLY;BYDAY=MO,WE', dtstart, timeZone: 'Asia/Tokyo' });
+if (parsed.kind === 'editable') {
+  buildRecurrenceRuleString({ state: parsed.state, dtstart, timeZone: 'Asia/Tokyo' });
+  // => 'FREQ=WEEKLY;BYDAY=MO,WE'
+}
+```
+
 ### イベント変更（`core/mutations`）
 
 Google カレンダーの編集・削除操作（繰り返しの「この予定のみ / これ以降 / すべて」を含む）を、イベント配列を受け取り新しい配列を返す純粋関数として提供します。`CalendarApi` の CRUD メソッドはこれらに委譲しています。
@@ -1049,6 +1258,8 @@ Google カレンダーの編集・削除操作（繰り返しの「この予定�
 | `CreateEventResult`（型） | `{ events: CalendarEvent[]; created: CalendarEvent }` |
 | `EventMutationResult`（型） | `{ events: CalendarEvent[]; changes: EventChangeEntry[] }` |
 | `EventChangeEntry`（型） | `{ before?: CalendarEvent; after?: CalendarEvent }`。`before` のみは削除、`after` のみは新規作成、両方ありは変更を表す |
+| `applyEventChangeEntries(events, changes, direction): CalendarEvent[]` | `changes` の各エントリを `direction`（`'before'` = 取り消し／`'after'` = やり直し・再現）の方向へ適用する。対象イベントが想定と食い違うエントリ（presence-only のドリフト検出）は安全にスキップする。undo/redo の実装に使う（詳細は [予定の管理: undo（元に戻す）を実装する](./events.md#undo元に戻すを実装する) を参照） |
+| `EventChangeDirection`（型） | `'before' \| 'after'` |
 
 ```ts
 import { applyPatch, createEventIn } from '@koyomi-cal/react';
@@ -1141,6 +1352,34 @@ console.log(shortcutForKey('l')); // => { type: 'view', view: 'timeline' }
 console.log(shortcutForKey('s')); // => null（該当なし）
 ```
 
+### 宣言的な制約の判定（`core/constraints`）
+
+`eventOverlap` / `eventConstraint` の判定を行う純粋関数群です。ドラッグ中のプレビュー計算（毎 pointermove）とコミット確定（移動・リサイズ・新規作成・外部ドラッグ受け入れ・キーボード操作）の両方が、判定の唯一の入口 `isDragCandidateValid` を同じ呼び方で使います。詳細は [インタラクション: 宣言的な重なり・配置制約](./interactions.md#宣言的な重なり配置制約eventoverlap--eventconstraint) を参照してください。
+
+| 関数 / 型 | 説明 |
+| --- | --- |
+| `isDragCandidateValid(params): boolean` | 判定の唯一の入口。重なり（`hasBlockingOverlap`）を先に見て、重なりがなければ配置制約（`isRangeWithinBusinessHours`、終日は対象外）を見る |
+| `hasBlockingOverlap(candidate, excludeKey, blockers, moverBlocksOverlap): boolean` | `candidate` が `blockers`（`excludeKey` は除外）のいずれかと時間的に重なり、かつ拒否されるべきかを判定する。接触するだけ（`end === start`）は重なりとみなさない |
+| `occurrenceBlocksOverlap(event, eventOverlap): boolean` | イベントの重なり許可の実効値（`event.overlap ?? eventOverlap`）が `false` かどうかを判定する |
+| `isRangeWithinBusinessHours(range, rules, timeZone): boolean` | `range`（終日を除く）が `rules` の和集合に完全に収まっているか判定する。`rules` が空配列の場合は常に `false` |
+| `resolveConstraintRules(constraint, businessHours): readonly BusinessHoursRule[] \| null` | `'businessHours'` 参照を実際のルール配列へ解決する。未指定なら `null` |
+| `OverlapBlocker`（型） | `{ key: string; start: Date; end: Date; blocksOverlap: boolean }`。重なり判定の対象となる既存オカレンス 1 件分 |
+
+```ts
+import { isDragCandidateValid } from '@koyomi-cal/react';
+
+const valid = isDragCandidateValid({
+  range: { start: new Date('2026-07-15T10:00:00+09:00'), end: new Date('2026-07-15T11:00:00+09:00') },
+  allDay: false,
+  excludeKey: null,
+  moverBlocksOverlap: true,
+  blockers: [],
+  constraintRules: null,
+  timeZone: 'Asia/Tokyo',
+});
+console.log(valid); // => true（重なり・配置制約とも対象がないため常に有効）
+```
+
 ### ビューモデルビルダー（`core/views`）
 
 各ビューのビューモデルを構築する純粋関数です。`CalendarApi.getViewModel()` が内部で使用しており、通常は直接呼び出す必要はありません。
@@ -1152,8 +1391,8 @@ console.log(shortcutForKey('s')); // => null（該当なし）
 | `buildListViewModel(params): ListViewModel` | リストビューのビューモデル（日付ごとのオカレンス一覧）を構築する |
 | `buildYearViewModel(params): YearViewModel` | 年ビューのビューモデル（12 ヶ月分のミニ月グリッド・日ごとの予定件数）を構築する。`hiddenWeekdays` は無視する |
 | `buildMultiMonthViewModel(params): MultiMonthViewModel` | 複数月ビューのビューモデル（`multiMonthCount` ヶ月分の月グリッド）を構築する。内部で月ごとに `buildMonthViewModel` を呼び、`segmentRange` を各月本体にクランプすることで前後月の日付セルに予定を出さない |
-| `buildResourceViewModel(params): ResourceViewModel` | リソースビューのビューモデル（列 = リソース、列ごとの時間グリッド配置）を構築する。`hiddenWeekdays` は無視する。`params.resources` / `params.unassignedLane` で未割り当て列の生成規則を制御し、`params.businessHours`（省略時 `[]`）で全列共通の `businessHourSlots` を算出する |
-| `buildTimelineViewModel(params): TimelineViewModel` | タイムラインビューのビューモデル（`params.timelineDays` 日分の「表示分」座標系、行 = リソース、区間レーン割当）を構築する。`hiddenWeekdays` は無視する。`params.businessHours`（省略時 `[]`）で `businessHourRanges`（表示分の区間・マージ済み）を算出する |
+| `buildResourceViewModel(params): ResourceViewModel` | リソースビューのビューモデル（列 = リソース、列ごとの時間グリッド配置）を構築する。`hiddenWeekdays` は無視する。`params.resources` / `params.unassignedLane` で未割り当て列の生成規則を制御し、`params.businessHours`（省略時 `[]`）で全列共通の `businessHourSlots` を算出する。`params.slotMinTime`/`slotMaxTime`（省略時 `'00:00'`/`'24:00'`）で表示時間帯を制限する |
+| `buildTimelineViewModel(params): TimelineViewModel` | タイムラインビューのビューモデル（`params.timelineDays` 日分の「表示分」座標系、行 = リソース、区間レーン割当）を構築する。`hiddenWeekdays` は無視する。`params.businessHours`（省略時 `[]`）で `businessHourRanges`（表示分の区間・マージ済み）を算出する。リソース一覧は内部で `buildResourceTree`/`filterVisibleResourceTree` によりツリー順・折りたたみ済みに整形される（`params.collapsedResourceIds`、省略時 `[]`）。`params.timelineScale`（省略時 `'hour'`）でズーム粒度を切り替える |
 
 ```ts
 import { buildMonthViewModel } from '@koyomi-cal/react';
@@ -1234,6 +1473,27 @@ console.log(timelineModel.type); // => 'timeline'
 console.log(timelineModel.totalMinutes); // => 10080（7 日 × 1440 分）
 ```
 
+### リソースの階層グルーピング（`core/views/resource-hierarchy`）
+
+`CalendarResource.parentId` によるツリー構築・折りたたみ表示の絞り込みを行う純粋関数です。タイムラインビュー（`buildTimelineViewModel`）のみが内部で使用します（リソースビューは常にフラットのため参照しません）。
+
+| 関数 / 型 | 説明 |
+| --- | --- |
+| `buildResourceTree(resources): readonly ResourceTreeEntry[]` | ID 重複を先勝ちで除いたうえで `parentId` からツリー順（深さ優先の行き掛け順）に並べる。循環参照（自己参照含む）は `resources` 配列内で先に出現する側を強制的にルート化し、全リソースを一件も欠落させずに出力する |
+| `filterVisibleResourceTree(tree, collapsedResourceIds): readonly VisibleResourceTreeEntry[]` | `tree` から、`collapsedResourceIds` に含まれる祖先を持つ行（折りたたみ中の子孫）を除いた、実際に描画すべき行の一覧を返す |
+| `ResourceTreeEntry`（型） | `{ resource: CalendarResource; depth: number; hasChildren: boolean }` |
+| `VisibleResourceTreeEntry`（型） | `ResourceTreeEntry & { collapsed: boolean }`。`hasChildren` が `false` のときは常に `collapsed: false` |
+
+```ts
+import { buildResourceTree } from '@koyomi-cal/react';
+
+const tree = buildResourceTree([
+  { id: 'site', title: '本社' },
+  { id: 'floor-1', title: '1F', parentId: 'site' },
+]);
+console.log(tree.map((entry) => entry.depth)); // => [0, 1]
+```
+
 ### 日時ラベル整形（`react/components/format`）
 
 ビルトインコンポーネントが使う `Intl.DateTimeFormat` ベースの整形ヘルパです。`timeZone` / `locale` を必須引数として受け取り、暗黙のローカルタイムゾーンには依存しません。`ja` ロケール以外は `Intl` の既定の書式に委ねます。
@@ -1256,6 +1516,24 @@ console.log(formatMonthTitle(new Date('2026-07-15T01:00:00Z'), 'Asia/Tokyo', 'ja
 console.log(formatYearTitle(new Date('2026-07-15T01:00:00Z'), 'Asia/Tokyo', 'ja')); // => '2026年'
 console.log(formatWeekday(3, 'ja')); // => '水'
 ```
+
+### スクロールユーティリティ（`react/scroll-to-time`）
+
+`initialScrollTime`/`scrollToTime`（週/日・リソースビュー）が内部で使う、DOM に依存しない計算部分と副作用部分です。
+
+| 関数 | 説明 |
+| --- | --- |
+| `scrollFractionForTime(time, rangeStartMinutes, rangeEndMinutes): number \| null` | `'HH:mm'` を範囲内クランプ後の 0〜1 の割合に変換する。`'HH:mm'` として解析できない場合は `null`（例外を投げない） |
+| `scrollContainerToTime(element, time, rangeStartMinutes, rangeEndMinutes): void` | スクロールコンテナ（`element`）を指定時刻の位置へスクロールする（`scrollTop` への書き込み）。時刻が解析できない、または `element.scrollHeight` が `0` の場合は何もしない |
+
+```ts
+import { scrollFractionForTime } from '@koyomi-cal/react';
+
+console.log(scrollFractionForTime('09:00', 0, 1440)); // => 0.375
+console.log(scrollFractionForTime('07:00', 480, 1200)); // => 0（範囲より前はクランプ）
+```
+
+詳細は [ビュー: 初期スクロール位置](./views.md#初期スクロール位置initialscrolltime--scrolltotime) を参照してください。
 
 ## ロケールプリセット
 
@@ -1330,10 +1608,28 @@ type EnUsLabels = {
     yearDayCountLabel: (count: number) => string;
     yearDayAriaLabel: (day: YearDay, defaultLabel: string) => string;
   };
+  recurrenceEditor: {
+    describeRule: (state: RecurrenceRuleState, defaultDescription: string) => string;
+  };
+  announcer: {
+    eventChanged: (change: EventChange, defaultMessage: string, ctx: AnnouncerFormatterContext) => string;
+    eventCreated: (
+      event: CalendarEvent,
+      selection: RangeSelection,
+      defaultMessage: string,
+      ctx: AnnouncerFormatterContext,
+    ) => string;
+    eventDeleted: (deletion: EventDelete, defaultMessage: string, ctx: AnnouncerFormatterContext) => string;
+    viewChanged: (
+      info: CalendarRangeChangeInfo,
+      defaultMessage: string,
+      ctx: AnnouncerFormatterContext,
+    ) => string;
+  };
 };
 ```
 
-各コンポーネントが持つ `*Label` 系 props（既定値は日本語）を英語化したプリセットです。`toolbar` / `list` / `month` / `multiMonth` / `resource` / `timeline` / `year` はそれぞれ同名のビルトインコンポーネント（`VirtualListView` 等の仮想化版も含む）の props にそのままスプレッドできます。`calendarView` だけは `CalendarView` が転送用に持つプレフィックス付き props（`listAllDayLabel` 等）向けの形です。`eventAriaLabel` 系は、既定 aria-label 文字列が使う日本語の区切り記号（読点「、」・波ダッシュ「〜」）を英語表記（カンマ・en dash）に置き換えます（日付・時刻自体は `locale` オプションにより Intl で整形済みのため触れません）。渡さない場合は既定の日本語文言のままです。使用例は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照してください。
+各コンポーネントが持つ `*Label` 系 props（既定値は日本語）を英語化したプリセットです。`toolbar` / `list` / `month` / `multiMonth` / `resource` / `timeline` / `year` はそれぞれ同名のビルトインコンポーネント（`VirtualListView` 等の仮想化版も含む）の props にそのままスプレッドできます。`calendarView` だけは `CalendarView` が転送用に持つプレフィックス付き props（`listAllDayLabel` 等）向けの形です。`recurrenceEditor` / `announcer` はコンポーネント props ではなく、`useRecurrenceRuleEditor` の `describeRule` オプション・`useCalendarAnnouncer` の `messages` オプションへそのまま渡す形です。`eventAriaLabel` 系は、既定 aria-label 文字列が使う日本語の区切り記号（読点「、」・波ダッシュ「〜」）を英語表記（カンマ・en dash）に置き換えます（日付・時刻自体は `locale` オプションにより Intl で整形済みのため触れません）。渡さない場合は既定の日本語文言のままです。使用例は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照してください。
 
 ## 関連ページ
 

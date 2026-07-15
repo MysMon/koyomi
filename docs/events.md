@@ -27,6 +27,8 @@
 | `description` | `string`（省略可） | 説明文。 |
 | `editable` | `boolean`（省略可） | 変更操作を許可するか。既定は `true`。`false` の場合、表示・クリックは可能だがドラッグ移動・リサイズ・キーボードでの移動/リサイズ/削除はすべて無効になります。 |
 | `resourceId` | `string`（省略可） | 割当先リソースの ID（[リソース](#リソース)を参照）。リソース/タイムラインビューで使用します。 |
+| `overlap` | `boolean`（省略可） | このイベントに他のイベントを重ねてよいか。省略時は `CalendarOptions.eventOverlap`（既定 `true`）に従います。詳細は [インタラクション: 宣言的な重なり・配置制約](./interactions.md#宣言的な重なり配置制約eventoverlap--eventconstraint) を参照。 |
+| `constraint` | `'businessHours' \| readonly BusinessHoursRule[]`（省略可） | このイベントのドロップ先を制限します。省略時は `CalendarOptions.eventConstraint` に従います。終日イベントには適用されません。詳細は [インタラクション: 宣言的な重なり・配置制約](./interactions.md#宣言的な重なり配置制約eventoverlap--eventconstraint) を参照。 |
 | `extendedProps` | `Record<string, unknown>`（省略可） | 利用者定義の任意データ。ライブラリは内容に関知しません。 |
 
 `rrule` / `exdates` / `rdates` / `recurringEventId` / `originalStart` の詳細な挙動は
@@ -127,6 +129,7 @@ const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
 | `id` | `string` | 一意な ID。重複する場合は先頭のリソースが優先されます（先勝ち）。 |
 | `title` | `string` | 表示名。 |
 | `color` | `string`（省略可） | 表示色（CSS の color 値）。リソース/タイムラインビューの列/行見出しと、そのビュー内で `event.color` 未指定のイベントの既定色になります（イベント自身の `color` が常に優先。既存ビューの描画には影響しません）。 |
+| `parentId` | `string`（省略可） | 親リソースの ID。タイムラインビューでこのリソースを子としてツリー内に配置します（深さは任意段）。参照先のない ID・循環参照（自己参照含む）は孤立したルート（深さ 0）として扱われます。リソースビューの列順には影響しません（常にフラット）。詳細は [ビュー: リソースの階層グルーピング](./views.md#リソースの階層グルーピングparentid折りたたみ) を参照。 |
 | `extendedProps` | `Record<string, unknown>`（省略可） | 利用者定義の任意データ。ライブラリは内容に関知しません。 |
 
 表示順は `resources` 配列の並び順です（`order` のような専用フィールドは持ちません）。
@@ -352,36 +355,101 @@ interface EventChangeEntry {
 並び替えのみを行う `patch`（値の集合として同一）も無変化として扱われ `changes` には
 含まれません。
 
-```tsx
-import type { CalendarApi, EventChangeEntry } from '@koyomi-cal/react';
+### 変更を逆再生する（applyEventChangeEntries）
 
-/**
- * changes を逆再生してイベント一覧を操作前の状態に戻す。
- * `setEvents` は onEventsChange を呼ばない（エコー防止）ため、
- * undo による復元自体をアプリ側の保存処理へ送り返すことはない。
- */
-function undoChanges(api: CalendarApi, changes: readonly EventChangeEntry[]): void {
-  const byId = new Map(api.getEvents().map((event) => [event.id, event]));
-  for (const change of changes) {
-    if (change.after !== undefined) {
-      byId.delete(change.after.id); // 新規作成されたイベントを取り除く
-    }
-  }
-  for (const change of changes) {
-    if (change.before !== undefined) {
-      byId.set(change.before.id, change.before); // 変更前の内容に戻す
-    }
-  }
-  api.setEvents([...byId.values()]);
-}
+`changes` の各エントリを before/after いずれかの方向へ適用する純粋関数
+`applyEventChangeEntries` が公開されています。
 
-// 使用例: 変更確定後に受け取った changes を保持しておき、
-// 「元に戻す」ボタンが押されたら undoChanges(api, changes) を呼ぶ
+```ts
+type EventChangeDirection = 'before' | 'after';
+
+function applyEventChangeEntries(
+  events: readonly CalendarEvent[],
+  changes: readonly EventChangeEntry[],
+  direction: EventChangeDirection,
+): CalendarEvent[];
 ```
 
+- `direction: 'before'` — 変更前の状態へ戻す（取り消し／undo）
+- `direction: 'after'` — 変更後の状態を適用する（やり直し／redo、または再現）
+
+適用直前に期待する現在の状態（`'before'` 方向なら `after` が、`'after'` 方向なら
+`before` が、現在の一覧に存在するはず）と食い違うエントリ（対象イベントが既に
+消えている、または想定外に存在している）は安全にスキップし、他のエントリの適用は
+継続します（値の内容までは比較しない presence-only の判定）。入力の `events`
+配列・各イベントは変更しません。
+
+```ts
+import { applyEventChangeEntries } from '@koyomi-cal/react';
+
+// undo: 直前の変更を取り消す
+const reverted = applyEventChangeEntries(api.getEvents(), changes, 'before');
+api.setEvents(reverted);
+
+// redo: 取り消した変更をやり直す
+const reapplied = applyEventChangeEntries(reverted, changes, 'after');
+api.setEvents(reapplied);
+```
+
+### undo/redo 履歴マネージャ（useCalendarHistory）
+
+`changes` を自分でスタック管理する代わりに、React では `useCalendarHistory` が
+使えます（フレームワーク非依存の `createEventHistory` の薄いラッパです）。
+
+```tsx
+import { CalendarProvider, CalendarView, useCalendar, useCalendarHistory } from '@koyomi-cal/react';
+
+function App() {
+  const calendar = useCalendar();
+  const history = useCalendarHistory({ calendar, limit: 20, keyboardShortcuts: true });
+
+  return (
+    <div>
+      <button type="button" disabled={!history.canUndo} onClick={() => history.undo()}>
+        元に戻す
+      </button>
+      <button type="button" disabled={!history.canRedo} onClick={() => history.redo()}>
+        やり直す
+      </button>
+      <CalendarProvider
+        value={calendar}
+        callbacks={{
+          onEventChange: (change) => history.push(change.changes),
+          onEventDelete: (deletion) => history.push(deletion.changes),
+        }}
+      >
+        <CalendarView />
+      </CalendarProvider>
+    </div>
+  );
+}
+
+// 期待される動作:
+// - 予定をドラッグ移動すると history.canUndo が true になる
+// - 「元に戻す」を押すと移動前の状態に戻り、history.canRedo が true になる
+// - keyboardShortcuts: true のため Ctrl/Cmd+Z（undo）・Ctrl/Cmd+Shift+Z または
+//   Ctrl/Cmd+Y（redo）でも同じ操作ができる（input 等にフォーカス中は無効）
+```
+
+- **`push(changes)`** — 1 操作分の変更を履歴に積む。`onEventChange` / `onEventDelete`
+  内、または `api.createEvent` / `updateEvent` / `deleteEvent` の戻り値を得た直後に
+  呼びます。`changes` が空配列なら何もしません。`onSelectRange` を省略した場合の
+  既定即時作成は `changes` を取得する手段がないため、履歴に積めません（既定即時作成の
+  通知を扱いたい場合は [アクセシビリティ: 変更の読み上げ通知](./accessibility.md#変更の読み上げ通知usecalendarannouncer) の `useCalendarAnnouncer` を参照してください）
+- **`undo()` / `redo()`** — 直前の操作を取り消す・やり直す。`push` を呼んだ直後に
+  `undo` すると `redo` が使えるようになり、`undo` を跨いで新たに `push` すると
+  `redo` スタックは破棄されます
+- **`limit`**（既定 100）— 履歴（undo スタック）の最大保持数。マウント時のみ有効
+- **`clear()`** — 履歴を空にする。`api.setEvents` で外部ストアの内容を丸ごと反映した
+  直後など、履歴の前提が崩れるタイミングで呼ぶことを推奨します
+- undo/redo の適用は `api.setEvents` 経由で行われるため、`onEventsChange` は
+  発火しません（外部ストアとの同期の既存仕様と一貫）。また `onBeforeEventChange` /
+  `onBeforeEventDelete` 等の適用前フックも経由しません
+
 React 層の `onEventChange` / `onEventDelete` コールバック（`EventChange` /
-`EventDelete` の `changes` フィールド）も同じ `EventChangeEntry[]` を渡すため、
-ドラッグ操作の undo にもそのまま使えます。詳細は
+`EventDelete` の `changes` フィールド）は `applyEventChangeEntries` /
+`useCalendarHistory` と同じ `EventChangeEntry[]` を渡すため、ドラッグ操作の undo にも
+そのまま使えます。詳細は
 [インタラクション](./interactions.md#ドラッグ移動リサイズ) を参照してください。
 
 ## オカレンス（EventOccurrence）とは

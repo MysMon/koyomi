@@ -44,12 +44,17 @@ import '@koyomi-cal/react/theme.css';
 | `--koyomi-time-axis-width` | 時間グリッドの時刻軸幅（ヘッダー・終日行・本体で揃えるための内部変数） | `56px` |
 | `--koyomi-virtual-list-max-height` | `VirtualListView`（仮想化リスト）のスクロールコンテナの `max-height`。既定は `none`（無制限）で、実際の境界高は利用者が指定する | `none` |
 | `--koyomi-resource-column-width` | リソースビューの列の最小幅（列数が多いと横スクロール） | `160px` |
-| `--koyomi-timeline-day-width` | タイムラインビューの 1 日分のトラック幅 | `720px` |
+| `--koyomi-timeline-day-width` | タイムラインビューの 1 日分のトラック幅（`timelineScale: 'hour'`、および属性なしのとき） | `720px` |
+| `--koyomi-timeline-slot-width` | タイムラインビューの 1 日分のトラック幅（`timelineScale` が `'hour'` 以外、すなわち `'day'`/`'week'`/`'month'` のとき） | `96px` |
 | `--koyomi-timeline-lane-height` | タイムラインビューの帯 1 レーンの高さ | `28px` |
 | `--koyomi-timeline-header-width` | タイムラインビューの行見出し列（左端固定列）の幅 | `120px` |
+| `--koyomi-timeline-indent-width` | タイムラインビューの階層インデント幅（`CalendarResource.parentId` 使用時、深さ 1 段あたりの余白） | `16px` |
 | `--koyomi-now-color` | 現在時刻線（`now-indicator`）の色。週/日・リソース・タイムラインビュー共通 | `#ea4335` |
+| `--koyomi-invalid-color` | 宣言的制約（`eventOverlap` / `eventConstraint`）に違反しているプレビュー（`[data-koyomi-invalid="true"]`）の色 | `#d93025` |
 | `--koyomi-timeline-lanes` | タイムライン行の高さ計算に使うレーン数。`--koyomi-event-color` と同様、`TimelineView` が行ごとに inline で自動設定する内部変数で、通常は利用者が直接上書きするものではない | `1`（フォールバック値） |
 | `--koyomi-month-lanes` | 月ビューの週行（`month-days`）の最小高さ計算に使うレーン数。`MonthView` / `MultiMonthView` が `dayMaxEvents` の実際の値をルート要素に inline で自動設定する内部変数で、通常は利用者が直接上書きするものではない | `4`（フォールバック値） |
+| `--koyomi-timegrid-hours` | 週/日・リソースビューの本体の高さ計算に使う時間帯の時間数。`slotMinTime`/`slotMaxTime` を指定した場合の実際の値を `TimeGridView` / `ResourceView` / `VirtualResourceView` がルート要素に inline で自動設定する内部変数で、通常は利用者が直接上書きするものではない | `24`（フォールバック値） |
+| `--koyomi-timeline-row-depth` | タイムライン行のツリー内の深さ。`CalendarResource.parentId` 使用時の実際の値を `TimelineView` / `VirtualTimelineView` が行ごとに inline で自動設定する内部変数で、通常は利用者が直接上書きするものではない | `0`（フォールバック値） |
 
 `event.color` / `resource.color` は任意の CSS 色を受け付けます。カスタム色を使う場合は、背景色と `--koyomi-event-fg` のコントラスト比が WCAG AA（通常文字は 4.5:1 以上）になる組み合わせを選んでください。ライト/ダークで同じ予定色を使う場合は、各テーマで文字色を明示的に上書きする必要があります。
 
@@ -106,6 +111,7 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 | ツールバー内ボタン | `button`（`data-koyomi-action="today\|prev\|next\|view-month\|view-week\|view-day\|view-list"`） |
 | 期間タイトル | `title` |
 | ビュー切替グループ | `toolbar-views` |
+| ライブリージョン（`useCalendarAnnouncer` の `liveRegionProps`） | `live-region`（`role="status"\|"alert"`、`aria-live="polite"\|"assertive"`。視覚的には sr-only 相当で非表示） |
 
 ### 月ビュー
 
@@ -119,7 +125,7 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 | 「+N 件」ボタン | `month-overflow` |
 | イベントの帯（開始日の `month-day` の子） | `month-event` |
 | 帯の左右端リサイズハンドル | `month-event-resize`（`data-edge="start\|end"`） |
-| ドラッグ選択・プレビューの帯 | `day-selection` |
+| ドラッグ選択・プレビューの帯 | `day-selection`（宣言的制約違反時は `data-koyomi-invalid="true"` も付く） |
 
 ### 週/日ビュー（時間グリッド）
 
@@ -136,7 +142,7 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 | 罫線 | `timegrid-slot`（営業時間内スロットは `data-koyomi-business-hours="true"` も付く） |
 | 時間指定イベント / 内容 | `timegrid-event` / `timegrid-event-content` |
 | 上下端リサイズハンドル | `timegrid-resize`（`data-edge="start\|end"`。`start` が上端 = 開始時刻） |
-| ドラッグ・作成のプレビュー | `timegrid-preview`（`data-kind="create\|move\|resize"`） |
+| ドラッグ・作成のプレビュー | `timegrid-preview`（`data-kind="create\|move\|resize"`、宣言的制約違反時は `data-koyomi-invalid="true"` も付く） |
 | 現在時刻線 | `now-indicator` |
 
 ### リストビュー
@@ -180,14 +186,14 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 | リソースビュー本体 | `resource`（`data-koyomi-columns="N"`） |
 | 空状態（列が 1 つもない）の表示 | `resource-empty` |
 | 列見出し行（role="row"） / 各見出しセル | `resource-header` / `resource-header-cell`（`role="columnheader"`。リソースに対応する列のみ `data-koyomi-resource-id`） |
-| 終日イベント行 / セル | `allday-row` / `resource-allday-cell`（`data-koyomi-resource`、終日ドラッグプレビューの対象列は `data-koyomi-preview-target="true"`） |
+| 終日イベント行 / セル | `allday-row` / `resource-allday-cell`（`data-koyomi-resource`、終日ドラッグプレビューの対象列は `data-koyomi-preview-target="true"`、宣言的制約違反時は `data-koyomi-invalid="true"` も付く） |
 | 終日アイテム | `allday-event` |
 | 本体 / 時刻軸ラベル | `resource-body` / `time-slot-label` |
 | リソース列群 / 各列 | `resource-columns` / `resource-column`（`data-koyomi-resource`） |
 | 罫線 | `timegrid-slot`（営業時間内スロットは `data-koyomi-business-hours="true"` も付く） |
 | 時間指定イベント / 内容 | `timegrid-event` / `timegrid-event-content` |
 | 上下端リサイズハンドル | `timegrid-resize`（`data-edge="start\|end"`） |
-| ドラッグ・作成のプレビュー | `timegrid-preview`（`data-kind="create\|move\|resize"`） |
+| ドラッグ・作成のプレビュー | `timegrid-preview`（`data-kind="create\|move\|resize"`、宣言的制約違反時は `data-koyomi-invalid="true"` も付く） |
 | 現在時刻線 | `now-indicator` |
 
 `resource-header`（`role="row"`）と各 `resource-header-cell`（`role="columnheader"`）の間には、`resource-headers` という `role="presentation"` の透過的なラッパー要素が挟まります（ARIA の row の必須所有関係を壊さないためのレイアウト用ラッパーで、それ自体は見出しセルではありません）。終日行も同様に `allday-row`（`role="row"`）と各 `resource-allday-cell`（`role="gridcell"`）の間に `resource-allday-cells` という同じ役割の透過ラッパーを挟みます（本体の `resource-columns` は `resource-body` 配下にあり `role="row"` を持たないため、この row/gridcell 間の透過ラッパーには該当しません）。
@@ -198,19 +204,21 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 
 | 要素 | `data-koyomi` |
 | --- | --- |
-| タイムラインビュー本体 | `timeline`（`data-koyomi-days="N"`） |
+| タイムラインビュー本体 | `timeline`（`data-koyomi-days="N"`、`data-koyomi-scale="hour\|day\|week\|month"`） |
 | 空状態（行が 1 つもない）の表示 | `timeline-empty` |
 | 本体（横スクロールコンテナ） | `timeline-body` |
 | ヘッダー行 / 左上の隅 / 軸 | `timeline-header-row` / `timeline-corner` / `timeline-axis` |
-| 日ヘッダー行 / 各日ヘッダー | `timeline-day-headers` / `timeline-day-header`（`data-today`） |
-| 時刻目盛りラベル群 / 各ラベル | `timeline-slots` / `timeline-slot-label` |
+| 日ヘッダー行 / 各日ヘッダー（`timelineScale` が `'hour'`/`'day'` のとき） | `timeline-day-headers` / `timeline-day-header`（`data-today`） |
+| 週/月グループ見出し行 / 各見出し（`timelineScale` が `'week'`/`'month'` のときのみ） | `timeline-group-headers` / `timeline-group-header`（`data-today`） |
+| 時刻目盛りラベル群 / 各ラベル | `timeline-slots` / `timeline-slot-label`（`timelineScale: 'day'` では空） |
 | 行グループ（見出し＋帯トラック） | `timeline-row-group` |
-| 行見出し | `timeline-resource-header`（リソースに対応する行のみ `data-koyomi-resource-id`） |
+| 行見出し | `timeline-resource-header`（リソースに対応する行のみ `data-koyomi-resource-id`。`data-koyomi-depth="N"` で `CalendarResource.parentId` によるツリー内の深さを示す） |
+| 折りたたみトグルボタン（`TimelineRow.hasChildren` が `true` の行のみ） | `timeline-row-toggle`（`aria-expanded`） |
 | 帯トラック | `timeline-row`（`data-koyomi-resource`） |
 | 営業時間内区間の下敷き帯 | `timeline-business-hours` |
 | 帯（アイテム） / 内容 | `timeline-item`（`data-koyomi-lane="N"`、終日イベントは `data-all-day`） / `timeline-item-content` |
 | 左右端リサイズハンドル（終日の帯には付かない） | `timeline-resize`（`data-edge="start\|end"`） |
-| ドラッグ・作成のプレビュー | `timeline-preview`（`data-kind="create\|move\|resize"`） |
+| ドラッグ・作成のプレビュー | `timeline-preview`（`data-kind="create\|move\|resize"`、宣言的制約違反時は `data-koyomi-invalid="true"` も付く） |
 | 現在時刻線 | `now-indicator` |
 
 ### リソース/タイムラインビューの仮想化（VirtualResourceView / VirtualTimelineView）
@@ -240,6 +248,7 @@ pinned な列/行は通常フローから外れて `position: absolute` で元�
 | `data-continues-after` | イベントの実際の終了がこの週・この日より後にある（「続く→」） | `month-event` / `allday-event` / `timegrid-event` / `timeline-item` |
 | `data-all-day` | 終日イベントのセグメント | `month-event` / `timeline-item` |
 | `data-koyomi-preview-target` | 終日ドラッグプレビューの対象列（リソースビュー） | `resource-allday-cell` |
+| `data-koyomi-invalid` | ドラッグ中のプレビューが宣言的制約（`eventOverlap`/`eventConstraint`）に違反している | `day-selection` / `timegrid-preview` / `timeline-preview` / `resource-allday-cell` |
 | `aria-pressed` | 選択中のビュー・トグル状態 | ツールバーのビュー切替ボタン |
 
 各コンポーネントが実際に描画する DOM 構造をそのまま検証したい場合は、次のように `render` してから属性を確認できます。
@@ -453,6 +462,13 @@ function App() {
 ```
 
 `eventAriaLabelEn`（`eventAriaLabel` 系 props に渡る関数）が変換するのは既定文字列中の区切り記号（「、」「〜」）だけです。曜日・月名などの日付・時刻表記自体は `defaultLabel` の時点で `Intl.DateTimeFormat` によりカレンダーの `locale` オプションで整形済みのため、`enUsLabels` はそれらを変換しません。`locale: 'ja'`（既定）のまま `enUsLabels` だけを渡した場合、区切り記号は英語表記になりますが、曜日等の日付・時刻表記は `locale` に従って日本語のままです。英語の日付・時刻表記まで揃えたい場合は、`useCalendar` / `createCalendar` の `locale` オプション自体を英語の BCP 47 タグ（例: `'en-US'`）に変更してください。
+
+`enUsLabels` にはコンポーネントの `*Label` props 以外に、`useRecurrenceRuleEditor` の `describeRule` オプション向けの `recurrenceEditor.describeRule` と、`useCalendarAnnouncer` の `messages` オプション向けの `announcer` も含まれています。これらはコンポーネント props のようにスプレッドするのではなく、対応するオプションへそのまま渡します。
+
+```tsx
+useRecurrenceRuleEditor({ start, timeZone, describeRule: enUsLabels.recurrenceEditor.describeRule });
+useCalendarAnnouncer({ calendar, messages: enUsLabels.announcer });
+```
 
 `enUsLabels` を渡さない場合は既定の日本語文言のままです。日本語・英語以外のロケールが必要な場合は、同じ形のオブジェクトを自前で用意して同様にスプレッドしてください。
 

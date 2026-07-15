@@ -66,6 +66,13 @@
 - **React 非依存エントリ**: `@koyomi-cal/react/core`（`createCalendar`・ビューモデルビルダー・タイムゾーン/繰り返しユーティリティを React なしで利用可能）
 - **ビュー利便性**: `CalendarView` に `virtualizeResource` / `virtualizeTimeline`、`TimeGridView.renderAllDayEvent`、`ResourceView`/`VirtualResourceView.renderAllDayItem`、`TimelineView.cornerLabel` を追加
 - **月ビューの修正**: 「+N 件」ボタンを帯と重ならない最下部の予約領域へ配置（クリック不能バグの解消）、週行の高さが `dayMaxEvents` に追従（`--koyomi-month-lanes`）
+- **繰り返しルールエディタ**: RRULE 文字列を構造化状態（`RecurrenceRuleState`）として編集する `useRecurrenceRuleEditor` フックと、基盤となる `core/recurrence-editor`（`parseRecurrenceRule` / `validateRecurrenceRuleState` / `buildRecurrenceRuleString` / `describeRecurrenceRule`）を追加。対応範囲は `FREQ=DAILY/WEEKLY/MONTHLY/YEARLY`・`INTERVAL`・`BYDAY`（週の曜日集合／月の第 n 曜日）・`BYMONTHDAY`（単一値）・`COUNT`/`UNTIL` のみで、範囲外の指定は unsupported として元の RRULE 文字列を保持する。`enUsLabels.recurrenceEditor.describeRule` で英語化可能
+- **undo/redo 履歴マネージャ**: `createEventHistory` / `useCalendarHistory` を追加。`EventChangeEntry[]` を「1 操作 = 1 履歴単位」で管理し、`applyEventChangeEntries`（`core/mutations`）で undo/redo を適用する（適用は `setEvents` 経由のため `onEventsChange` を発火させない）。`useCalendarHistory` は Ctrl/Cmd+Z 等のキーボードショートカットに opt-in で対応
+- **aria-live 通知フック**: `useCalendarAnnouncer` を追加。予定の移動・リサイズ・既定即時作成・削除の確定後、および明示的に配線した場合はビュー変更後に、既定の日本語文言を aria-live リージョンへ通知する（`messages` で差し替え可、`enUsLabels.announcer` で英語化可）
+- **時間グリッドの表示時間帯制限と初期スクロール位置**: `slotMinTime`/`slotMaxTime` オプションで週/日ビュー・リソースビューの表示時間帯を制限できるように。`TimeGridView`/`ResourceView`/`VirtualResourceView` に初期スクロール位置の `initialScrollTime` prop と、`ref` 経由の命令的 API `scrollToTime` を追加
+- **宣言的な重なり・配置制約**: `eventOverlap`/`eventConstraint` オプション（イベント個別には `CalendarEvent.overlap`/`constraint`）で、予定の重なり・ドロップ先を宣言的に制限できるように。違反するドラッグプレビューは `data-koyomi-invalid` 属性と `--koyomi-invalid-color` で示される
+- **タイムラインのズーム粒度**: `timelineScale`（`'hour' | 'day' | 'week' | 'month'`）でタイムラインビューの横軸の目盛り粒度を切り替え可能に。`'hour'` 以外では週/月単位のヘッダーグループ（`TimelineHeaderGroup`）に切り替わり、ドラッグ・キーボード操作も日単位スナップになる
+- **リソースの階層グルーピング**: `CalendarResource.parentId` でタイムラインビューのリソースを親子ツリーとして表示し、`CalendarApi.toggleResourceCollapsed` で折りたたみ可能に（`initialCollapsedResourceIds` で初期状態を指定）。リソースビューは対象外（常にフラット）
 
 ### 変更
 

@@ -90,6 +90,7 @@ function App() {
 - **`editable: false`** — 表示・クリックは通常どおりできるが、移動・リサイズ・**キーボードでの削除（Delete/Backspace）**はすべて無効になる。リサイズハンドル自体が描画されない
 - **タッチデバイス** — デフォルトテーマがドラッグ起点の要素に `touch-action: none` を設定しているため、ドラッグがスクロールに奪われません。独自 CSS でテーマを構築する場合は同様の設定が必要です（[テーマとスタイリング](./theming.md) 参照）。ブラウザがポインタを中断した場合（`pointercancel`）はドラッグが安全にキャンセルされます
 - **オートスクロール** — 時間グリッドの縦スクロール領域では、ドラッグ中にポインタが上下端へ近づくと自動でスクロールします
+- **表示時間帯の制限（slotMinTime/slotMaxTime）** — ポインタでの作成・移動・リサイズ・終日⇔時間指定変換は表示時間帯 `[slotMinTime, slotMaxTime)` の範囲内にクランプされます（範囲外の領域自体が描画されないため）。矢印キーによる移動・リサイズはクランプされません（詳細は [ビュー: 表示時間帯](./views.md#表示時間帯slotmintimeslotmaxtime) を参照）
 
 ```tsx
 import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
@@ -127,7 +128,7 @@ function App() {
 
 `onEventChange` はドラッグ操作（`useDayDrag` / `useTimeGridDrag`、およびそれらを内部で使うビルトインコンポーネント）による移動・リサイズが確定したときにのみ呼ばれます。`calendar.api.updateEvent(...)` を直接呼んだ場合は呼ばれません。
 
-undo（元に戻す）UI の実装方法は [予定の管理](./events.md#undo元に戻すを実装する) を参照してください。
+`change.changes` は `useCalendarHistory` の `history.push(change.changes)` にそのまま渡すことで undo 履歴に積めます（`onEventDelete` の `deletion.changes` も同様）。undo（元に戻す）UI の実装方法は [予定の管理](./events.md#undo元に戻すを実装する) を参照してください。
 
 ## 予定要素への追加通知（ダブルクリック・コンテキストメニュー・ホバー）
 
@@ -210,11 +211,13 @@ function App() {
 | `Enter` / `Space` | `onEventClick` 相当のクリック | 同左 |
 | `Delete` / `Backspace` | オカレンスを削除（繰り返しはスコープ解決） | 同左 |
 | `↑` / `↓` | ∓/± `snapMinutes` 分の移動（時間の軸） | 隣の行（リソース）への移動 |
-| `←` / `→` | 隣のリソース列への移動 | ∓/± `snapMinutes` 分の移動（時間の軸。終日の帯は ∓/± 1 日） |
+| `←` / `→` | 隣のリソース列への移動 | ∓/± `snapMinutes` 分の移動（時間の軸。終日の帯、または `timelineScale` が `'hour'` 以外のときは ∓/± 1 日） |
 | `Shift+↑` / `Shift+↓` | 終了時刻を ∓/± `snapMinutes` 分リサイズ | — |
-| `Shift+←` / `Shift+→` | — | 終了時刻を ∓/± `snapMinutes` 分リサイズ |
+| `Shift+←` / `Shift+→` | — | 終了時刻を ∓/± `snapMinutes` 分リサイズ（`timelineScale` が `'hour'` 以外のときは終了日を ∓/± 1 日） |
 
 矢印キーの割当は「画面上でその方向に動く」という既存ビューと同じ原則に従います。リソースビューは列＝リソースなので `←`/`→` が列移動、タイムラインビューは行＝リソースなので `↑`/`↓` が行移動になり、ビューごとに軸が入れ替わりますが、いずれも視覚的な配置と一致する割当です。
+
+タイムラインビューで `CalendarResource.parentId` を使ってリソースを折りたたんでいる場合、`↑`/`↓` は非表示（祖先が折りたたまれている）行を候補から除外します。折りたたまれた親リソース自身は通常の行として作成・移動・リサイズの対象になり続けます（詳細は [ビュー: リソースの階層グルーピング](./views.md#リソースの階層グルーピングparentid折りたたみ) を参照）。
 
 ## 繰り返し予定の操作時のスコープ解決
 
@@ -264,6 +267,45 @@ async function resolveRecurringScope(): Promise<RecurringEditScope | null> {
 ```
 
 適用結果（`rrule` の打ち切りや例外イベントの追加など）の詳細は [繰り返し予定](./recurrence.md) を参照してください。
+
+## 宣言的な重なり・配置制約（eventOverlap / eventConstraint）
+
+`CalendarOptions.eventOverlap`（既定 `true`）/ `eventConstraint`（既定は未指定）で、予定の重なりやドロップ先を宣言的に制限できます。イベント個別に `CalendarEvent.overlap` / `constraint` を指定すると、そのイベントについてはオプションの既定値を上書きできます。
+
+```tsx
+import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
+
+const events = [
+  { id: '1', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+];
+
+function App() {
+  const calendar = useCalendar({
+    initialView: 'week',
+    events,
+    eventOverlap: false,
+    eventConstraint: 'businessHours',
+    businessHours: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' }],
+  });
+  return (
+    <CalendarProvider value={calendar}>
+      <TimeGridView />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - 「会議」に重なる位置へ別の予定をドラッグしようとすると、プレビューが
+//   data-koyomi-invalid="true" 付きで表示され、離しても位置は戻る（onEventChange は呼ばれない）
+// - 営業時間外（9:00〜18:00 の外）へのドラッグも同様に無効表示・拒否される
+```
+
+- **eventOverlap** — `false` にすると、移動・リサイズ・作成の結果が既存イベントと重なる操作を拒否します。判定対象は同一レーン（リソース/タイムラインビューは同一 `resourceId`、それ以外のビューはレーン区分なしで表示中の全オカレンス）で、時間指定・終日を絶対時刻の区間 `[start, end)` として統一的に比較します。判定は「動かしている側」と「重ねられる側」双方の実効値（イベント個別の `overlap` が優先、省略時は `eventOverlap`）を見て、どちらかが `false` なら拒否します
+- **eventConstraint** — `'businessHours'` を指定すると `businessHours` の範囲内にのみドロップを許可します。`BusinessHoursRule` の配列を渡すと独自の範囲を指定できます（`businessHours` と同形式）。**終日イベントには適用されません**（時間帯の制約は時間指定イベントのみが対象）。`eventConstraint: 'businessHours'` を指定したのに `businessHours` が未設定（既定 `[]`）だと常に無効になる点に注意してください
+- **判定順序** — 宣言的制約（`eventOverlap`/`eventConstraint`） → `onBeforeEventChange`/`onBeforeSelectRange`/`onBeforeEventDelete` → `resolveRecurringScope` の順に判定されます。宣言的制約で拒否された場合は適用前フックを呼ばずに即座に中断します
+- **拒否時の挙動** — 適用前フックが `false` を返した場合と同じくサイレントです（`onEventChange`/`onSelectRange` は呼ばれず、ドラッグはその場で終了します）
+- **プレビューへの反映** — ドラッグ中のプレビューは違反時に `data-koyomi-invalid="true"` が付き、デフォルトテーマでは `--koyomi-invalid-color`（既定 `#d93025`、ダークテーマは `#f28b82`）でハイライトされます（`day-selection`/`timegrid-preview`/`timeline-preview`/`resource-allday-cell` が対象。適用前フックの判定とは異なり、こちらはプレビュー表示にも反映されます）
 
 ## 適用前フックで操作を拒否する
 

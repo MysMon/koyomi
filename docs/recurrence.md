@@ -62,6 +62,121 @@ normalizeRRuleString('freq=daily;count=3'); // => 'FREQ=DAILY;COUNT=3'
 // normalizeRRuleString('FOO=BAR'); // => Error を投げる（FREQ が指定されていない）
 ```
 
+## 繰り返しルールエディタ（構造化状態での編集）
+
+RRULE 文字列を直接組み立てる代わりに、フォーム入力向けの構造化された状態として繰り返しルールを編集したい場合は、`parseRecurrenceRule` / `validateRecurrenceRuleState` / `buildRecurrenceRuleString` / `describeRecurrenceRule`（`core/recurrence-editor`）と、それらを React の状態管理に接続した `useRecurrenceRuleEditor` フックが使えます。
+
+対応範囲は `FREQ=DAILY/WEEKLY/MONTHLY/YEARLY`・`INTERVAL`・`BYDAY`（週の曜日集合、または月の第 n 曜日）・`BYMONTHDAY`（単一値）・`COUNT`/`UNTIL` のみです。
+
+```ts
+interface RecurrenceRuleState {
+  freq: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  interval: number; // 1 以上の整数。既定 1
+  byWeekday?: readonly Weekday[]; // freq: 'weekly' のときのみ意味を持つ
+  monthlyPattern?: MonthlyRecurrencePattern; // freq: 'monthly' のときのみ意味を持つ
+  end: RecurrenceEnd;
+}
+
+type MonthlyRecurrencePattern =
+  | { kind: 'dayOfMonth'; day: number } // 1〜31 または -1（月末）
+  | { kind: 'nthWeekday'; ordinal: 1 | 2 | 3 | 4 | -1; weekday: Weekday }; // -1 は最終週
+
+type RecurrenceEnd =
+  | { type: 'never' }
+  | { type: 'count'; count: number }
+  | { type: 'until'; until: Date }; // イベント TZ の現地時刻として解釈される（後述の UNTIL と同じ規則）
+```
+
+`parseRecurrenceRule` は RRULE 文字列をこの構造化状態に変換します。対応範囲外の指定（`BYSETPOS` や複数の `BYMONTHDAY` など）、不正な RRULE は `kind: 'unsupported'` として元の文字列（`rawRRule`）をそのまま保持します（書き換えません）。
+
+```ts
+import { buildRecurrenceRuleString, describeRecurrenceRule, parseRecurrenceRule } from '@koyomi-cal/react';
+
+const dtstart = new Date('2026-07-01T00:00:00Z'); // 東京 7/1 9:00（水曜日）
+const parsed = parseRecurrenceRule({
+  rrule: 'FREQ=WEEKLY;BYDAY=MO,WE',
+  dtstart,
+  timeZone: 'Asia/Tokyo',
+});
+// parsed.kind === 'editable'
+// parsed.state === { freq: 'weekly', interval: 1, byWeekday: [1, 3], end: { type: 'never' } }
+
+if (parsed.kind === 'editable') {
+  buildRecurrenceRuleString({ state: parsed.state, dtstart, timeZone: 'Asia/Tokyo' });
+  // => 'FREQ=WEEKLY;BYDAY=MO,WE'
+  describeRecurrenceRule(parsed.state, { dtstart, timeZone: 'Asia/Tokyo' });
+  // => '毎週月・水'
+}
+
+const unsupported = parseRecurrenceRule({
+  rrule: 'FREQ=DAILY;BYSETPOS=1;BYMONTH=1',
+  dtstart,
+  timeZone: 'Asia/Tokyo',
+});
+// unsupported.kind === 'unsupported'
+// unsupported.rawRRule === 'FREQ=DAILY;BYSETPOS=1;BYMONTH=1'（元の文字列そのまま）
+
+// 期待される動作:
+// - buildRecurrenceRuleString は state に検証エラー（validateRecurrenceRuleState の結果が
+//   非空）があると Error を投げる
+// - describeRecurrenceRule は検証を要求しない best-effort な整形で、context（dtstart/timeZone）を
+//   渡さない場合、byWeekday/monthlyPattern が未指定の説明文は曜日・日にちを欠いた
+//   曖昧な文言（「毎週」「毎月」等）になる
+```
+
+`until` の解釈は [タイムゾーンとの関係](#タイムゾーンとの関係) の `UNTIL` と同じ「イベント TZ の現地時刻」の規則に従います。
+
+### useRecurrenceRuleEditor（React）
+
+`useRecurrenceRuleEditor({ start, timeZone, rrule })` は、上記の純関数を React の状態として保持し、setter・検証エラー・生成される RRULE 文字列・説明文を返すヘッドレスなフックです（UI は提供しません）。
+
+```tsx
+import { useRecurrenceRuleEditor } from '@koyomi-cal/react';
+
+function RecurrenceForm({ start, timeZone }: { start: Date; timeZone: string }) {
+  const editor = useRecurrenceRuleEditor({ start, timeZone });
+
+  if (editor.state === null) {
+    return (
+      <button type="button" onClick={editor.enable}>
+        繰り返しを設定
+      </button>
+    );
+  }
+
+  return (
+    <div>
+      <select
+        value={editor.state.freq}
+        onChange={(event) => editor.setFrequency(event.target.value as never)}
+      >
+        <option value="daily">毎日</option>
+        <option value="weekly">毎週</option>
+        <option value="monthly">毎月</option>
+        <option value="yearly">毎年</option>
+      </select>
+      <p>{editor.description}</p>
+      {editor.errors.map((issue) => (
+        <p key={issue.field}>{issue.message}</p>
+      ))}
+      <button type="button" onClick={editor.clear}>
+        繰り返しを解除
+      </button>
+    </div>
+  );
+}
+
+// 期待される動作:
+// - editor.state が null の間は「繰り返しを設定」ボタンのみ表示される
+// - enable() を呼ぶと既定値（毎日・interval 1・終了条件なし）で state が有効になる
+// - setFrequency('weekly') を呼ぶと byWeekday 未設定時に [start の曜日] が補われる
+// - errors が空でない間、editor.rruleString は null になる
+```
+
+`start` / `timeZone` / `rrule` は **作成時のみ有効**です（`useCalendar` の `events` と同じ規約）。編集対象（新規作成 / 既存オカレンス編集）を切り替える場合は、このフックを使うコンポーネントに一意な `key` を指定して再マウントしてください（マウント後に異なる値を渡すと、開発ビルドでは一度だけ警告が表示されます）。
+
+`describeRule` オプションを渡すと `description` の生成方法を差し替えられます（省略時は `describeRecurrenceRule` の日本語文言）。英語化したい場合は `enUsLabels.recurrenceEditor.describeRule` を渡してください（詳細は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照）。
+
 ## 対応する主なパターン例
 
 `rrule` パッケージ（RFC 5545 実装）をラップしているため、標準的な RRULE の
@@ -338,6 +453,8 @@ calendar.deleteEvent('standup');
 場合は、`updateEvent` 呼び出し用の patch を組み立てる便利関数
 `moveOccurrenceIn`（`updateEventIn` のラッパ）も公開されています。詳細は
 [インタラクション](./interactions.md) を参照してください。
+
+`eventOverlap` / `eventConstraint`（[インタラクション: 宣言的な重なり・配置制約](./interactions.md#宣言的な重なり配置制約eventoverlap--eventconstraint)）による判定は、繰り返し予定のドラッグ中は**そのオカレンス単体**のみを対象にします。`thisAndFollowing` / `all` でスコープを確定した後、影響を受けた他のオカレンスとの重なり・配置制約の整合性は検証しません。
 
 ## exdates / recurringEventId / originalStart（上級: 外部データとの同期）
 

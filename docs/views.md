@@ -12,6 +12,8 @@ Koyomi は月・週・日・リスト（スケジュール）・年・複数月�
 
 `TimeGridView` が描画します。上部に日ヘッダー（曜日と日番号のボタン）、その下に終日イベント行、本体には時間軸（`slotMinutes` 間隔の目盛り）と日列が並びます。日ヘッダーの日番号ボタンをクリックするとその日の日ビューに切り替わります（`callbacks.onDayNumberClick` を指定すると既定の画面遷移を差し替えられます。[インタラクション](./interactions.md) 参照）。日列には時間指定の予定がブロックとして配置され、上端・下端にリサイズ用のハンドルがあります。表示範囲に「今日」が含まれる場合は現在時刻を示す線も表示されます。`week` は 7 日分（`hiddenWeekdays` 指定時はその分少ない列数）、`day` は 1 日分の列になります。
 
+表示する時間帯は `slotMinTime`/`slotMaxTime` で制限でき、初期スクロール位置は `initialScrollTime`/`scrollToTime` で指定できます（詳細は [表示時間帯（slotMinTime/slotMaxTime）](#表示時間帯slotmintimeslotmaxtime) と [初期スクロール位置（initialScrollTime / scrollToTime）](#初期スクロール位置initialscrolltime--scrolltotime) を参照）。
+
 ### リストビュー（list）
 
 `ListView` が描画します。予定がある日だけを対象に、日付ごとのセクションとして一覧表示します（Google カレンダーの「スケジュール」表示相当）。各セクションには日付の見出しと予定の行（時刻ラベル・色見本・タイトル）が並びます。表示範囲（`listDays` 日分、既定 `30`）に予定が 1 件もない場合は空状態のメッセージを表示します。月・週・日ビューと異なり、リストビューにドラッグ操作はありません。`hiddenWeekdays` は対象外です（`buildListViewModel` / `ListView` はそもそも `hiddenWeekdays` を受け取らないため、非表示曜日にしか予定が無い日もセクションとして表示されます）。
@@ -38,6 +40,10 @@ Koyomi は月・週・日・リスト（スケジュール）・年・複数月�
 
 インタラクションは `useResourceGridDrag` が提供します。縦方向（時間）は週/日ビューと同じ操作、横方向（リソース）はドラッグで別のリソース列へ移動できます。予定の作成・移動・リサイズが確定すると、時間の変更と `resourceId` の変更が 1 回の更新にまとめて適用されます。キーボードは `↑`/`↓` が時間の移動・`Shift+↑`/`Shift+↓` がリサイズ、**`←`/`→` が隣のリソース列への移動**です（画面上の視覚軸に対応する操作。詳細は [インタラクション](./interactions.md) を参照）。終日 ⇔ 時間指定の変換ドラッグは提供しません。
 
+`CalendarResource.parentId` はリソースビューには影響しません。列順は常に `resources` 配列の順（フラット）で、ツリー表示・折りたたみはタイムラインビュー専用です。
+
+表示する時間帯は `slotMinTime`/`slotMaxTime` で制限でき、初期スクロール位置は `initialScrollTime`/`scrollToTime` で指定できます（詳細は [表示時間帯（slotMinTime/slotMaxTime）](#表示時間帯slotmintimeslotmaxtime) と [初期スクロール位置（initialScrollTime / scrollToTime）](#初期スクロール位置initialscrolltime--scrolltotime) を参照）。
+
 ### タイムラインビュー（timeline）
 
 `TimelineView` が描画します。横 = 時間、行 = リソースの帯表示で、`timelineDays`（既定 `1`）日分を横に連結します（FullCalendar の resourceTimeline 相当）。`hiddenWeekdays` は無視され、常に `timelineDays` 日の連続した並びになります。
@@ -45,6 +51,8 @@ Koyomi は月・週・日・リスト（スケジュール）・年・複数月�
 構成は、左にリソース行見出し列（`position: sticky` で固定）、右に横スクロールする本体（日ヘッダー・時間目盛り・各リソース行の帯）です。行の考え方はリソースビューと同じで、`resourceId` が対応しない予定は「未割り当て」行に入り、`unassignedLane` オプションで生成規則を制御します。終日イベントはその日の全幅の帯として、時間指定イベントと同じレーン空間に配置されます。
 
 インタラクションは `useTimelineDrag` が提供します。横方向（時間）へのドラッグで移動・リサイズ、縦方向（行）へのドラッグでリソース間の移動ができます。キーボードは `←`/`→` が時間の移動・`Shift+←`/`Shift+→` がリサイズ、**`↑`/`↓` が隣の行への移動**です（リソースビューとは軸が異なりますが、いずれも「画面上でその方向に動く」という同じ原則によるものです）。終日 ⇔ 時間指定の変換ドラッグは提供しません。
+
+`CalendarResource.parentId` を指定すると、リソースを親子関係のツリーとして表示できます（会議室を「拠点 > フロア > 会議室」のように階層化する用途）。詳細は [リソースの階層グルーピング](#リソースの階層グルーピングparentid折りたたみ) を参照してください。横軸の表示単位は `timelineScale` で時刻・日・週・月に切り替えられます（詳細は [タイムラインのズーム粒度](#タイムラインのズーム粒度timelinescale) を参照）。
 
 リソースビュー・タイムラインビューはいずれも `Toolbar` のビュー切替ボタン・`useCalendarShortcuts` のキー（`R` / `L`）とも既定では無効な opt-in のビューです（詳細は次節）。
 
@@ -284,9 +292,14 @@ function BareMonthGrid() {
 | `hiddenWeekdays` | `readonly Weekday[]` | `[]` | 月・週・複数月ビューの列から除外する曜日（下記参照）。年・日・リソース・タイムラインビューは無視する。リストビューは対象外（そもそも受け取らない） |
 | `resources` | `readonly CalendarResource[]` | `[]` | リソースビュー・タイムラインビューの列/行になるリソース一覧（表示順）。他ビューには影響しない。詳細は [予定の管理: リソース](./events.md#リソース) を参照 |
 | `timelineDays` | `number` | `1` | タイムラインビューが表示する日数。`next()`/`prev()` の移動単位にもなる |
+| `timelineScale` | `'hour' \| 'day' \| 'week' \| 'month'` | `'hour'` | タイムラインビューの横軸のズーム粒度。詳細は [タイムラインのズーム粒度](#タイムラインのズーム粒度timelinescale) を参照 |
 | `unassignedLane` | `'auto' \| 'always'` | `'auto'` | リソース/タイムラインビューの未割り当てレーンの生成規則。`'auto'` は該当する予定があるときのみ末尾に生成、`'always'` は常に生成する（「未割り当てへ戻す」D&D を使う場合に必要。詳細は [対象ビューを有効にする](#年複数月リソースタイムラインビューを有効にするopt-in) を参照） |
 | `showWeekNumbers` | `boolean` | `false` | 月ビューの週行・週ビューのヘッダーに ISO 8601 週番号を表示するか。複数月ビューは対象外（週番号は算出されない）。詳細は [週番号](#週番号showweeknumbers) を参照 |
 | `businessHours` | `readonly BusinessHoursRule[]` | `[]` | 週/日・リソース・タイムラインビューの営業時間の指定。詳細は [営業時間](#営業時間businesshours) を参照 |
+| `eventOverlap` | `boolean` | `true` | イベントの重なりを許可するかどうかの既定値。詳細は [インタラクション: 宣言的な重なり・配置制約](./interactions.md#宣言的な重なり配置制約eventoverlap--eventconstraint) を参照 |
+| `eventConstraint` | `'businessHours' \| readonly BusinessHoursRule[]` | 未指定 | イベントのドロップ先を制限する既定値。詳細は [インタラクション: 宣言的な重なり・配置制約](./interactions.md#宣言的な重なり配置制約eventoverlap--eventconstraint) を参照 |
+| `slotMinTime` / `slotMaxTime` | `string`（`'HH:mm'`） | `'00:00'` / `'24:00'` | 週/日・リソースビューで表示する時間帯。詳細は [表示時間帯](#表示時間帯slotmintimeslotmaxtime) を参照 |
+| `initialCollapsedResourceIds` | `readonly string[]` | `[]` | タイムラインビューで初期状態から折りたたむリソース ID。詳細は [リソースの階層グルーピング](#リソースの階層グルーピングparentid折りたたみ) を参照 |
 
 ## 週末などの曜日を隠す（hiddenWeekdays）
 
@@ -572,6 +585,164 @@ businessHours: [
 タイムラインは横軸が「表示分」（範囲先頭からの分、全日を等幅 1440 分として扱う座標系）のため、スロット単位ではなく区間そのものを描画します。表示日ごとに該当曜日のルールを日オフセット付きの表示分の区間へ変換し、隣接・重複する区間はマージしたうえで、各行の時間トラック内に `[data-koyomi="timeline-business-hours"]`（`aria-hidden`）という下敷きの帯を `insetInlineStart` / `width`（% 指定）で描画します。帯はイベントの帯（`timeline-item`）より背面に表示されます。
 
 `TimelineViewModel.businessHourRanges`（`{ startMinutes, endMinutes }[]`、開始分昇順・マージ済み）としてビューモデルからも参照できます。`businessHours` 未指定時（既定 `[]`）は空配列になり、DOM 要素も描画されません。
+
+## 表示時間帯（slotMinTime/slotMaxTime）
+
+`CalendarOptions.slotMinTime`/`slotMaxTime`（ともに `'HH:mm'` 形式）で、週/日ビュー・リソースビューが表示する時間帯を制限できます。既定は `'00:00'`〜`'24:00'`（終日）です。
+
+```tsx
+import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
+
+function App() {
+  const calendar = useCalendar({
+    initialView: 'week',
+    slotMinTime: '07:00',
+    slotMaxTime: '21:00',
+  });
+  return (
+    <CalendarProvider value={calendar}>
+      <TimeGridView />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - 時間軸の目盛りが 7:00〜21:00 の範囲のみになる
+// - 7:00 より前・21:00 以降にしか存在しない予定は表示されない
+// - 範囲の一部が 7:00〜21:00 に重なる予定はその部分だけが表示され、
+//   はみ出す側は「←続く」「続く→」（continuesBefore/continuesAfter）で示される
+// - ポインタでの作成・移動・リサイズ・終日⇔時間指定変換は 7:00〜21:00 の範囲内にクランプされる
+//   （範囲外の領域自体が描画されないため）
+// - 矢印キーによる移動・リサイズは範囲外へもそのまま移動できる（意図的な仕様。
+//   実データの時刻は変更されるが、表示上は範囲外にクリップ/非表示になる）
+```
+
+`slotMaxTime` には 1 日の終わりを表す特例として `'24:00'` も指定できます。`slotMinTime` は `slotMaxTime` より前である必要があり、そうでない場合（`slotMinTime >= slotMaxTime`）は `Error` になります。日をまたぐ時間帯（例: 22:00〜翌 2:00）は表現できません。
+
+`slotMinTime`/`slotMaxTime` が `slotMinutes` の倍数に整列していない場合、目盛りは `slotMinTime` ちょうどから開始し、次のスロット境界へスナップしません（`businessHours` のハイライトがスロット境界にスナップするのとは異なる挙動です）。
+
+`TimeGridViewModel`/`ResourceViewModel` の `slotMinTimeMinutes`/`slotMaxTimeMinutes`（分換算の数値、既定では `0`/`1440`）としてビューモデルからも参照できます。表示時間帯の外に現在時刻がある場合、`nowIndicator`/`nowIndicatorMinutes` は `null` になります。
+
+## 初期スクロール位置（initialScrollTime / scrollToTime）
+
+週/日ビュー・リソースビューは、マウント時に一度だけ指定時刻の位置へスクロールする `initialScrollTime` prop を持ちます（`CalendarOptions` ではなく、`TimeGridView`/`ResourceView`/`VirtualResourceView` それぞれの props です）。表示時間帯制限（`slotMinTime`/`slotMaxTime`）とは独立して機能し、両方を併用できます。
+
+```tsx
+import { useRef } from 'react';
+import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
+import type { TimeGridViewHandle } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
+
+function App() {
+  const calendar = useCalendar({ initialView: 'week' });
+  const handleRef = useRef<TimeGridViewHandle>(null);
+
+  return (
+    <CalendarProvider value={calendar}>
+      <TimeGridView ref={handleRef} initialScrollTime="09:00" />
+      <button type="button" onClick={() => handleRef.current?.scrollToTime('13:00')}>
+        13:00 へスクロール
+      </button>
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - マウント時に本体（[data-koyomi="timegrid-body"]）が 9:00 の位置へ一度だけスクロールする
+// - initialScrollTime を事後に変更しても再適用されない（ref.current.scrollToTime を使う）
+// - ボタンをクリックすると 13:00 の位置へスクロールする
+```
+
+`initialScrollTime`/`scrollToTime` の対象時刻が表示時間帯（`slotMinTime`/`slotMaxTime`）の範囲外の場合は最も近い境界へクランプされ、`'HH:mm'` として解析できない値を渡した場合は何もしません（例外を投げない防御的な既定動作）。`ref` 経由で取得できる `TimeGridViewHandle`/`ResourceViewHandle`/`VirtualResourceViewHandle` はいずれも `scrollToTime(time)` を持ちます。`CalendarView` 経由では `timeGridInitialScrollTime`/`resourceInitialScrollTime` prop で転送できます（`ref` の転送は行いません）。
+
+## 宣言的な重なり・配置制約（eventOverlap / eventConstraint）
+
+予定の重なりやドロップ先を宣言的に制限できます。詳細は [インタラクション: 宣言的な重なり・配置制約](./interactions.md#宣言的な重なり配置制約eventoverlap--eventconstraint) を参照してください。`eventConstraint: 'businessHours'` を指定すると、この節で説明した `businessHours` の範囲内にのみドロップを許可できます（`BusinessHoursRule` の配列を渡せば独自の範囲を指定することもできます）。
+
+## タイムラインのズーム粒度（timelineScale）
+
+`CalendarOptions.timelineScale`（既定 `'hour'`）でタイムラインビューの横軸の粒度を切り替えられます。表示分の座標系（`totalMinutes` 等）自体は変わらず、ヘッダー・目盛り・ドラッグのスナップ粒度だけが変わります。
+
+```tsx
+import { CalendarProvider, TimelineView, useCalendar } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
+
+function App() {
+  const calendar = useCalendar({
+    initialView: 'timeline',
+    timelineDays: 84,
+    timelineScale: 'week',
+    weekStartsOn: 0,
+  });
+  return (
+    <CalendarProvider value={calendar}>
+      <TimelineView />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - ヘッダーが週単位のグループ見出し（[data-koyomi="timeline-group-header"]）＋
+//   日番号の目盛りになる
+// - ドラッグ・キーボードでの移動・リサイズが日単位スナップになる（±1日）
+```
+
+各値の内容:
+
+- `'hour'` — 時刻目盛り（`slotMinutes` 間隔）。既定の挙動と同一
+- `'day'` — 日単位。時刻目盛りは表示しない（`TimelineViewModel.slots` が常に空配列になる）
+- `'week'` — 週単位のグループ見出し＋日番号の目盛り
+- `'month'` — 月単位のグループ見出し＋日番号の目盛り
+
+`'week'`/`'month'` では `TimelineViewModel.headerGroups`（`TimelineHeaderGroup[]`）にグループ一覧が入ります（`'hour'`/`'day'` では `null` で、`days` をそのままヘッダーに使います）。グループは表示範囲でクランプされるため、`timelineDays` が週/月境界と揃っていない場合は先頭・末尾が部分週・部分月になります。`'week'` のグループ境界は `weekStartsOn` に従います。`week`/`month` スケールを使う場合は `timelineDays` を粒度に見合った値（例: 週なら 84 日、月なら 180〜365 日）に設定することを推奨します（`timelineDays: 1` のまま指定してもエラーにはならず、部分グループが 1 件だけの見た目になります）。
+
+`timelineScale` が `'hour'` 以外のとき、終日イベントに加えて時間指定イベントのドラッグ・キーボード操作も日単位スナップ（`daySnap`）になります。ドラッグ中に `updateOptions` で `timelineScale` を変更しても、進行中のセッションには反映されません（次回のドラッグから新しい設定が使われます）。
+
+DOM 上はルート要素に `data-koyomi-scale="hour\|day\|week\|month"` が付き、CSS 変数 `--koyomi-timeline-slot-width`（既定 `96px`。`'hour'` 以外のときの 1 日分の幅）が既存の `--koyomi-timeline-day-width`（`'hour'` のときの 1 日分の幅）と役割分担します。詳細は [テーマとスタイリング](./theming.md) を参照してください。
+
+## リソースの階層グルーピング（parentId・折りたたみ）
+
+`CalendarResource.parentId` に親リソースの ID を指定すると、タイムラインビューでリソースを親子関係のツリーとして表示できます（任意の深さ）。リソースビューは常にフラットのまま変わりません。
+
+```tsx
+import { CalendarProvider, TimelineView, useCalendar } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
+
+function App() {
+  const calendar = useCalendar({
+    initialView: 'timeline',
+    resources: [
+      { id: 'site-a', title: '本社' },
+      { id: 'floor-1', title: '1F', parentId: 'site-a' },
+      { id: 'room-101', title: '会議室101', parentId: 'floor-1' },
+    ],
+  });
+  return (
+    <CalendarProvider value={calendar}>
+      <TimelineView />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - 「本社」の行に子を持つことを示す折りたたみボタン（▸）が表示される
+// - ボタンをクリックすると「1F」「会議室101」の行が隠れ、再クリックで再表示される
+// - 「1F」の行にも折りたたみボタンが表示される（子リソースを持つため）
+```
+
+参照先のない `parentId`・循環参照（自己参照を含む）は、そのリソースを孤立したルート（深さ 0）として扱います（対象リソースが表示から欠落することはありません）。未割り当て行はツリーの対象外で、常に末尾に表示されます。
+
+折りたたみ状態は `CalendarState.collapsedResourceIds`（`ReadonlySet<string>`）で保持し、`CalendarApi.toggleResourceCollapsed(resourceId)` でトグルします。初期状態で折りたたむリソースは `CalendarOptions.initialCollapsedResourceIds`（作成時のみ有効）で指定できます。
+
+```ts
+calendar.api.toggleResourceCollapsed('site-a'); // 「本社」を折りたたむ
+calendar.api.toggleResourceCollapsed('site-a'); // 再度呼ぶと展開に戻る
+```
+
+祖父母を折りたたむと、その子・孫の行が一括で非表示になります（各行自身の折りたたみ状態は保持されるため、祖父母を再展開すると、以前個別に折りたたんでいた子の行は非表示のまま復元されます）。折りたたみで非表示になった行は、`↑`/`↓` でのリソース間移動・仮想化（`VirtualTimelineView`）・`scrollToResource` からも「存在しない行」として扱われます（詳細は [インタラクション](./interactions.md) を参照）。
+
+折りたたみボタンの `aria-label`（既定は「〈リソース名〉を折りたたむ」/「〈リソース名〉を展開する」）は `TimelineView`/`VirtualTimelineView` の `resourceToggleAriaLabel` prop でカスタマイズできます。DOM 上は `button[data-koyomi="timeline-row-toggle"][aria-expanded]` が子を持つ行にのみ描画され、行見出しには階層の深さを示す `data-koyomi-depth` 属性が付きます（詳細は [テーマとスタイリング](./theming.md) を参照）。
 
 ## 関連ページ
 

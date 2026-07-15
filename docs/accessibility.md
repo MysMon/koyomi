@@ -62,10 +62,46 @@ Koyomi の各ビューが実装している WAI-ARIA パターン、キーボー
 - フォーカス中の予定に対する矢印キーは「画面上でその方向に動く」操作（移動・リサイズ）に割り当てられており、[インタラクション](./interactions.md#リソースビュータイムラインビューのドラッグ操作) にビューごとの対応表があります
 - ビュー切替・日付移動などのグローバルなショートカットは `useCalendarShortcuts` が提供します（[インタラクション](./interactions.md#キーボードショートカット) 参照）
 
+## 変更の読み上げ通知（useCalendarAnnouncer）
+
+予定の移動・リサイズ・既定即時作成・削除、およびビュー・基準日・表示範囲の変更を `aria-live` リージョンで通知したい場合は `useCalendarAnnouncer` フックが使えます。`CalendarProvider` の `callbacks` と `useCalendar` の `onRangeChange` をラップするヘルパーを返す、opt-in のヘッドレスなフックです。
+
+```tsx
+import { CalendarProvider, CalendarView, useCalendar, useCalendarAnnouncer } from '@koyomi-cal/react';
+
+function App() {
+  const calendar = useCalendar();
+  const announcer = useCalendarAnnouncer({ calendar });
+
+  return (
+    <div>
+      <div {...announcer.liveRegionProps}>{announcer.message}</div>
+      <CalendarProvider value={calendar} callbacks={announcer.wrapCallbacks(myCallbacks)}>
+        <CalendarView />
+      </CalendarProvider>
+    </div>
+  );
+}
+
+// 期待される動作:
+// - 予定をドラッグ移動すると announcer.message が「会議 を 7月16日 10:00〜11:00 に
+//   移動しました」のような日本語文言に更新される
+// - live region 要素（role="status" aria-live="polite"）はデフォルトテーマの sr-only
+//   スタイルで視覚的には非表示になる
+```
+
+- **自動通知の対象** — `wrapCallbacks` でラップした `onEventChange`（移動・リサイズ・終日⇔時間指定変換）・`onEventDelete`（キーボード削除）・`onSelectRange` 未指定時の既定即時作成、いずれも確定後に通知します（`announce` オプションの `eventChange` / `eventCreate` / `eventDelete` で個別に無効化できます。既定はすべて `true`）。**カスタムの `onSelectRange`（ダイアログ等）を使う経路では、作成が確定したかどうかをアプリ側しか把握できないため自動通知しません**。作成確定時に `announcer.announce(text)` を手動で呼んでください
+- **ビュー変更の通知** — `wrapRangeChange` で `useCalendar({ onRangeChange: announcer.wrapRangeChange(onRangeChange) })` のように配線すると、ビュー・基準日・表示範囲の変更後に通知されます（`useCalendar` の `onRangeChange` は登録枠が 1 つのみのため、明示的に合成します）
+- **`politeness`**（既定 `'polite'`）— `'assertive'` にすると `role="alert"` / `aria-live="assertive"` になります
+- **`messages`** で既定の日本語文言を差し替えられます。各関数は「(対象データ, 既定文言, ctx)」を受け取り、`ctx`（`timeZone` / `locale` / `resources`）で日時・リソース名を整形できます。英語化したい場合は `enUsLabels.announcer` を渡してください（詳細は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照）
+- 同一文言の連続通知（同じ予定を同じ内容で 2 回移動した場合等）でも、末尾に不可視トークンが交互に付くことでスクリーンリーダーが再読み上げできます
+- live region 要素は `CalendarProvider` の配下に置く必要はありません（`calendar` 以外への依存を持たないため、DOM 上の配置に制約はありません）
+
+undo/redo 操作自体の通知文言は `useCalendarAnnouncer` の対象外です（`announcer.announce` を [undo/redo 履歴マネージャ](./events.md#undo元に戻すを実装する)側から呼ぶことは可能です）。
+
 ## 既知の制限
 
 - **矢印キーによる grid 内セル間移動（roving tabindex）は実装していません。** `role="grid"` は視覚的・論理的な構造を支援技術に伝えるためのものですが、Google カレンダー等のネイティブアプリのようにフォーカス中のセルから矢印キーで隣のセルへ移動する操作は提供していません（フォーカス移動は Tab 順のみ）。フォーカス中の予定要素に対する矢印キーは、セル移動ではなく「予定の移動・リサイズ」という異なる意味で割り当てられています
-- **予定の変更・作成・削除を通知する `aria-live` リージョンはありません。** ドラッグやキーボードで予定を移動・作成・削除しても、スクリーンリーダーに変更内容が自動で読み上げられることはありません。確定後の通知 UI（トースト等）が必要な場合は、`onEventChange` / `onEventDelete` コールバックを起点にアプリケーション側で `aria-live` リージョンを実装してください
 - **リソースビューの列見出し・列全体には `aria-current` を付けません。** リソースビューは常に 1 日固定で、列はリソースを表すため、月・週/日ビューのような「日付としての現在」を表す対象が列見出しには存在しません。「今日」であること自体は現在時刻線（`now-indicator`）と列の `data-today` 属性で表現します
 - **リソースビューの終日セルはクリック専用で、キーボードでの直接作成には未対応です。** 週/日ビュー・月ビューの日セル（`allday-cell` / `month-day`）は `tabIndex={0}` + Enter/Space で終日予定を作成できますが、リソースビューの終日セル（`resource-allday-cell`）は現状クリックのみです
 - **「+N 件」ポップオーバーは自前実装が前提です。** ヘッドレスの方針上、開閉状態の `aria-expanded` 等は `overflowButtonProps` で利用側が付与する必要があります。詳細は [インタラクション: 「+N 件」のポップオーバーを自前で組む](./interactions.md#n-件のポップオーバーを自前で組む) を参照してください

@@ -49,6 +49,16 @@ div[data-koyomi="toolbar"]
 
 `toolbar-views` 配下のボタンは既定で月/週/日/リストの 4 つ（`ToolbarProps.views` 省略時）。並び順・表示対象はすべて `views` に従い、新ビュー（`view-year` / `view-multimonth` / `view-resource` / `view-timeline` 等）は明示的に含めない限り現れない（opt-in。既存利用者の既定の見た目は不変）。
 
+## アナウンスメント（live region）
+
+`useCalendarAnnouncer` の `liveRegionProps` を spread した要素:
+
+```
+div[data-koyomi="live-region"][role="status"|"alert"][aria-live="polite"|"assertive"][aria-atomic="true"]
+```
+
+`CalendarProvider`/ルート（`data-koyomi="root"`）の配下に置く必要はない（`useCalendarAnnouncer` は `calendar` 以外への依存を持たないため）。`default.css` はこの部位に sr-only 相当のスタイル（`position: absolute; width/height: 1px; overflow: hidden; clip: rect(0,0,0,0);` 等）を、root スコープに依存しないグローバル属性セレクタで適用する。
+
 ## 月ビュー（MonthView）
 
 ```
@@ -93,8 +103,9 @@ div[data-koyomi="month"] (role="grid", style: --koyomi-month-lanes=dayMaxEvents)
              内容既定: 時間指定は開始時刻＋タイトル、終日はタイトル
             span[data-koyomi="month-event-resize"][data-edge="start|end"]?
                … getSegmentResizeHandleProps。editable: false / continues 側には出力しない
-      div[data-koyomi="day-selection"]? (aria-hidden)  … ドラッグ選択・プレビューのハイライト
-           style: insetInlineStart/width %（その週と previewRange の交差から計算）
+      div[data-koyomi="day-selection"]?[data-koyomi-invalid]? (aria-hidden)  … ドラッグ選択・プレビューのハイライト
+           style: insetInlineStart/width %（その週と previewRange の交差から計算）。
+           data-koyomi-invalid は宣言的制約（eventOverlap/eventConstraint）違反時のみ 'true'
 ```
 
 - `hidden: true` のセグメントは DOM に出力しない（「+N 件」に集約）
@@ -109,8 +120,10 @@ div[data-koyomi="month"] (role="grid", style: --koyomi-month-lanes=dayMaxEvents)
 どのタイムゾーンの軸かを識別できる（未指定時はどちらも 1 個ずつで、`data-koyomi-timezone` は
 表示タイムゾーンの値になる。DOM 構造自体は変わらない）。
 
+`slotMinTime`/`slotMaxTime`（{@link CalendarOptions.slotMinTime}/{@link CalendarOptions.slotMaxTime}）を指定すると、表示する時間帯が制限される。ルート要素の `style` に `--koyomi-timegrid-hours=(slotMaxTimeMinutes - slotMinTimeMinutes) / 60`（既定 `24`）が設定され、`timegrid-day` の高さ（`calc(var(--koyomi-timegrid-hours, 24) * var(--koyomi-hour-height))`）に反映される。`PositionedOccurrence.continuesBefore`/`continuesAfter` は、日境界に加えてこの表示時間帯の境界でもはみ出しを示すために付与される（`slotMinTime`/`slotMaxTime` 未指定時は既定値により従来と完全に一致する）。
+
 ```
-div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"]
+div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"] (style: --koyomi-timegrid-hours=時間数)
   div[data-koyomi="timegrid-grid"] (role="grid")            … 日ヘッダー行・終日行だけをまとめる a11y 用ラッパー
                                                                 （row/rowgroup 以外を子孫に持たないよう本文はこの外側に置く）
     div[data-koyomi="timegrid-header"][data-koyomi-week-number="<週番号>"]? (role="row")
@@ -156,8 +169,9 @@ div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"]
           div[data-koyomi="timegrid-resize"][data-edge="end"]?
              … getResizeHandleProps(item, 'end')。下端 = 終了時刻の変更
                （editable: false / continuesAfter のイベントには出力しない）
-        div[data-koyomi="timegrid-preview"][data-kind="create|move|resize"]? (aria-hidden)
-           … previewFor(day) のその日に該当する区間。style: top/height %
+        div[data-koyomi="timegrid-preview"][data-kind="create|move|resize"]?[data-koyomi-invalid]? (aria-hidden)
+           … previewFor(day) のその日に該当する区間。style: top/height %。
+             data-koyomi-invalid は宣言的制約（eventOverlap/eventConstraint）違反時のみ 'true'
         div[data-koyomi="now-indicator"]? (aria-hidden) … style: top %（nowIndicator の日のみ）
 ```
 
@@ -171,6 +185,7 @@ div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"]
   focusable を row/gridcell の所有関係の外に置かないため）。範囲選択プレビュー
   （`day-selection`）も `allday-cells` 直下に置き、focusable を含まず `aria-hidden` で除外する。
   判断根拠・既知の制限の詳細は `docs/accessibility.md` を参照
+- `initialScrollTime` prop（マウント時に一度だけ `timegrid-body` を指定時刻へスクロール）と `ref` 経由の `TimeGridViewHandle.scrollToTime(time)`（同じ処理を命令的に実行）は `useLayoutEffect` + `useImperativeHandle` で実装され、DOM 構造・属性は変更しない（`react/scroll-to-time.ts` の `scrollContainerToTime` を共有利用）
 
 ## リストビュー（ListView）
 
@@ -290,8 +305,10 @@ div[data-koyomi="multimonth"]
 **同じ部位名**を使い、デフォルトテーマのスタイルを共有する（列ごとに `layoutTimeGridItems` を
 実行した結果を、週/日ビューの日列と同じ描画で表示するだけのため）。
 
+`slotMinTime`/`slotMaxTime`・`--koyomi-timegrid-hours`・`continuesBefore`/`continuesAfter` の拡張・`initialScrollTime`/`ResourceViewHandle.scrollToTime` は週/日ビューと同じ規則（詳細は前節参照）。
+
 ```
-div[data-koyomi="resource"][data-koyomi-columns="<列数>"]
+div[data-koyomi="resource"][data-koyomi-columns="<列数>"] (style: --koyomi-timegrid-hours=時間数)
   div[data-koyomi="resource-grid"] (role="grid")            … 列見出し行・終日行だけをまとめる a11y 用ラッパー
                                                                 （row/rowgroup 以外を子孫に持たないよう本文はこの外側に置く）
     div[data-koyomi="resource-header"] (role="row")
@@ -303,8 +320,9 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"]
     div[data-koyomi="allday-row"] (role="row")
       div[data-koyomi="timegrid-axis-gutter"] (role="presentation")
       div[data-koyomi="resource-allday-cells"] (role="presentation")  … position: relative の基準（row→gridcell 間の透過ラッパ）
-        div[data-koyomi="resource-allday-cell"][data-koyomi-resource][data-koyomi-preview-target?] (role="gridcell", aria-label=リソース名/未割り当て) × columns
-           … getAllDayCellProps（クリックで当日 1 日分の終日イベント作成。キーボードでの直接作成には未対応 = 既知の制限）
+        div[data-koyomi="resource-allday-cell"][data-koyomi-resource][data-koyomi-preview-target?][data-koyomi-invalid?] (role="gridcell", aria-label=リソース名/未割り当て) × columns
+           … getAllDayCellProps（クリックで当日 1 日分の終日イベント作成。キーボードでの直接作成には未対応 = 既知の制限）。
+             data-koyomi-invalid は data-koyomi-preview-target="true" の列かつ宣言的制約違反時のみ 'true'
           button[data-koyomi="allday-event"] × n             … getAllDayItemProps（列間移動のみ）
              style: --koyomi-event-color（event.color ?? resource.color）
   div[data-koyomi="resource-body"]   … role なし（role="grid" の子孫ではないため presentation で打ち消す必要がない）。
@@ -328,8 +346,9 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"]
              … getResizeHandleProps(item, 'start')（editable: false / continuesBefore には出力しない）
           div[data-koyomi="timegrid-resize"][data-edge="end"]?
              … getResizeHandleProps(item, 'end')（editable: false / continuesAfter には出力しない）
-        div[data-koyomi="timegrid-preview"][data-kind="create|move|resize"]? (aria-hidden)
-           … previewFor(column) のその列に該当する区間。style: top/height %
+        div[data-koyomi="timegrid-preview"][data-kind="create|move|resize"]?[data-koyomi-invalid]? (aria-hidden)
+           … previewFor(column) のその列に該当する区間。style: top/height %。
+             data-koyomi-invalid は宣言的制約違反時のみ 'true'
         div[data-koyomi="now-indicator"]? (aria-hidden)    … style: top %（表示日が今日の列のみ）
   div[data-koyomi="resource-empty"]?                        … isEmpty のとき emptyLabel（既定「リソースがありません」）
 ```
@@ -410,24 +429,36 @@ div[data-koyomi="resource"][data-koyomi-virtualized="true"][data-koyomi-columns=
 （`timeline-body`）で行い、行見出し（`timeline-resource-header`）はテーマ CSS の
 `position: sticky` で固定する（二重スクロール同期の JS は持たない）。
 
+`timelineScale`（{@link CalendarOptions.timelineScale}、既定 `'hour'`）でヘッダー・目盛りの構成が変わる。ルート要素には常に `data-koyomi-scale` が付き、`'hour'`/`'day'` では `timeline-day-headers`/`timeline-day-header` を、`'week'`/`'month'` では `timeline-group-headers`/`timeline-group-header`（`TimelineViewModel.headerGroups`）をヘッダーに使う（同時に両方が存在することはない）。`'day'` では `timeline-slot-label` を 1 件も生成しない。
+
+`CalendarResource.parentId` を使うと `TimelineRow.depth`/`hasChildren`/`collapsed` に応じてツリー表示になる。`timeline-resource-header` に `data-koyomi-depth` が付き、`hasChildren: true` の行にのみ折りたたみトグルボタン（`timeline-row-toggle`）が描画される。
+
 ```
-div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"] (role="grid")
+div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"][data-koyomi-scale="hour|day|week|month"] (role="grid")
   div[data-koyomi="timeline-body"] (role="presentation")    … 横スクロールコンテナ（grid→row 間の透過ラッパ）
     div[data-koyomi="timeline-header-row"] (role="row")
       div[data-koyomi="timeline-corner"] (role="columnheader", aria-label=cornerLabel)
                                                                   … 左上の角セル（行見出し列の列見出し。視覚上は空。
                                                                     presentation で隠すと本文行と列数がずれるため公開する）
-      div[data-koyomi="timeline-axis"] (role="columnheader")     … 日ヘッダー＋時刻目盛りをまとめた1セル
-        div[data-koyomi="timeline-day-headers"]
+      div[data-koyomi="timeline-axis"] (role="columnheader")     … 日/グループヘッダー＋時刻目盛りをまとめた1セル
+        div[data-koyomi="timeline-day-headers"]?                … scale が 'hour'|'day' のときのみ
           div[data-koyomi="timeline-day-header"][data-today?] (aria-current="date"?) × days
              … 日付見出し（formatDayHeader）。style: width %（1440 / totalMinutes）
+        div[data-koyomi="timeline-group-headers"]?              … scale が 'week'|'month' のときのみ
+          div[data-koyomi="timeline-group-header"][data-koyomi-group-start="YYYY-MM-DD"][data-today?] (aria-current="date"?) × headerGroups.length
+             … グループ見出し（週/月単位）。containsToday の場合のみ data-today/aria-current。
+               style: width %（(endMinutes - startMinutes) / totalMinutes）
         div[data-koyomi="timeline-slots"]
-          div[data-koyomi="timeline-slot-label"] × slots    … 日内時刻（TimelineSlot.label）。
+          div[data-koyomi="timeline-slot-label"] × slots    … scale='hour' は日内時刻（TimelineSlot.label）、
+                                                                'week'/'month' は日番号（'1'〜'31'）、'day' では 0 件。
                                                                 style: insetInlineStart %
     div[data-koyomi="timeline-row-group"] (role="row") × rows
-      div[data-koyomi="timeline-resource-header"][data-koyomi-resource-id]? (role="rowheader")
+      div[data-koyomi="timeline-resource-header"][data-koyomi-resource-id]?[data-koyomi-depth="N"] (role="rowheader")
          … リソース名（renderRowHeader で差し替え可）。未割り当て行は data-koyomi-resource-id なし。
-           style: --koyomi-event-color（resource.color 指定時のみ）。position: sticky（テーマ側）
+           data-koyomi-depth は TimelineRow.depth（parentId 未使用時は常に 0）。
+           style: --koyomi-event-color（resource.color 指定時のみ）・--koyomi-timeline-row-depth。position: sticky（テーマ側）
+        button[data-koyomi="timeline-row-toggle"][aria-expanded]?  … hasChildren: true の行のみ描画。
+           aria-expanded は !collapsed。クリックで api.toggleResourceCollapsed(resource.id) を呼ぶ
       div[data-koyomi="timeline-row"][data-koyomi-resource] (role="gridcell") × rows
          … getRowProps を展開。position: relative の基準。style: --koyomi-timeline-lanes（行のレーン数）
         div[data-koyomi="timeline-business-hours"] (aria-hidden) × businessHourRanges.length
@@ -444,8 +475,9 @@ div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"] (role="grid")
              … getResizeHandleProps(item, 'start')（editable: false / 終日 / continuesBefore には出力しない）
           div[data-koyomi="timeline-resize"][data-edge="end"]?
              … getResizeHandleProps(item, 'end')（editable: false / 終日 / continuesAfter には出力しない）
-        div[data-koyomi="timeline-preview"][data-kind="create|move|resize"]? (aria-hidden)
-           … previewFor(row) のその行に該当する区間。style: insetInlineStart/width %
+        div[data-koyomi="timeline-preview"][data-kind="create|move|resize"]?[data-koyomi-invalid]? (aria-hidden)
+           … previewFor(row) のその行に該当する区間。style: insetInlineStart/width %。
+             data-koyomi-invalid は宣言的制約（eventOverlap/eventConstraint）違反時のみ 'true'
         div[data-koyomi="now-indicator"][data-orientation="vertical"]? (aria-hidden)
            … style: insetInlineStart %（表示範囲内に「今」がある場合のみ）
   div[data-koyomi="timeline-empty"]?                         … isEmpty のとき emptyLabel（既定「リソースがありません」）
@@ -454,13 +486,20 @@ div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"] (role="grid")
 - `isEmpty` の場合は `div[data-koyomi="timeline"]` の直下に `timeline-empty` のみを描画する
 - イベントの aria-label は「タイトル、開始〜終了、リソース名」（未割り当て行はリソース名部分を省略）
 - 目盛り（`timeline-slot-label`）の総数が `SLOT_COUNT_WARNING_THRESHOLD`（1,000）を超える場合、
-  開発ビルドで一度だけ `console.warn` する（`timelineDays × ceil(1440 / slotMinutes)` が大きい構成）
+  開発ビルドで一度だけ `console.warn` する（`timelineDays × ceil(1440 / slotMinutes)` が大きい構成。
+  `scale: 'day'` は目盛りが常に 0 件のため対象外）
 - `now-indicator` は週/日ビュー・リソースビューと同じ部位名だが、こちらは縦線
   （`data-orientation="vertical"`）として描画される点が異なる
 - `timeline-business-hours` は表示日ごとに該当曜日のルールを日オフセット付きの表示分の区間へ
   変換し、隣接・重複する区間をマージしたもの（`TimelineViewModel.businessHourRanges`）を
   全行で共有して描画する。週/日・リソースビューの `data-koyomi-business-hours` 属性方式とは
   異なり、タイムラインは % 幅の帯そのものとして表現する
+- `timeline-row-toggle` の既定コンテンツは固定グリフ（▸）＋ `aria-expanded="true"` 時の CSS 回転
+  （ツールバー prev/next と同じ方式）。既定 aria-label は「〈リソース名〉を折りたたむ」/
+  「〈リソース名〉を展開する」で、`resourceToggleAriaLabel` prop で差し替え可能
+- 折りたたみで非表示になった子孫行は `TimelineViewModel.rows` 自体から除外されるため、
+  D&D の行レジストリ・`↑`/`↓` の隣接行検索・`VirtualTimelineView` の `useVirtualizer`（`count: rows.length`）・
+  `scrollToResource` は追加のコード変更なしに「存在しない行」として振る舞う
 - a11y: 行＝リソース・列＝時間トラックという 2 列固定の構造なので、他ビューと異なり本文にも
   `role="grid"` を適用し grid/row/columnheader/rowheader/gridcell を完全に構成する（各行が
   「rowheader + gridcell 1 セル」の固定 2 セルで、日単位の離散列を持たないため）。帯自体は
