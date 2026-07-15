@@ -145,8 +145,9 @@ div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"] (style: --koyomi-
                continues/dragging 属性は月と同じ
             span[data-koyomi="allday-resize"][data-edge="start|end"]?
                … getSegmentResizeHandleProps（editable: false / continues 側には出力しない）
-        div[data-koyomi="day-selection"]? (aria-hidden)  … allDay プレビュー（allday-cells 直下。
-             % オフセットが列位置と常に一致し、テーマ変数に依存しない）
+        div[data-koyomi="day-selection"]?[data-koyomi-invalid]? (aria-hidden)  … allDay プレビュー（allday-cells 直下。
+             % オフセットが列位置と常に一致し、テーマ変数に依存しない）。
+             data-koyomi-invalid は宣言的制約（eventOverlap/eventConstraint）違反時のみ 'true'
   div[data-koyomi="timegrid-body"]   … role なし（role="grid" の子孫ではないため presentation で打ち消す必要がない）。
                                         連続的な時間位置決めのため grid 化しない（詳細は docs/accessibility.md）
     div[data-koyomi="time-axis"][data-koyomi-timezone] × timeAxes.length  … 先頭が主軸（表示 TZ）、以降が timeAxisZones の指定順
@@ -535,8 +536,10 @@ div[data-koyomi="timeline"][data-koyomi-virtualized="true"][data-koyomi-days="<�
 - inline style として出力するのはスペーサの `height`・pinned の `top` の数値のみ
   （`VirtualListView` と同カテゴリ）
 - pinned 行（フォーカス保持で窓外に描画される行）は `data-koyomi-pinned="true"` ＋ inline
-  `top`。行見出しは据え置きだが、**帯（`timeline-item`）は pinned 行では `tabIndex={-1}`
-  にする**（画面外の行をタブ順に残さないため。窓内へ戻ると `tabIndex` は既定値に戻る）
+  `top`。行見出し自体は据え置きだが、**帯（`timeline-item`）と行見出しの折りたたみトグル
+  （`timeline-row-toggle`）は pinned 行では `tabIndex={-1}` にする**（画面外の行の操作要素を
+  タブ順に残さないため。窓内へ戻ると `tabIndex` は既定値に戻る。`resource-allday-cell` 内の
+  `allday-event` が pinned 列で `tabIndex={-1}` になるのと同じ原則）
 - ヘッダー行（`timeline-header-row`、sticky）の実測高を `useVirtualizer` の
   `viewportPadding` に渡し、可視ビューポートから差し引く（スクロールコンテナ内で行リストより
   「前」に同居する固定表示行のため）

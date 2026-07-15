@@ -357,25 +357,33 @@ export function useCalendarAnnouncer(
     (callbacks?: CalendarInteractionCallbacks): CalendarInteractionCallbacks => {
       const wrapped: CalendarInteractionCallbacks = { ...callbacks };
 
-      if (targetsRef.current?.eventChange ?? true) {
+      // 通知対象（targets）の判定はラップ関数の構築時ではなく呼び出し時に行う。
+      // wrapCallbacks は安定参照として呼び出し側でメモ化される想定のため、
+      // 構築時に判定すると announce オプションの後からの切替が反映されない
+      // （onSelectRange の eventCreate 判定と同じ規約に揃える）
+      {
         const original = callbacks?.onEventChange;
         wrapped.onEventChange = (change) => {
           original?.(change);
-          const ctx = currentCtx(calendarRef.current);
-          const defaultMessage = defaultEventChangedMessage(change, ctx);
-          const custom = messagesRef.current?.eventChanged;
-          announce(custom ? custom(change, defaultMessage, ctx) : defaultMessage);
+          if (targetsRef.current?.eventChange ?? true) {
+            const ctx = currentCtx(calendarRef.current);
+            const defaultMessage = defaultEventChangedMessage(change, ctx);
+            const custom = messagesRef.current?.eventChanged;
+            announce(custom ? custom(change, defaultMessage, ctx) : defaultMessage);
+          }
         };
       }
 
-      if (targetsRef.current?.eventDelete ?? true) {
+      {
         const original = callbacks?.onEventDelete;
         wrapped.onEventDelete = (deletion) => {
           original?.(deletion);
-          const ctx = currentCtx(calendarRef.current);
-          const defaultMessage = defaultEventDeletedMessage(deletion);
-          const custom = messagesRef.current?.eventDeleted;
-          announce(custom ? custom(deletion, defaultMessage, ctx) : defaultMessage);
+          if (targetsRef.current?.eventDelete ?? true) {
+            const ctx = currentCtx(calendarRef.current);
+            const defaultMessage = defaultEventDeletedMessage(deletion);
+            const custom = messagesRef.current?.eventDeleted;
+            announce(custom ? custom(deletion, defaultMessage, ctx) : defaultMessage);
+          }
         };
       }
 

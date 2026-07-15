@@ -445,6 +445,13 @@ function App() {
 - undo/redo の適用は `api.setEvents` 経由で行われるため、`onEventsChange` は
   発火しません（外部ストアとの同期の既存仕様と一貫）。また `onBeforeEventChange` /
   `onBeforeEventDelete` 等の適用前フックも経由しません
+- **外部同期との整合**: `undo` / `redo` は履歴に記録した時点のイベントの
+  スナップショットを丸ごと適用します。対象イベントが履歴の記録後に消えている・
+  新たに現れている場合はそのエントリを安全に読み飛ばしますが、**同じ `id` の
+  イベントが履歴を経由しない `setEvents`（外部同期など）で別の内容に更新されていた
+  場合、その `id` については判定を行わず記録時のスナップショットで丸ごと上書きします**
+  （外部同期で変わったフィールドが undo で巻き戻ります）。history 経由でない
+  `setEvents` を挟む運用では、その直後に `clear()` を呼んで履歴を破棄してください
 
 React 層の `onEventChange` / `onEventDelete` コールバック（`EventChange` /
 `EventDelete` の `changes` フィールド）は `applyEventChangeEntries` /

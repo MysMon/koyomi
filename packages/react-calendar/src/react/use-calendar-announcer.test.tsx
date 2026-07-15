@@ -112,6 +112,64 @@ describe('useCalendarAnnouncer', () => {
   });
 
   describe('wrapCallbacks - onEventChange', () => {
+    it('announce.eventChange の切替は、wrapCallbacks を呼び直さなくても次の呼び出しから反映される', () => {
+      const calendar = makeCalendar();
+      const { result, rerender } = renderHook(
+        ({ eventChange }: { eventChange: boolean }) =>
+          useCalendarAnnouncer({ calendar, announce: { eventChange } }),
+        { initialProps: { eventChange: true } },
+      );
+
+      // eventChange: true の時点で構築したラップ関数をそのまま使い続ける
+      const wrapped = result.current.wrapCallbacks({});
+      const change = {
+        occurrence: makeOccurrence(),
+        newRange: {
+          start: new Date('2026-07-16T01:00:00Z'),
+          end: new Date('2026-07-16T02:00:00Z'),
+        },
+        allDay: false,
+        scope: null,
+        changes: [],
+      };
+
+      act(() => {
+        wrapped.onEventChange?.(change);
+      });
+      expect(result.current.message).not.toBe('');
+
+      // ミュートに切り替える（callbacks は不変のため wrapCallbacks は呼び直されない想定）
+      rerender({ eventChange: false });
+      const messageBefore = result.current.message;
+      act(() => {
+        wrapped.onEventChange?.({
+          ...change,
+          newRange: {
+            start: new Date('2026-07-16T03:00:00Z'),
+            end: new Date('2026-07-16T04:00:00Z'),
+          },
+        });
+      });
+      expect(result.current.message).toBe(messageBefore); // 新しい announce は発生しない
+    });
+
+    it('announce.eventDelete の切替も、wrapCallbacks を呼び直さなくても次の呼び出しから反映される', () => {
+      const calendar = makeCalendar();
+      const { result, rerender } = renderHook(
+        ({ eventDelete }: { eventDelete: boolean }) =>
+          useCalendarAnnouncer({ calendar, announce: { eventDelete } }),
+        { initialProps: { eventDelete: false } },
+      );
+
+      // ミュート時点で構築したラップ関数でも、ミュート解除後は announce される
+      const wrapped = result.current.wrapCallbacks({});
+      rerender({ eventDelete: true });
+      act(() => {
+        wrapped.onEventDelete?.({ occurrence: makeOccurrence(), scope: null, changes: [] });
+      });
+      expect(result.current.message).toBe('会議 を削除しました');
+    });
+
     it('元の onEventChange が先に呼ばれた後、既定の日本語文言（移動）で announce される', () => {
       const calendar = makeCalendar();
       const onEventChange = vi.fn();

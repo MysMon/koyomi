@@ -216,8 +216,7 @@ function collectBandBlockers(
   eventOverlap: boolean,
 ): readonly OverlapBlocker[] {
   const blockers = new Map<string, OverlapBlocker>();
-  const addSegment = (segment: EventSegment): void => {
-    const occurrence = segment.occurrence;
+  const addOccurrence = (occurrence: EventOccurrence): void => {
     if (blockers.has(occurrence.key)) {
       return;
     }
@@ -227,6 +226,9 @@ function collectBandBlockers(
       end: occurrence.end,
       blocksOverlap: occurrenceBlocksOverlap(occurrence.event, eventOverlap),
     });
+  };
+  const addSegment = (segment: EventSegment): void => {
+    addOccurrence(segment.occurrence);
   };
   if (viewModel.type === 'month') {
     for (const week of viewModel.weeks) {
@@ -245,6 +247,14 @@ function collectBandBlockers(
   } else if (viewModel.type === 'timeGrid') {
     for (const segment of viewModel.allDaySegments) {
       addSegment(segment);
+    }
+    // 終日行のドラッグでも時間指定イベントとの重なりを検出する必要がある
+    // （終日・時間指定は絶対時刻の区間で統一比較する仕様。use-time-grid-drag.ts の
+    // collectTimeGridBlockers が両方を対象にするのと対称）
+    for (const day of viewModel.days) {
+      for (const item of day.items) {
+        addOccurrence(item.occurrence);
+      }
     }
   }
   return [...blockers.values()];

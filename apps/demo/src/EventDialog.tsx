@@ -493,22 +493,35 @@ function RecurrenceRuleFields(props: RecurrenceRuleFieldsProps): ReactElement {
     initialRRule === undefined ? { start, timeZone } : { start, timeZone, rrule: initialRRule },
   );
 
+  // 親（EventDialog）が渡す onResultChange はレンダーごとに新しい参照になりうるため、
+  // ref 経由で最新を読み、effect の依存には含めない（依存に含めると、この effect が
+  // 呼ぶ親の setForm による再レンダーで参照が変わり無限ループになる）。
+  const onResultChangeRef = useRef(onResultChange);
+  onResultChangeRef.current = onResultChange;
+  // 直近に親へ送った結果。値が実際に変わったときだけ通知して不要な再描画を防ぐ。
+  const lastSentRef = useRef<RecurrenceFieldsResult | null>(null);
+
   // editor の実効的な結果が変わるたびに親（EventDialog のフォーム状態）へ伝える。
   useEffect(() => {
+    let next: RecurrenceFieldsResult;
     if (editor.unsupported !== null) {
       // 対応範囲外の RRULE は編集できないため、元の文字列をそのまま維持する。
-      onResultChange({ rrule: editor.unsupported.rawRRule, hasErrors: false });
+      next = { rrule: editor.unsupported.rawRRule, hasErrors: false };
+    } else if (editor.state === null) {
+      next = { rrule: undefined, hasErrors: false };
+    } else {
+      next = {
+        rrule: editor.errors.length === 0 ? (editor.rruleString ?? undefined) : undefined,
+        hasErrors: editor.errors.length > 0,
+      };
+    }
+    const last = lastSentRef.current;
+    if (last !== null && last.rrule === next.rrule && last.hasErrors === next.hasErrors) {
       return;
     }
-    if (editor.state === null) {
-      onResultChange({ rrule: undefined, hasErrors: false });
-      return;
-    }
-    onResultChange({
-      rrule: editor.errors.length === 0 ? (editor.rruleString ?? undefined) : undefined,
-      hasErrors: editor.errors.length > 0,
-    });
-  }, [editor.unsupported, editor.state, editor.errors, editor.rruleString, onResultChange]);
+    lastSentRef.current = next;
+    onResultChangeRef.current(next);
+  }, [editor.unsupported, editor.state, editor.errors, editor.rruleString]);
 
   if (editor.unsupported !== null) {
     return (

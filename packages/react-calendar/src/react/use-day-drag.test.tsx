@@ -3273,6 +3273,67 @@ describe('useDayDrag - 宣言的な重なり・配置制約', () => {
     expect(updated?.start).toBe('2026-07-06');
   });
 
+  it('週ビューの終日行では、eventOverlap: false のもとで既存の時間指定イベントとの重なりも拒否される', () => {
+    const api = makeCalendarApi({
+      timeZone: TOKYO,
+      now: () => NOW,
+      initialDate: NOW,
+      initialView: 'week',
+      eventOverlap: false,
+    });
+    // 表示中の週（7/12〜7/18）内に時間指定イベント（終日行のブロッカー対象になるべき存在）
+    api.createEvent({ title: '既存会議', start: '2026-07-12T10:00', end: '2026-07-12T11:00' });
+    const moving = api.createEvent({
+      title: '移動対象',
+      start: '2026-07-06',
+      end: '2026-07-07',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === moving.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(0),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(6)); // 7/12 相当（時間指定イベントと同じ日 = 絶対区間が重なる）
+    });
+    expect(resultRef.current?.previewInvalid).toBe(true);
+    act(() => {
+      dispatchPointerUp(cellCenterX(6));
+    });
+
+    expect(onEventChange).not.toHaveBeenCalled();
+    const updated = api.getEvents().find((event) => event.id === moving.id);
+    expect(updated?.start).toBe('2026-07-06');
+  });
+
   it('動かす側のみ overlap: true でも、重ねられる側が既定（拒否）なら eventOverlap: false のもとで拒否される', () => {
     const api = makeCalendarApi({
       timeZone: TOKYO,

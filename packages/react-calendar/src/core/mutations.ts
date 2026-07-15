@@ -1350,6 +1350,13 @@ export type EventChangeDirection = 'before' | 'after';
  * 継続する。存在の有無のみを見る判定であり、値の内容までは比較しない
  * （presence-only）。入力の `events` 配列・各イベントは変更しない（純粋関数）。
  *
+ * @remarks
+ * presence-only のため、同じ `id` のイベントが `changes` 記録後に（この関数を経由しない
+ * `setEvents` 等の外部同期で）別の内容へ更新されていても、その `id` は「存在する」と
+ * 判定されて記録時のスナップショット（`before` / `after`）で丸ごと上書きされる。
+ * すなわち外部同期で変わったフィールドは巻き戻る。外部同期を履歴と混在させる場合は、
+ * 同期の直後に履歴を破棄すること（{@link CalendarEventHistory.clear}）。
+ *
  * @param events - 現在のイベント一覧
  * @param changes - 適用する変更（{@link EventChangeEntry} の一覧）
  * @param direction - 適用する方向

@@ -147,7 +147,9 @@ test('大量リソースの仮想化スクロールでフォーカスと対象�
   });
   // リソース一覧の末尾はメンバー 200 人の後ろに追加された階層リソース
   // （リソース表示ではフラットな列。最後は「大阪1F 会議室A」）
-  await expect(resource.locator('[data-koyomi-resource-id="room-osaka-1f-a"]').first()).toBeVisible();
+  await expect(
+    resource.locator('[data-koyomi-resource-id="room-osaka-1f-a"]').first(),
+  ).toBeVisible();
   await expect(focusedEvent).toBeAttached();
   await expect(focusedEvent).toBeFocused();
 

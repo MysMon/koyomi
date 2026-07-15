@@ -680,16 +680,20 @@ export function UndoPattern(): ReactElement {
       }
       history.push(changes);
       const isCreationOnly = changes.every((change) => change.before === undefined);
-      setUndoDescriptions((prev) => [
-        {
-          id: crypto.randomUUID(),
-          actionLabel,
-          description,
-          changeCount: changes.length,
-          isCreationOnly,
-        },
-        ...prev,
-      ]);
+      setUndoDescriptions((prev) =>
+        [
+          {
+            id: crypto.randomUUID(),
+            actionLabel,
+            description,
+            changeCount: changes.length,
+            isCreationOnly,
+          },
+          // ライブラリ側の history は limit 件で古いものから破棄するため、
+          // 表示用の並行スタックも同じ上限で切り詰め、実際に undo 可能な件数と揃える。
+          ...prev,
+        ].slice(0, MAX_UNDO_ENTRIES),
+      );
       setRedoDescriptions([]);
     },
     [history],

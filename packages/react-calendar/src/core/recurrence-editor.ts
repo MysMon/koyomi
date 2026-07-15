@@ -27,7 +27,18 @@ export type MonthlyRecurrencePattern =
   | { kind: 'dayOfMonth'; day: number }
   | { kind: 'nthWeekday'; ordinal: RecurrenceWeekdayOrdinal; weekday: Weekday };
 
-/** 繰り返しの終了条件。 */
+/**
+ * 繰り返しの終了条件。
+ *
+ * `until` はイベントのタイムゾーンにおける現地時刻として解釈される絶対時刻。
+ *
+ * @remarks
+ * `until` に、DST の終了（秋の巻き戻し）で現地時刻が 2 回出現する時間帯の時刻を
+ * 指定した場合、{@link buildRecurrenceRuleString} が生成する RRULE の `UNTIL` は
+ * 現地時刻の成分のみを保持し「どちらの回か」を落とすため、{@link parseRecurrenceRule}
+ * で往復させると早い方のオフセット側の絶対時刻に正規化される（1 時間ずれうる）。
+ * `until` を時刻ではなく日付境界で選ぶ一般的な運用では問題にならない。
+ */
 export type RecurrenceEnd =
   | { type: 'never' }
   | { type: 'count'; count: number }
