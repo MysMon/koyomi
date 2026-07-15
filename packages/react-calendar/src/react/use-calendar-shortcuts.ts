@@ -40,8 +40,11 @@ const CONTENT_EDITABLE_SELECTOR = '[contenteditable]:not([contenteditable="false
  * - `target` が `Element` でない場合（例: `document` 自体がターゲット）
  * - `input` / `textarea` / `select` 要素
  * - `contentEditable` 要素の内側
+ *
+ * `useCalendarHistory` の keyboardShortcuts など、他のキーボードショートカット系
+ * フックからも同じ判定を再利用できるよう export している。
  */
-function isIgnoredTarget(target: EventTarget | null): boolean {
+export function isIgnoredTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) {
     return true;
   }

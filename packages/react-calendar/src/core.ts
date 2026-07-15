@@ -30,6 +30,11 @@ export {
 } from './core/date-utils';
 // イベント展開
 export { expandEvents, occurrenceKey, resolveOccurrence } from './core/expansion';
+export {
+  type CalendarEventHistory,
+  type CalendarEventHistoryOptions,
+  createEventHistory,
+} from './core/history';
 // インタラクションの純粋計算
 export {
   type CalendarShortcut,
@@ -45,11 +50,13 @@ export {
 } from './core/interaction';
 // イベント変更の純粋関数
 export {
+  applyEventChangeEntries,
   applyPatch,
   type CreateEventResult,
   createEventIn,
   deleteEventIn,
   deleteEventInWithChanges,
+  type EventChangeDirection,
   type EventChangeEntry,
   type EventMutationResult,
   type MutationContext,

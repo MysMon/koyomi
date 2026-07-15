@@ -14,6 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import { expandEvents } from './expansion';
 import {
+  applyEventChangeEntries,
   applyPatch,
   createEventIn,
   deleteEventIn,
@@ -2600,5 +2601,136 @@ describe('before/after スナップショット（undo 基盤）', () => {
         { before: master, after: findById(result.events, 'master-1') },
       ]);
     });
+  });
+});
+
+describe('applyEventChangeEntries', () => {
+  /** テスト用の最小イベント。 */
+  function ev(id: string, overrides: Partial<CalendarEvent> = {}): CalendarEvent {
+    return {
+      id,
+      title: `イベント${id}`,
+      start: new Date('2026-07-01T00:00:00Z'),
+      ...overrides,
+    };
+  }
+
+  it("'before' 方向で after のみ（作成）のエントリを適用すると対象 id を削除する", () => {
+    const created = ev('a');
+    const events = [ev('x'), created];
+    const result = applyEventChangeEntries(events, [{ after: created }], 'before');
+    expect(result.map((event) => event.id)).toEqual(['x']);
+  });
+
+  it("'before' 方向で before のみ（削除）のエントリを適用すると対象 id を before の内容で復元する", () => {
+    const deleted = ev('a', { title: '元のタイトル' });
+    const events = [ev('x')];
+    const result = applyEventChangeEntries(events, [{ before: deleted }], 'before');
+    expect(result).toHaveLength(2);
+    expect(result).toContainEqual(deleted);
+  });
+
+  it("'before' 方向で before/after 両方（更新）のエントリを適用すると before の内容に戻す", () => {
+    const before = ev('a', { title: '変更前' });
+    const after = ev('a', { title: '変更後' });
+    const result = applyEventChangeEntries([after], [{ before, after }], 'before');
+    expect(result).toEqual([before]);
+  });
+
+  it("'after' 方向では 3 パターンが対称に動作する（作成の再現・削除の再現・after への変更）", () => {
+    // 作成の再現: before なし・after ありのエントリを 'after' で適用すると作成される
+    const created = ev('a');
+    expect(applyEventChangeEntries([], [{ after: created }], 'after')).toEqual([created]);
+
+    // 削除の再現: before あり・after なしのエントリを 'after' で適用すると削除される
+    const deleted = ev('b');
+    expect(applyEventChangeEntries([deleted], [{ before: deleted }], 'after')).toEqual([]);
+
+    // 変更の適用: before/after 両方のエントリを 'after' で適用すると after の内容になる
+    const changeBefore = ev('c', { title: '変更前' });
+    const changeAfter = ev('c', { title: '変更後' });
+    expect(
+      applyEventChangeEntries(
+        [changeBefore],
+        [{ before: changeBefore, after: changeAfter }],
+        'after',
+      ),
+    ).toEqual([changeAfter]);
+  });
+
+  it("ドリフト検出: 'before' 適用時、期待する現在値（after）に対応する id が現在の一覧に存在しない場合はそのエントリをスキップし、他のイベントには影響しない", () => {
+    // id 'a' は外部要因で既に一覧から消えている想定（期待する現在値 after が存在しない）
+    const missingBefore = ev('a', { title: 'a-変更前' });
+    const missingAfter = ev('a', { title: 'a-変更後' });
+    const presentBefore = ev('b', { title: 'b-変更前' });
+    const presentAfter = ev('b', { title: 'b-変更後' });
+    const events = [presentAfter];
+
+    const result = applyEventChangeEntries(
+      events,
+      [
+        { before: missingBefore, after: missingAfter },
+        { before: presentBefore, after: presentAfter },
+      ],
+      'before',
+    );
+
+    // id 'a' のエントリはスキップされ、events に存在しないまま（誤って作成されない）
+    expect(result.some((event) => event.id === 'a')).toBe(false);
+    // id 'b' のエントリは正しく before の内容に戻る
+    expect(result).toEqual([presentBefore]);
+  });
+
+  it("ドリフト検出: 'before' 適用時、削除の取り消し（before のみ）のエントリで、本来存在しないはずの id が別内容で既に存在する場合は上書きせずスキップする", () => {
+    const originalDeleted = ev('a', { title: '元のタイトル' });
+    // id 'a' が外部要因で別内容として再利用されている想定（想定外に存在している）
+    const unexpectedCurrent = ev('a', { title: '別内容（外部要因で再利用された id）' });
+
+    const result = applyEventChangeEntries(
+      [unexpectedCurrent],
+      [{ before: originalDeleted }],
+      'before',
+    );
+
+    // 復元（上書き）されず、現在の内容がそのまま残る
+    expect(result).toEqual([unexpectedCurrent]);
+  });
+
+  it("複数エントリ（3 件以上）を一括で 'before' 方向に適用すると影響を受けた全イベントが一括で元に戻る", () => {
+    const changes: EventChangeEntry[] = [
+      { before: ev('a', { title: 'a-変更前' }), after: ev('a', { title: 'a-変更後' }) },
+      { after: ev('b', { title: 'b-新規' }) },
+      { before: ev('c', { title: 'c-削除前' }) },
+    ];
+    const events = [
+      ev('a', { title: 'a-変更後' }),
+      ev('b', { title: 'b-新規' }),
+      ev('z', { title: '無関係' }),
+    ];
+
+    const result = applyEventChangeEntries(events, changes, 'before');
+    const byId = new Map(result.map((event) => [event.id, event]));
+
+    expect(byId.get('a')?.title).toBe('a-変更前');
+    expect(byId.has('b')).toBe(false);
+    expect(byId.get('c')?.title).toBe('c-削除前');
+    expect(byId.get('z')?.title).toBe('無関係');
+  });
+
+  it('入力の events 配列・各 CalendarEvent オブジェクトを変更しない（参照比較で確認）', () => {
+    const untouched = ev('z');
+    const changedAfter = ev('a', { title: '変更後' });
+    const events = [untouched, changedAfter];
+    const before = structuredClone(events);
+
+    applyEventChangeEntries(
+      events,
+      [{ before: ev('a', { title: '変更前' }), after: changedAfter }],
+      'before',
+    );
+
+    expect(events).toEqual(before);
+    expect(events[0]).toBe(untouched);
+    expect(events[1]).toBe(changedAfter);
   });
 });

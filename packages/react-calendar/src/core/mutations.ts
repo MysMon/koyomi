@@ -1328,3 +1328,65 @@ export function moveOccurrenceInWithChanges(
   const next = moveOccurrenceIn(events, id, params, context);
   return { events: next, changes: diffEventChanges(events, next) };
 }
+
+/**
+ * {@link applyEventChangeEntries} が適用する方向。
+ *
+ * - `'before'` — 変更前の状態へ戻す（取り消し／undo）
+ * - `'after'` — 変更後の状態を適用する（やり直し／redo、または再現）
+ */
+export type EventChangeDirection = 'before' | 'after';
+
+/**
+ * changes の各エントリを、現在のイベント一覧に対して before/after いずれかの
+ * 方向へ適用する。
+ *
+ * - `direction: 'before'` → 変更前の状態へ戻す（取り消し／undo）
+ * - `direction: 'after'` → 変更後の状態を適用する（やり直し／redo、または再現）
+ *
+ * 適用直前に期待する現在の状態（`'before'` 方向なら `after` が、`'after'` 方向なら
+ * `before` が、現在の一覧に存在するはず）と食い違うエントリ（対象イベントが既に
+ * 消えている／想定外に存在している）は安全にスキップし、他のエントリの適用は
+ * 継続する。存在の有無のみを見る判定であり、値の内容までは比較しない
+ * （presence-only）。入力の `events` 配列・各イベントは変更しない（純粋関数）。
+ *
+ * @param events - 現在のイベント一覧
+ * @param changes - 適用する変更（{@link EventChangeEntry} の一覧）
+ * @param direction - 適用する方向
+ * @returns 適用後のイベント一覧
+ * @example
+ * ```ts
+ * // undo: 直前の変更を取り消す
+ * const reverted = applyEventChangeEntries(events, changes, 'before');
+ * // redo: 取り消した変更をやり直す
+ * const reapplied = applyEventChangeEntries(reverted, changes, 'after');
+ * ```
+ */
+export function applyEventChangeEntries(
+  events: readonly CalendarEvent[],
+  changes: readonly EventChangeEntry[],
+  direction: EventChangeDirection,
+): CalendarEvent[] {
+  const byId = new Map(events.map((event) => [event.id, event]));
+  for (const change of changes) {
+    const expected = direction === 'before' ? change.after : change.before;
+    const write = direction === 'before' ? change.before : change.after;
+    // before/after は同じイベントの id を共有するため、どちらか定義されている方から取れる
+    const id = expected?.id ?? write?.id;
+    if (id === undefined) {
+      continue;
+    }
+    const shouldBePresent = expected !== undefined;
+    const isPresent = byId.has(id);
+    if (shouldBePresent !== isPresent) {
+      // ドリフト: 対象イベントが既に消えている、または想定外に存在しているためスキップ
+      continue;
+    }
+    if (write === undefined) {
+      byId.delete(id);
+    } else {
+      byId.set(id, write);
+    }
+  }
+  return [...byId.values()];
+}
