@@ -39,6 +39,7 @@ import {
   checkBeforeEventChange,
   checkBeforeEventDelete,
   checkBeforeSelectRange,
+  createDefaultEvent,
   type EventNotificationProps,
   eventNotificationProps,
 } from './drag-common';
@@ -312,12 +313,7 @@ export function useDayDrag(params: {
       onSelectRange({ range, allDay: true });
       return;
     }
-    apiRef.current.createEvent({
-      title: apiRef.current.getState().options.defaultEventTitle,
-      start: range.start,
-      end: range.end,
-      allDay: true,
-    });
+    createDefaultEvent(apiRef.current, { range, allDay: true });
   }
 
   /**

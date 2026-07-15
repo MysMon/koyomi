@@ -6,6 +6,7 @@ import {
   formatMonthTitle,
   formatRangeTitle,
   formatTime,
+  formatViewTitle,
   formatWeekday,
 } from './format';
 
@@ -108,6 +109,94 @@ describe('formatDayHeader', () => {
     const instant = new Date('2026-07-15T01:00:00Z');
     expect(formatDayHeader(instant, 'Asia/Tokyo', 'ja')).toBe('15 (水)');
     expect(formatDayHeader(instant, 'America/New_York', 'ja')).toBe('14 (火)');
+  });
+});
+
+describe('formatViewTitle', () => {
+  const currentDate = new Date('2026-07-15T01:00:00Z'); // 東京 2026-07-15 10:00
+
+  it('month は formatMonthTitle と同じ「YYYY年M月」になる（range は無視する）', () => {
+    const range: DateRange = {
+      start: new Date('2026-06-30T15:00:00Z'), // 東京 2026-07-01 0:00
+      end: new Date('2026-07-31T15:00:00Z'), // 東京 2026-08-01 0:00（排他）
+    };
+    expect(formatViewTitle('month', currentDate, range, 'Asia/Tokyo', 'ja')).toBe('2026年7月');
+  });
+
+  it('day / resource は formatDayTitle と同じ「YYYY年M月D日(曜)」になる（currentDate 基準）', () => {
+    const range: DateRange = {
+      start: new Date('2026-07-14T15:00:00Z'), // 東京 2026-07-15 0:00
+      end: new Date('2026-07-15T15:00:00Z'), // 東京 2026-07-16 0:00（排他）
+    };
+    expect(formatViewTitle('day', currentDate, range, 'Asia/Tokyo', 'ja')).toBe(
+      '2026年7月15日(水)',
+    );
+    expect(formatViewTitle('resource', currentDate, range, 'Asia/Tokyo', 'ja')).toBe(
+      '2026年7月15日(水)',
+    );
+  });
+
+  it('week / list は formatRangeTitle と同じ「M月D日〜M月D日」になる', () => {
+    const range: DateRange = {
+      start: new Date('2026-07-04T15:00:00Z'), // 東京 2026-07-05 0:00
+      end: new Date('2026-07-11T15:00:00Z'), // 東京 2026-07-12 0:00（排他）
+    };
+    expect(formatViewTitle('week', currentDate, range, 'Asia/Tokyo', 'ja')).toBe('7月5日〜7月11日');
+    expect(formatViewTitle('list', currentDate, range, 'Asia/Tokyo', 'ja')).toBe('7月5日〜7月11日');
+  });
+
+  it('timeline: 1 日表示（range が 1 日分）なら日ビューと同じ形式（currentDate 基準）になる', () => {
+    const range: DateRange = {
+      start: new Date('2026-07-14T15:00:00Z'), // 東京 2026-07-15 0:00
+      end: new Date('2026-07-15T15:00:00Z'), // 東京 2026-07-16 0:00（排他）
+    };
+    expect(formatViewTitle('timeline', currentDate, range, 'Asia/Tokyo', 'ja')).toBe(
+      '2026年7月15日(水)',
+    );
+  });
+
+  it('timeline: 複数日表示（range が複数日分）なら範囲形式になる', () => {
+    const range: DateRange = {
+      start: new Date('2026-07-04T15:00:00Z'), // 東京 2026-07-05 0:00
+      end: new Date('2026-07-11T15:00:00Z'), // 東京 2026-07-12 0:00（排他）
+    };
+    expect(formatViewTitle('timeline', currentDate, range, 'Asia/Tokyo', 'ja')).toBe(
+      '7月5日〜7月11日',
+    );
+  });
+
+  it('year は formatYearTitle と同じ「YYYY年」になる（range は無視する）', () => {
+    const range: DateRange = {
+      start: new Date('2026-06-30T15:00:00Z'),
+      end: new Date('2026-07-31T15:00:00Z'),
+    };
+    expect(formatViewTitle('year', currentDate, range, 'Asia/Tokyo', 'ja')).toBe('2026年');
+  });
+
+  it('multiMonth: 表示月数が 1 なら開始月のみ、複数月なら「開始月〜終了月」になる', () => {
+    const singleMonth: DateRange = {
+      start: new Date('2026-06-30T15:00:00Z'), // 東京 2026-07-01 0:00
+      end: new Date('2026-07-31T15:00:00Z'), // 東京 2026-08-01 0:00（排他）
+    };
+    expect(formatViewTitle('multiMonth', currentDate, singleMonth, 'Asia/Tokyo', 'ja')).toBe(
+      '2026年7月',
+    );
+
+    const threeMonths: DateRange = {
+      start: new Date('2026-06-30T15:00:00Z'), // 東京 2026-07-01 0:00
+      end: new Date('2026-09-30T15:00:00Z'), // 東京 2026-10-01 0:00（排他、7〜9月の3ヶ月分）
+    };
+    expect(formatViewTitle('multiMonth', currentDate, threeMonths, 'Asia/Tokyo', 'ja')).toBe(
+      '2026年7月〜2026年9月',
+    );
+  });
+
+  it('ja 以外のロケールでも例外なく整形できる', () => {
+    const range: DateRange = {
+      start: new Date('2026-06-30T15:00:00Z'),
+      end: new Date('2026-07-31T15:00:00Z'),
+    };
+    expect(() => formatViewTitle('month', currentDate, range, 'Asia/Tokyo', 'en-US')).not.toThrow();
   });
 });
 

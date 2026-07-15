@@ -7,9 +7,10 @@
  */
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { createCalendar } from '../core/calendar';
 import type { CalendarEvent, EventOccurrence } from '../core/types';
-import { eventNotificationProps } from './drag-common';
-import type { CalendarInteractionCallbacks } from './types';
+import { createDefaultEvent, eventNotificationProps } from './drag-common';
+import type { CalendarInteractionCallbacks, RangeSelection } from './types';
 
 /** テスト用の最小限のオカレンス。 */
 function makeOccurrence(): EventOccurrence {
@@ -112,5 +113,55 @@ describe('eventNotificationProps', () => {
     expect(Object.keys(props).sort()).toEqual(
       ['onContextMenu', 'onDoubleClick', 'onPointerEnter', 'onPointerLeave'].sort(),
     );
+  });
+});
+
+describe('createDefaultEvent', () => {
+  const range = {
+    start: new Date('2026-07-16T01:00:00Z'),
+    end: new Date('2026-07-16T02:00:00Z'),
+  };
+
+  it('defaultEventTitle・range.start/end で作成し、allDay と resourceId は既定では省略する', () => {
+    const api = createCalendar({ defaultEventTitle: '（無題）' });
+    const selection: RangeSelection = { range, allDay: false };
+
+    const created = createDefaultEvent(api, selection);
+
+    expect(created).toMatchObject({ title: '（無題）', start: range.start, end: range.end });
+    expect(created.allDay).toBeUndefined();
+    expect(created.resourceId).toBeUndefined();
+    expect(api.getEvents()).toEqual([created]);
+  });
+
+  it('allDay: true の選択では作成イベントにも allDay: true を付与する', () => {
+    const api = createCalendar();
+    const selection: RangeSelection = { range, allDay: true };
+
+    const created = createDefaultEvent(api, selection);
+
+    expect(created.allDay).toBe(true);
+  });
+
+  it('resourceId が文字列のときのみ作成イベントに含め、null/undefined のときは含めない', () => {
+    const api = createCalendar();
+
+    const withResource = createDefaultEvent(api, { range, allDay: false, resourceId: 'r1' });
+    expect(withResource.resourceId).toBe('r1');
+
+    const unassigned = createDefaultEvent(api, { range, allDay: false, resourceId: null });
+    expect(unassigned.resourceId).toBeUndefined();
+
+    const notApplicable = createDefaultEvent(api, { range, allDay: false });
+    expect(notApplicable.resourceId).toBeUndefined();
+  });
+
+  it('作成時点の api.getState().options.defaultEventTitle を都度読む', () => {
+    const api = createCalendar({ defaultEventTitle: '最初のタイトル' });
+    api.updateOptions({ defaultEventTitle: '更新後のタイトル' });
+
+    const created = createDefaultEvent(api, { range, allDay: false });
+
+    expect(created.title).toBe('更新後のタイトル');
   });
 });

@@ -10,7 +10,7 @@
 import type { ReactElement, ReactNode } from 'react';
 import type { CalendarViewType } from '../../core/types';
 import { useCalendarContext } from '../context';
-import { formatDayTitle, formatMonthTitle, formatRangeTitle, formatYearTitle } from './format';
+import { formatViewTitle } from './format';
 
 /** ビュー切替ボタンの定義（`view` → ボタン属性・既定文字列）。既定文字列は `labels` で差し替えられる。 */
 const VIEW_BUTTON_DEFS: Record<CalendarViewType, { action: string; defaultLabel: string }> = {
@@ -125,40 +125,7 @@ export function Toolbar(props: ToolbarProps): ReactElement {
   const prevLabel = labels?.prev ?? DEFAULT_PREV_LABEL;
   const nextLabel = labels?.next ?? DEFAULT_NEXT_LABEL;
   const viewsGroupLabel = labels?.viewsGroup ?? DEFAULT_VIEWS_GROUP_LABEL;
-
-  /** 現在のビューに応じた期間タイトルを組み立てる。 */
-  function title(): string {
-    switch (view) {
-      case 'month':
-        return formatMonthTitle(currentDate, timeZone, locale);
-      case 'day':
-      case 'resource':
-        return formatDayTitle(currentDate, timeZone, locale);
-      case 'week':
-      case 'list':
-        return formatRangeTitle(api.getVisibleRange(), timeZone, locale);
-      case 'timeline': {
-        // 1 日表示なら日ビューと同じ形式、複数日なら範囲形式
-        const range = api.getVisibleRange();
-        const lastInstant = new Date(range.end.getTime() - 1);
-        return formatDayTitle(range.start, timeZone, locale) ===
-          formatDayTitle(lastInstant, timeZone, locale)
-          ? formatDayTitle(currentDate, timeZone, locale)
-          : formatRangeTitle(range, timeZone, locale);
-      }
-      case 'year':
-        return formatYearTitle(currentDate, timeZone, locale);
-      case 'multiMonth': {
-        // 「2026年7月〜2026年9月」形式。表示範囲の end は排他（最終月の翌月初）なので
-        // 1 ミリ秒前で最終月に含まれる時点を得る
-        const range = api.getVisibleRange();
-        const lastMonthInstant = new Date(range.end.getTime() - 1);
-        const startTitle = formatMonthTitle(range.start, timeZone, locale);
-        const endTitle = formatMonthTitle(lastMonthInstant, timeZone, locale);
-        return startTitle === endTitle ? startTitle : `${startTitle}〜${endTitle}`;
-      }
-    }
-  }
+  const title = formatViewTitle(view, currentDate, api.getVisibleRange(), timeZone, locale);
 
   return (
     <div data-koyomi="toolbar">
@@ -191,7 +158,7 @@ export function Toolbar(props: ToolbarProps): ReactElement {
           ›
         </button>
       </div>
-      <h2 data-koyomi="title">{title()}</h2>
+      <h2 data-koyomi="title">{title}</h2>
       {/* biome-ignore lint/a11y/useSemanticElements: DOM 仕様（components-dom.md）で
           toolbar-views は div[role="group"] と定めている。fieldset はテーマなしでの
           既定描画（枠線・余白）が大きく変わるためヘッドレス用途に不向き */}

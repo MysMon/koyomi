@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { EventOccurrence } from '../../core/types';
+import type { DateRange, EventOccurrence } from '../../core/types';
 import {
   formatEventAriaLabel,
+  formatOccurrenceRangeLabel,
   resolveEventAriaLabel,
   withEventColorStyle,
   withMonthLanesStyle,
@@ -28,6 +29,38 @@ describe('month-view-parts', () => {
     );
     expect(formatEventAriaLabel(occurrence(true), 'Asia/Tokyo', 'ja')).toBe(
       '会議、7月15日〜7月16日',
+    );
+  });
+
+  it('formatOccurrenceRangeLabel: 終日・単日は日付 1 つ、終日・複数日は日付範囲になる', () => {
+    const singleDay: DateRange = {
+      start: new Date('2026-07-15T01:00:00Z'),
+      end: new Date('2026-07-15T15:00:00Z'), // 東京 2026-07-16 0:00（排他、終日単日）
+    };
+    expect(formatOccurrenceRangeLabel(singleDay, true, 'Asia/Tokyo', 'ja')).toBe('7月15日');
+
+    const multiDay: DateRange = {
+      start: new Date('2026-07-15T01:00:00Z'),
+      end: new Date('2026-07-16T15:00:00Z'), // 東京 2026-07-17 0:00（排他、終日 2 日分）
+    };
+    expect(formatOccurrenceRangeLabel(multiDay, true, 'Asia/Tokyo', 'ja')).toBe('7月15日〜7月16日');
+  });
+
+  it('formatOccurrenceRangeLabel: 時間指定・同日は時刻のみ、日をまたぐ場合は終了側にも日付を含める', () => {
+    const sameDay: DateRange = {
+      start: new Date('2026-07-15T01:00:00Z'), // 東京 10:00
+      end: new Date('2026-07-15T02:00:00Z'), // 東京 11:00
+    };
+    expect(formatOccurrenceRangeLabel(sameDay, false, 'Asia/Tokyo', 'ja')).toBe(
+      '7月15日 10:00〜11:00',
+    );
+
+    const spanningMidnight: DateRange = {
+      start: new Date('2026-07-15T14:00:00Z'), // 東京 2026-07-15 23:00
+      end: new Date('2026-07-15T16:00:00Z'), // 東京 2026-07-16 1:00
+    };
+    expect(formatOccurrenceRangeLabel(spanningMidnight, false, 'Asia/Tokyo', 'ja')).toBe(
+      '7月15日 23:00〜7月16日 1:00',
     );
   });
 

@@ -19,6 +19,7 @@ import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import type {
   CalendarEvent,
+  CalendarRangeChangeInfo,
   CalendarResource,
   EventOccurrence,
   ListDay,
@@ -32,7 +33,9 @@ import { TimelineView } from '../components/timeline-view';
 import { Toolbar } from '../components/toolbar';
 import { YearView } from '../components/year-view';
 import { CalendarProvider } from '../context';
+import type { EventChange, EventDelete, RangeSelection } from '../types';
 import { useCalendar } from '../use-calendar';
+import type { AnnouncerFormatterContext } from '../use-calendar-announcer';
 import type { EnUsLabels } from './en-us';
 import { enUsLabels } from './en-us';
 
@@ -358,6 +361,150 @@ describe('enUsLabels', () => {
           '毎日',
         ),
       ).toBe('Daily');
+    });
+  });
+
+  describe('announcer グループ（useCalendarAnnouncer の messages）', () => {
+    const ctx: AnnouncerFormatterContext = {
+      timeZone: 'Asia/Tokyo',
+      locale: 'en-US',
+      resources: [],
+    };
+    const ctxWithResource: AnnouncerFormatterContext = {
+      timeZone: 'Asia/Tokyo',
+      locale: 'en-US',
+      resources: [{ id: 'r1', title: 'Room A' }],
+    };
+
+    function makeOccurrence(allDay = false): EventOccurrence {
+      const start = new Date('2026-07-15T01:00:00Z'); // 東京 10:00
+      const end = allDay ? new Date('2026-07-15T15:00:00Z') : new Date('2026-07-15T02:00:00Z');
+      return {
+        key: `e1@${start.toISOString()}`,
+        eventId: 'e1',
+        event: { id: 'e1', title: 'Meeting', start, end, allDay },
+        start,
+        end,
+        allDay,
+        isRecurring: false,
+        originalStart: start,
+      };
+    }
+
+    it('AnnouncerMessages の 4 関数をカバーする', () => {
+      expect(Object.keys(enUsLabels.announcer).sort()).toEqual(
+        ['eventChanged', 'eventCreated', 'eventDeleted', 'viewChanged'].sort(),
+      );
+    });
+
+    it('eventChanged: duration 不変は "moved to"、duration が変わると "resized to" になる', () => {
+      const moved: EventChange = {
+        occurrence: makeOccurrence(),
+        newRange: {
+          start: new Date('2026-07-16T01:00:00Z'),
+          end: new Date('2026-07-16T02:00:00Z'),
+        },
+        allDay: false,
+        scope: null,
+        changes: [],
+      };
+      expect(enUsLabels.announcer.eventChanged(moved, '既定文言', ctx)).toBe(
+        'Meeting moved to July 16 10:00–11:00',
+      );
+
+      const resized: EventChange = {
+        occurrence: makeOccurrence(),
+        newRange: {
+          start: new Date('2026-07-15T01:00:00Z'),
+          end: new Date('2026-07-15T02:30:00Z'),
+        },
+        allDay: false,
+        scope: null,
+        changes: [],
+      };
+      expect(enUsLabels.announcer.eventChanged(resized, '既定文言', ctx)).toBe(
+        'Meeting resized to July 15 10:00–11:30',
+      );
+    });
+
+    it('eventChanged: allDay が変化すると変換の文言になり、resourceId があればリソース名を付記する', () => {
+      const toAllDay: EventChange = {
+        occurrence: makeOccurrence(false),
+        newRange: {
+          start: new Date('2026-07-16T01:00:00Z'),
+          end: new Date('2026-07-16T15:00:00Z'),
+        },
+        allDay: true,
+        scope: null,
+        resourceId: 'r1',
+        changes: [],
+      };
+      expect(enUsLabels.announcer.eventChanged(toAllDay, '既定文言', ctxWithResource)).toBe(
+        'Meeting changed to an all-day event, now on July 16 (Room A)',
+      );
+
+      const toTimed: EventChange = {
+        occurrence: makeOccurrence(true),
+        newRange: {
+          start: new Date('2026-07-16T01:00:00Z'),
+          end: new Date('2026-07-16T02:00:00Z'),
+        },
+        allDay: false,
+        scope: null,
+        resourceId: null,
+        changes: [],
+      };
+      expect(enUsLabels.announcer.eventChanged(toTimed, '既定文言', ctx)).toBe(
+        'Meeting changed to a timed event, now at July 16 10:00–11:00 (Unassigned)',
+      );
+    });
+
+    it('eventCreated: 作成イベント・選択範囲から英語文言を組み立てる', () => {
+      const selection: RangeSelection = {
+        range: {
+          start: new Date('2026-07-16T01:00:00Z'),
+          end: new Date('2026-07-16T02:00:00Z'),
+        },
+        allDay: false,
+        resourceId: 'r1',
+      };
+      const event: CalendarEvent = {
+        id: 'e2',
+        title: 'Meeting',
+        start: selection.range.start,
+        end: selection.range.end,
+      };
+      expect(enUsLabels.announcer.eventCreated(event, selection, '既定文言', ctxWithResource)).toBe(
+        'Meeting created for July 16 10:00–11:00 (Room A)',
+      );
+    });
+
+    it('eventDeleted: scope ごとに付記が変わる（null は付記なし）', () => {
+      const base: Omit<EventDelete, 'scope'> = { occurrence: makeOccurrence(), changes: [] };
+      expect(enUsLabels.announcer.eventDeleted({ ...base, scope: null }, '既定文言', ctx)).toBe(
+        'Meeting deleted',
+      );
+      expect(enUsLabels.announcer.eventDeleted({ ...base, scope: 'this' }, '既定文言', ctx)).toBe(
+        'Meeting deleted (this event only)',
+      );
+      expect(
+        enUsLabels.announcer.eventDeleted({ ...base, scope: 'thisAndFollowing' }, '既定文言', ctx),
+      ).toBe('Meeting deleted (this and following events)');
+      expect(enUsLabels.announcer.eventDeleted({ ...base, scope: 'all' }, '既定文言', ctx)).toBe(
+        'Meeting deleted (all events in the series)',
+      );
+    });
+
+    it('viewChanged: formatViewTitle の英語整形結果を含む文言になる', () => {
+      const info: CalendarRangeChangeInfo = {
+        view: 'month',
+        currentDate: new Date('2026-07-15T01:00:00Z'),
+        rangeStart: new Date('2026-06-30T15:00:00Z'),
+        rangeEnd: new Date('2026-07-31T15:00:00Z'),
+      };
+      expect(enUsLabels.announcer.viewChanged(info, '既定文言', ctx)).toBe(
+        'Switched view to July 2026',
+      );
     });
   });
 

@@ -46,6 +46,7 @@ import {
   checkBeforeEventDelete,
   checkBeforeSelectRange,
   createAutoScrollLoop,
+  createDefaultEvent,
   type EventNotificationProps,
   eventNotificationProps,
   laneResourceIdOf,
@@ -349,12 +350,7 @@ export function useTimelineDrag(params: {
         callbacks.onSelectRange({ range, allDay: false, resourceId });
         return;
       }
-      calendar.api.createEvent({
-        title: calendar.state.options.defaultEventTitle,
-        start: range.start,
-        end: range.end,
-        ...(resourceId !== null ? { resourceId } : {}),
-      });
+      createDefaultEvent(calendar.api, { range, allDay: false, resourceId });
     } catch (error) {
       reportError(error);
     } finally {

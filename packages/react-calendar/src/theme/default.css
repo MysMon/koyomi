@@ -183,6 +183,20 @@
   opacity: 0.5;
 }
 
+/* useCalendarAnnouncer の live region は視覚的に非表示にする（sr-only 相当）。
+   root スコープに依存しない（live region 要素は calendar のルート DOM 外に置くアプリもある） */
+[data-koyomi="live-region"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ---------------------------------------------------------------------------
  * ツールバー
  * ------------------------------------------------------------------------ */

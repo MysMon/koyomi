@@ -137,13 +137,57 @@ function formatFullDateLabel(date: Date, timeZone: TimeZoneId, locale: string): 
 }
 
 /**
- * オカレンスの表示上の最終日に含まれる瞬間を返す。
+ * 日時範囲の表示上の最終日に含まれる瞬間を返す。
  * `end` は排他的なので、`end` の 1 ミリ秒前が属する日を終了日とする。
  */
-function inclusiveEndInstant(occurrence: EventOccurrence): Date {
-  return occurrence.end.getTime() > occurrence.start.getTime()
-    ? new Date(occurrence.end.getTime() - 1)
-    : occurrence.start;
+function inclusiveEndInstant(range: DateRange): Date {
+  return range.end.getTime() > range.start.getTime()
+    ? new Date(range.end.getTime() - 1)
+    : range.start;
+}
+
+/**
+ * オカレンスの日時範囲ラベルを Intl（表示 TZ）で生成する。
+ *
+ * 終日イベントは日付範囲（`'M月d日〜M月d日'`、単日なら日付 1 つのみ）、
+ * 時間指定イベントは `'M月d日 H:mm〜H:mm'`（複数日にまたがる場合は終了側にも日付を
+ * 含める）の形式になる。`formatEventAriaLabel` の日時範囲部分、および
+ * `useCalendarAnnouncer` の既定のイベント変更・作成通知の日時整形で共通に使う。
+ *
+ * @param range - 対象の日時範囲（`end` 排他）
+ * @param allDay - 終日として整形するか
+ * @param timeZone - 表示に使うタイムゾーン
+ * @param locale - ロケール
+ * @returns 例（`ja`）: `'7月15日〜7月16日'`（終日・複数日）、`'7月15日 10:00〜11:00'`（時間指定・単日）
+ * @example
+ * ```ts
+ * formatOccurrenceRangeLabel(
+ *   { start: new Date('2026-07-15T01:00:00Z'), end: new Date('2026-07-15T02:00:00Z') },
+ *   false,
+ *   'Asia/Tokyo',
+ *   'ja',
+ * ); // => '7月15日 10:00〜11:00'
+ * ```
+ */
+export function formatOccurrenceRangeLabel(
+  range: DateRange,
+  allDay: boolean,
+  timeZone: TimeZoneId,
+  locale: string,
+): string {
+  if (allDay) {
+    const startLabel = formatDateLabel(range.start, timeZone, locale);
+    const endLabel = formatDateLabel(inclusiveEndInstant(range), timeZone, locale);
+    return startLabel === endLabel ? startLabel : `${startLabel}〜${endLabel}`;
+  }
+  const startDateLabel = formatDateLabel(range.start, timeZone, locale);
+  const endDateLabel = formatDateLabel(range.end, timeZone, locale);
+  const startTime = formatTimeLabel(range.start, timeZone, locale);
+  const endTime = formatTimeLabel(range.end, timeZone, locale);
+  // 複数日にまたがる場合は終了側にも日付を含める（読み上げの欠落防止）
+  return startDateLabel === endDateLabel
+    ? `${startDateLabel} ${startTime}〜${endTime}`
+    : `${startDateLabel} ${startTime}〜${endDateLabel} ${endTime}`;
 }
 
 /**
@@ -157,21 +201,8 @@ export function formatEventAriaLabel(
   locale: string,
 ): string {
   const title = occurrence.event.title;
-  if (occurrence.allDay) {
-    const startLabel = formatDateLabel(occurrence.start, timeZone, locale);
-    const endLabel = formatDateLabel(inclusiveEndInstant(occurrence), timeZone, locale);
-    return startLabel === endLabel
-      ? `${title}、${startLabel}`
-      : `${title}、${startLabel}〜${endLabel}`;
-  }
-  const startDateLabel = formatDateLabel(occurrence.start, timeZone, locale);
-  const endDateLabel = formatDateLabel(occurrence.end, timeZone, locale);
-  const startTime = formatTimeLabel(occurrence.start, timeZone, locale);
-  const endTime = formatTimeLabel(occurrence.end, timeZone, locale);
-  // 複数日にまたがる場合は終了側にも日付を含める（読み上げの欠落防止）
-  return startDateLabel === endDateLabel
-    ? `${title}、${startDateLabel} ${startTime}〜${endTime}`
-    : `${title}、${startDateLabel} ${startTime}〜${endDateLabel} ${endTime}`;
+  const rangeLabel = formatOccurrenceRangeLabel(occurrence, occurrence.allDay, timeZone, locale);
+  return `${title}、${rangeLabel}`;
 }
 
 /**

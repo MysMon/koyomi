@@ -7,7 +7,7 @@
  * `ja` ロケール以外は `Intl` の既定の書式に委ねる（厳密な文字列は保証しない）。
  */
 
-import type { DateRange, TimeZoneId, Weekday } from '../../core/types';
+import type { CalendarViewType, DateRange, TimeZoneId, Weekday } from '../../core/types';
 
 /**
  * 曜日番号の基準日を構成する年（UTC 上、1/1 が日曜日になる年）。
@@ -216,6 +216,67 @@ export function formatWeekday(weekday: Weekday, locale: string): string {
   return getCachedDateTimeFormat(locale, 'UTC', 'weekday-short', { weekday: 'short' }).format(
     reference,
   );
+}
+
+/**
+ * 現在のビューに応じた期間タイトルを整形する。
+ *
+ * `Toolbar` の見出しと `useCalendarAnnouncer` の既定のビュー変更通知（`wrapRangeChange`）の
+ * 両方から共通で使う。
+ *
+ * @param view - 対象のビュー
+ * @param currentDate - 表示の基準日
+ * @param range - 表示範囲（`end` 排他）
+ * @param timeZone - 表示に使うタイムゾーン
+ * @param locale - ロケール
+ * @returns 例: `'2026年7月'`（月）、`'2026年7月15日(水)'`（日・リソース）、
+ *   `'7月12日〜7月18日'`（週・リスト）、`'2026年'`（年）（`ja`）
+ * @example
+ * ```ts
+ * formatViewTitle(
+ *   'month',
+ *   new Date('2026-07-15T01:00:00Z'),
+ *   { start: new Date('2026-07-01T00:00:00+09:00'), end: new Date('2026-08-01T00:00:00+09:00') },
+ *   'Asia/Tokyo',
+ *   'ja',
+ * ); // => '2026年7月'
+ * ```
+ */
+export function formatViewTitle(
+  view: CalendarViewType,
+  currentDate: Date,
+  range: DateRange,
+  timeZone: TimeZoneId,
+  locale: string,
+): string {
+  switch (view) {
+    case 'month':
+      return formatMonthTitle(currentDate, timeZone, locale);
+    case 'day':
+    case 'resource':
+      return formatDayTitle(currentDate, timeZone, locale);
+    case 'week':
+    case 'list':
+      return formatRangeTitle(range, timeZone, locale);
+    case 'timeline': {
+      // 1 日表示なら日ビューと同じ形式、複数日なら範囲形式
+      const lastInstant = new Date(range.end.getTime() - 1);
+      return formatDayTitle(range.start, timeZone, locale) ===
+        formatDayTitle(lastInstant, timeZone, locale)
+        ? formatDayTitle(currentDate, timeZone, locale)
+        : formatRangeTitle(range, timeZone, locale);
+    }
+    case 'year':
+      return formatYearTitle(currentDate, timeZone, locale);
+    case 'multiMonth': {
+      // 「2026年7月〜2026年9月」形式。表示範囲の end は排他（最終月の翌月初）なので
+      // 1 ミリ秒前で最終月に含まれる時点を得る
+      const lastMonthInstant = new Date(range.end.getTime() - 1);
+      const startTitle = formatMonthTitle(range.start, timeZone, locale);
+      const endTitle = formatMonthTitle(lastMonthInstant, timeZone, locale);
+      return startTitle === endTitle ? startTitle : `${startTitle}〜${endTitle}`;
+    }
+  }
 }
 
 /**

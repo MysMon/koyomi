@@ -168,6 +168,7 @@ export {
   formatMonthTitle,
   formatRangeTitle,
   formatTime,
+  formatViewTitle,
   formatWeekday,
   formatYearTitle,
 } from './react/components/format';
@@ -214,6 +215,15 @@ export type {
 } from './react/types';
 // React: フック
 export { type UseCalendarOptions, useCalendar } from './react/use-calendar';
+export {
+  type AnnouncerFormatterContext,
+  type AnnouncerMessages,
+  type AnnouncerTargets,
+  type LiveRegionProps,
+  type UseCalendarAnnouncerOptions,
+  type UseCalendarAnnouncerResult,
+  useCalendarAnnouncer,
+} from './react/use-calendar-announcer';
 export {
   type UseCalendarHistoryOptions,
   type UseCalendarHistoryResult,

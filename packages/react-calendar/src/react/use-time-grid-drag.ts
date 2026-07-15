@@ -51,6 +51,7 @@ import {
   checkBeforeEventDelete,
   checkBeforeSelectRange,
   createAutoScrollLoop,
+  createDefaultEvent,
   type EventNotificationProps,
   eventNotificationProps,
   resolveScopeForRecurring,
@@ -466,11 +467,7 @@ export function useTimeGridDrag(params: {
           if (callbacks?.onSelectRange) {
             callbacks.onSelectRange({ range, allDay: false });
           } else {
-            calendar.api.createEvent({
-              title: calendar.state.options.defaultEventTitle,
-              start: range.start,
-              end: range.end,
-            });
+            createDefaultEvent(calendar.api, { range, allDay: false });
           }
         }
       }

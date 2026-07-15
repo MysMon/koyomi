@@ -49,6 +49,7 @@ import {
   checkBeforeEventDelete,
   checkBeforeSelectRange,
   createAutoScrollLoop,
+  createDefaultEvent,
   type EventNotificationProps,
   eventNotificationProps,
   laneResourceIdOf,
@@ -329,13 +330,7 @@ export function useResourceGridDrag(params: {
         callbacks.onSelectRange({ range, allDay, resourceId });
         return;
       }
-      calendar.api.createEvent({
-        title: calendar.state.options.defaultEventTitle,
-        start: range.start,
-        end: range.end,
-        ...(allDay ? { allDay: true } : {}),
-        ...(resourceId !== null ? { resourceId } : {}),
-      });
+      createDefaultEvent(calendar.api, { range, allDay, resourceId });
     } catch (error) {
       reportError(error);
     } finally {

@@ -17,10 +17,19 @@ import type {
   RecurrenceRuleState,
   RecurrenceWeekdayOrdinal,
 } from '../../core/recurrence-editor';
-import type { EventOccurrence, ListDay, Weekday, YearDay } from '../../core/types';
+import type {
+  CalendarEvent,
+  CalendarRangeChangeInfo,
+  EventOccurrence,
+  ListDay,
+  Weekday,
+  YearDay,
+} from '../../core/types';
 import type { CalendarViewProps } from '../components/calendar-view';
+import { formatViewTitle } from '../components/format';
 import type { ListViewProps } from '../components/list-view';
 import type { MonthViewProps } from '../components/month-view';
+import { formatOccurrenceRangeLabel } from '../components/month-view-parts';
 import type { MultiMonthViewProps } from '../components/multi-month-view';
 import type { ResourceViewProps } from '../components/resource-view';
 import type { TimelineViewProps } from '../components/timeline-view';
@@ -29,6 +38,8 @@ import type { VirtualListViewProps } from '../components/virtual-list-view';
 import type { VirtualResourceViewProps } from '../components/virtual-resource-view';
 import type { VirtualTimelineViewProps } from '../components/virtual-timeline-view';
 import type { YearViewProps } from '../components/year-view';
+import type { EventChange, EventDelete, RangeSelection } from '../types';
+import type { AnnouncerFormatterContext, AnnouncerMessages } from '../use-calendar-announcer';
 import type { UseRecurrenceRuleEditorOptions } from '../use-recurrence-rule-editor';
 
 /**
@@ -352,6 +363,133 @@ const recurrenceEditor = {
 } satisfies RecurrenceEditorLabels;
 
 /**
+ * `formatOccurrenceRangeLabel` の結果から、日本語特有の連結記号（`〜`）を
+ * 英語表記（en dash）に変換する（`eventAriaLabelEn` と同じ区切り記号の置換方針）。
+ */
+function toEnDash(label: string): string {
+  return label.replace(/〜/g, '–');
+}
+
+/**
+ * `useCalendarAnnouncer` の `resolveResourceLabel` の英語版。
+ * `resourceId` が `undefined`（リソース対象外）なら `null`（付記なし）を返す。
+ */
+function resolveResourceLabelEn(
+  resourceId: string | null | undefined,
+  resources: readonly { id: string; title: string }[],
+): string | null {
+  if (resourceId === undefined) {
+    return null;
+  }
+  if (resourceId === null) {
+    return 'Unassigned';
+  }
+  const resource = resources.find((candidate) => candidate.id === resourceId);
+  return resource?.title ?? 'Unassigned';
+}
+
+/** `RecurringEditScope` の英語の付記文言（`null` は付記なし）。 */
+function describeScopeEn(scope: EventDelete['scope']): string | null {
+  switch (scope) {
+    case 'this':
+      return 'this event only';
+    case 'thisAndFollowing':
+      return 'this and following events';
+    case 'all':
+      return 'all events in the series';
+    case null:
+      return null;
+  }
+}
+
+/**
+ * `useCalendarAnnouncer` の `describeChangeVerb` の英語版。移動・サイズ変更・
+ * 終日⇔時間指定変換の判定ヒューリスティック自体は日本語版と同じ（判定の詳細は
+ * `use-calendar-announcer.ts` の `describeChangeVerb` を参照）。
+ */
+function describeChangeVerbEn(occurrence: EventOccurrence, change: EventChange): string {
+  if (occurrence.allDay !== change.allDay) {
+    return change.allDay
+      ? 'changed to an all-day event, now on'
+      : 'changed to a timed event, now at';
+  }
+  const before = occurrence.end.getTime() - occurrence.start.getTime();
+  const after = change.newRange.end.getTime() - change.newRange.start.getTime();
+  return before === after ? 'moved to' : 'resized to';
+}
+
+/**
+ * `useCalendarAnnouncer` の `AnnouncerMessages` の英語プリセット。
+ *
+ * 日本語の既定文言（`defaultMessage`）を文字列置換するのではなく、`ctx`
+ * （`timeZone` / `locale` / `resources`）と対象データから英語の語順で組み立てる
+ * （日本語は SOV、英語は SVO のため語順自体が異なり、`eventAriaLabelEn` のような
+ * 区切り記号の置換だけでは英語化できない）。
+ */
+function eventChangedEn(
+  change: EventChange,
+  _defaultMessage: string,
+  ctx: AnnouncerFormatterContext,
+): string {
+  const verb = describeChangeVerbEn(change.occurrence, change);
+  const rangeLabel = toEnDash(
+    formatOccurrenceRangeLabel(change.newRange, change.allDay, ctx.timeZone, ctx.locale),
+  );
+  const resourceLabel = resolveResourceLabelEn(change.resourceId, ctx.resources);
+  const base = `${change.occurrence.event.title} ${verb} ${rangeLabel}`;
+  return resourceLabel === null ? base : `${base} (${resourceLabel})`;
+}
+
+/** {@link eventChangedEn} と対になる作成通知の英語版。 */
+function eventCreatedEn(
+  event: CalendarEvent,
+  selection: RangeSelection,
+  _defaultMessage: string,
+  ctx: AnnouncerFormatterContext,
+): string {
+  const rangeLabel = toEnDash(
+    formatOccurrenceRangeLabel(selection.range, selection.allDay, ctx.timeZone, ctx.locale),
+  );
+  const resourceLabel = resolveResourceLabelEn(selection.resourceId, ctx.resources);
+  const base = `${event.title} created for ${rangeLabel}`;
+  return resourceLabel === null ? base : `${base} (${resourceLabel})`;
+}
+
+/** {@link eventChangedEn} と対になる削除通知の英語版。 */
+function eventDeletedEn(
+  deletion: EventDelete,
+  _defaultMessage: string,
+  _ctx: AnnouncerFormatterContext,
+): string {
+  const scopeLabel = describeScopeEn(deletion.scope);
+  const base = `${deletion.occurrence.event.title} deleted`;
+  return scopeLabel === null ? base : `${base} (${scopeLabel})`;
+}
+
+/** {@link eventChangedEn} と対になるビュー変更通知の英語版。 */
+function viewChangedEn(
+  info: CalendarRangeChangeInfo,
+  _defaultMessage: string,
+  ctx: AnnouncerFormatterContext,
+): string {
+  const title = formatViewTitle(
+    info.view,
+    info.currentDate,
+    { start: info.rangeStart, end: info.rangeEnd },
+    ctx.timeZone,
+    ctx.locale,
+  );
+  return `Switched view to ${title}`;
+}
+
+const announcer = {
+  eventChanged: eventChangedEn,
+  eventCreated: eventCreatedEn,
+  eventDeleted: eventDeletedEn,
+  viewChanged: viewChangedEn,
+} satisfies Required<AnnouncerMessages>;
+
+/**
  * 英語 (en-US) の既定文言プリセット。
  *
  * キーは対象コンポーネント名ごとにまとめてあり、対応する props にそのまま
@@ -373,6 +511,8 @@ const recurrenceEditor = {
  * <CalendarView {...enUsLabels.calendarView} />
  * // useRecurrenceRuleEditor の describeRule には recurrenceEditor.describeRule を渡す
  * useRecurrenceRuleEditor({ start, timeZone, describeRule: enUsLabels.recurrenceEditor.describeRule });
+ * // useCalendarAnnouncer の messages には announcer をそのまま渡す
+ * useCalendarAnnouncer({ calendar, messages: enUsLabels.announcer });
  * ```
  */
 export const enUsLabels = {
@@ -385,6 +525,7 @@ export const enUsLabels = {
   year,
   calendarView,
   recurrenceEditor,
+  announcer,
 } as const;
 
 /**
