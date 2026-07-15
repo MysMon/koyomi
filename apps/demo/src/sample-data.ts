@@ -251,6 +251,20 @@ export const sampleEvents: CalendarEvent[] = [
     end: `${dayKey(1)}T15:30:00`,
     color: '#3f51b5',
   },
+  {
+    // 毎月の最終営業日（BYSETPOS）に実施する月末締め処理。BYSETPOS は
+    // useRecurrenceRuleEditor の編集エディタが対応しない RRULE 指定の例
+    // （EventDialog では読み取り専用の unsupported 表示になる）。
+    id: 'sample-unsupported-rrule',
+    title: '月末締め処理',
+    resourceId: 'room-b',
+    start: `${dayKey(0)}T17:00:00`,
+    end: `${dayKey(0)}T18:00:00`,
+    rrule: 'FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1',
+    color: '#616161',
+    location: '会議室 B',
+    description: '毎月の最終営業日に実施（BYSETPOS。編集フォームでは読み取り専用）。',
+  },
 ];
 
 /**

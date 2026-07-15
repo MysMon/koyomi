@@ -2,42 +2,33 @@
  * @packageDocumentation
  * `UndoPattern` — 「Undo つきエディタ」パターン。
  *
- * `updateEvent` / `deleteEvent`（`CalendarApi` 直接呼び出し・ドラッグ操作の両方）が
- * 返す `readonly EventChangeEntry[]` を積み上げて undo スタックを作り、「元に戻す」
- * 操作でまとめて逆適用する実用例。繰り返し予定のスコープ操作（オーバーライド生成・
- * シリーズ分割）のように 1 回の操作で複数イベントが作成・変更・削除される複合変更も、
- * `changes` をそのエントリ単位で逆再生することで 1 回の undo でまとめて元に戻る。
+ * `useCalendarHistory`（`createEventHistory` の React 接続）に undo/redo 本体を
+ * 委ね、ライブラリの履歴マネージャが `EventChangeEntry` の適用・逆適用を行う。
+ * 繰り返し予定のスコープ操作（オーバーライド生成・シリーズ分割）のように
+ * 1 回の操作で複数イベントが作成・変更・削除される複合変更も、`changes` を
+ * そのエントリ単位で扱うため 1 回の undo/redo でまとめて反映される。
  *
  * - ドラッグ移動・リサイズ（`onEventChange`）・キーボード削除（`onEventDelete`）の
- *   `changes` を undo スタックに積む
+ *   `changes` を `history.push` に積む
  * - カレンダー本体上のクリック・範囲選択は、`EventDialog` を使わない自前の最小限の
  *   編集パネル（`EventEditorPanel`、本ファイル内）に委譲する。保存・削除は
  *   `api.updateEvent` / `api.deleteEvent` を直接呼び、戻り値の `changes` を積む。
  *   新規作成は `api.createEvent` の戻り値（単体の `CalendarEvent`）を
  *   `{ after: created }` という 1 件の `EventChangeEntry` に見立てて積む
  *   （before を持たないため、undo は該当イベントの削除になる）
- * - 「元に戻す」ボタンと Ctrl/Cmd+Z の両方で undo できる。undo すると、直前の
- *   エントリの `changes` を逆再生し（`after` を持つイベントを削除 → `before` を
- *   持つイベントをその内容で書き戻す）、結果をトーストで通知する
- * - undo スタックは最大 {@link MAX_UNDO_ENTRIES} 件。redo（やり直し）は本デモの
- *   スコープ外（実装しない）
- *
- * @remarks
- * undo の逆適用は「before の完全なイベントオブジェクトで書き戻す」方式を採る
- * （部分パッチではなく `api.setEvents` によるフル置換）。これにより、繰り返し
- * マスターの `exdates` が「もともと未設定（undefined）」だったのか「空配列
- * （`[]`）」だったのかの区別も含め、変更前の内容を過不足なく復元できる。仮に
- * ここを `updateEvent(id, patch)` のような部分パッチで組もうとすると、
- * 「`before` に無いフィールドは patch でキー省略 → 変更なし扱い」という
- * `applyPatch` の規則（`docs/api.md#パッチ規則applypatch`）により、`after` 側で
- * 追加された `exdates` のようなフィールドが消し忘れられる恐れがある
- * （`{ exdates: undefined }` のように明示的にキーを含めない限り削除されない）。
- * フル置換方式はこの落とし穴を構造的に回避する。
+ * - `useCalendarHistory` は `actionLabel` / `description` のような付随メタデータを
+ *   持たないため、`history.push` と同じ呼び出しタイミングで自前の
+ *   `undoDescriptions` / `redoDescriptions` スタックを LIFO で並行管理し、
+ *   `history.undo()` / `history.redo()` の戻り値（適用できたかどうか）と
+ *   連動してポップ/プッシュする。「元に戻す」「やり直す」ボタンの押下時のみ
+ *   この並行管理が働く（`keyboardShortcuts: true` によるキーボード操作は
+ *   ライブラリ内部で直接 `undo`/`redo` を実行するため、トースト・履歴一覧には
+ *   反映されない。カレンダー自体の状態は両方の経路で正しく更新される）
+ * - undo/redo スタックは最大 {@link MAX_UNDO_ENTRIES} 件
  */
 
 import type {
   CalendarApi,
-  CalendarEvent,
   CalendarInteractionCallbacks,
   EventChange,
   EventChangeEntry,
@@ -57,6 +48,7 @@ import {
   parseDateValue,
   Toolbar,
   useCalendar,
+  useCalendarHistory,
 } from '@koyomi-cal/react';
 import {
   type FormEvent,
@@ -71,7 +63,7 @@ import {
 import { sampleEvents } from '../sample-data';
 import './undo.css';
 
-/** undo スタックの最大保持件数。これを超えると最も古いエントリから捨てられる。 */
+/** undo/redo スタックの最大保持件数。これを超えると最も古いエントリから捨てられる。 */
 const MAX_UNDO_ENTRIES = 20;
 
 /** トーストの自動消去までの時間（ミリ秒）。 */
@@ -110,23 +102,24 @@ interface ToastMessage {
 }
 
 /**
- * undo スタックの 1 エントリ。1 回の操作（繰り返しのスコープ操作による複合変更を
- * 含む）をまとめて表す。
+ * `history.push` と並行管理する、undo/redo スタックの 1 エントリのメタデータ。
+ * 1 回の操作（繰り返しのスコープ操作による複合変更を含む）をまとめて表す。
+ *
+ * `useCalendarHistory` 自身はこのようなメタデータを持たない（`changes` の
+ * before/after のみを扱う）ため、トースト・履歴一覧の表示専用にデモ側で
+ * 保持する。
  */
-interface UndoEntry {
+interface UndoDescription {
   /** React の `key` 用の一意な ID。 */
   id: string;
-  /** 「元に戻す」実行時のトースト・履歴一覧で共通して使う、操作の短い名詞句（例:「会議 の移動」）。 */
+  /** 「元に戻す」「やり直す」実行時のトースト・履歴一覧で共通して使う、操作の短い名詞句（例:「会議 の移動」）。 */
   actionLabel: string;
   /** 履歴一覧に表示する説明文（過去形。例:「会議 を移動しました」）。 */
   description: string;
-  /**
-   * この操作で影響を受けた各イベントの before/after 一覧。
-   * `api.updateEvent` / `api.deleteEvent` の戻り値、または `onEventChange` /
-   * `onEventDelete` の `changes`、あるいは `api.createEvent` の戻り値を
-   * `{ after: created }` の 1 件に見立てたもの。
-   */
-  changes: readonly EventChangeEntry[];
+  /** この操作で影響を受けたイベントの件数（`changes.length`）。 */
+  changeCount: number;
+  /** すべてのエントリが `before` を持たない（新規作成のみ）操作かどうか。 */
+  isCreationOnly: boolean;
 }
 
 /** 2 桁ゼロ埋め。 */
@@ -210,49 +203,24 @@ function describeDragChange(change: EventChange): string {
 }
 
 /**
- * `changes`（1 回の操作で影響を受けた各イベントの before/after 一覧）を、現在の
- * イベント一覧に対して逆再生し、操作前の状態に戻したイベント一覧を返す。
+ * undo/redo 実行時のトースト文言を組み立てる。
  *
- * `after` を持つエントリ（新規作成・変更後）はいったんすべて取り除き、その後
- * `before` を持つエントリ（変更前・削除される前）をその内容のまま書き戻す。
- * 部分パッチではなく完全なイベントオブジェクトによる置換のため、`exdates` の
- * 有無（undefined か空配列か）を含め、フィールドの過不足なく元の内容が復元される。
- *
- * @param currentEvents - 現在のイベント一覧（`api.getEvents()`）
- * @param changes - 逆再生する変更エントリ一覧
- * @returns 逆再生後のイベント一覧（`api.setEvents` にそのまま渡せる）
+ * 影響件数（`entry.changeCount`）を添えるが、そのエントリが「新規作成のみ」
+ * （`entry.isCreationOnly`）の場合は undo で「取消」・redo で「再作成」、
+ * それ以外（変更・削除を含む）の場合は undo で「復元」・redo で「再適用」
+ * という言葉を使う。
  */
-function revertChanges(
-  currentEvents: readonly CalendarEvent[],
-  changes: readonly EventChangeEntry[],
-): CalendarEvent[] {
-  const byId = new Map(currentEvents.map((event) => [event.id, event]));
-  for (const change of changes) {
-    if (change.after !== undefined) {
-      byId.delete(change.after.id);
-    }
-  }
-  for (const change of changes) {
-    if (change.before !== undefined) {
-      byId.set(change.before.id, change.before);
-    }
-  }
-  return [...byId.values()];
-}
-
-/**
- * undo 実行時のトースト文言を組み立てる。
- *
- * 影響件数（`entry.changes.length`）を添えるが、そのエントリが「新規作成のみ」
- * （すべてのエントリが `before` を持たない）の場合は「取り消し」、それ以外
- * （変更・削除を含む）の場合は「復元」という言葉を使う。
- */
-function buildUndoToastText(entry: UndoEntry): string {
-  const isCreationOnly = entry.changes.every((change) => change.before === undefined);
-  const countLabel = isCreationOnly
-    ? `${entry.changes.length}件取消`
-    : `${entry.changes.length}件復元`;
-  return `${entry.actionLabel}を元に戻しました（${countLabel}）`;
+function buildUndoToastText(entry: UndoDescription, direction: 'undo' | 'redo'): string {
+  const countLabel =
+    direction === 'undo'
+      ? entry.isCreationOnly
+        ? `${entry.changeCount}件取消`
+        : `${entry.changeCount}件復元`
+      : entry.isCreationOnly
+        ? `${entry.changeCount}件再作成`
+        : `${entry.changeCount}件再適用`;
+  const verb = direction === 'undo' ? '元に戻しました' : 'やり直しました';
+  return `${entry.actionLabel}を${verb}（${countLabel}）`;
 }
 
 /**
@@ -660,8 +628,9 @@ function EventEditorPanel(props: EventEditorPanelProps): ReactElement | null {
  * 「Undo つきエディタ」パターンのルートコンポーネント。
  *
  * カレンダー本体（ドラッグ移動・リサイズ・キーボード削除）と自前の最小編集パネル
- * の両方から発生する変更を、共通の undo スタックへ積む。「元に戻す」ボタンまたは
- * Ctrl/Cmd+Z で、直前の操作の `changes` をまとめて逆再生する。
+ * の両方から発生する変更を、共通の `useCalendarHistory` へ積む。「元に戻す」
+ * 「やり直す」ボタン、または `keyboardShortcuts: true` によるキーボード操作
+ * （Ctrl/Cmd+Z・Ctrl/Cmd+Shift+Z・Ctrl/Cmd+Y）で undo/redo できる。
  */
 export function UndoPattern(): ReactElement {
   const calendar = useCalendar({
@@ -671,10 +640,17 @@ export function UndoPattern(): ReactElement {
     timeZone: 'Asia/Tokyo',
   });
   const { api, state } = calendar;
+  const history = useCalendarHistory({
+    calendar,
+    limit: MAX_UNDO_ENTRIES,
+    keyboardShortcuts: true,
+  });
 
   const [editorMode, setEditorMode] = useState<EditorMode | null>(null);
   const [scopeRequest, setScopeRequest] = useState<ScopeRequest | null>(null);
-  const [undoStack, setUndoStack] = useState<readonly UndoEntry[]>([]);
+  // history.push と同じ呼び出しタイミングで並行管理する、表示専用のメタデータスタック。
+  const [undoDescriptions, setUndoDescriptions] = useState<readonly UndoDescription[]>([]);
+  const [redoDescriptions, setRedoDescriptions] = useState<readonly UndoDescription[]>([]);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const scopeResolverRef = useRef<((scope: RecurringEditScope | null) => void) | null>(null);
 
@@ -691,20 +667,32 @@ export function UndoPattern(): ReactElement {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  /** undo スタックに 1 エントリを積む（`changes` が空なら何もしない）。 */
+  /**
+   * `history.push` に 1 操作分の変更を積み、同じタイミングで `undoDescriptions` にも
+   * 表示用メタデータを積む（`changes` が空なら両方とも何もしない）。新しい操作を
+   * 積むと redo 履歴は無効になる（`createEventHistory.push` と同じ規約）ため
+   * `redoDescriptions` も空にする。
+   */
   const pushUndo = useCallback(
     (actionLabel: string, description: string, changes: readonly EventChangeEntry[]) => {
       if (changes.length === 0) {
         return;
       }
-      setUndoStack((prev) =>
-        [{ id: crypto.randomUUID(), actionLabel, description, changes }, ...prev].slice(
-          0,
-          MAX_UNDO_ENTRIES,
-        ),
-      );
+      history.push(changes);
+      const isCreationOnly = changes.every((change) => change.before === undefined);
+      setUndoDescriptions((prev) => [
+        {
+          id: crypto.randomUUID(),
+          actionLabel,
+          description,
+          changeCount: changes.length,
+          isCreationOnly,
+        },
+        ...prev,
+      ]);
+      setRedoDescriptions([]);
     },
-    [],
+    [history],
   );
 
   /**
@@ -767,44 +755,35 @@ export function UndoPattern(): ReactElement {
   );
 
   /**
-   * 「元に戻す」を実行する。undo スタックの先頭（直近の操作）を取り出し、
-   * その `changes` を現在のイベント一覧に逆再生して `api.setEvents` で反映する。
-   * `setEvents` は `onEventsChange` を呼ばない（エコー防止。docs/events.md 参照）ため、
-   * この復元自体が新たな変更として記録されることはない。
+   * 「元に戻す」を実行する。`history.undo()` に実際の適用（`api.setEvents` 経由の
+   * 逆適用）を委ね、戻り値（適用できたかどうか）を見て `undoDescriptions` の先頭を
+   * `redoDescriptions` へ移す。
    */
   const handleUndo = useCallback(() => {
-    const latest = undoStack[0];
-    if (latest === undefined) {
+    const latest = undoDescriptions[0];
+    const applied = history.undo();
+    if (!applied || latest === undefined) {
       return;
     }
-    const reverted = revertChanges(api.getEvents(), latest.changes);
-    api.setEvents(reverted);
-    setUndoStack((prev) => prev.slice(1));
-    showToast(buildUndoToastText(latest));
-  }, [api, undoStack, showToast]);
+    setUndoDescriptions((prev) => prev.slice(1));
+    setRedoDescriptions((prev) => [latest, ...prev]);
+    showToast(buildUndoToastText(latest, 'undo'));
+  }, [history, undoDescriptions, showToast]);
 
-  // Ctrl/Cmd+Z で「元に戻す」を実行する（redo は本デモのスコープ外のため実装しない）。
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent): void {
-      const isUndoCombo =
-        (event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'z';
-      if (!isUndoCombo) {
-        return;
-      }
-      const target = event.target;
-      if (target instanceof HTMLElement) {
-        const tag = target.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) {
-          // フォーム入力中はブラウザ標準の undo に譲る
-          return;
-        }
-      }
-      event.preventDefault();
-      handleUndo();
+  /**
+   * 「やり直す」を実行する。`history.redo()` に実際の適用を委ね、戻り値を見て
+   * `redoDescriptions` の先頭を `undoDescriptions` へ戻す。
+   */
+  const handleRedo = useCallback(() => {
+    const latest = redoDescriptions[0];
+    const applied = history.redo();
+    if (!applied || latest === undefined) {
+      return;
     }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo]);
+    setRedoDescriptions((prev) => prev.slice(1));
+    setUndoDescriptions((prev) => [latest, ...prev]);
+    showToast(buildUndoToastText(latest, 'redo'));
+  }, [history, redoDescriptions, showToast]);
 
   const callbacks: CalendarInteractionCallbacks = useMemo(
     () => ({
@@ -830,12 +809,22 @@ export function UndoPattern(): ReactElement {
           <button
             type="button"
             className="demo-button"
-            disabled={undoStack.length === 0}
+            disabled={!history.canUndo}
             onClick={handleUndo}
           >
-            ↶ 元に戻す{undoStack.length > 0 ? `（あと${undoStack.length}件）` : ''}
+            ↶ 元に戻す{undoDescriptions.length > 0 ? `（あと${undoDescriptions.length}件）` : ''}
           </button>
-          <span className="undo-shortcut-hint">Ctrl/Cmd+Z でも元に戻せます</span>
+          <button
+            type="button"
+            className="demo-button"
+            disabled={!history.canRedo}
+            onClick={handleRedo}
+          >
+            ↷ やり直す{redoDescriptions.length > 0 ? `（あと${redoDescriptions.length}件）` : ''}
+          </button>
+          <span className="undo-shortcut-hint">
+            Ctrl/Cmd+Z で元に戻す、Ctrl/Cmd+Shift+Z・Ctrl/Cmd+Y でやり直せます
+          </span>
         </div>
       </header>
 
@@ -848,26 +837,27 @@ export function UndoPattern(): ReactElement {
 
       <section className="demo-log" aria-live="polite">
         <h2 className="demo-log-title">直近の操作履歴</h2>
-        {undoStack.length === 0 ? (
+        {undoDescriptions.length === 0 ? (
           <p className="demo-log-empty">
             まだ操作はありません。予定をドラッグして移動・リサイズしたり、空き領域を
             クリック/ドラッグして作成、予定をクリックして編集・削除してみてください。
           </p>
         ) : (
           <ul className="demo-log-list">
-            {undoStack.map((entry) => (
+            {undoDescriptions.map((entry) => (
               <li key={entry.id}>
                 {entry.description}
-                <span className="undo-history-count">（{entry.changes.length}件の変更）</span>
+                <span className="undo-history-count">（{entry.changeCount}件の変更）</span>
               </li>
             ))}
           </ul>
         )}
         <p className="demo-log-hint">
           矢印キーで移動（Shift+矢印でリサイズ、Delete で削除）。繰り返し予定の
-          シリーズ分割など複合的な変更も、1 回の「元に戻す」でまとめて復元されます。
-          redo（やり直し）は本デモのスコープ外です。undo スタックは最大 {MAX_UNDO_ENTRIES}{' '}
-          件保持します。
+          シリーズ分割など複合的な変更も、1 回の「元に戻す」「やり直す」でまとめて
+          反映されます。undo/redo スタックは最大 {MAX_UNDO_ENTRIES} 件保持します。
+          キーボード操作によるやり直し・元に戻すはカレンダーの状態には正しく反映されますが、
+          この履歴表示・トーストはボタン操作時のみ更新されます。
         </p>
       </section>
 

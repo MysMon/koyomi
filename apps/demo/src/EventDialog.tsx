@@ -6,6 +6,8 @@
  * 編集（オカレンスクリックから）の両方をこのコンポーネントで扱う。繰り返し予定の
  * 変更・削除は、保存・削除の直前に `resolveRecurringScope` で適用範囲を確認する。
  * 編集対象イベントが `extendedProps` を持つ場合、その内容を読み取り専用で表示する。
+ * 繰り返しルールの編集フォームは `useRecurrenceRuleEditor`（{@link RecurrenceRuleFields}）
+ * に委ねる。
  */
 
 import type {
@@ -13,7 +15,11 @@ import type {
   CalendarEventInput,
   CalendarEventPatch,
   EventOccurrence,
+  MonthlyRecurrencePattern,
   RangeSelection,
+  RecurrenceEnd,
+  RecurrenceFrequency,
+  RecurrenceWeekdayOrdinal,
   RecurringEditScope,
   TimeZoneId,
   Weekday,
@@ -25,6 +31,7 @@ import {
   fromWallClock,
   getWallClock,
   parseDateValue,
+  useRecurrenceRuleEditor,
   weekdayInZone,
 } from '@koyomi-cal/react';
 import { type FormEvent, type ReactElement, useEffect, useId, useRef, useState } from 'react';
@@ -56,28 +63,14 @@ export interface EventDialogProps {
   ) => Promise<RecurringEditScope | null>;
   /** ダイアログが閉じられたときに呼ばれる（保存・削除・キャンセル・Esc すべて共通）。 */
   onClose: () => void;
+  /**
+   * 新規作成が確定した直後に呼ばれる（`useCalendarAnnouncer` の `announce` を渡す想定）。
+   * このダイアログは `onSelectRange` を自前実装しているため、`wrapCallbacks` の
+   * 既定即時作成向け自動通知は発火しない。作成確定はこのダイアログの責務のため、
+   * ここで明示的に通知する。省略時は何も通知しない。
+   */
+  announce?: (text: string) => void;
 }
-
-/** 繰り返しの種類（フォーム上の選択肢）。 */
-type RecurrenceOption =
-  | 'none'
-  | 'daily'
-  | 'weekly'
-  | 'biweekly'
-  | 'monthly'
-  | 'yearly'
-  | 'weekdays';
-
-/** 繰り返し select の選択肢一覧。 */
-const RECURRENCE_OPTIONS: readonly { value: RecurrenceOption; label: string }[] = [
-  { value: 'none', label: 'なし' },
-  { value: 'daily', label: '毎日' },
-  { value: 'weekly', label: '毎週' },
-  { value: 'biweekly', label: '隔週' },
-  { value: 'monthly', label: '毎月' },
-  { value: 'yearly', label: '毎年' },
-  { value: 'weekdays', label: '平日（月〜金）' },
-];
 
 /** 既定の予定の色（スウォッチの先頭）。 */
 const DEFAULT_EVENT_COLOR = '#3f51b5';
@@ -103,7 +96,14 @@ interface FormState {
   color: string;
   location: string;
   description: string;
-  recurrence: RecurrenceOption;
+  /**
+   * 繰り返しルールの現在の実効的な RRULE 文字列（{@link RecurrenceRuleFields} からの
+   * 通知を反映）。繰り返しなしは `undefined`。unsupported な RRULE を編集中の場合は
+   * その元の文字列をそのまま保持する（読み取り専用表示のため変更しない）。
+   */
+  rrule: string | undefined;
+  /** 繰り返しルールの検証エラーがあるか（`true` の間は保存を無効化する）。 */
+  recurrenceHasErrors: boolean;
 }
 
 /** 2 桁ゼロ埋め。 */
@@ -118,84 +118,6 @@ function pad2(value: number): string {
 function formatDateTimeLocalValue(date: Date, timeZone: TimeZoneId): string {
   const wall = getWallClock(date, timeZone);
   return `${String(wall.year).padStart(4, '0')}-${pad2(wall.month)}-${pad2(wall.day)}T${pad2(wall.hours)}:${pad2(wall.minutes)}`;
-}
-
-/** 曜日番号を RRULE の `BYDAY` コードに変換する。 */
-function byDayCode(weekday: Weekday): string {
-  const codes: Record<Weekday, string> = {
-    0: 'SU',
-    1: 'MO',
-    2: 'TU',
-    3: 'WE',
-    4: 'TH',
-    5: 'FR',
-    6: 'SA',
-  };
-  return codes[weekday];
-}
-
-/**
- * 繰り返しの選択肢を RRULE 文字列に変換する（`'none'` は `undefined`）。
- * `DTSTART` は保存時に `start` から自動的に補われるため、`FREQ=MONTHLY` /
- * `FREQ=YEARLY` には `BY*` を付けず開始日の日・月に暗黙的に従わせる。
- */
-function rruleForRecurrence(
-  option: RecurrenceOption,
-  start: Date,
-  timeZone: TimeZoneId,
-): string | undefined {
-  switch (option) {
-    case 'none':
-      return undefined;
-    case 'daily':
-      return 'FREQ=DAILY';
-    case 'weekly':
-      return `FREQ=WEEKLY;BYDAY=${byDayCode(weekdayInZone(start, timeZone))}`;
-    case 'biweekly':
-      return `FREQ=WEEKLY;INTERVAL=2;BYDAY=${byDayCode(weekdayInZone(start, timeZone))}`;
-    case 'monthly':
-      return 'FREQ=MONTHLY';
-    case 'yearly':
-      return 'FREQ=YEARLY';
-    case 'weekdays':
-      return 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR';
-  }
-}
-
-/**
- * 既存イベントの RRULE から、対応する繰り返し選択肢を推定する。
- * `COUNT` / `UNTIL` などの付加パラメータは無視して大まかな種類のみ判定する
- * （このデモの作成 UI が生成する RRULE の逆変換ができれば十分なため）。
- */
-function recurrenceOptionForRRule(rrule: string | undefined): RecurrenceOption {
-  if (rrule === undefined) {
-    return 'none';
-  }
-  const normalized = rrule.replace(/^RRULE:/i, '').toUpperCase();
-  if (normalized.includes('BYDAY=MO,TU,WE,TH,FR')) {
-    return 'weekdays';
-  }
-  if (normalized.startsWith('FREQ=WEEKLY') && normalized.includes('INTERVAL=2')) {
-    return 'biweekly';
-  }
-  if (normalized.startsWith('FREQ=WEEKLY')) {
-    return 'weekly';
-  }
-  if (normalized.startsWith('FREQ=DAILY')) {
-    return 'daily';
-  }
-  if (normalized.startsWith('FREQ=MONTHLY')) {
-    return 'monthly';
-  }
-  if (normalized.startsWith('FREQ=YEARLY')) {
-    return 'yearly';
-  }
-  return 'none';
-}
-
-/** 文字列が {@link RecurrenceOption} の値かどうかを判定する（`<select>` の値検証用）。 */
-function isRecurrenceOption(value: string): value is RecurrenceOption {
-  return RECURRENCE_OPTIONS.some((option) => option.value === value);
 }
 
 /**
@@ -232,7 +154,8 @@ function buildFormState(mode: EventDialogMode): FormState {
       color: DEFAULT_EVENT_COLOR,
       location: '',
       description: '',
-      recurrence: 'none',
+      rrule: undefined,
+      recurrenceHasErrors: false,
     };
   }
   const { event, start, end, allDay } = mode.occurrence;
@@ -244,8 +167,24 @@ function buildFormState(mode: EventDialogMode): FormState {
     color: event.color ?? DEFAULT_EVENT_COLOR,
     location: event.location ?? '',
     description: event.description ?? '',
-    recurrence: recurrenceOptionForRRule(event.rrule),
+    rrule: event.rrule,
+    recurrenceHasErrors: false,
   };
+}
+
+/**
+ * {@link buildFormState} と対応する、{@link RecurrenceRuleFields} を
+ * mode の変更ごとに再マウントするための `key`。
+ *
+ * `useRecurrenceRuleEditor` の `start` / `timeZone` / `rrule` は作成時のみ有効な
+ * ため、編集対象（新規作成 / 既存オカレンス編集）が切り替わるたびに一意な `key` で
+ * 再マウントする必要がある（`docs` の規約どおり、フックの TSDoc に従う）。
+ */
+function recurrenceEditorKeyFor(mode: EventDialogMode): string {
+  if (mode.type === 'create') {
+    return `create-${mode.selection.range.start.getTime()}-${mode.selection.range.end.getTime()}`;
+  }
+  return `edit-${mode.occurrence.key}`;
 }
 
 /**
@@ -259,6 +198,456 @@ function buildFormState(mode: EventDialogMode): FormState {
  */
 function withRRule(patch: CalendarEventPatch, rrule: string | undefined): CalendarEventPatch {
   return { ...patch, rrule };
+}
+
+/** 繰り返し頻度 select の選択肢一覧。 */
+const FREQUENCY_OPTIONS: readonly { value: RecurrenceFrequency; label: string }[] = [
+  { value: 'daily', label: '毎日' },
+  { value: 'weekly', label: '毎週' },
+  { value: 'monthly', label: '毎月' },
+  { value: 'yearly', label: '毎年' },
+];
+
+/** 曜日チェックボックス群・月内パターンの曜日 select で共通して使う選択肢一覧（月曜始まり表示）。 */
+const WEEKDAY_OPTIONS: readonly { value: Weekday; label: string }[] = [
+  { value: 1, label: '月' },
+  { value: 2, label: '火' },
+  { value: 3, label: '水' },
+  { value: 4, label: '木' },
+  { value: 5, label: '金' },
+  { value: 6, label: '土' },
+  { value: 0, label: '日' },
+];
+
+/** 月内パターンの「第 n 週」select の選択肢一覧。 */
+const ORDINAL_OPTIONS: readonly { value: RecurrenceWeekdayOrdinal; label: string }[] = [
+  { value: 1, label: '第1' },
+  { value: 2, label: '第2' },
+  { value: 3, label: '第3' },
+  { value: 4, label: '第4' },
+  { value: -1, label: '最終' },
+];
+
+/** 文字列が {@link RecurrenceFrequency} の値かどうかを判定する（`<select>` の値検証用）。 */
+function isRecurrenceFrequency(value: string): value is RecurrenceFrequency {
+  return FREQUENCY_OPTIONS.some((option) => option.value === value);
+}
+
+/**
+ * `<select>` の曜日の値を検証しつつ {@link Weekday} に変換する。
+ *
+ * @throws `WEEKDAY_OPTIONS` にない値の場合は `Error`
+ */
+function parseWeekdayOption(value: string): Weekday {
+  const parsed = Number(value);
+  if (WEEKDAY_OPTIONS.some((option) => option.value === parsed)) {
+    // 上の判定で WEEKDAY_OPTIONS の値（Weekday）のいずれかと一致することを確認済み
+    return parsed as Weekday;
+  }
+  throw new Error(`不正な曜日の値です: '${value}'`);
+}
+
+/**
+ * `<select>` の「第 n 週」の値を検証しつつ {@link RecurrenceWeekdayOrdinal} に変換する。
+ *
+ * @throws `ORDINAL_OPTIONS` にない値の場合は `Error`
+ */
+function parseOrdinalOption(value: string): RecurrenceWeekdayOrdinal {
+  const parsed = Number(value);
+  if (ORDINAL_OPTIONS.some((option) => option.value === parsed)) {
+    // 上の判定で ORDINAL_OPTIONS の値（RecurrenceWeekdayOrdinal）のいずれかと一致することを確認済み
+    return parsed as RecurrenceWeekdayOrdinal;
+  }
+  throw new Error(`不正な第 n 週の値です: '${value}'`);
+}
+
+/** {@link RecurrenceRuleFields} が親（{@link EventDialog}）へ通知する、現在の実効的な結果。 */
+interface RecurrenceFieldsResult {
+  /** 現在の実効的な RRULE 文字列。繰り返しなしは `undefined`。 */
+  rrule: string | undefined;
+  /** 保存を妨げる検証エラーがあるか。 */
+  hasErrors: boolean;
+}
+
+/** {@link MonthlyPatternFields} の props。 */
+interface MonthlyPatternFieldsProps {
+  pattern: MonthlyRecurrencePattern | undefined;
+  disabled: boolean;
+  fallbackDay: number;
+  fallbackWeekday: Weekday;
+  onChange: (pattern: MonthlyRecurrencePattern) => void;
+}
+
+/**
+ * 「毎月」の月内パターン（日付指定 / 第 n 曜日指定）を選ぶラジオ群。
+ *
+ * `pattern` が未設定（DTSTART に暗黙依存している状態）の間は、ラジオの現在値として
+ * 「日付指定」を仮定して表示するが、実際に切り替えるまで `pattern` 自体は変更しない。
+ */
+function MonthlyPatternFields(props: MonthlyPatternFieldsProps): ReactElement {
+  const { pattern, disabled, fallbackDay, fallbackWeekday, onChange } = props;
+  const baseId = useId();
+  const kind = pattern?.kind ?? 'dayOfMonth';
+
+  return (
+    <div className="demo-form-field">
+      <span className="demo-field-label" id={`${baseId}-monthly-label`}>
+        月内パターン
+      </span>
+      <div
+        className="demo-radio-group"
+        role="radiogroup"
+        aria-labelledby={`${baseId}-monthly-label`}
+      >
+        <label className="demo-radio-option">
+          <input
+            type="radio"
+            name={`${baseId}-monthly-kind`}
+            disabled={disabled}
+            checked={kind === 'dayOfMonth'}
+            onChange={() => onChange({ kind: 'dayOfMonth', day: fallbackDay })}
+          />
+          日付指定
+          {pattern?.kind === 'dayOfMonth' && (
+            <input
+              type="number"
+              className="demo-inline-number"
+              min={-1}
+              max={31}
+              disabled={disabled}
+              value={pattern.day}
+              onChange={(event) =>
+                onChange({ kind: 'dayOfMonth', day: Number(event.target.value) })
+              }
+            />
+          )}
+        </label>
+        <label className="demo-radio-option">
+          <input
+            type="radio"
+            name={`${baseId}-monthly-kind`}
+            disabled={disabled}
+            checked={kind === 'nthWeekday'}
+            onChange={() => onChange({ kind: 'nthWeekday', ordinal: 1, weekday: fallbackWeekday })}
+          />
+          第 n 曜日指定
+          {pattern?.kind === 'nthWeekday' && (
+            <>
+              <select
+                disabled={disabled}
+                value={pattern.ordinal}
+                onChange={(event) =>
+                  onChange({
+                    kind: 'nthWeekday',
+                    ordinal: parseOrdinalOption(event.target.value),
+                    weekday: pattern.weekday,
+                  })
+                }
+              >
+                {ORDINAL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                disabled={disabled}
+                value={pattern.weekday}
+                onChange={(event) =>
+                  onChange({
+                    kind: 'nthWeekday',
+                    ordinal: pattern.ordinal,
+                    weekday: parseWeekdayOption(event.target.value),
+                  })
+                }
+              >
+                {WEEKDAY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+        </label>
+      </div>
+    </div>
+  );
+}
+
+/** {@link RecurrenceEndFields} の props。 */
+interface RecurrenceEndFieldsProps {
+  end: RecurrenceEnd;
+  disabled: boolean;
+  timeZone: TimeZoneId;
+  onChange: (end: RecurrenceEnd) => void;
+}
+
+/** 繰り返しの終了条件（なし / 回数 / 日付）を選ぶラジオ群。 */
+function RecurrenceEndFields(props: RecurrenceEndFieldsProps): ReactElement {
+  const { end, disabled, timeZone, onChange } = props;
+  const baseId = useId();
+
+  return (
+    <div className="demo-form-field">
+      <span className="demo-field-label" id={`${baseId}-end-label`}>
+        終了条件
+      </span>
+      <div className="demo-radio-group" role="radiogroup" aria-labelledby={`${baseId}-end-label`}>
+        <label className="demo-radio-option">
+          <input
+            type="radio"
+            name={`${baseId}-end-type`}
+            disabled={disabled}
+            checked={end.type === 'never'}
+            onChange={() => onChange({ type: 'never' })}
+          />
+          なし
+        </label>
+        <label className="demo-radio-option">
+          <input
+            type="radio"
+            name={`${baseId}-end-type`}
+            disabled={disabled}
+            checked={end.type === 'count'}
+            onChange={() =>
+              onChange({ type: 'count', count: end.type === 'count' ? end.count : 5 })
+            }
+          />
+          回数
+          {end.type === 'count' && (
+            <input
+              type="number"
+              className="demo-inline-number"
+              min={1}
+              disabled={disabled}
+              value={end.count}
+              onChange={(event) => onChange({ type: 'count', count: Number(event.target.value) })}
+            />
+          )}
+        </label>
+        <label className="demo-radio-option">
+          <input
+            type="radio"
+            name={`${baseId}-end-type`}
+            disabled={disabled}
+            checked={end.type === 'until'}
+            onChange={() =>
+              onChange({ type: 'until', until: end.type === 'until' ? end.until : new Date() })
+            }
+          />
+          日付
+          {end.type === 'until' && (
+            <input
+              type="date"
+              disabled={disabled}
+              value={dateKeyInZone(end.until, timeZone)}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (value === '') {
+                  return;
+                }
+                onChange({ type: 'until', until: dateFromKey(value, timeZone) });
+              }}
+            />
+          )}
+        </label>
+      </div>
+    </div>
+  );
+}
+
+/** {@link RecurrenceRuleFields} の props。 */
+interface RecurrenceRuleFieldsProps {
+  /** DTSTART。`useRecurrenceRuleEditor` の規約どおり初期値としてのみ使う。 */
+  start: Date;
+  /** イベントのタイムゾーン。初期値としてのみ使う。 */
+  timeZone: TimeZoneId;
+  /** 編集対象の既存 RRULE 文字列。初期値としてのみ使う。 */
+  initialRRule: string | undefined;
+  /** `editable: false` の予定を読み取り専用表示にする。 */
+  disabled: boolean;
+  /** 現在の実効的な結果が変わるたびに呼ばれる。 */
+  onResultChange: (result: RecurrenceFieldsResult) => void;
+}
+
+/**
+ * `useRecurrenceRuleEditor` による繰り返しルールの編集フォーム。
+ *
+ * 頻度セレクト＋（`weekly` 時のみ）曜日チェックボックス群＋（`monthly` 時のみ）
+ * 日付/第 n 曜日ラジオ＋終了条件（なし/回数/日付）ラジオ＋ interval 数値入力を、
+ * 素の HTML 要素で組む（ヘッドレスなフックをそのまま UI 化する最小構成の例）。
+ * 対応範囲外の RRULE を読み込んだ場合（`editor.unsupported`）は、読み取り専用の
+ * 案内文と元の RRULE 文字列をそのまま表示する。
+ *
+ * `start` / `timeZone` / `initialRRule` は `useRecurrenceRuleEditor` の規約により
+ * 初期値としてのみ有効なため、呼び出し側（{@link EventDialog}）は編集対象が
+ * 切り替わるたびに一意な `key` を指定してこのコンポーネントを再マウントすること。
+ */
+function RecurrenceRuleFields(props: RecurrenceRuleFieldsProps): ReactElement {
+  const { start, timeZone, initialRRule, disabled, onResultChange } = props;
+  const baseId = useId();
+  // exactOptionalPropertyTypes: true の下では `rrule: undefined` を明示できないため、
+  // 初期 RRULE が無い場合はキー自体を省略する。
+  const editor = useRecurrenceRuleEditor(
+    initialRRule === undefined ? { start, timeZone } : { start, timeZone, rrule: initialRRule },
+  );
+
+  // editor の実効的な結果が変わるたびに親（EventDialog のフォーム状態）へ伝える。
+  useEffect(() => {
+    if (editor.unsupported !== null) {
+      // 対応範囲外の RRULE は編集できないため、元の文字列をそのまま維持する。
+      onResultChange({ rrule: editor.unsupported.rawRRule, hasErrors: false });
+      return;
+    }
+    if (editor.state === null) {
+      onResultChange({ rrule: undefined, hasErrors: false });
+      return;
+    }
+    onResultChange({
+      rrule: editor.errors.length === 0 ? (editor.rruleString ?? undefined) : undefined,
+      hasErrors: editor.errors.length > 0,
+    });
+  }, [editor.unsupported, editor.state, editor.errors, editor.rruleString, onResultChange]);
+
+  if (editor.unsupported !== null) {
+    return (
+      <div className="demo-form-field">
+        <span className="demo-field-label">繰り返し</span>
+        <p className="demo-readonly-notice">
+          このRRULEは編集できません（{editor.unsupported.reason}）。
+        </p>
+        <pre className="demo-recurrence-raw">{editor.unsupported.rawRRule}</pre>
+        <button
+          type="button"
+          className="demo-button demo-button-text"
+          disabled={disabled}
+          onClick={editor.clear}
+        >
+          繰り返しを解除
+        </button>
+      </div>
+    );
+  }
+
+  if (editor.state === null) {
+    return (
+      <div className="demo-form-field">
+        <span className="demo-field-label">繰り返し</span>
+        <button type="button" className="demo-button" disabled={disabled} onClick={editor.enable}>
+          繰り返しを設定
+        </button>
+      </div>
+    );
+  }
+
+  const { state } = editor;
+
+  return (
+    <div className="demo-form-field demo-recurrence-fields">
+      <span className="demo-field-label" id={`${baseId}-recurrence-label`}>
+        繰り返し
+      </span>
+
+      <div className="demo-form-row">
+        <div className="demo-form-field">
+          <label htmlFor={`${baseId}-freq`}>頻度</label>
+          <select
+            id={`${baseId}-freq`}
+            disabled={disabled}
+            value={state.freq}
+            onChange={(event) => {
+              const raw = event.target.value;
+              if (isRecurrenceFrequency(raw)) {
+                editor.setFrequency(raw);
+              }
+            }}
+          >
+            {FREQUENCY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="demo-form-field">
+          <label htmlFor={`${baseId}-interval`}>間隔</label>
+          <input
+            id={`${baseId}-interval`}
+            type="number"
+            min={1}
+            disabled={disabled}
+            value={state.interval}
+            onChange={(event) => editor.setInterval(Number(event.target.value))}
+          />
+        </div>
+      </div>
+
+      {state.freq === 'weekly' && (
+        <fieldset className="demo-form-field demo-weekday-fieldset">
+          <legend className="demo-field-label">曜日</legend>
+          <div className="demo-weekday-checkboxes">
+            {WEEKDAY_OPTIONS.map((option) => {
+              const checked = state.byWeekday?.includes(option.value) ?? false;
+              return (
+                <label key={option.value} className="demo-weekday-checkbox">
+                  <input
+                    type="checkbox"
+                    disabled={disabled}
+                    checked={checked}
+                    onChange={(event) => {
+                      const current = state.byWeekday ?? [];
+                      const next = event.target.checked
+                        ? [...current, option.value]
+                        : current.filter((weekday) => weekday !== option.value);
+                      editor.setByWeekday(next);
+                    }}
+                  />
+                  {option.label}
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
+      )}
+
+      {state.freq === 'monthly' && (
+        <MonthlyPatternFields
+          pattern={state.monthlyPattern}
+          disabled={disabled}
+          fallbackDay={getWallClock(start, timeZone).day}
+          fallbackWeekday={weekdayInZone(start, timeZone)}
+          onChange={editor.setMonthlyPattern}
+        />
+      )}
+
+      <RecurrenceEndFields
+        end={state.end}
+        disabled={disabled}
+        timeZone={timeZone}
+        onChange={editor.setEnd}
+      />
+
+      {editor.errors.length > 0 && (
+        <ul className="demo-recurrence-errors">
+          {editor.errors.map((issue) => (
+            <li key={issue.field}>{issue.message}</li>
+          ))}
+        </ul>
+      )}
+
+      {editor.description !== null && <p className="demo-field-hint">{editor.description}</p>}
+
+      <button
+        type="button"
+        className="demo-button demo-button-text"
+        disabled={disabled}
+        onClick={editor.clear}
+      >
+        繰り返しを解除
+      </button>
+    </div>
+  );
 }
 
 /**
@@ -284,7 +673,7 @@ function withRRule(patch: CalendarEventPatch, rrule: string | undefined): Calend
  * ```
  */
 export function EventDialog(props: EventDialogProps): ReactElement {
-  const { mode, timeZone, api, resolveRecurringScope, onClose } = props;
+  const { mode, timeZone, api, resolveRecurringScope, onClose, announce } = props;
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const baseId = useId();
   const [form, setForm] = useState<FormState | null>(null);
@@ -377,9 +766,13 @@ export function EventDialog(props: EventDialogProps): ReactElement {
       setError('終了日時は開始日時より後になるように入力してください。');
       return;
     }
+    if (form.recurrenceHasErrors) {
+      setError('繰り返しルールの入力内容を確認してください。');
+      return;
+    }
     setError(null);
 
-    const rrule = rruleForRecurrence(form.recurrence, form.start, timeZone);
+    const rrule = form.rrule;
     // CalendarEventPatch は Partial のため型注釈すると全フィールドが optional になり、
     // CalendarEventInput の必須フィールド（title / start）を満たせなくなる。
     // ここでは注釈せずリテラル型（全フィールド確定値）のまま推論させる。
@@ -398,7 +791,8 @@ export function EventDialog(props: EventDialogProps): ReactElement {
         ...commonFields,
         ...(rrule !== undefined ? { rrule } : {}),
       };
-      api.createEvent(input);
+      const created = api.createEvent(input);
+      announce?.(`${created.title} を作成しました`);
       dialogRef.current?.close();
       return;
     }
@@ -591,31 +985,21 @@ export function EventDialog(props: EventDialogProps): ReactElement {
           />
         </div>
 
-        <div className="demo-form-field">
-          <label htmlFor={`${baseId}-recurrence`}>繰り返し</label>
-          <select
-            id={`${baseId}-recurrence`}
-            disabled={isReadOnly}
-            value={form.recurrence}
-            onChange={(changeEvent) => {
-              const raw = changeEvent.target.value;
-              if (isRecurrenceOption(raw)) {
-                patchForm({ recurrence: raw });
-              }
-            }}
-          >
-            {RECURRENCE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          {occurrence?.isRecurring && (
-            <p className="demo-field-hint">
-              繰り返しの種類の変更は「すべての予定」を選んだ場合のみ反映されます。
-            </p>
-          )}
-        </div>
+        <RecurrenceRuleFields
+          key={recurrenceEditorKeyFor(mode)}
+          start={mode.type === 'create' ? mode.selection.range.start : mode.occurrence.start}
+          timeZone={timeZone}
+          initialRRule={mode.type === 'create' ? undefined : mode.occurrence.event.rrule}
+          disabled={isReadOnly}
+          onResultChange={(result) =>
+            patchForm({ rrule: result.rrule, recurrenceHasErrors: result.hasErrors })
+          }
+        />
+        {occurrence?.isRecurring && (
+          <p className="demo-field-hint">
+            繰り返しの種類の変更は「すべての予定」を選んだ場合のみ反映されます。
+          </p>
+        )}
 
         {occurrence !== null && occurrence.event.extendedProps !== undefined && (
           <div className="demo-form-field">
@@ -668,7 +1052,11 @@ export function EventDialog(props: EventDialogProps): ReactElement {
               >
                 キャンセル
               </button>
-              <button type="submit" className="demo-button demo-button-primary">
+              <button
+                type="submit"
+                className="demo-button demo-button-primary"
+                disabled={form.recurrenceHasErrors}
+              >
                 保存
               </button>
             </>

@@ -14,6 +14,14 @@
  * 繰り返し予定の編集スコープ選択は `ScopeDialog` に委譲する。ドラッグ移動/リサイズ
  * による変更は `handleEventChange` が直接適用し、変更ログへ記録する。
  *
+ * `useCalendarAnnouncer` の aria-live 通知（{@link https://developer.mozilla.org/ja/docs/Web/Accessibility/ARIA/Attributes/aria-live | live region}）を
+ * `announcer.wrapCallbacks` で `callbacks` に組み込む。このパターンは `onSelectRange` を
+ * 自前実装（ダイアログを開くだけ）しているため、既定即時作成の自動通知は発火しない
+ * （`wrapCallbacks` の規約）。作成確定は `EventDialog` の責務のため、`EventDialog` に
+ * `announce` を渡し、保存確定時に明示的に通知する。`announcer.message` の変化は
+ * 目視確認できるよう「操作ログ」パネルにも同時に追記する（実際の a11y 挙動は
+ * live region、目視確認は操作ログとの二重表示）。
+ *
  * ダークモードの切替はデモシェル（`../App`）側に集約されており、このパターン
  * 固有の状態は持たない。
  */
@@ -36,9 +44,10 @@ import {
   dateKeyInZone,
   Toolbar,
   useCalendar,
+  useCalendarAnnouncer,
   useCalendarShortcuts,
 } from '@koyomi-cal/react';
-import { type ReactElement, useCallback, useMemo, useRef, useState } from 'react';
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EventDialog, type EventDialogMode } from '../EventDialog';
 import { type ScopeAction, ScopeDialog, type ScopeRequest } from '../ScopeDialog';
 import { sampleEvents, sampleResources } from '../sample-data';
@@ -128,12 +137,29 @@ export function BasicPattern(): ReactElement {
     refreshSeconds: 60,
   });
   const { api, state } = calendar;
+  const announcer = useCalendarAnnouncer({ calendar });
 
   const [hideWeekends, setHideWeekends] = useState(false);
   const [dialogMode, setDialogMode] = useState<EventDialogMode | null>(null);
   const [scopeRequest, setScopeRequest] = useState<ScopeRequest | null>(null);
   const [logEntries, setLogEntries] = useState<readonly LogEntry[]>([]);
   const scopeResolverRef = useRef<((scope: RecurringEditScope | null) => void) | null>(null);
+  const previousAnnounceRef = useRef('');
+
+  // announcer.message（aria-live 通知）の変化を「操作ログ」パネルにも同時に反映する
+  // （実際の a11y 挙動は live region、目視確認は操作ログとの二重表示）。
+  // U+2060（WORD JOINER）は同一文言の連続通知を再読み上げさせるための不可視トークンの
+  // ため、目視確認用のログでは取り除く。
+  useEffect(() => {
+    if (announcer.message === '' || announcer.message === previousAnnounceRef.current) {
+      return;
+    }
+    previousAnnounceRef.current = announcer.message;
+    const text = announcer.message.replace(/⁠/g, '');
+    setLogEntries((prev) =>
+      [{ id: crypto.randomUUID(), text: `通知: ${text}` }, ...prev].slice(0, MAX_LOG_ENTRIES),
+    );
+  }, [announcer.message]);
 
   /**
    * 繰り返し予定の適用範囲をダイアログで選択させる。
@@ -313,8 +339,10 @@ export function BasicPattern(): ReactElement {
         </div>
       </header>
 
+      <div {...announcer.liveRegionProps}>{announcer.message}</div>
+
       <main className="demo-main">
-        <CalendarProvider value={calendar} callbacks={callbacks}>
+        <CalendarProvider value={calendar} callbacks={announcer.wrapCallbacks(callbacks)}>
           <Toolbar views={ALL_VIEWS} />
           <CalendarView />
         </CalendarProvider>
@@ -346,6 +374,7 @@ export function BasicPattern(): ReactElement {
         api={api}
         resolveRecurringScope={resolveRecurringScope}
         onClose={() => setDialogMode(null)}
+        announce={announcer.announce}
       />
       <ScopeDialog request={scopeRequest} onResolve={handleScopeResolve} />
     </div>
