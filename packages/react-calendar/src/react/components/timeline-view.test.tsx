@@ -778,3 +778,69 @@ describe('TimelineView - businessHours（営業時間）', () => {
     expect(bandIndex).toBeLessThan(itemIndex);
   });
 });
+
+describe('TimelineView - リソースの階層グルーピング（parentId）', () => {
+  const PARENT: CalendarResource = { id: 'parent', title: '本社' };
+  const CHILD: CalendarResource = { id: 'child', title: '1F会議室', parentId: 'parent' };
+
+  it('parentId 未使用時は timeline-row-toggle が 1 つも描画されない（既存挙動の回帰確認）', () => {
+    const { container } = render(<Harness resources={[CRANE_1, CRANE_2]} />);
+    expect(container.querySelectorAll('[data-koyomi="timeline-row-toggle"]')).toHaveLength(0);
+  });
+
+  it('hasChildren な行にのみ timeline-row-toggle が描画され、aria-expanded が collapsed と整合する', () => {
+    const { container } = render(<Harness resources={[PARENT, CHILD]} />);
+    const headers = container.querySelectorAll('[data-koyomi="timeline-resource-header"]');
+    expect(headers).toHaveLength(2);
+    const parentToggle = headers[0]?.querySelector('[data-koyomi="timeline-row-toggle"]');
+    const childToggle = headers[1]?.querySelector('[data-koyomi="timeline-row-toggle"]');
+    expect(parentToggle).not.toBeNull();
+    expect(parentToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(childToggle).toBeNull();
+  });
+
+  it('timeline-resource-header に data-koyomi-depth 属性が付き、深さに応じた値になる', () => {
+    const { container } = render(<Harness resources={[PARENT, CHILD]} />);
+    const headers = container.querySelectorAll('[data-koyomi="timeline-resource-header"]');
+    expect(headers[0]).toHaveAttribute('data-koyomi-depth', '0');
+    expect(headers[1]).toHaveAttribute('data-koyomi-depth', '1');
+  });
+
+  it('トグルボタンをクリックすると toggleResourceCollapsed が呼ばれ、子孫行が非表示になる', async () => {
+    const { container } = render(<Harness resources={[PARENT, CHILD]} />);
+    expect(container.querySelectorAll('[data-koyomi="timeline-row"]')).toHaveLength(2);
+    const toggle = container.querySelector('[data-koyomi="timeline-row-toggle"]');
+    expect(toggle).not.toBeNull();
+
+    await act(async () => {
+      (toggle as HTMLButtonElement).click();
+    });
+
+    expect(container.querySelectorAll('[data-koyomi="timeline-row"]')).toHaveLength(1);
+    const parentHeader = container.querySelector('[data-koyomi="timeline-resource-header"]');
+    expect(parentHeader?.querySelector('[data-koyomi="timeline-row-toggle"]')).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+  });
+
+  it('既定の aria-label は「◯◯ を折りたたむ / を展開する」形式になる', () => {
+    const { container } = render(<Harness resources={[PARENT, CHILD]} />);
+    const toggle = container.querySelector('[data-koyomi="timeline-row-toggle"]');
+    expect(toggle).toHaveAttribute('aria-label', '本社 を折りたたむ');
+  });
+
+  it('resourceToggleAriaLabel で aria-label をカスタマイズできる', () => {
+    const { container } = render(
+      <Harness
+        resources={[PARENT, CHILD]}
+        viewProps={{
+          resourceToggleAriaLabel: (resource, collapsed, defaultLabel) =>
+            `${resource.title}/${collapsed}/${defaultLabel}`,
+        }}
+      />,
+    );
+    const toggle = container.querySelector('[data-koyomi="timeline-row-toggle"]');
+    expect(toggle).toHaveAttribute('aria-label', '本社/false/本社 を折りたたむ');
+  });
+});

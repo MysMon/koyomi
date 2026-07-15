@@ -5,6 +5,7 @@
 
 import type { ReactElement, ReactNode } from 'react';
 import type {
+  CalendarResource,
   EventOccurrence,
   EventSegment,
   ListDay,
@@ -222,6 +223,16 @@ export interface CalendarViewProps {
    */
   timelineEventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
   /**
+   * タイムラインの折りたたみトグルボタンの aria-label。既定文字列を受け取って
+   * 加工・置換できる。`TimelineView` / `VirtualTimelineView` の
+   * `resourceToggleAriaLabel` に転送する。
+   */
+  timelineResourceToggleAriaLabel?: (
+    resource: CalendarResource,
+    collapsed: boolean,
+    defaultLabel: string,
+  ) => string;
+  /**
    * タイムラインを仮想化する（`TimelineView` の代わりに `VirtualTimelineView` を使う）。
    * 数百行規模のリソースでの DOM 肥大を抑える。既定 `false`（全件描画の `TimelineView`）。
    * 有効時はスクロールコンテナに境界高を CSS で与えること（`[data-koyomi="timeline-body"]`）。
@@ -384,6 +395,9 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
             ? { emptyLabel: props.timelineEmptyLabel }
             : {}),
           ...(props.timelineEventAriaLabel ? { eventAriaLabel: props.timelineEventAriaLabel } : {}),
+          ...(props.timelineResourceToggleAriaLabel
+            ? { resourceToggleAriaLabel: props.timelineResourceToggleAriaLabel }
+            : {}),
         };
         if (props.virtualizeTimeline === true) {
           return <VirtualTimelineView {...timelineProps} />;

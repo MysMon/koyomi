@@ -22,9 +22,10 @@
  */
 
 import type { ReactElement, ReactNode } from 'react';
-import { memo } from 'react';
+import { memo, useCallback } from 'react';
 import type {
   BusinessHourRange,
+  CalendarResource,
   EventOccurrence,
   TimelineItem,
   TimelineRow,
@@ -44,12 +45,14 @@ import {
   DEFAULT_CORNER_LABEL,
   DEFAULT_EMPTY_LABEL,
   DEFAULT_UNASSIGNED_LABEL,
+  resolveResourceToggleAriaLabel,
   sameBusinessHourRanges,
   samePreviewSegment,
   sameTimelineRow,
   TimelineAxisHeader,
   toDivRef,
   useStableTimelineDrag,
+  withDepthStyle,
   withLaneCountStyle,
 } from './timeline-view-parts';
 
@@ -88,6 +91,19 @@ export interface TimelineViewProps {
    * @param defaultLabel - 既定の aria-label 文字列
    */
   eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
+  /**
+   * 折りたたみトグルボタンの aria-label をカスタマイズする関数。
+   * 第 3 引数に既定の aria-label 文字列を渡すので、それを加工・置換して返せる。
+   * 省略時は既定文字列をそのまま使う。
+   * @param resource - 対象のリソース（{@link TimelineRow.hasChildren} が `true` の行のみ呼ばれる）
+   * @param collapsed - トグル後ではなく現在の折りたたみ状態
+   * @param defaultLabel - 既定の aria-label 文字列
+   */
+  resourceToggleAriaLabel?: (
+    resource: CalendarResource,
+    collapsed: boolean,
+    defaultLabel: string,
+  ) => string;
 }
 
 /** 目盛り数の警告を出したかどうか（モジュールで一度だけ）。 */
@@ -118,6 +134,7 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
     emptyLabel = DEFAULT_EMPTY_LABEL,
     cornerLabel = DEFAULT_CORNER_LABEL,
     eventAriaLabel,
+    resourceToggleAriaLabel,
   } = props;
   const { api, state, viewModel, callbacks } = useCalendarContext();
   const calendar = { api, state, viewModel };
@@ -125,6 +142,14 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
   // `drag` は毎レンダー新しいオブジェクトになるため、行の memo 化が効くよう、
   // 参照が変わらないラッパー経由で渡す（詳細は関数コメント参照）。
   const stableDrag = useStableTimelineDrag(drag);
+  // api の参照は再レンダリングを跨いで安定するため、onToggleCollapse も安定する
+  // （行の memo 化が効くようにする。stableDrag と同じ狙い）。
+  const onToggleCollapse = useCallback(
+    (resourceId: string) => {
+      api.toggleResourceCollapsed(resourceId);
+    },
+    [api],
+  );
 
   if (viewModel.type !== 'timeline') {
     return null;
@@ -209,6 +234,8 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
             isDragging={drag.isDragging}
             preview={drag.previewFor(row)}
             eventAriaLabel={eventAriaLabel}
+            onToggleCollapse={onToggleCollapse}
+            resourceToggleAriaLabel={resourceToggleAriaLabel}
           />
         ))}
       </div>
@@ -234,6 +261,12 @@ interface TimelineRowGroupProps {
   preview: TimelinePreviewSegment | null;
   /** 帯の aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
   eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
+  /** 折りたたみトグルボタンのクリックハンドラ（`api.toggleResourceCollapsed` へ委譲）。 */
+  onToggleCollapse: (resourceId: string) => void;
+  /** 折りたたみトグルボタンの aria-label のカスタマイズ関数。 */
+  resourceToggleAriaLabel:
+    | ((resource: CalendarResource, collapsed: boolean, defaultLabel: string) => string)
+    | undefined;
 }
 
 /** タイムラインの 1 行分（行見出し + 帯トラック）。 */
@@ -251,9 +284,12 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
     drag,
     preview,
     eventAriaLabel,
+    onToggleCollapse,
+    resourceToggleAriaLabel,
   } = props;
   const { ref, ...rowProps } = drag.getRowProps(row);
-  const headerContent = row.resource?.title ?? unassignedLabel;
+  const resource = row.resource;
+  const headerContent = resource?.title ?? unassignedLabel;
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: 上記ヘッダー行と同様、div ベースの ARIA row
@@ -264,9 +300,25 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
       <div
         data-koyomi="timeline-resource-header"
         role="rowheader"
-        {...(row.resource !== null ? { 'data-koyomi-resource-id': row.resource.id } : {})}
-        style={withEventColorStyle({}, row.resource?.color)}
+        data-koyomi-depth={String(row.depth)}
+        {...(resource !== null ? { 'data-koyomi-resource-id': resource.id } : {})}
+        style={withDepthStyle(withEventColorStyle({}, resource?.color), row.depth)}
       >
+        {row.hasChildren && resource !== null && (
+          <button
+            type="button"
+            data-koyomi="timeline-row-toggle"
+            aria-expanded={!row.collapsed}
+            aria-label={resolveResourceToggleAriaLabel(
+              resource,
+              row.collapsed,
+              resourceToggleAriaLabel,
+            )}
+            onClick={() => onToggleCollapse(resource.id)}
+          >
+            ▸
+          </button>
+        )}
         {renderRowHeader ? renderRowHeader(row, headerContent) : headerContent}
       </div>
       {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA gridcell（時間トラック 1 本を 1 セルとして扱う） */}
@@ -387,6 +439,8 @@ const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&
     samePreviewSegment(prev.preview, next.preview) &&
-    prev.eventAriaLabel === next.eventAriaLabel
+    prev.eventAriaLabel === next.eventAriaLabel &&
+    prev.onToggleCollapse === next.onToggleCollapse &&
+    prev.resourceToggleAriaLabel === next.resourceToggleAriaLabel
   );
 });

@@ -73,6 +73,7 @@ function build(params: {
   now?: Date;
   timeZone?: TimeZoneId;
   businessHours?: readonly BusinessHoursRule[];
+  collapsedResourceIds?: ReadonlySet<string>;
 }) {
   return buildTimelineViewModel({
     currentDate: params.currentDate ?? at('2026-07-10T09:00'),
@@ -86,7 +87,15 @@ function build(params: {
     weekStartsOn: params.weekStartsOn ?? 0,
     now: params.now ?? at('2026-07-10T10:30'),
     ...(params.businessHours !== undefined ? { businessHours: params.businessHours } : {}),
+    ...(params.collapsedResourceIds !== undefined
+      ? { collapsedResourceIds: params.collapsedResourceIds }
+      : {}),
   });
+}
+
+/** テスト用のリソースを parentId 付きで作る。 */
+function resourceWithParent(id: string, parentId?: string): CalendarResource {
+  return { id, title: `リソース ${id}`, ...(parentId !== undefined ? { parentId } : {}) };
 }
 
 describe('buildTimelineViewModel', () => {
@@ -486,6 +495,119 @@ describe('buildTimelineViewModel', () => {
         expect(vm.slots.map((s) => s.minutes)).toEqual([0, 1440, 2880]);
         expect(vm.slots.map((s) => s.dayKey)).toEqual(['2027-01-30', '2027-01-31', '2027-02-01']);
       });
+    });
+  });
+
+  describe('リソースの階層グルーピング（parentId）', () => {
+    it('parentId 未使用時は depth=0・hasChildren=false・collapsed=false になる（既存挙動の回帰確認）', () => {
+      const vm = build({ resources: [resource('r1'), resource('r2')] });
+      for (const row of vm.rows) {
+        expect(row.depth).toBe(0);
+        expect(row.hasChildren).toBe(false);
+        expect(row.collapsed).toBe(false);
+      }
+    });
+
+    it('parentId 併用時に rows がツリー順＋深さで並び、未割り当て行は常に末尾になる', () => {
+      const vm = build({
+        resources: [
+          resourceWithParent('site'),
+          resourceWithParent('floor-1', 'site'),
+          resourceWithParent('room-101', 'floor-1'),
+        ],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+          }),
+        ],
+        unassignedLane: 'always',
+      });
+      expect(vm.rows.map((row) => row.key)).toEqual([
+        'r:site',
+        'r:floor-1',
+        'r:room-101',
+        'unassigned',
+      ]);
+      expect(vm.rows.map((row) => row.depth)).toEqual([0, 1, 2, 0]);
+      expect(vm.rows.map((row) => row.hasChildren)).toEqual([true, true, false, false]);
+    });
+
+    it('親リソース自身に割り当てた予定が親の行の items に現れる（子の予定と混ざらない）', () => {
+      const vm = build({
+        resources: [resourceWithParent('parent'), resourceWithParent('child', 'parent')],
+        occurrences: [
+          makeOccurrence({
+            eventId: 'ev-parent',
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceId: 'parent',
+          }),
+          makeOccurrence({
+            eventId: 'ev-child',
+            start: at('2026-07-10T13:00'),
+            end: at('2026-07-10T14:00'),
+            resourceId: 'child',
+          }),
+        ],
+      });
+      const parentRow = vm.rows.find((row) => row.key === 'r:parent');
+      const childRow = vm.rows.find((row) => row.key === 'r:child');
+      expect(parentRow?.items.map((item) => item.occurrence.eventId)).toEqual(['ev-parent']);
+      expect(childRow?.items.map((item) => item.occurrence.eventId)).toEqual(['ev-child']);
+    });
+
+    it('collapsedResourceIds が空のときは全行が可視になる（既定挙動）', () => {
+      const vm = build({
+        resources: [resourceWithParent('parent'), resourceWithParent('child', 'parent')],
+      });
+      expect(vm.rows.map((row) => row.key)).toEqual(['r:parent', 'r:child']);
+      expect(vm.rows.find((row) => row.key === 'r:parent')?.collapsed).toBe(false);
+    });
+
+    it('親を折りたたむと、その子孫行が rows から除外される（親自身は残り collapsed=true になる）', () => {
+      const vm = build({
+        resources: [resourceWithParent('parent'), resourceWithParent('child', 'parent')],
+        collapsedResourceIds: new Set(['parent']),
+      });
+      expect(vm.rows.map((row) => row.key)).toEqual(['r:parent']);
+      expect(vm.rows[0]?.collapsed).toBe(true);
+    });
+
+    it('祖父母を折りたたむと、親・子の 2 段下まで rows から除外される', () => {
+      const vm = build({
+        resources: [
+          resourceWithParent('grandparent'),
+          resourceWithParent('parent', 'grandparent'),
+          resourceWithParent('child', 'parent'),
+        ],
+        collapsedResourceIds: new Set(['grandparent']),
+      });
+      expect(vm.rows.map((row) => row.key)).toEqual(['r:grandparent']);
+    });
+
+    it('折りたたみで非表示になった行の帯は rows に含まれず、isEmpty の判定にも影響する', () => {
+      const vm = build({
+        resources: [resourceWithParent('parent'), resourceWithParent('child', 'parent')],
+        collapsedResourceIds: new Set(['parent']),
+        unassignedLane: 'auto',
+      });
+      expect(vm.isEmpty).toBe(false);
+      expect(vm.rows).toHaveLength(1);
+    });
+
+    it('未割り当て行は常に depth=0・hasChildren=false・collapsed=false になる', () => {
+      const vm = build({
+        resources: [resourceWithParent('parent'), resourceWithParent('child', 'parent')],
+        occurrences: [
+          makeOccurrence({ start: at('2026-07-10T10:00'), end: at('2026-07-10T11:00') }),
+        ],
+        unassignedLane: 'always',
+      });
+      const unassigned = vm.rows.find((row) => row.key === 'unassigned');
+      expect(unassigned?.depth).toBe(0);
+      expect(unassigned?.hasChildren).toBe(false);
+      expect(unassigned?.collapsed).toBe(false);
     });
   });
 });

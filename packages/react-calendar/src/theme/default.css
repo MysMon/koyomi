@@ -34,6 +34,8 @@
  *                                    "day"/"week"/"month" の場合のみ）
  *   --koyomi-timeline-lane-height   タイムラインビューの帯 1 レーンの高さ
  *   --koyomi-timeline-header-width  タイムラインビューの行見出し列（左端固定列）の幅
+ *   --koyomi-timeline-indent-width  タイムラインビューの階層インデント（parentId 使用時）
+ *                                    1 段分の幅
  *   --koyomi-now-color              現在時刻線（now-indicator）の色
  *   --koyomi-business-hours-bg      営業時間内区間（businessHours）の背景色
  *                                    （週/日・リソース・タイムラインビュー共通）
@@ -48,6 +50,8 @@
  *   日列・リソース列の高さを決める時間数。表示時間帯（slotMinTime/slotMaxTime）に
  *   応じて (slotMaxTimeMinutes - slotMinTimeMinutes) / 60 がルート要素に自動設定される
  *   （既定は 24）。--koyomi-month-lanes / --koyomi-timeline-lanes と同じ方式。
+ *   --koyomi-timeline-row-depth も同じ方式（タイムラインの行ごとに、ツリー内の
+ *   深さ（0 起点）が自動設定される。parentId 未使用時は常に 0）。
  *
  * timeAxisZones（複数タイムゾーン軸）:
  *   週/日ビューで追加のタイムゾーン軸を指定すると、[data-koyomi="time-axis"] /
@@ -87,6 +91,7 @@
   --koyomi-timeline-slot-width: 96px;
   --koyomi-timeline-lane-height: 28px;
   --koyomi-timeline-header-width: 120px;
+  --koyomi-timeline-indent-width: 16px;
   --koyomi-now-color: #ea4335;
   --koyomi-business-hours-bg: rgba(26, 115, 232, 0.06);
   --koyomi-invalid-color: #d93025;
@@ -1184,21 +1189,52 @@
      ::before の色ドットの絶対配置の基準としてそのまま機能する */
   display: flex;
   align-items: center;
-  padding-inline: 14px 8px;
+  /* --koyomi-timeline-row-depth（既定 0）に応じて開始側の余白を広げ、深さに応じた
+     階層インデントを表現する。parentId 未使用時（depth 常に 0）は 14px のまま不変 */
+  padding-inline-start: calc(
+    14px +
+    var(--koyomi-timeline-row-depth, 0) *
+    var(--koyomi-timeline-indent-width, 16px)
+  );
+  padding-inline-end: 8px;
   font-size: 0.9em;
 }
 
-/* リソースの色（未設定なら既定アクセント色）を示す色ドット（resource-header-cell と同型） */
+/* リソースの色（未設定なら既定アクセント色）を示す色ドット（resource-header-cell と同型）。
+   padding-inline-start と同じ計算式で深さに応じて動かし、深い階層でもラベル・
+   トグルボタンとの視覚的な整合を保つ（depth 0 のときは既存と同じ 4px） */
 [data-koyomi="timeline-resource-header"]::before {
   content: "";
   position: absolute;
   top: 50%;
-  inset-inline-start: 4px;
+  inset-inline-start: calc(
+    4px +
+    var(--koyomi-timeline-row-depth, 0) *
+    var(--koyomi-timeline-indent-width, 16px)
+  );
   width: 8px;
   height: 8px;
   transform: translateY(-50%);
   border-radius: 999px;
   background-color: var(--koyomi-event-color, var(--koyomi-accent));
+}
+
+/* 折りたたみトグルボタン。固定グリフ（▸）＋ aria-expanded に応じた回転で
+   開閉を表す（ツールバー prev/next と同じ「固定グリフ＋CSS」方式） */
+[data-koyomi="timeline-row-toggle"] {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-inline-end: 4px;
+  font-size: 0.8em;
+  transition: transform 0.15s ease;
+}
+
+[data-koyomi="timeline-row-toggle"][aria-expanded="true"] {
+  transform: rotate(90deg);
 }
 
 [data-koyomi="timeline-axis"] {

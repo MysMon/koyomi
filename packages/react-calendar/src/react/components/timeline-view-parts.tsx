@@ -75,6 +75,17 @@ export function withLaneCountStyle(laneCount: number): CSSProperties {
 }
 
 /**
+ * ツリー内の深さを CSS 変数 `--koyomi-timeline-row-depth` として `style` に加える。
+ * テーマ CSS 側の階層インデント計算（{@link withLaneCountStyle} と同じ、位置決めの
+ * 数値のみを inline に出す既存規約の範囲内）が参照する。
+ */
+export function withDepthStyle(style: CSSProperties, depth: number): CSSProperties {
+  // 'as' 使用理由: 上記 withLaneCountStyle と同様（--koyomi-timeline-row-depth も
+  // CSSProperties の型定義に含まれない）。
+  return { ...style, '--koyomi-timeline-row-depth': String(depth) } as CSSProperties;
+}
+
+/**
  * `TimelineRowGroup` が実際に必要とするドラッグハンドラだけを抜き出した型。
  * `previewFor` はここに含めない（`TimelineView` / `VirtualTimelineView` 側で
  * 解決済みの値を `preview` prop として渡すため）。
@@ -159,8 +170,43 @@ export function sameTimelineRow(a: TimelineRow, b: TimelineRow): boolean {
     a.key === b.key &&
     sameResource(a.resource, b.resource) &&
     a.laneCount === b.laneCount &&
+    a.depth === b.depth &&
+    a.hasChildren === b.hasChildren &&
+    a.collapsed === b.collapsed &&
     sameTimelineItems(a.items, b.items)
   );
+}
+
+/**
+ * 折りたたみトグルボタンの既定 aria-label を組み立てる。
+ *
+ * `collapsed`（トグル後ではなく現在の折りたたみ状態）に応じて、押すと何が起こるかを
+ * 案内する文言にする（`collapsed: true` = 押すと展開、`false` = 押すと折りたたむ）。
+ */
+export function defaultResourceToggleAriaLabel(
+  resource: CalendarResource,
+  collapsed: boolean,
+): string {
+  return collapsed ? `${resource.title} を展開する` : `${resource.title} を折りたたむ`;
+}
+
+/**
+ * `resourceToggleAriaLabel` コールバックが指定されていればそれを適用し、なければ既定文字列を
+ * そのまま返す（`month-view-parts.tsx` の `resolveEventAriaLabel` と同型）。
+ *
+ * @param resource - 対象のリソース
+ * @param collapsed - 現在の折りたたみ状態
+ * @param custom - 利用者が指定した `resourceToggleAriaLabel`
+ */
+export function resolveResourceToggleAriaLabel(
+  resource: CalendarResource,
+  collapsed: boolean,
+  custom:
+    | ((resource: CalendarResource, collapsed: boolean, defaultLabel: string) => string)
+    | undefined,
+): string {
+  const defaultLabel = defaultResourceToggleAriaLabel(resource, collapsed);
+  return custom ? custom(resource, collapsed, defaultLabel) : defaultLabel;
 }
 
 /**

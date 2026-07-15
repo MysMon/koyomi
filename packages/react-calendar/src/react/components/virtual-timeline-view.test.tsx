@@ -500,3 +500,79 @@ describe('VirtualTimelineView - businessHours（営業時間）', () => {
     }
   });
 });
+
+describe('VirtualTimelineView - リソースの階層グルーピング（parentId）', () => {
+  const PARENT: CalendarResource = { id: 'parent', title: '本社' };
+  const CHILD: CalendarResource = { id: 'child', title: '1F会議室', parentId: 'parent' };
+
+  it('parentId 未使用時は timeline-row-toggle が 1 つも描画されない（既存挙動の回帰確認）', () => {
+    const { container } = render(<Harness resources={makeResources(2)} />);
+    expect(container.querySelectorAll('[data-koyomi="timeline-row-toggle"]')).toHaveLength(0);
+  });
+
+  it('hasChildren な行にのみ timeline-row-toggle が描画され、aria-expanded が collapsed と整合する', () => {
+    const { container } = render(<Harness resources={[PARENT, CHILD]} />);
+    const headers = container.querySelectorAll('[data-koyomi="timeline-resource-header"]');
+    expect(headers).toHaveLength(2);
+    expect(headers[0]?.querySelector('[data-koyomi="timeline-row-toggle"]')).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(headers[1]?.querySelector('[data-koyomi="timeline-row-toggle"]')).toBeNull();
+  });
+
+  it('timeline-resource-header に data-koyomi-depth 属性が付き、深さに応じた値になる', () => {
+    const { container } = render(<Harness resources={[PARENT, CHILD]} />);
+    const headers = container.querySelectorAll('[data-koyomi="timeline-resource-header"]');
+    expect(headers[0]).toHaveAttribute('data-koyomi-depth', '0');
+    expect(headers[1]).toHaveAttribute('data-koyomi-depth', '1');
+  });
+
+  it('トグルボタンをクリックすると子孫行が非表示になり、可視行数が再計算される', async () => {
+    const { container } = render(<Harness resources={[PARENT, CHILD]} />);
+    expect(container.querySelectorAll('[data-koyomi="timeline-row-group"]')).toHaveLength(2);
+    const toggle = container.querySelector('[data-koyomi="timeline-row-toggle"]');
+    expect(toggle).not.toBeNull();
+
+    await act(async () => {
+      (toggle as HTMLButtonElement).click();
+    });
+
+    expect(container.querySelectorAll('[data-koyomi="timeline-row-group"]')).toHaveLength(1);
+  });
+
+  it('resourceToggleAriaLabel で aria-label をカスタマイズできる', () => {
+    const { container } = render(
+      <Harness
+        resources={[PARENT, CHILD]}
+        viewProps={{
+          resourceToggleAriaLabel: (resource, collapsed, defaultLabel) =>
+            `${resource.title}/${collapsed}/${defaultLabel}`,
+        }}
+      />,
+    );
+    const toggle = container.querySelector('[data-koyomi="timeline-row-toggle"]');
+    expect(toggle).toHaveAttribute('aria-label', '本社/false/本社 を折りたたむ');
+  });
+
+  it('pinned 行のトグルボタンはタブ順から外れる（tabindex=-1）', async () => {
+    // 既存の pinned テスト（'pinned 行の帯はタブ順から外れる'）と同じ手法:
+    // 先頭行（PARENT）にフォーカスしてから窓外へスクロールし pinned 化させる
+    const resources = [PARENT, CHILD, ...makeResources(200)];
+    const { container } = render(<Harness resources={resources} />);
+    await setViewport(container, 100, 0);
+    const toggle = container.querySelector('[data-koyomi="timeline-row-toggle"]');
+    if (!(toggle instanceof HTMLElement)) {
+      throw new Error('トグルボタンが見つかりません');
+    }
+    await act(async () => {
+      fireEvent.focus(toggle);
+    });
+    await setViewport(container, 100, 5000);
+
+    const pinned = container.querySelector('[data-koyomi-pinned="true"]');
+    expect(pinned?.getAttribute('data-koyomi-row-key')).toBe('r:parent');
+    const pinnedToggle = pinned?.querySelector('[data-koyomi="timeline-row-toggle"]');
+    expect(pinnedToggle?.getAttribute('tabindex')).toBe('-1');
+  });
+});

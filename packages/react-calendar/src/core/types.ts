@@ -55,6 +55,13 @@ export interface CalendarResource {
    * （イベント自身の `color` が常に優先。既存ビューの描画には影響しない）。
    */
   color?: string;
+  /**
+   * 親リソースの ID。指定するとタイムラインビューでこのリソースを子として
+   * ツリー内に配置する（深さは任意段）。参照先のない ID・循環参照（自己参照含む）は
+   * 孤立したルート（深さ 0）として扱う。リソースビューの列順には影響しない
+   * （常にフラット）。省略時（既定）はルート。
+   */
+  parentId?: string;
   /** 利用者定義の任意データ。ライブラリは内容に関知しない。 */
   extendedProps?: Record<string, unknown>;
 }
@@ -722,6 +729,21 @@ export interface TimelineRow {
   items: readonly TimelineItem[];
   /** この行のレーン数（0 件なら 0）。 */
   laneCount: number;
+  /**
+   * ツリー内の深さ（0 起点）。{@link CalendarResource.parentId} を使わない場合・
+   * 未割り当て行は常に `0`。
+   */
+  depth: number;
+  /**
+   * 子リソースを持つか。`true` のときのみ折りたたみ可能（トグルボタンの描画対象）。
+   * {@link CalendarResource.parentId} を使わない場合・未割り当て行は常に `false`。
+   */
+  hasChildren: boolean;
+  /**
+   * 折りたたみ状態（{@link CalendarState.collapsedResourceIds} に基づく）。
+   * `hasChildren` が `false` のときは常に `false`。
+   */
+  collapsed: boolean;
 }
 
 /**
@@ -836,6 +858,11 @@ export interface CalendarState {
   resources: readonly CalendarResource[];
   /** ドラッグ操作のプレビュー。操作中でなければ `null`。 */
   dragPreview: DragPreview | null;
+  /**
+   * 折りたたみ中のリソース ID の集合（タイムラインビューのみが参照）。
+   * {@link CalendarApi.toggleResourceCollapsed} で変更する。
+   */
+  collapsedResourceIds: ReadonlySet<string>;
   /** 解決済みのオプション（既定値適用後）。 */
   options: ResolvedCalendarOptions;
 }
@@ -871,6 +898,12 @@ export interface CalendarOptions {
    * {@link CalendarApi.setResources} を使う。
    */
   resources?: readonly CalendarResource[];
+  /**
+   * 初期状態で折りたたむリソース ID（{@link CalendarResource.parentId} で子を持つ
+   * リソースのみ意味を持つ）。既定は `[]`。
+   * **作成時のみ有効**。作成後の変更には {@link CalendarApi.toggleResourceCollapsed} を使う。
+   */
+  initialCollapsedResourceIds?: readonly string[];
   /**
    * 表示タイムゾーン。既定は実行環境のローカルタイムゾーン。
    * {@link CalendarApi.setTimeZone} で後から変更できる。
@@ -1016,13 +1049,21 @@ export interface CalendarOptions {
 /**
  * {@link CalendarApi.updateOptions} に渡すパッチの型。
  *
- * `initialView` / `initialDate` を除く {@link CalendarOptions} のフィールドを
- * 部分的に指定できる。`onEventsChange` / `onRangeChange` の 2 つだけは
- * `null` を渡すことで登録済みのコールバックを解除できる（フィールド自体を
- * 省略した場合は「変更しない」、`null` を渡した場合は「解除する」の意味になる）。
+ * `initialView` / `initialDate` / `initialCollapsedResourceIds` を除く
+ * {@link CalendarOptions} のフィールドを部分的に指定できる。`onEventsChange` /
+ * `onRangeChange` の 2 つだけは `null` を渡すことで登録済みのコールバックを
+ * 解除できる（フィールド自体を省略した場合は「変更しない」、`null` を渡した場合は
+ * 「解除する」の意味になる）。
  */
 export type CalendarOptionsPatch = Partial<
-  Omit<CalendarOptions, 'initialView' | 'initialDate' | 'onEventsChange' | 'onRangeChange'>
+  Omit<
+    CalendarOptions,
+    | 'initialView'
+    | 'initialDate'
+    | 'initialCollapsedResourceIds'
+    | 'onEventsChange'
+    | 'onRangeChange'
+  >
 > & {
   /**
    * イベント一覧が変更されたときに呼ばれるコールバック。
@@ -1241,4 +1282,17 @@ export interface CalendarApi {
 
   /** ドラッグ操作のプレビューを設定する（`null` で解除）。 */
   setDragPreview(preview: DragPreview | null): void;
+
+  // --- リソースの階層グルーピング ---
+
+  /**
+   * リソースの折りたたみ状態をトグルする（タイムラインビューのみに影響する）。
+   *
+   * 対象リソースが現在の {@link CalendarApi.getResources} に存在しない ID でも
+   * 例外を投げず、内部の折りたたみ集合の要素として追加/削除する（後で同じ ID の
+   * リソースが追加された場合に備える）。子を持たないリソースを指定しても状態は
+   * 変わるが表示への影響はない（トグルボタン自体は {@link TimelineRow.hasChildren}
+   * が `true` の行にのみ描画されるため）。
+   */
+  toggleResourceCollapsed(resourceId: string): void;
 }

@@ -663,6 +663,24 @@ describe('CalendarView', () => {
       );
     });
 
+    it('timelineResourceToggleAriaLabel が TimelineView の resourceToggleAriaLabel へ転送される', () => {
+      const resources: CalendarResource[] = [
+        { id: 'parent', title: '本社' },
+        { id: 'child', title: '1F会議室', parentId: 'parent' },
+      ];
+      const { container } = renderView(
+        'timeline',
+        {
+          timelineResourceToggleAriaLabel: (resource, collapsed, defaultLabel) =>
+            `${resource.title}/${collapsed}/${defaultLabel}`,
+        },
+        [],
+        resources,
+      );
+      const toggle = container.querySelector('[data-koyomi="timeline-row-toggle"]');
+      expect(toggle).toHaveAttribute('aria-label', '本社/false/本社 を折りたたむ');
+    });
+
     it('timelineEmptyLabel が TimelineView の emptyLabel へ転送される', () => {
       const { container } = renderView(
         'timeline',

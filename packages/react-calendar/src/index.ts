@@ -167,6 +167,13 @@ export type {
 export { buildListViewModel } from './core/views/list-view';
 export { buildMonthViewModel } from './core/views/month-view';
 export { buildMultiMonthViewModel } from './core/views/multi-month-view';
+// リソースの階層グルーピング（タイムラインビューのみが利用する）
+export {
+  buildResourceTree,
+  filterVisibleResourceTree,
+  type ResourceTreeEntry,
+  type VisibleResourceTreeEntry,
+} from './core/views/resource-hierarchy';
 export { buildResourceViewModel } from './core/views/resource-view';
 export { buildTimeGridViewModel } from './core/views/time-grid-view';
 export { buildTimelineViewModel } from './core/views/timeline-view';

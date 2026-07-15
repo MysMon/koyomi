@@ -172,7 +172,13 @@ describe('enUsLabels', () => {
 
   it('timeline グループが TimelineView/VirtualTimelineView の *Label props をカバーする', () => {
     expect(Object.keys(enUsLabels.timeline).sort()).toEqual(
-      ['unassignedLabel', 'emptyLabel', 'cornerLabel', 'eventAriaLabel'].sort(),
+      [
+        'unassignedLabel',
+        'emptyLabel',
+        'cornerLabel',
+        'eventAriaLabel',
+        'resourceToggleAriaLabel',
+      ].sort(),
     );
     expect(enUsLabels.timeline.unassignedLabel).toBe('Unassigned');
     expect(enUsLabels.timeline.emptyLabel).toBe('No resources');
@@ -180,6 +186,13 @@ describe('enUsLabels', () => {
     expect(
       enUsLabels.timeline.eventAriaLabel(makeOccurrence(), '荷揚げ、7月15日 9:00〜11:00'),
     ).toBe('荷揚げ, 7月15日 9:00–11:00');
+    const resource = { id: 'room-a', title: '会議室A' };
+    expect(
+      enUsLabels.timeline.resourceToggleAriaLabel(resource, false, '会議室A を折りたたむ'),
+    ).toBe('Collapse 会議室A');
+    expect(enUsLabels.timeline.resourceToggleAriaLabel(resource, true, '会議室A を展開する')).toBe(
+      'Expand 会議室A',
+    );
   });
 
   it('year グループが YearView の dayCountLabel / dayAriaLabel をカバーする', () => {
@@ -211,6 +224,7 @@ describe('enUsLabels', () => {
         'multiMonthEventAriaLabel',
         'resourceEventAriaLabel',
         'timelineEventAriaLabel',
+        'timelineResourceToggleAriaLabel',
         'yearDayCountLabel',
         'yearDayAriaLabel',
       ].sort(),

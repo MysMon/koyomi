@@ -20,6 +20,7 @@ import type {
 import type {
   CalendarEvent,
   CalendarRangeChangeInfo,
+  CalendarResource,
   EventOccurrence,
   ListDay,
   Weekday,
@@ -76,6 +77,19 @@ function overflowLabelEn(count: number): ReactNode {
  */
 function eventAriaLabelEn(_occurrence: EventOccurrence, defaultLabel: string): string {
   return defaultLabel.replace(/、/g, ', ').replace(/〜/g, '–');
+}
+
+/**
+ * `TimelineView` / `VirtualTimelineView` の `resourceToggleAriaLabel` の英語版。
+ * `collapsed`（現在の折りたたみ状態）に応じて、押すと何が起こるかを案内する文言にする
+ * （`defaultResourceToggleAriaLabel` の日本語版と同じ判定軸）。
+ */
+function resourceToggleAriaLabelEn(
+  resource: CalendarResource,
+  collapsed: boolean,
+  _defaultLabel: string,
+): string {
+  return collapsed ? `Expand ${resource.title}` : `Collapse ${resource.title}`;
 }
 
 /** `YearView` の `dayCountLabel` 既定文字列（`'予定N件'`）と同じ形式の英語版。単数形に対応する。 */
@@ -318,6 +332,7 @@ const timeline = {
   emptyLabel: 'No resources',
   cornerLabel: 'Resources',
   eventAriaLabel: eventAriaLabelEn,
+  resourceToggleAriaLabel: resourceToggleAriaLabelEn,
 } satisfies RequiredLabels<TimelineViewProps> & RequiredLabels<VirtualTimelineViewProps>;
 
 const year = {
@@ -342,6 +357,7 @@ const calendarView = {
   multiMonthEventAriaLabel: eventAriaLabelEn,
   resourceEventAriaLabel: eventAriaLabelEn,
   timelineEventAriaLabel: eventAriaLabelEn,
+  timelineResourceToggleAriaLabel: resourceToggleAriaLabelEn,
   yearDayCountLabel: dayCountLabelEn,
   yearDayAriaLabel: yearDayAriaLabelEn,
 } satisfies RequiredLabels<CalendarViewProps>;

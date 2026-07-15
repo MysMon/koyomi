@@ -41,6 +41,7 @@ import type {
   Weekday,
 } from '../types';
 import { laneKeyForResource, UNASSIGNED_LANE_KEY } from './lane-key';
+import { buildResourceTree, filterVisibleResourceTree } from './resource-hierarchy';
 
 /** 1 日の分（24:00 = 1440 分）。DST 日でも表示スケールは 24 時間として扱う。 */
 const MINUTES_PER_DAY = 1440;
@@ -59,6 +60,13 @@ const ZERO_LENGTH_EFFECTIVE_MINUTES = 30;
  * （`buildTimeGridViewModel` の `sharedBusinessHourSlots` と同じ短絡方針）。
  */
 const EMPTY_BUSINESS_HOUR_RANGES: readonly BusinessHourRange[] = [];
+
+/**
+ * `collapsedResourceIds` 未指定時に共有する空集合。
+ * 呼び出しのたびに新しい `Set` を割り当てないよう、モジュールで 1 本だけ保持する
+ * （{@link EMPTY_BUSINESS_HOUR_RANGES} と同じ短絡方針）。
+ */
+const EMPTY_COLLAPSED_RESOURCE_IDS: ReadonlySet<string> = new Set();
 
 /** 未割り当て行のキー（{@link UNASSIGNED_LANE_KEY} の別名。既存コードの可読性のため）。 */
 const UNASSIGNED_KEY = UNASSIGNED_LANE_KEY;
@@ -220,10 +228,14 @@ function buildHeaderGroups(
  *
  * 処理内容:
  * - 表示日は `currentDate` の属する日から `timelineDays` 日の連続並び
- * - リソース一覧を先頭から走査し、**ID 重複は先勝ち**で行にする。
- *   オカレンスは `event.resourceId` で 1 パスのバケット分けし、未指定・
- *   参照先のない ID は未割り当て行に合流する（{@link ./resource-view} と同じ規則）
- * - 未割り当て行は {@link CalendarOptions.unassignedLane} の規則で生成する
+ * - リソース一覧は {@link buildResourceTree} でツリー順（**ID 重複は先勝ち**、
+ *   {@link CalendarResource.parentId} による深さ優先の行き掛け順）に並べ、
+ *   {@link filterVisibleResourceTree} で `collapsedResourceIds` に含まれる祖先を持つ
+ *   行（折りたたみ中の子孫）を除外する。オカレンスは `event.resourceId` で
+ *   1 パスのバケット分けし、未指定・参照先のない ID は未割り当て行に合流する
+ *   （{@link ./resource-view} と同じ規則）
+ * - 未割り当て行は {@link CalendarOptions.unassignedLane} の規則で常に末尾に生成する
+ *   （ツリーの対象にしない。`depth: 0` / `hasChildren: false` / `collapsed: false` 固定）
  * - 各オカレンスを表示分の区間に変換する:
  *   - 時間指定 — 開始/終了それぞれ `日インデックス × 1440 + 現地時刻の分`。
  *     表示範囲の外へ続く側は `0` / `totalMinutes` にクランプし、
@@ -247,6 +259,8 @@ function buildHeaderGroups(
  * @param params.businessHours - 営業時間の指定一覧（{@link TimelineViewModel.businessHourRanges}
  *   を算出する）。表示日ごとに該当曜日のルールを日オフセット付きの表示分の区間へ変換し、
  *   隣接・重複する区間はマージする。省略時は `[]`
+ * @param params.collapsedResourceIds - 折りたたみ中のリソース ID の集合
+ *   （{@link CalendarState.collapsedResourceIds}）。省略時は `[]`（全展開）扱い
  * @returns タイムラインビューのビューモデル
  * @example
  * ```ts
@@ -277,6 +291,7 @@ export function buildTimelineViewModel(params: {
   weekStartsOn: Weekday;
   now: Date;
   businessHours?: readonly BusinessHoursRule[];
+  collapsedResourceIds?: ReadonlySet<string>;
 }): TimelineViewModel {
   const {
     currentDate,
@@ -290,6 +305,7 @@ export function buildTimelineViewModel(params: {
     weekStartsOn,
     now,
     businessHours = [],
+    collapsedResourceIds = EMPTY_COLLAPSED_RESOURCE_IDS,
   } = params;
 
   // 表示日の列挙（毎回日の開始へ再正規化する。深夜 0:00 が存在しないゾーン対策）
@@ -409,15 +425,15 @@ export function buildTimelineViewModel(params: {
     };
   }
 
-  // ID 重複を先勝ちで除いた行の並び（resource-view と同じ規則）
-  const uniqueResources: CalendarResource[] = [];
-  const resourceById = new Map<string, CalendarResource>();
-  for (const entry of resources) {
-    if (!resourceById.has(entry.id)) {
-      resourceById.set(entry.id, entry);
-      uniqueResources.push(entry);
-    }
-  }
+  // ID 重複を先勝ちで除いたうえで parentId によるツリー順に並べる（可視・非可視を問わず全件）
+  const tree = buildResourceTree(resources);
+  // resourceById は「重複除去後に実在する ID か」の判定に使う（可視性とは無関係。
+  // 折りたたみで非表示中の行に割り当てられたオカレンスも、未割り当てへは合流させない）
+  const resourceById = new Map<string, CalendarResource>(
+    tree.map((entry) => [entry.resource.id, entry.resource]),
+  );
+  // 折りたたみ中の祖先を持つ行（非表示の子孫）を除いた、実際に行を生成する対象
+  const visibleTree = filterVisibleResourceTree(tree, collapsedResourceIds);
 
   // オカレンス → レーン ID の 1 パスのバケット分け
   const bucket = new Map<string | null, EventOccurrence[]>();
@@ -467,17 +483,24 @@ export function buildTimelineViewModel(params: {
     return { items, laneCount: layout.laneCount };
   }
 
-  const rows: TimelineRow[] = uniqueResources.map((entry) => ({
-    resource: entry,
-    key: resourceRowKey(entry.id),
-    ...buildRowItems(bucket.get(entry.id) ?? []),
+  const rows: TimelineRow[] = visibleTree.map((entry) => ({
+    resource: entry.resource,
+    key: resourceRowKey(entry.resource.id),
+    depth: entry.depth,
+    hasChildren: entry.hasChildren,
+    collapsed: entry.collapsed,
+    ...buildRowItems(bucket.get(entry.resource.id) ?? []),
   }));
 
   const unassignedOccurrences = bucket.get(null) ?? [];
   if (unassignedLane === 'always' || unassignedOccurrences.length > 0) {
+    // 未割り当て行はツリーの対象にしないため、階層に関する各フィールドは常に固定値
     rows.push({
       resource: null,
       key: UNASSIGNED_KEY,
+      depth: 0,
+      hasChildren: false,
+      collapsed: false,
       ...buildRowItems(unassignedOccurrences),
     });
   }

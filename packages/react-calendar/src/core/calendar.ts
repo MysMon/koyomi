@@ -361,6 +361,11 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
   let events: readonly CalendarEvent[] = options?.events !== undefined ? [...options.events] : [];
   let resources: readonly CalendarResource[] =
     options?.resources !== undefined ? [...options.resources] : [];
+  // initialCollapsedResourceIds は作成時のみ有効（initialDate/initialView と同じ扱い）。
+  // 呼び出し側の配列参照をそのまま保持せず、複製した Set として保持する
+  let collapsedResourceIds: ReadonlySet<string> = new Set(
+    options?.initialCollapsedResourceIds ?? [],
+  );
   /**
    * `setEvents` / `updateOptions({ events })` に直近渡された「入力そのものの参照」。
    * `events`（内部の複製済み配列）とは別に保持し、同一参照を渡された場合の
@@ -611,6 +616,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           weekStartsOn: resolvedOptions.weekStartsOn,
           businessHours: resolvedOptions.businessHours,
           now,
+          collapsedResourceIds,
         });
     }
   }
@@ -631,6 +637,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           events,
           resources,
           dragPreview,
+          collapsedResourceIds,
           options: resolvedOptions,
         };
       }
@@ -844,6 +851,20 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       dragPreview = preview;
       // プレビューはビューモデルに影響しない（オーバーレイ描画用）
       commit(false);
+    },
+
+    // --- リソースの階層グルーピング ---
+
+    toggleResourceCollapsed(resourceId: string): void {
+      const next = new Set(collapsedResourceIds);
+      if (next.has(resourceId)) {
+        next.delete(resourceId);
+      } else {
+        next.add(resourceId);
+      }
+      collapsedResourceIds = next;
+      // タイムラインビューモデルの行構成に影響するため、キャッシュを破棄する
+      commit(true);
     },
   };
 }

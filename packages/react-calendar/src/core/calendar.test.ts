@@ -1512,6 +1512,59 @@ describe('createCalendar', () => {
       expect(timelineVm.rows.map((r) => r.resource?.id)).toEqual(['room-1']);
     });
 
+    it('toggleResourceCollapsed を 2 回呼ぶと元の状態（可視）に戻る', () => {
+      const calendar = makeCalendar({
+        resources: [ROOM, { id: 'room-2', title: '会議室B', parentId: 'room-1' }],
+      });
+      calendar.setView('timeline');
+      const before = calendar.getViewModel();
+      if (before.type !== 'timeline') throw new Error('unreachable');
+      expect(before.rows.map((r) => r.key)).toEqual(['r:room-1', 'r:room-2']);
+
+      calendar.toggleResourceCollapsed('room-1');
+      const collapsed = calendar.getViewModel();
+      if (collapsed.type !== 'timeline') throw new Error('unreachable');
+      expect(collapsed.rows.map((r) => r.key)).toEqual(['r:room-1']);
+
+      calendar.toggleResourceCollapsed('room-1');
+      const restored = calendar.getViewModel();
+      if (restored.type !== 'timeline') throw new Error('unreachable');
+      expect(restored.rows.map((r) => r.key)).toEqual(['r:room-1', 'r:room-2']);
+    });
+
+    it('toggleResourceCollapsed は getViewModel のキャッシュを破棄する', () => {
+      const calendar = makeCalendar({
+        resources: [ROOM, { id: 'room-2', title: '会議室B', parentId: 'room-1' }],
+      });
+      calendar.setView('timeline');
+      const vm = calendar.getViewModel();
+      calendar.toggleResourceCollapsed('room-1');
+      expect(calendar.getViewModel()).not.toBe(vm);
+    });
+
+    it('toggleResourceCollapsed は resources に存在しない ID を渡しても例外にならない', () => {
+      const calendar = makeCalendar();
+      expect(() => calendar.toggleResourceCollapsed('ghost')).not.toThrow();
+    });
+
+    it('initialCollapsedResourceIds を指定すると、タイムラインの初回ビューモデルが該当行を隠す', () => {
+      const calendar = makeCalendar({
+        resources: [ROOM, { id: 'room-2', title: '会議室B', parentId: 'room-1' }],
+        initialCollapsedResourceIds: ['room-1'],
+        initialView: 'timeline',
+      });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'timeline') throw new Error('unreachable');
+      expect(vm.rows.map((r) => r.key)).toEqual(['r:room-1']);
+    });
+
+    it('getState().collapsedResourceIds に折りたたみ状態が反映される', () => {
+      const calendar = makeCalendar({ resources: [ROOM] });
+      expect(calendar.getState().collapsedResourceIds.size).toBe(0);
+      calendar.toggleResourceCollapsed('room-1');
+      expect(calendar.getState().collapsedResourceIds.has('room-1')).toBe(true);
+    });
+
     it('状態が変わらない限りビューモデルはキャッシュされる（同一参照）', () => {
       const calendar = makeCalendar({ events: [MEETING] });
       const a = calendar.getViewModel();
