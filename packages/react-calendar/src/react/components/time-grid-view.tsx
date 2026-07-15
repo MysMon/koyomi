@@ -25,7 +25,7 @@
  */
 
 import type { ReactElement, ReactNode, Ref } from 'react';
-import { memo, useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import { addDaysInZone, startOfDayInZone } from '../../core/timezone';
 import type {
   BusinessHourSlot,
@@ -39,12 +39,18 @@ import type {
   TimeZoneId,
 } from '../../core/types';
 import { useCalendarContext } from '../context';
+import { scrollContainerToTime } from '../scroll-to-time';
 import type { DayDragHandlers } from '../use-day-drag';
 import { useDayDrag } from '../use-day-drag';
 import type { TimeGridDragHandlers, TimeGridPreviewSegment } from '../use-time-grid-drag';
 import { useTimeGridDrag } from '../use-time-grid-drag';
 import { formatWeekday } from './format';
-import { resolveEventAriaLabel, withEventColorStyle } from './month-view-parts';
+import {
+  percentOfSlotRange,
+  resolveEventAriaLabel,
+  withEventColorStyle,
+  withTimegridHoursStyle,
+} from './month-view-parts';
 
 /** 1 日の分（24:00）。 */
 const MINUTES_PER_DAY = 1440;
@@ -90,6 +96,28 @@ export interface TimeGridViewProps {
    * @param defaultLabel - 既定の aria-label 文字列
    */
   eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
+  /**
+   * マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置（`'HH:mm'`）。
+   * 表示時間帯制限（{@link CalendarOptions.slotMinTime}/{@link CalendarOptions.slotMaxTime}）とは
+   * 独立して機能する。事後に値を変更しても再適用されない（`ref.current.scrollToTime` を使うこと）。
+   */
+  initialScrollTime?: string;
+  /**
+   * {@link TimeGridViewHandle}（`scrollToTime` などの命令的 API）を受け取る ref。
+   */
+  // React 本体の RefAttributes と同じく明示的な undefined を許容する
+  // （exactOptionalPropertyTypes 下で `ref={maybeUndefined}` を書けるようにするため）
+  ref?: Ref<TimeGridViewHandle> | undefined;
+}
+
+/** {@link TimeGridView} が `ref` 経由で公開する命令的 API。 */
+export interface TimeGridViewHandle {
+  /**
+   * `[data-koyomi="timegrid-body"]` を指定時刻の位置へスクロールする。
+   * 時刻が表示時間帯の外側の場合は最も近い境界へクランプする。`'HH:mm'` として
+   * 解析できない場合は何もしない。
+   */
+  scrollToTime(time: string): void;
 }
 
 /** 2 桁ゼロ埋め。 */
@@ -404,7 +432,14 @@ function samePreviewSegment(
  * ```
  */
 export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
-  const { renderEvent, renderAllDayEvent, renderDayHeader, eventAriaLabel } = props;
+  const {
+    renderEvent,
+    renderAllDayEvent,
+    renderDayHeader,
+    eventAriaLabel,
+    initialScrollTime,
+    ref,
+  } = props;
   const { api, state, viewModel, callbacks } = useCalendarContext();
   const calendar = { api, state, viewModel };
   const dayDrag = useDayDrag({ calendar, callbacks });
@@ -412,6 +447,42 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
   // `timeGridDrag` は毎レンダー新しいオブジェクトになるため、日列・イベントボタンの
   // memo 化が効くよう、参照が変わらないラッパー経由で渡す（詳細は関数コメント参照）。
   const stableDrag = useStableColumnDrag(timeGridDrag);
+
+  // viewModel.type !== 'timeGrid'（早期 return 前）でもフックは無条件に呼ぶ必要があるため、
+  // スクロール計算に使う表示時間帯（分）は安全な既定値へフォールバックする
+  // （VirtualResourceView の columns フォールバックと同じ方針）。
+  const slotMinTimeMinutes = viewModel.type === 'timeGrid' ? viewModel.slotMinTimeMinutes : 0;
+  const slotMaxTimeMinutes =
+    viewModel.type === 'timeGrid' ? viewModel.slotMaxTimeMinutes : MINUTES_PER_DAY;
+
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  useImperativeHandle(
+    ref,
+    (): TimeGridViewHandle => ({
+      scrollToTime(time: string) {
+        if (bodyRef.current !== null) {
+          scrollContainerToTime(bodyRef.current, time, slotMinTimeMinutes, slotMaxTimeMinutes);
+        }
+      },
+    }),
+    [slotMinTimeMinutes, slotMaxTimeMinutes],
+  );
+
+  // マウント時に一度だけ initialScrollTime を適用する（VirtualResourceView の
+  // useImperativeHandle 実装と同型。事後の initialScrollTime / 表示時間帯の変更では
+  // 再適用しない意図的な設計のため、依存配列は空にする）。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: マウント時に 1 回だけ実行する意図的な設計（initialScrollTime は「初期」スクロール位置であり、事後の変更を反映しない）
+  useLayoutEffect(() => {
+    if (initialScrollTime !== undefined && bodyRef.current !== null) {
+      scrollContainerToTime(
+        bodyRef.current,
+        initialScrollTime,
+        slotMinTimeMinutes,
+        slotMaxTimeMinutes,
+      );
+    }
+  }, []);
 
   const selectAndGoToDay = useCallback(
     (date: Date): void => {
@@ -449,7 +520,11 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
     alldayPreviewRange !== null ? computeDaySpan(days, alldayPreviewRange, timeZone) : null;
 
   return (
-    <div data-koyomi="timegrid" data-koyomi-days={String(columnCount)}>
+    <div
+      data-koyomi="timegrid"
+      data-koyomi-days={String(columnCount)}
+      style={withTimegridHoursStyle(slotMinTimeMinutes, slotMaxTimeMinutes)}
+    >
       {/* biome-ignore lint/a11y/useSemanticElements: DOM 仕様が定める div ベースの ARIA grid（MonthView と同じ方針。<table> はテーマ CSS と噛み合わないため不採用） */}
       <div data-koyomi="timegrid-grid" role="grid">
         {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA row */}
@@ -576,7 +651,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
           に限られる（WAI-ARIA grid パターン）ため、grid 化しないだけでなく上の timegrid-grid の
           外側（兄弟要素）に置く。role は付けない（grid の子孫ではないため presentation で
           打ち消す必要がない） */}
-      <div data-koyomi="timegrid-body">
+      <div data-koyomi="timegrid-body" ref={bodyRef}>
         {timeAxes.map((axis, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: 上記ヘッダー行の gutter と同じ理由（固定順の配列）
           <TimeAxisColumn key={`${index}-${axis.timeZone}`} axis={axis} />
@@ -589,6 +664,8 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
               slots={slots}
               timeZone={timeZone}
               locale={locale}
+              slotMinTimeMinutes={slotMinTimeMinutes}
+              slotMaxTimeMinutes={slotMaxTimeMinutes}
               nowIndicatorDayKey={nowIndicator?.dayKey ?? null}
               nowIndicatorMinutes={nowIndicator?.minutes ?? null}
               renderEvent={renderEvent}
@@ -686,6 +763,10 @@ function TimeGridDayColumnImpl(props: {
   slots: readonly TimeSlot[];
   timeZone: TimeZoneId;
   locale: string;
+  /** 表示時間帯の開始（分）。既定（`slotMinTime` 未指定）は `0`。 */
+  slotMinTimeMinutes: number;
+  /** 表示時間帯の終了（分）。既定（`slotMaxTime` 未指定）は `1440`。 */
+  slotMaxTimeMinutes: number;
   nowIndicatorDayKey: string | null;
   nowIndicatorMinutes: number | null;
   renderEvent: ((item: PositionedOccurrence) => ReactNode) | undefined;
@@ -702,6 +783,8 @@ function TimeGridDayColumnImpl(props: {
     slots,
     timeZone,
     locale,
+    slotMinTimeMinutes,
+    slotMaxTimeMinutes,
     nowIndicatorDayKey,
     nowIndicatorMinutes,
     renderEvent,
@@ -712,6 +795,7 @@ function TimeGridDayColumnImpl(props: {
   } = props;
   const { ref, ...dayProps } = drag.getDayProps(day);
   const showNowIndicator = nowIndicatorDayKey === day.key && nowIndicatorMinutes !== null;
+  const rangeWidth = slotMaxTimeMinutes - slotMinTimeMinutes;
 
   return (
     <div
@@ -721,11 +805,11 @@ function TimeGridDayColumnImpl(props: {
       data-today={day.isToday ? 'true' : undefined}
     >
       {slots.map((slot, index) => {
-        // isBusinessHours なスロットのみ、次のスロット（無ければ 24:00）までの
+        // isBusinessHours なスロットのみ、次のスロット（無ければ表示時間帯の終端）までの
         // 高さを追加で持たせて背景を敷けるようにする。既定（businessHours 未指定）では
         // 従来どおり top のみの罫線用スタイルのまま（DOM 出力を完全一致させるため）
         const isBusinessHours = day.businessHourSlots[index]?.isBusinessHours ?? false;
-        const nextMinutes = slots[index + 1]?.minutes ?? MINUTES_PER_DAY;
+        const nextMinutes = slots[index + 1]?.minutes ?? slotMaxTimeMinutes;
         return (
           <div
             key={slot.minutes}
@@ -734,10 +818,12 @@ function TimeGridDayColumnImpl(props: {
             style={
               isBusinessHours
                 ? {
-                    top: `${(slot.minutes / MINUTES_PER_DAY) * 100}%`,
-                    height: `${((nextMinutes - slot.minutes) / MINUTES_PER_DAY) * 100}%`,
+                    top: `${percentOfSlotRange(slot.minutes, slotMinTimeMinutes, slotMaxTimeMinutes)}%`,
+                    height: `${percentOfSlotRange(nextMinutes - slot.minutes, 0, rangeWidth)}%`,
                   }
-                : { top: `${(slot.minutes / MINUTES_PER_DAY) * 100}%` }
+                : {
+                    top: `${percentOfSlotRange(slot.minutes, slotMinTimeMinutes, slotMaxTimeMinutes)}%`,
+                  }
             }
           />
         );
@@ -748,6 +834,8 @@ function TimeGridDayColumnImpl(props: {
           item={item}
           timeZone={timeZone}
           locale={locale}
+          slotMinTimeMinutes={slotMinTimeMinutes}
+          slotMaxTimeMinutes={slotMaxTimeMinutes}
           renderEvent={renderEvent}
           eventAriaLabel={eventAriaLabel}
           drag={drag}
@@ -760,8 +848,8 @@ function TimeGridDayColumnImpl(props: {
           data-kind={preview.kind}
           aria-hidden="true"
           style={{
-            top: `${(preview.startMinutes / MINUTES_PER_DAY) * 100}%`,
-            height: `${((preview.endMinutes - preview.startMinutes) / MINUTES_PER_DAY) * 100}%`,
+            top: `${percentOfSlotRange(preview.startMinutes, slotMinTimeMinutes, slotMaxTimeMinutes)}%`,
+            height: `${percentOfSlotRange(preview.endMinutes - preview.startMinutes, 0, rangeWidth)}%`,
           }}
         />
       )}
@@ -769,7 +857,9 @@ function TimeGridDayColumnImpl(props: {
         <div
           data-koyomi="now-indicator"
           aria-hidden="true"
-          style={{ top: `${(nowIndicatorMinutes / MINUTES_PER_DAY) * 100}%` }}
+          style={{
+            top: `${percentOfSlotRange(nowIndicatorMinutes, slotMinTimeMinutes, slotMaxTimeMinutes)}%`,
+          }}
         />
       )}
     </div>
@@ -791,6 +881,8 @@ const TimeGridDayColumn = memo(TimeGridDayColumnImpl, (prev, next) => {
     sameSlots(prev.slots, next.slots) &&
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
+    prev.slotMinTimeMinutes === next.slotMinTimeMinutes &&
+    prev.slotMaxTimeMinutes === next.slotMaxTimeMinutes &&
     prev.nowIndicatorDayKey === next.nowIndicatorDayKey &&
     prev.nowIndicatorMinutes === next.nowIndicatorMinutes &&
     prev.renderEvent === next.renderEvent &&
@@ -806,6 +898,10 @@ function TimeGridEventButtonImpl(props: {
   item: PositionedOccurrence;
   timeZone: TimeZoneId;
   locale: string;
+  /** 表示時間帯の開始（分）。既定（`slotMinTime` 未指定）は `0`。 */
+  slotMinTimeMinutes: number;
+  /** 表示時間帯の終了（分）。既定（`slotMaxTime` 未指定）は `1440`。 */
+  slotMaxTimeMinutes: number;
   renderEvent: ((item: PositionedOccurrence) => ReactNode) | undefined;
   /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
   eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
@@ -813,14 +909,23 @@ function TimeGridEventButtonImpl(props: {
   /** ドラッグ操作が進行中か（このコンポーネント自体は使わないが、memo 判定に必要）。 */
   isDragging: boolean;
 }): ReactElement {
-  const { item, timeZone, locale, renderEvent, eventAriaLabel, drag } = props;
+  const {
+    item,
+    timeZone,
+    locale,
+    slotMinTimeMinutes,
+    slotMaxTimeMinutes,
+    renderEvent,
+    eventAriaLabel,
+    drag,
+  } = props;
   const occurrence = item.occurrence;
   const eventProps = drag.getEventProps(item);
   const isEditable = occurrence.event.editable !== false;
   const style = withEventColorStyle(
     {
-      top: `${(item.startMinutes / MINUTES_PER_DAY) * 100}%`,
-      height: `${((item.endMinutes - item.startMinutes) / MINUTES_PER_DAY) * 100}%`,
+      top: `${percentOfSlotRange(item.startMinutes, slotMinTimeMinutes, slotMaxTimeMinutes)}%`,
+      height: `${percentOfSlotRange(item.endMinutes - item.startMinutes, 0, slotMaxTimeMinutes - slotMinTimeMinutes)}%`,
       insetInlineStart: `${item.left * 100}%`,
       width: `${item.width * 100}%`,
     },
@@ -874,6 +979,8 @@ const TimeGridEventButton = memo(TimeGridEventButtonImpl, (prev, next) => {
     samePositionedOccurrence(prev.item, next.item) &&
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
+    prev.slotMinTimeMinutes === next.slotMinTimeMinutes &&
+    prev.slotMaxTimeMinutes === next.slotMaxTimeMinutes &&
     prev.renderEvent === next.renderEvent &&
     prev.eventAriaLabel === next.eventAriaLabel &&
     prev.drag === next.drag &&

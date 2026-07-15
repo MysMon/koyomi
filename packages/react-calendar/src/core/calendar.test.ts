@@ -133,6 +133,36 @@ describe('createCalendar', () => {
       ).toThrow();
     });
 
+    it('slotMinTime/slotMaxTime は省略時に既定 00:00/24:00 になる', () => {
+      const calendar = makeCalendar();
+      expect(calendar.getState().options.slotMinTime).toBe('00:00');
+      expect(calendar.getState().options.slotMaxTime).toBe('24:00');
+    });
+
+    it('slotMinTime が slotMaxTime 以降だと Error になる', () => {
+      expect(() =>
+        createCalendar({ timeZone: 'Asia/Tokyo', slotMinTime: '20:00', slotMaxTime: '08:00' }),
+      ).toThrow();
+      expect(() =>
+        createCalendar({ timeZone: 'Asia/Tokyo', slotMinTime: '09:00', slotMaxTime: '09:00' }),
+      ).toThrow();
+    });
+
+    it("slotMinTime/slotMaxTime が 'HH:mm' 形式でないと Error になる（slotMaxTime の '24:00' 特例を除く）", () => {
+      expect(() => createCalendar({ timeZone: 'Asia/Tokyo', slotMinTime: '9:00' })).toThrow();
+      expect(() => createCalendar({ timeZone: 'Asia/Tokyo', slotMaxTime: '24:30' })).toThrow();
+      expect(() => createCalendar({ timeZone: 'Asia/Tokyo', slotMinTime: '24:00' })).toThrow(); // 文字列としては解析できるが start(1440) >= end で無効
+    });
+
+    it("slotMaxTime: '24:00' は特例で許可される", () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        slotMinTime: '08:00',
+        slotMaxTime: '24:00',
+      });
+      expect(calendar.getState().options.slotMaxTime).toBe('24:00');
+    });
+
     it("defaultEventTitle 省略時の既定値は '(タイトルなし)' になる", () => {
       const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
       expect(calendar.getState().options.defaultEventTitle).toBe('(タイトルなし)');
@@ -487,6 +517,27 @@ describe('createCalendar', () => {
           timeZone: 'America/New_York',
           events: [],
           businessHours: [{ daysOfWeek: [1], startTime: '17:00', endTime: '09:00' }],
+        }),
+      ).toThrow();
+
+      expect(calendar.getState()).toBe(before);
+      expect(calendar.getState().timeZone).toBe('Asia/Tokyo');
+      expect(calendar.getEvents()).toEqual([MEETING]);
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('updateOptions は不正な slotMinTime/slotMaxTime を含むパッチ全体を原子的に拒否する（他フィールドも巻き戻る）', () => {
+      const calendar = makeCalendar({ events: [MEETING] });
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+      const before = calendar.getState();
+
+      expect(() =>
+        calendar.updateOptions({
+          timeZone: 'America/New_York',
+          events: [],
+          slotMinTime: '20:00',
+          slotMaxTime: '08:00',
         }),
       ).toThrow();
 
@@ -1146,6 +1197,74 @@ describe('createCalendar', () => {
       const timelineVm = calendar.getViewModel();
       if (timelineVm.type !== 'timeline') throw new Error('unreachable');
       expect(timelineVm.businessHourRanges.length).toBeGreaterThan(0);
+    });
+
+    it('slotMinTime/slotMaxTime 省略時は週/日・リソースビューの slotMinTimeMinutes/slotMaxTimeMinutes が 0/1440 になる（回帰ペア）', () => {
+      const calendar = makeCalendar({ initialView: 'week', resources: [ROOM] });
+      const weekVm = calendar.getViewModel();
+      if (weekVm.type !== 'timeGrid') throw new Error('unreachable');
+      expect(weekVm.slotMinTimeMinutes).toBe(0);
+      expect(weekVm.slotMaxTimeMinutes).toBe(1440);
+
+      calendar.setView('resource');
+      const resourceVm = calendar.getViewModel();
+      if (resourceVm.type !== 'resource') throw new Error('unreachable');
+      expect(resourceVm.slotMinTimeMinutes).toBe(0);
+      expect(resourceVm.slotMaxTimeMinutes).toBe(1440);
+    });
+
+    it('slotMinTime/slotMaxTime を指定すると週/日・リソースビューの slotMinTimeMinutes/slotMaxTimeMinutes に反映される', () => {
+      const calendar = makeCalendar({
+        initialView: 'day',
+        resources: [ROOM],
+        slotMinTime: '08:00',
+        slotMaxTime: '20:00',
+      });
+      const dayVm = calendar.getViewModel();
+      if (dayVm.type !== 'timeGrid') throw new Error('unreachable');
+      expect(dayVm.slotMinTimeMinutes).toBe(480);
+      expect(dayVm.slotMaxTimeMinutes).toBe(1200);
+
+      calendar.setView('resource');
+      const resourceVm = calendar.getViewModel();
+      if (resourceVm.type !== 'resource') throw new Error('unreachable');
+      expect(resourceVm.slotMinTimeMinutes).toBe(480);
+      expect(resourceVm.slotMaxTimeMinutes).toBe(1200);
+    });
+
+    it('slotMinTime/slotMaxTime を指定すると表示時間帯外のオカレンスが週/日ビューの items から消え、範囲外の now では nowIndicator が null になる', () => {
+      const earlyMeeting: CalendarEvent = {
+        id: 'early',
+        title: '早朝ミーティング',
+        start: '2026-07-15T05:00',
+        end: '2026-07-15T06:00',
+      };
+      const calendar = makeCalendar({
+        initialView: 'day',
+        events: [earlyMeeting, MEETING],
+        slotMinTime: '08:00',
+        slotMaxTime: '09:00', // now（10:00）を範囲外にする
+      });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'timeGrid') throw new Error('unreachable');
+      const day = vm.days[0];
+      expect(day?.items.some((item) => item.occurrence.eventId === 'early')).toBe(false);
+      expect(day?.items.some((item) => item.occurrence.eventId === 'meeting')).toBe(false);
+      expect(vm.nowIndicator).toBeNull();
+    });
+
+    it('slotMinTime/slotMaxTime はリソースビューにも反映される（items からの除外・nowIndicatorMinutes の null 化）', () => {
+      const calendar = makeCalendar({
+        initialView: 'resource',
+        resources: [ROOM],
+        events: [{ ...MEETING, resourceId: ROOM.id }],
+        slotMinTime: '08:00',
+        slotMaxTime: '09:00',
+      });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'resource') throw new Error('unreachable');
+      expect(vm.columns[0]?.items).toHaveLength(0);
+      expect(vm.nowIndicatorMinutes).toBeNull();
     });
 
     it("setView('year') 後は年ビューのビューモデル（12 ヶ月分）を返す", () => {

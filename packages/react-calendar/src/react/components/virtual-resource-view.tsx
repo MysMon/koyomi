@@ -50,10 +50,16 @@ import type {
 } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
+import { scrollContainerToTime } from '../scroll-to-time';
 import type { ResourceGridDragHandlers, ResourcePreviewSegment } from '../use-resource-grid-drag';
 import { useResourceGridDrag } from '../use-resource-grid-drag';
 import { useVirtualizer } from '../use-virtualizer';
-import { resolveEventAriaLabel, withEventColorStyle } from './month-view-parts';
+import {
+  percentOfSlotRange,
+  resolveEventAriaLabel,
+  withEventColorStyle,
+  withTimegridHoursStyle,
+} from './month-view-parts';
 import {
   ariaLabelText,
   ariaLabelWithResource,
@@ -113,6 +119,12 @@ export interface VirtualResourceViewProps {
    */
   eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
   /**
+   * マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置（`'HH:mm'`）。
+   * 表示時間帯制限（{@link CalendarOptions.slotMinTime}/{@link CalendarOptions.slotMaxTime}）とは
+   * 独立して機能する。事後に値を変更しても再適用されない（`ref.current.scrollToTime` を使うこと）。
+   */
+  initialScrollTime?: string;
+  /**
    * {@link VirtualResourceViewHandle}（スクロール操作などの命令的 API）を受け取る ref。
    */
   // React 本体の RefAttributes と同じく明示的な undefined を許容する
@@ -131,6 +143,13 @@ export interface VirtualResourceViewHandle {
     resourceId: string | null,
     options?: { align?: 'auto' | 'start' | 'center' },
   ): void;
+  /**
+   * `[data-koyomi="resource"]`（ルート、横スクロールと共有のスクロールコンテナ）を
+   * 指定時刻の位置へスクロールする。時刻が表示時間帯の外側の場合は最も近い境界へ
+   * クランプする。`'HH:mm'` として解析できない場合は何もしない。列方向のスクロール
+   * （`scrollLeft`）には干渉しない。
+   */
+  scrollToTime(time: string): void;
 }
 
 /**
@@ -435,6 +454,10 @@ interface ResourceColumnBodyProps {
   businessHourSlots: readonly BusinessHourSlot[];
   timeZone: TimeZoneId;
   locale: string;
+  /** 表示時間帯の開始（分）。既定（`slotMinTime` 未指定）は `0`。 */
+  slotMinTimeMinutes: number;
+  /** 表示時間帯の終了（分）。既定（`slotMaxTime` 未指定）は `1440`。 */
+  slotMaxTimeMinutes: number;
   isToday: boolean;
   nowIndicatorMinutes: number | null;
   renderEvent: ((item: PositionedOccurrence) => ReactNode) | undefined;
@@ -457,6 +480,8 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
     businessHourSlots,
     timeZone,
     locale,
+    slotMinTimeMinutes,
+    slotMaxTimeMinutes,
     isToday,
     nowIndicatorMinutes,
     renderEvent,
@@ -481,6 +506,7 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
       ...(left !== undefined ? { left } : {}),
     }),
   };
+  const rangeWidth = slotMaxTimeMinutes - slotMinTimeMinutes;
 
   return (
     <div
@@ -495,10 +521,10 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
       {slots.map((slot, index) => {
         // 罫線は非仮想化の ResourceView と同じく常時描画する（businessHours の
         // 有無で見た目が分岐しないよう統一）。isBusinessHours なスロットのみ、
-        // 次のスロット（無ければ 24:00）までの高さを追加で持たせて背景を敷ける
+        // 次のスロット（無ければ表示時間帯の終端）までの高さを追加で持たせて背景を敷ける
         // （週/日ビューと同じ規則）
         const isBusinessHours = businessHourSlots[index]?.isBusinessHours ?? false;
-        const nextMinutes = slots[index + 1]?.minutes ?? MINUTES_PER_DAY;
+        const nextMinutes = slots[index + 1]?.minutes ?? slotMaxTimeMinutes;
         return (
           <div
             key={slot.minutes}
@@ -507,10 +533,12 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
             style={
               isBusinessHours
                 ? {
-                    top: `${(slot.minutes / MINUTES_PER_DAY) * 100}%`,
-                    height: `${((nextMinutes - slot.minutes) / MINUTES_PER_DAY) * 100}%`,
+                    top: `${percentOfSlotRange(slot.minutes, slotMinTimeMinutes, slotMaxTimeMinutes)}%`,
+                    height: `${percentOfSlotRange(nextMinutes - slot.minutes, 0, rangeWidth)}%`,
                   }
-                : { top: `${(slot.minutes / MINUTES_PER_DAY) * 100}%` }
+                : {
+                    top: `${percentOfSlotRange(slot.minutes, slotMinTimeMinutes, slotMaxTimeMinutes)}%`,
+                  }
             }
           />
         );
@@ -520,8 +548,8 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
         const isEditable = item.occurrence.event.editable !== false;
         const itemStyle = withEventColorStyle(
           {
-            top: `${(item.startMinutes / MINUTES_PER_DAY) * 100}%`,
-            height: `${((item.endMinutes - item.startMinutes) / MINUTES_PER_DAY) * 100}%`,
+            top: `${percentOfSlotRange(item.startMinutes, slotMinTimeMinutes, slotMaxTimeMinutes)}%`,
+            height: `${percentOfSlotRange(item.endMinutes - item.startMinutes, 0, rangeWidth)}%`,
             insetInlineStart: `${item.left * 100}%`,
             width: `${item.width * 100}%`,
           },
@@ -569,8 +597,8 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
           data-kind={preview.kind}
           aria-hidden="true"
           style={{
-            top: `${(preview.startMinutes / MINUTES_PER_DAY) * 100}%`,
-            height: `${((preview.endMinutes - preview.startMinutes) / MINUTES_PER_DAY) * 100}%`,
+            top: `${percentOfSlotRange(preview.startMinutes, slotMinTimeMinutes, slotMaxTimeMinutes)}%`,
+            height: `${percentOfSlotRange(preview.endMinutes - preview.startMinutes, 0, rangeWidth)}%`,
           }}
         />
       )}
@@ -578,7 +606,9 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
         <div
           data-koyomi="now-indicator"
           aria-hidden="true"
-          style={{ top: `${(nowIndicatorMinutes / MINUTES_PER_DAY) * 100}%` }}
+          style={{
+            top: `${percentOfSlotRange(nowIndicatorMinutes, slotMinTimeMinutes, slotMaxTimeMinutes)}%`,
+          }}
         />
       )}
     </div>
@@ -604,6 +634,8 @@ const ResourceColumnBody = memo(ResourceColumnBodyImpl, (prev, next) => {
     sameBusinessHourSlots(prev.businessHourSlots, next.businessHourSlots) &&
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
+    prev.slotMinTimeMinutes === next.slotMinTimeMinutes &&
+    prev.slotMaxTimeMinutes === next.slotMaxTimeMinutes &&
     prev.isToday === next.isToday &&
     prev.nowIndicatorMinutes === next.nowIndicatorMinutes &&
     prev.renderEvent === next.renderEvent &&
@@ -646,6 +678,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
     columnWidth = DEFAULT_COLUMN_WIDTH,
     overscan,
     eventAriaLabel,
+    initialScrollTime,
     ref,
   } = props;
   const { api, state, viewModel, callbacks } = useCalendarContext();
@@ -654,6 +687,12 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
   const stableDrag = useStableResourceDrag(drag);
 
   const columns: readonly ResourceColumn[] = viewModel.type === 'resource' ? viewModel.columns : [];
+  // viewModel.type !== 'resource'（早期 return 前）でもフックは無条件に呼ぶ必要があるため、
+  // スクロール計算に使う表示時間帯（分）は安全な既定値へフォールバックする
+  // （ResourceView と同じ方針）。
+  const slotMinTimeMinutes = viewModel.type === 'resource' ? viewModel.slotMinTimeMinutes : 0;
+  const slotMaxTimeMinutes =
+    viewModel.type === 'resource' ? viewModel.slotMaxTimeMinutes : MINUTES_PER_DAY;
 
   const rootRef = useRef<HTMLDivElement>(null);
   const [enabled, setEnabled] = useState(false);
@@ -714,9 +753,29 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
           virtualizer.scrollToIndex(index, options);
         }
       },
+      scrollToTime(time: string) {
+        if (rootRef.current !== null) {
+          scrollContainerToTime(rootRef.current, time, slotMinTimeMinutes, slotMaxTimeMinutes);
+        }
+      },
     }),
-    [columns, virtualizer],
+    [columns, virtualizer, slotMinTimeMinutes, slotMaxTimeMinutes],
   );
+
+  // マウント時に一度だけ initialScrollTime を適用する（TimeGridView/ResourceView と同型。
+  // 事後の initialScrollTime / 表示時間帯の変更では再適用しない意図的な設計のため、
+  // 依存配列は空にする）。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: マウント時に 1 回だけ実行する意図的な設計（initialScrollTime は「初期」スクロール位置であり、事後の変更を反映しない）
+  useLayoutEffect(() => {
+    if (initialScrollTime !== undefined && rootRef.current !== null) {
+      scrollContainerToTime(
+        rootRef.current,
+        initialScrollTime,
+        slotMinTimeMinutes,
+        slotMaxTimeMinutes,
+      );
+    }
+  }, []);
 
   const warnedRef = useRef(false);
   useEffect(() => {
@@ -805,6 +864,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
       data-koyomi="resource"
       data-koyomi-virtualized="true"
       data-koyomi-columns={String(columns.length)}
+      style={withTimegridHoursStyle(slotMinTimeMinutes, slotMaxTimeMinutes)}
       onFocus={handleFocus}
       onBlur={handleBlur}
     >
@@ -939,6 +999,8 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                 businessHourSlots={businessHourSlots}
                 timeZone={timeZone}
                 locale={locale}
+                slotMinTimeMinutes={slotMinTimeMinutes}
+                slotMaxTimeMinutes={slotMaxTimeMinutes}
                 isToday={isToday}
                 nowIndicatorMinutes={nowIndicatorMinutes}
                 renderEvent={renderEvent}
@@ -966,6 +1028,8 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                 businessHourSlots={businessHourSlots}
                 timeZone={timeZone}
                 locale={locale}
+                slotMinTimeMinutes={slotMinTimeMinutes}
+                slotMaxTimeMinutes={slotMaxTimeMinutes}
                 isToday={isToday}
                 nowIndicatorMinutes={nowIndicatorMinutes}
                 renderEvent={renderEvent}

@@ -98,6 +98,7 @@ export {
   isValidTimeZone,
   minutesOfDayInZone,
   parseDateValue,
+  parseSlotBoundaryTime,
   parseTimeOfDay,
   startOfDayInZone,
   type WallClockParts,
@@ -178,8 +179,16 @@ export {
   MultiMonthView,
   type MultiMonthViewProps,
 } from './react/components/multi-month-view';
-export { ResourceView, type ResourceViewProps } from './react/components/resource-view';
-export { TimeGridView, type TimeGridViewProps } from './react/components/time-grid-view';
+export {
+  ResourceView,
+  type ResourceViewHandle,
+  type ResourceViewProps,
+} from './react/components/resource-view';
+export {
+  TimeGridView,
+  type TimeGridViewHandle,
+  type TimeGridViewProps,
+} from './react/components/time-grid-view';
 export { TimelineView, type TimelineViewProps } from './react/components/timeline-view';
 export { Toolbar, type ToolbarLabels, type ToolbarProps } from './react/components/toolbar';
 export {
@@ -201,6 +210,8 @@ export { YearView, type YearViewProps } from './react/components/year-view';
 export { CalendarProvider, type CalendarProviderProps, useCalendarContext } from './react/context';
 // React: ロケールプリセット
 export { type EnUsLabels, enUsLabels } from './react/locales/en-us';
+// React: スクロールユーティリティ（initialScrollTime/scrollToTime）
+export { scrollContainerToTime, scrollFractionForTime } from './react/scroll-to-time';
 // React: 型
 export type {
   CalendarContextValue,

@@ -441,3 +441,27 @@ export function parseTimeOfDay(time: string): number {
   }
   return Number(hoursText) * 60 + Number(minutesText);
 }
+
+/**
+ * `'HH:mm'` 形式の時刻文字列を、表示範囲の境界（{@link CalendarOptions.slotMinTime} /
+ * {@link CalendarOptions.slotMaxTime}）用に分（0〜1440）へ変換する。
+ *
+ * `'24:00'` のみ特例として `1440` を返す（{@link parseTimeOfDay} は日内の時刻専用のため
+ * `'24:00'` を無効な時刻として `Error` にするが、表示範囲の終了境界は排他的な
+ * `'24:00'` を指定できる必要がある）。それ以外の値は {@link parseTimeOfDay} に委譲する。
+ *
+ * @param time - `'HH:mm'` 形式の時刻文字列（例: `'09:00'`、`'24:00'`）
+ * @returns 0〜1440 の分数
+ * @throws 形式が不正な場合は `Error`
+ * @example
+ * ```ts
+ * parseSlotBoundaryTime('24:00'); // => 1440
+ * parseSlotBoundaryTime('09:00'); // => 540
+ * ```
+ */
+export function parseSlotBoundaryTime(time: string): number {
+  if (time === '24:00') {
+    return 1440;
+  }
+  return parseTimeOfDay(time);
+}

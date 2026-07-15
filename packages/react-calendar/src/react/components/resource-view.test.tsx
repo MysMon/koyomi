@@ -7,7 +7,8 @@
  */
 import { act, render } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
-import { describe, expect, it } from 'vitest';
+import { createRef } from 'react';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
   BusinessHoursRule,
   CalendarEvent,
@@ -19,7 +20,7 @@ import type {
 import { CalendarProvider } from '../context';
 import type { UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
-import type { ResourceViewProps } from './resource-view';
+import type { ResourceViewHandle, ResourceViewProps } from './resource-view';
 import { ResourceView } from './resource-view';
 
 /** 表示タイムゾーン。 */
@@ -45,6 +46,10 @@ interface HarnessProps {
   unassignedLane?: 'auto' | 'always';
   /** 営業時間の指定（{@link CalendarOptions.businessHours}）。 */
   businessHours?: readonly BusinessHoursRule[];
+  /** 表示時間帯の開始（{@link CalendarOptions.slotMinTime}）。 */
+  slotMinTime?: string;
+  /** 表示時間帯の終了（{@link CalendarOptions.slotMaxTime}）。 */
+  slotMaxTime?: string;
   /** `ResourceView` へそのまま渡す追加 props。 */
   viewProps?: ResourceViewProps;
   /** `useCalendar` の戻り値を外部から観測するための入れ物。 */
@@ -62,6 +67,8 @@ function Harness(props: HarnessProps): ReactElement {
     resources: props.resources ?? EMPTY_RESOURCES,
     unassignedLane: props.unassignedLane ?? 'auto',
     ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
+    ...(props.slotMinTime !== undefined ? { slotMinTime: props.slotMinTime } : {}),
+    ...(props.slotMaxTime !== undefined ? { slotMaxTime: props.slotMaxTime } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -792,5 +799,162 @@ describe('ResourceView - businessHours（営業時間）', () => {
       expect(slots[17]).not.toHaveAttribute('data-koyomi-business-hours');
       expect(slots[8]).not.toHaveAttribute('data-koyomi-business-hours');
     }
+  });
+});
+
+describe('ResourceView - 表示時間帯制限（slotMinTime/slotMaxTime）', () => {
+  it('省略時は既定 00:00/24:00 として、スロット数・イベントの top/height %・--koyomi-timegrid-hours が従来どおりになる（回帰ペア）', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '会議',
+        start: '2026-07-15T10:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'room-a',
+      },
+    ];
+    const { container } = render(<Harness resources={[ROOM_A]} events={events} />);
+    const column = container.querySelector('[data-koyomi="resource-column"]');
+    expect(column?.querySelectorAll('[data-koyomi="timegrid-slot"]')).toHaveLength(24);
+
+    const eventEl = container.querySelector('[data-koyomi="timegrid-event"]') as HTMLElement;
+    expect(eventEl.style.top).toBe(`${(600 / 1440) * 100}%`);
+    expect(eventEl.style.height).toBe(`${(60 / 1440) * 100}%`);
+
+    const root = container.querySelector('[data-koyomi="resource"]') as HTMLElement;
+    expect(root.style.getPropertyValue('--koyomi-timegrid-hours')).toBe('24');
+  });
+
+  it('slotMinTime/slotMaxTime を指定すると、スロット数・イベントの top/height %・--koyomi-timegrid-hours が表示時間帯基準になる', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '会議',
+        start: '2026-07-15T10:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'room-a',
+      },
+    ];
+    const { container } = render(
+      <Harness resources={[ROOM_A]} events={events} slotMinTime="08:00" slotMaxTime="20:00" />,
+    );
+    const column = container.querySelector('[data-koyomi="resource-column"]');
+    expect(column?.querySelectorAll('[data-koyomi="timegrid-slot"]')).toHaveLength(12);
+
+    const eventEl = container.querySelector('[data-koyomi="timegrid-event"]') as HTMLElement;
+    expect(eventEl.style.top).toBe(`${((600 - 480) / (1200 - 480)) * 100}%`);
+    expect(eventEl.style.height).toBe(`${(60 / (1200 - 480)) * 100}%`);
+
+    const root = container.querySelector('[data-koyomi="resource"]') as HTMLElement;
+    expect(root.style.getPropertyValue('--koyomi-timegrid-hours')).toBe('12');
+  });
+
+  it('表示時間帯の外側にしか存在しないオカレンスは timegrid-event として描画されない', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'early',
+        title: '早朝',
+        start: '2026-07-15T05:00',
+        end: '2026-07-15T06:00',
+        resourceId: 'room-a',
+      },
+    ];
+    const { container } = render(
+      <Harness resources={[ROOM_A]} events={events} slotMinTime="08:00" slotMaxTime="20:00" />,
+    );
+    expect(container.querySelector('[data-koyomi="timegrid-event"]')).toBeNull();
+  });
+
+  it('now が表示時間帯の外側にあると now-indicator が描画されない', () => {
+    const { container } = render(
+      // NOW は 2026-07-15 10:00（東京）。表示時間帯を 08:00〜09:00 にして範囲外にする
+      <Harness resources={[ROOM_A]} slotMinTime="08:00" slotMaxTime="09:00" />,
+    );
+    expect(container.querySelector('[data-koyomi="now-indicator"]')).toBeNull();
+  });
+});
+
+describe('ResourceView - 初期スクロール位置（initialScrollTime）・命令的スクロール（scrollToTime）', () => {
+  /** jsdom は scrollHeight を常に 0 として扱うため、テスト内で固定値へ差し替える。 */
+  let scrollHeightDescriptor: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    scrollHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight');
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get: () => 2000,
+    });
+  });
+
+  afterEach(() => {
+    if (scrollHeightDescriptor !== undefined) {
+      Object.defineProperty(HTMLElement.prototype, 'scrollHeight', scrollHeightDescriptor);
+    }
+  });
+
+  function getBody(container: HTMLElement): HTMLElement {
+    const body = container.querySelector('[data-koyomi="resource-body"]');
+    if (!(body instanceof HTMLElement)) {
+      throw new Error('resource-body が見つかりません');
+    }
+    return body;
+  }
+
+  it('initialScrollTime 省略時はマウント時に scrollTop が変化しない（回帰ペア）', () => {
+    const { container } = render(<Harness resources={[ROOM_A]} />);
+    expect(getBody(container).scrollTop).toBe(0);
+  });
+
+  it('initialScrollTime 指定時にマウント時 1 回だけ scrollTop が設定される', () => {
+    const { container } = render(
+      <Harness resources={[ROOM_A]} viewProps={{ initialScrollTime: '09:00' }} />,
+    );
+    expect(getBody(container).scrollTop).toBe((540 / 1440) * 2000);
+  });
+
+  it('ref.current.scrollToTime(time) で任意のタイミングにスクロールできる', () => {
+    const handleRef = createRef<ResourceViewHandle>();
+    const { container } = render(<Harness resources={[ROOM_A]} viewProps={{ ref: handleRef }} />);
+    const body = getBody(container);
+    expect(body.scrollTop).toBe(0);
+
+    act(() => {
+      handleRef.current?.scrollToTime('12:00');
+    });
+    expect(body.scrollTop).toBe((720 / 1440) * 2000);
+  });
+
+  it('表示時間帯制限（slotMinTime/slotMaxTime）を指定していても initialScrollTime/scrollToTime は機能する（独立性の確認）', () => {
+    const handleRef = createRef<ResourceViewHandle>();
+    const { container } = render(
+      <Harness
+        resources={[ROOM_A]}
+        slotMinTime="08:00"
+        slotMaxTime="20:00"
+        viewProps={{ initialScrollTime: '10:00', ref: handleRef }}
+      />,
+    );
+    const body = getBody(container);
+    expect(body.scrollTop).toBe(((600 - 480) / (1200 - 480)) * 2000);
+
+    act(() => {
+      handleRef.current?.scrollToTime('14:00');
+    });
+    expect(body.scrollTop).toBe(((840 - 480) / (1200 - 480)) * 2000);
+  });
+
+  it('アンマウント後に再マウントすると initialScrollTime が再適用される', () => {
+    const { container, unmount } = render(
+      <Harness resources={[ROOM_A]} viewProps={{ initialScrollTime: '09:00' }} />,
+    );
+    const body = getBody(container);
+    expect(body.scrollTop).toBe((540 / 1440) * 2000);
+    body.scrollTop = 999;
+    unmount();
+
+    const { container: remounted } = render(
+      <Harness resources={[ROOM_A]} viewProps={{ initialScrollTime: '09:00' }} />,
+    );
+    expect(getBody(remounted).scrollTop).toBe((540 / 1440) * 2000);
   });
 });

@@ -200,6 +200,109 @@ describe('timeAtGridPosition', () => {
       expect(result.toISOString()).toBe('2026-03-09T03:45:00.000Z');
     });
   });
+
+  describe('表示範囲制限（rangeStartMinutes/rangeEndMinutes）', () => {
+    it('省略時は既定 0/1440 として扱われ、明示指定と完全一致する（回帰ペア）', () => {
+      const omitted = timeAtGridPosition({
+        day: dayTokyo,
+        fractionY: 0.5,
+        timeZone: TOKYO,
+        snap: 15,
+      });
+      const explicitDefaults = timeAtGridPosition({
+        day: dayTokyo,
+        fractionY: 0.5,
+        timeZone: TOKYO,
+        snap: 15,
+        rangeStartMinutes: 0,
+        rangeEndMinutes: 1440,
+      });
+      expect(explicitDefaults).toEqual(omitted);
+    });
+
+    it('fractionY = 0 は rangeStartMinutes の現地時刻を返す（境界が snap に整列している場合）', () => {
+      const result = timeAtGridPosition({
+        day: dayTokyo,
+        fractionY: 0,
+        timeZone: TOKYO,
+        snap: 15,
+        rangeStartMinutes: 480, // 8:00
+        rangeEndMinutes: 1200, // 20:00
+      });
+      expect(result).toEqual(at('2026-07-07T08:00', TOKYO));
+    });
+
+    it('fractionY = 1 は rangeEndMinutes 未満に切り上げクランプされたスナップ済み時刻を返す', () => {
+      const result = timeAtGridPosition({
+        day: dayTokyo,
+        fractionY: 1,
+        timeZone: TOKYO,
+        snap: 15,
+        rangeStartMinutes: 480,
+        rangeEndMinutes: 1200,
+      });
+      // 1200 未満で 15 の倍数のうち最大 = 1185 分 = 19:45
+      expect(result).toEqual(at('2026-07-07T19:45', TOKYO));
+    });
+
+    it('fractionY = 0.5 は範囲内の中間時刻になる', () => {
+      const result = timeAtGridPosition({
+        day: dayTokyo,
+        fractionY: 0.5,
+        timeZone: TOKYO,
+        snap: 15,
+        rangeStartMinutes: 480,
+        rangeEndMinutes: 1200,
+      });
+      // 480 + 0.5 * (1200 - 480) = 840 分 = 14:00
+      expect(result).toEqual(at('2026-07-07T14:00', TOKYO));
+    });
+
+    it('snap 間隔が rangeStartMinutes に整列しない場合でも、クランプ後の値は rangeStartMinutes 以上になる', () => {
+      const result = timeAtGridPosition({
+        day: dayTokyo,
+        fractionY: 0,
+        timeZone: TOKYO,
+        snap: 60,
+        rangeStartMinutes: 490, // 8:10（60 の倍数に非整列）
+        rangeEndMinutes: 1200,
+      });
+      expect(result.getTime()).toBeGreaterThanOrEqual(at('2026-07-07T08:10', TOKYO).getTime());
+    });
+
+    it('負の fractionY は rangeStartMinutes にクランプされる', () => {
+      const result = timeAtGridPosition({
+        day: dayTokyo,
+        fractionY: -0.25,
+        timeZone: TOKYO,
+        snap: 15,
+        rangeStartMinutes: 480,
+        rangeEndMinutes: 1200,
+      });
+      expect(result).toEqual(at('2026-07-07T08:00', TOKYO));
+    });
+
+    it('range が snap 幅以下でも rangeStartMinutes 未満へは倒れない', () => {
+      const result0 = timeAtGridPosition({
+        day: dayTokyo,
+        fractionY: 0,
+        timeZone: TOKYO,
+        snap: 2000,
+        rangeStartMinutes: 480,
+        rangeEndMinutes: 600,
+      });
+      const result1 = timeAtGridPosition({
+        day: dayTokyo,
+        fractionY: 1,
+        timeZone: TOKYO,
+        snap: 2000,
+        rangeStartMinutes: 480,
+        rangeEndMinutes: 600,
+      });
+      expect(result0).toEqual(at('2026-07-07T08:00', TOKYO));
+      expect(result1).toEqual(at('2026-07-07T08:00', TOKYO));
+    });
+  });
 });
 
 describe('dragPreviewRange', () => {

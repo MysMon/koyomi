@@ -4,7 +4,7 @@
 
 import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CalendarEvent, CalendarResource, CalendarViewType } from '../../core/types';
 import { CalendarProvider } from '../context';
 import { useCalendar } from '../use-calendar';
@@ -135,6 +135,41 @@ describe('CalendarView', () => {
       expect(segment?.querySelector('[data-testid="custom-allday"]')?.textContent).toBe(
         '休暇カスタム',
       );
+    });
+
+    describe('timeGridInitialScrollTime（TimeGridView への initialScrollTime 転送）', () => {
+      /** jsdom は scrollHeight を常に 0 として扱うため、テスト内で固定値へ差し替える。 */
+      let scrollHeightDescriptor: PropertyDescriptor | undefined;
+
+      beforeEach(() => {
+        scrollHeightDescriptor = Object.getOwnPropertyDescriptor(
+          HTMLElement.prototype,
+          'scrollHeight',
+        );
+        Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+          configurable: true,
+          get: () => 2000,
+        });
+      });
+
+      afterEach(() => {
+        if (scrollHeightDescriptor !== undefined) {
+          Object.defineProperty(HTMLElement.prototype, 'scrollHeight', scrollHeightDescriptor);
+        }
+      });
+
+      it('timeGridInitialScrollTime が TimeGridView の initialScrollTime へ転送される', () => {
+        const { container } = renderView('week', { timeGridInitialScrollTime: '09:00' });
+        const body = container.querySelector('[data-koyomi="timegrid-body"]');
+        expect(body).not.toBeNull();
+        expect((body as HTMLElement).scrollTop).toBe((540 / 1440) * 2000);
+      });
+
+      it('省略時は scrollTop が変化しない（回帰ペア）', () => {
+        const { container } = renderView('week');
+        const body = container.querySelector('[data-koyomi="timegrid-body"]');
+        expect((body as HTMLElement).scrollTop).toBe(0);
+      });
     });
 
     it('renderListEvent が ListView へ転送される', () => {
@@ -500,6 +535,48 @@ describe('CalendarView', () => {
       expect(event?.getAttribute('aria-label')).toBe(
         'カスタム:会議、7月15日 10:00〜11:00、会議室A',
       );
+    });
+
+    describe('resourceInitialScrollTime（ResourceView への initialScrollTime 転送）', () => {
+      /** jsdom は scrollHeight を常に 0 として扱うため、テスト内で固定値へ差し替える。 */
+      let scrollHeightDescriptor: PropertyDescriptor | undefined;
+
+      beforeEach(() => {
+        scrollHeightDescriptor = Object.getOwnPropertyDescriptor(
+          HTMLElement.prototype,
+          'scrollHeight',
+        );
+        Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+          configurable: true,
+          get: () => 2000,
+        });
+      });
+
+      afterEach(() => {
+        if (scrollHeightDescriptor !== undefined) {
+          Object.defineProperty(HTMLElement.prototype, 'scrollHeight', scrollHeightDescriptor);
+        }
+      });
+
+      it('resourceInitialScrollTime が ResourceView の initialScrollTime へ転送される', () => {
+        const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
+        const { container } = renderView(
+          'resource',
+          { resourceInitialScrollTime: '09:00' },
+          DEFAULT_EVENTS,
+          resources,
+        );
+        const body = container.querySelector('[data-koyomi="resource-body"]');
+        expect(body).not.toBeNull();
+        expect((body as HTMLElement).scrollTop).toBe((540 / 1440) * 2000);
+      });
+
+      it('省略時は scrollTop が変化しない（回帰ペア）', () => {
+        const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
+        const { container } = renderView('resource', {}, DEFAULT_EVENTS, resources);
+        const body = container.querySelector('[data-koyomi="resource-body"]');
+        expect((body as HTMLElement).scrollTop).toBe(0);
+      });
     });
 
     it('既定では resource は ResourceView（非仮想化）で描画される', () => {

@@ -14,7 +14,12 @@ import { navigateDate, visibleRangeFor } from './date-utils';
 import { expandEvents } from './expansion';
 import type { MutationContext, RecurringTarget } from './mutations';
 import { createEventIn, deleteEventInWithChanges, updateEventInWithChanges } from './mutations';
-import { getLocalTimeZone, isValidTimeZone, parseTimeOfDay } from './timezone';
+import {
+  getLocalTimeZone,
+  isValidTimeZone,
+  parseSlotBoundaryTime,
+  parseTimeOfDay,
+} from './timezone';
 import type {
   BusinessHoursRule,
   CalendarApi,
@@ -62,6 +67,8 @@ const DEFAULT_OPTIONS: Omit<ResolvedCalendarOptions, 'now'> = {
   hiddenWeekdays: [],
   showWeekNumbers: false,
   businessHours: [],
+  slotMinTime: '00:00',
+  slotMaxTime: '24:00',
 };
 
 /**
@@ -106,6 +113,12 @@ function resolveOptions(
   if (options?.businessHours !== undefined) {
     assertBusinessHours(options.businessHours);
   }
+  if (options?.slotMinTime !== undefined || options?.slotMaxTime !== undefined) {
+    assertSlotTimeRange(
+      options?.slotMinTime ?? current.slotMinTime,
+      options?.slotMaxTime ?? current.slotMaxTime,
+    );
+  }
   return {
     weekStartsOn: options?.weekStartsOn ?? current.weekStartsOn,
     dayMaxEvents: normalizePositiveInt(options?.dayMaxEvents ?? current.dayMaxEvents, 1),
@@ -130,6 +143,8 @@ function resolveOptions(
     showWeekNumbers: options?.showWeekNumbers ?? current.showWeekNumbers,
     businessHours:
       options?.businessHours !== undefined ? [...options.businessHours] : current.businessHours,
+    slotMinTime: options?.slotMinTime ?? current.slotMinTime,
+    slotMaxTime: options?.slotMaxTime ?? current.slotMaxTime,
     now: options?.now ?? current.now,
   };
 }
@@ -171,7 +186,9 @@ function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOpt
     a.businessHours.every((rule, index) => {
       const other = b.businessHours[index];
       return other !== undefined && businessHoursRuleEqual(rule, other);
-    })
+    }) &&
+    a.slotMinTime === b.slotMinTime &&
+    a.slotMaxTime === b.slotMaxTime
   );
 }
 
@@ -203,6 +220,22 @@ function assertBusinessHours(businessHours: readonly BusinessHoursRule[]): void 
         `不正な営業時間の指定です（startTime は endTime より前である必要があります）: startTime='${rule.startTime}', endTime='${rule.endTime}'`,
       );
     }
+  }
+}
+
+/**
+ * 表示時間帯（`slotMinTime`/`slotMaxTime`）を検証し、不正なら例外を投げる。
+ * `slotMinTime`/`slotMaxTime` の形式は {@link parseSlotBoundaryTime} が検証し
+ * （`slotMaxTime` のみ `'24:00'` 特例を許容）、ここでは `slotMinTime` が
+ * `slotMaxTime` より前であることを追加で検証する（{@link assertBusinessHours} と同型）。
+ */
+function assertSlotTimeRange(slotMinTime: string, slotMaxTime: string): void {
+  const start = parseSlotBoundaryTime(slotMinTime);
+  const end = parseSlotBoundaryTime(slotMaxTime);
+  if (start >= end) {
+    throw new Error(
+      `不正な表示時間帯の指定です（slotMinTime は slotMaxTime より前である必要があります）: slotMinTime='${slotMinTime}', slotMaxTime='${slotMaxTime}'`,
+    );
   }
 }
 
@@ -483,6 +516,8 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           hiddenWeekdays: resolvedOptions.hiddenWeekdays,
           showWeekNumbers: resolvedOptions.showWeekNumbers,
           businessHours: resolvedOptions.businessHours,
+          slotMinTime: resolvedOptions.slotMinTime,
+          slotMaxTime: resolvedOptions.slotMaxTime,
           now,
         });
       case 'list':
@@ -521,6 +556,8 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           unassignedLane: resolvedOptions.unassignedLane,
           slotMinutes: resolvedOptions.slotMinutes,
           businessHours: resolvedOptions.businessHours,
+          slotMinTime: resolvedOptions.slotMinTime,
+          slotMaxTime: resolvedOptions.slotMaxTime,
           now,
         });
       case 'timeline':

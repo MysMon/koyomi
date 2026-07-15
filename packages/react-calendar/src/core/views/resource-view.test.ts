@@ -68,6 +68,8 @@ function build(params: {
   timeZone?: TimeZoneId;
   slotMinutes?: number;
   businessHours?: readonly BusinessHoursRule[];
+  slotMinTime?: string;
+  slotMaxTime?: string;
 }) {
   return buildResourceViewModel({
     currentDate: params.currentDate ?? at('2026-07-10T09:00'),
@@ -78,6 +80,8 @@ function build(params: {
     slotMinutes: params.slotMinutes ?? 60,
     now: params.now ?? at('2026-07-10T10:30'),
     ...(params.businessHours !== undefined ? { businessHours: params.businessHours } : {}),
+    ...(params.slotMinTime !== undefined ? { slotMinTime: params.slotMinTime } : {}),
+    ...(params.slotMaxTime !== undefined ? { slotMaxTime: params.slotMaxTime } : {}),
   });
 }
 
@@ -391,6 +395,95 @@ describe('buildResourceViewModel', () => {
       expect(vm.columns).toHaveLength(2);
       // ResourceViewModel 自体に 1 本だけ存在し、列ごとの businessHourSlots は持たない
       expect(vm.businessHourSlots.some((slot) => slot.isBusinessHours)).toBe(true);
+    });
+  });
+
+  describe('slotMinTime/slotMaxTime（表示時間帯制限）', () => {
+    it('省略時は既定 00:00/24:00 で解決され、slotMinTimeMinutes=0・slotMaxTimeMinutes=1440 になる', () => {
+      const vm = build({});
+      expect(vm.slotMinTimeMinutes).toBe(0);
+      expect(vm.slotMaxTimeMinutes).toBe(1440);
+    });
+
+    it('既定値では slots・columns[].items・nowIndicatorMinutes が slotMinTime/slotMaxTime 未指定時と完全一致する（回帰ペア）', () => {
+      const occurrences = [
+        makeOccurrence({
+          start: at('2026-07-10T10:00'),
+          end: at('2026-07-10T11:00'),
+          resourceId: 'r1',
+        }),
+      ];
+      const resources = [resource('r1')];
+      const withoutOption = build({ resources, occurrences });
+      const withDefaultOption = build({
+        resources,
+        occurrences,
+        slotMinTime: '00:00',
+        slotMaxTime: '24:00',
+      });
+      expect(withDefaultOption.slots).toEqual(withoutOption.slots);
+      expect(withDefaultOption.columns).toEqual(withoutOption.columns);
+      expect(withDefaultOption.nowIndicatorMinutes).toEqual(withoutOption.nowIndicatorMinutes);
+    });
+
+    it('slotMinTime/slotMaxTime を指定すると slotMinTimeMinutes/slotMaxTimeMinutes・slots に反映される', () => {
+      const vm = build({ slotMinutes: 60, slotMinTime: '08:00', slotMaxTime: '20:00' });
+      expect(vm.slotMinTimeMinutes).toBe(480);
+      expect(vm.slotMaxTimeMinutes).toBe(1200);
+      expect(vm.slots[0]).toEqual({ minutes: 480, label: '08:00' });
+      expect(vm.slots.at(-1)).toEqual({ minutes: 1140, label: '19:00' });
+    });
+
+    it('表示時間帯外のオカレンスは columns[].items から除外され、はみ出すオカレンスはクランプされる', () => {
+      const early = makeOccurrence({
+        start: at('2026-07-10T05:00'),
+        end: at('2026-07-10T06:00'),
+        eventId: 'early',
+        resourceId: 'r1',
+      });
+      const straddling = makeOccurrence({
+        start: at('2026-07-10T19:00'),
+        end: at('2026-07-10T21:00'),
+        eventId: 'straddling',
+        resourceId: 'r1',
+      });
+      const vm = build({
+        resources: [resource('r1')],
+        occurrences: [early, straddling],
+        slotMinTime: '08:00',
+        slotMaxTime: '20:00',
+      });
+      const items = vm.columns[0]?.items ?? [];
+      expect(items.map((item) => item.occurrence.eventId)).toEqual(['straddling']);
+      expect(items[0]).toMatchObject({
+        startMinutes: 1140,
+        endMinutes: 1200,
+        continuesAfter: true,
+      });
+    });
+
+    it('now が表示時間帯の外側にあると nowIndicatorMinutes が null になる（表示日が今日であっても）', () => {
+      const vm = build({
+        now: at('2026-07-10T21:00'),
+        slotMinTime: '08:00',
+        slotMaxTime: '20:00',
+      });
+      expect(vm.nowIndicatorMinutes).toBeNull();
+    });
+
+    it('now が表示時間帯の開始ちょうどでは非 null、終了ちょうど（排他）では null になる', () => {
+      const atStart = build({
+        now: at('2026-07-10T08:00'),
+        slotMinTime: '08:00',
+        slotMaxTime: '20:00',
+      });
+      const atEnd = build({
+        now: at('2026-07-10T20:00'),
+        slotMinTime: '08:00',
+        slotMaxTime: '20:00',
+      });
+      expect(atStart.nowIndicatorMinutes).toBe(480);
+      expect(atEnd.nowIndicatorMinutes).toBeNull();
     });
   });
 });

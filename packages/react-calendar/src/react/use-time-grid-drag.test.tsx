@@ -164,9 +164,18 @@ function renderHarness(
     callbacks?: CalendarInteractionCallbacks;
     snapMinutes?: number;
     defaultEventMinutes?: number;
+    slotMinTime?: string;
+    slotMaxTime?: string;
   } = {},
 ): { sink: { current: Sink | null }; unmount: () => void } {
-  const { events = [], callbacks, snapMinutes = 15, defaultEventMinutes = 60 } = options;
+  const {
+    events = [],
+    callbacks,
+    snapMinutes = 15,
+    defaultEventMinutes = 60,
+    slotMinTime,
+    slotMaxTime,
+  } = options;
   const sink: { current: Sink | null } = { current: null };
   const factory = (): CalendarApi =>
     createCalendar({
@@ -178,6 +187,8 @@ function renderHarness(
       events,
       snapMinutes,
       defaultEventMinutes,
+      ...(slotMinTime !== undefined ? { slotMinTime } : {}),
+      ...(slotMaxTime !== undefined ? { slotMaxTime } : {}),
     });
 
   const view =
@@ -1200,6 +1211,84 @@ describe('useTimeGridDrag', () => {
       movePointer(x, 0); // オートスクロール対象領域（上端）へ
       releasePointer(x, 0);
     }).not.toThrow();
+  });
+});
+
+describe('useTimeGridDrag - 表示時間帯制限（slotMinTime/slotMaxTime）', () => {
+  it('空き領域のクリック位置が範囲外でも、作成位置は slotMinTime にクランプされる', () => {
+    const { sink } = renderHarness({ slotMinTime: '08:00', slotMaxTime: '20:00' });
+    const dayEl = screen.getByTestId(`day-${MON}`);
+    const x = columnCenterX(MON);
+
+    firePointerDown(dayEl, x, 0); // 範囲外なら 00:00 だが 08:00 にクランプされるはず
+    releasePointer(x, 0);
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ start: at(`${MON}T08:00`), end: at(`${MON}T09:00`) });
+  });
+
+  it('作成ドラッグの終端位置が範囲外でも slotMaxTime 未満にクランプされる', () => {
+    const onSelectRange = vi.fn();
+    renderHarness({ callbacks: { onSelectRange }, slotMinTime: '08:00', slotMaxTime: '20:00' });
+    const dayEl = screen.getByTestId(`day-${MON}`);
+    const x = columnCenterX(MON);
+
+    firePointerDown(dayEl, x, 600); // 480 + (600/1440)*720 = 780 分 = 13:00
+    movePointer(x, 1440); // 範囲外（24:00 相当）だが 19:45 にクランプされるはず
+    releasePointer(x, 1440);
+
+    expect(onSelectRange).toHaveBeenCalledWith({
+      range: { start: at(`${MON}T13:00`), end: at(`${MON}T19:45`) },
+      allDay: false,
+    });
+  });
+
+  it('既存イベントのリサイズ（下端）で範囲外までドラッグしても終了時刻が slotMaxTime 未満にクランプされる', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-clamp-resize',
+      title: '会議',
+      start: `${WED}T18:00`,
+      end: `${WED}T19:00`,
+    };
+    const { sink } = renderHarness({
+      events: [event],
+      slotMinTime: '08:00',
+      slotMaxTime: '20:00',
+    });
+    const occurrenceKey = `ev-clamp-resize@${at(`${WED}T18:00`).toISOString()}`;
+    const resizeHandle = screen.getByTestId(`resize-${occurrenceKey}`);
+    const x = columnCenterX(WED);
+
+    firePointerDown(resizeHandle, x, 1080);
+    movePointer(x, 1440); // 範囲外（24:00 相当）だが 19:45 にクランプされるはず
+    await releasePointerAsync(x, 1440);
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: at(`${WED}T18:00`), end: at(`${WED}T19:45`) });
+  });
+
+  it('矢印キーによる移動は slotMinTime/slotMaxTime の範囲外でも適用される（意図的にクランプしない）', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-arrow-no-clamp',
+      title: '会議',
+      start: `${WED}T19:45`,
+      end: `${WED}T20:00`,
+    };
+    const { sink } = renderHarness({
+      events: [event],
+      slotMinTime: '08:00',
+      slotMaxTime: '20:00',
+    });
+    const occurrenceKey = `ev-arrow-no-clamp@${at(`${WED}T19:45`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowDown' }); // +15 分 → 20:00〜20:15（表示時間帯の外）
+    });
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: at(`${WED}T20:00`), end: at(`${WED}T20:15`) });
   });
 });
 

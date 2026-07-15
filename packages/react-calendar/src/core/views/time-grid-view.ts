@@ -23,6 +23,7 @@ import {
   formatSlotLabel,
   isSameDayInZone,
   minutesOfDayInZone,
+  parseSlotBoundaryTime,
   parseTimeOfDay,
   startOfDayInZone,
   weekdayInZone,
@@ -243,12 +244,22 @@ function compareGridEntries(a: GridEntry, b: GridEntry): number {
  *   翌日 0:00 より後に続く場合は `continuesAfter` を立てる
  * - 長さ 0（以下）のオカレンスは開始時点の 1 点として単日扱いする
  *
+ * `displayStartMinutes`/`displayEndMinutes`（表示時間帯、既定 0/1440）で追加のクランプを行う:
+ * - 日境界クランプ後の区間が表示時間帯と重ならないオカレンスは結果に含めない
+ * - 一部が重なる区間は表示時間帯内にクランプし、開始側がクランプされれば
+ *   `continuesBefore`、終了側がクランプされれば `continuesAfter` を追加で立てる
+ *   （日境界によるクランプと OR で合成される）
+ * - 長さ 0（点）のオカレンスはクランプせず、表示時間帯内（`displayStartMinutes` 以上
+ *   `displayEndMinutes` 未満）にあるかどうかの二値判定のみ行う
+ *
  * 重なりの横並びは {@link layoutTimeGridItems}（既定の `minSlotMinutes`）で計算する。
  *
  * @param occurrences - 時間グリッドに振り分けられたオカレンス
  * @param params.dayStart - 対象日の 0:00（絶対時刻）
  * @param params.dayEnd - 翌日の 0:00（絶対時刻、排他）
  * @param params.timeZone - 表示タイムゾーン
+ * @param params.displayStartMinutes - 表示時間帯の開始（分）。省略時は `0`
+ * @param params.displayEndMinutes - 表示時間帯の終了（分、排他的）。省略時は `1440`
  * @returns 表示順（開始分昇順 → 長い方が先 → key）に並んだ配置済みオカレンス
  *
  * @remarks リソースビュー（`resource-view.ts`）も「列ごとに 1 日分を配置する」
@@ -256,9 +267,21 @@ function compareGridEntries(a: GridEntry, b: GridEntry): number {
  */
 export function buildDayItems(
   occurrences: readonly EventOccurrence[],
-  params: { dayStart: Date; dayEnd: Date; timeZone: TimeZoneId },
+  params: {
+    dayStart: Date;
+    dayEnd: Date;
+    timeZone: TimeZoneId;
+    displayStartMinutes?: number;
+    displayEndMinutes?: number;
+  },
 ): PositionedOccurrence[] {
-  const { dayStart, dayEnd, timeZone } = params;
+  const {
+    dayStart,
+    dayEnd,
+    timeZone,
+    displayStartMinutes = 0,
+    displayEndMinutes = MINUTES_PER_DAY,
+  } = params;
   const entries: GridEntry[] = [];
 
   for (const occurrence of occurrences) {
@@ -271,6 +294,10 @@ export function buildDayItems(
         continue;
       }
       const minutes = minutesOfDayInZone(occurrence.start, timeZone);
+      // 表示時間帯外の点は除外する（点はクランプせず、含む/除外の二値判定のみ）
+      if (minutes < displayStartMinutes || minutes >= displayEndMinutes) {
+        continue;
+      }
       entries.push({
         occurrence,
         startMinutes: minutes,
@@ -292,14 +319,26 @@ export function buildDayItems(
 
     const startsInDay = startMs >= dayStart.getTime();
     const endsAtOrAfterDayEnd = endMs >= dayEnd.getTime();
+    const dayClampedStartMinutes = startsInDay ? minutesOfDayInZone(occurrence.start, timeZone) : 0;
+    const dayClampedEndMinutes = endsAtOrAfterDayEnd
+      ? MINUTES_PER_DAY
+      : minutesOfDayInZone(occurrence.end, timeZone);
+
+    // 日境界クランプ後の区間が表示時間帯と重ならなければ除外する
+    if (
+      dayClampedEndMinutes <= displayStartMinutes ||
+      dayClampedStartMinutes >= displayEndMinutes
+    ) {
+      continue;
+    }
+    const clampedStartMinutes = Math.max(dayClampedStartMinutes, displayStartMinutes);
+    const clampedEndMinutes = Math.min(dayClampedEndMinutes, displayEndMinutes);
     entries.push({
       occurrence,
-      startMinutes: startsInDay ? minutesOfDayInZone(occurrence.start, timeZone) : 0,
-      endMinutes: endsAtOrAfterDayEnd
-        ? MINUTES_PER_DAY
-        : minutesOfDayInZone(occurrence.end, timeZone),
-      continuesBefore: !startsInDay,
-      continuesAfter: endMs > dayEnd.getTime(),
+      startMinutes: clampedStartMinutes,
+      endMinutes: clampedEndMinutes,
+      continuesBefore: !startsInDay || clampedStartMinutes > dayClampedStartMinutes,
+      continuesAfter: endMs > dayEnd.getTime() || clampedEndMinutes < dayClampedEndMinutes,
     });
   }
 
@@ -330,21 +369,29 @@ export function buildDayItems(
 /**
  * 時間軸の目盛りを生成する。
  *
- * 0 分から 1440 分未満まで `slotMinutes` 刻みで生成し、
- * ラベルは {@link formatSlotLabel}（`'HH:mm'` 形式）で付ける。
+ * `startMinutes` から `endMinutes` 分未満まで `slotMinutes` 刻みで生成し、
+ * ラベルは {@link formatSlotLabel}（`'HH:mm'` 形式）で付ける。`startMinutes` が
+ * `slotMinutes` の倍数に整列していない場合でも、次のスロット境界へスナップせず
+ * `startMinutes` ちょうどから素直に開始する。
  *
  * @param slotMinutes - 目盛り間隔（分）。0 以下・非有限の場合は空配列を返す
+ * @param startMinutes - 生成開始（分）。省略時は `0`
+ * @param endMinutes - 生成終了（分、排他的）。省略時は `1440`
  *
  * @remarks リソースビュー（`resource-view.ts`）も同じ目盛りを使うため
  * モジュール間で共有する（`index.ts` からは公開しない）。
  */
-export function buildSlots(slotMinutes: number): TimeSlot[] {
+export function buildSlots(
+  slotMinutes: number,
+  startMinutes: number = 0,
+  endMinutes: number = MINUTES_PER_DAY,
+): TimeSlot[] {
   const slots: TimeSlot[] = [];
   // 不正な間隔（0 以下・非有限）では無限ループになるため空配列で防御する
   if (!Number.isFinite(slotMinutes) || slotMinutes <= 0) {
     return slots;
   }
-  for (let minutes = 0; minutes < MINUTES_PER_DAY; minutes += slotMinutes) {
+  for (let minutes = startMinutes; minutes < endMinutes; minutes += slotMinutes) {
     slots.push({ minutes, label: formatSlotLabel(minutes) });
   }
   return slots;
@@ -486,6 +533,9 @@ function lowerBoundGreaterThan(sorted: readonly number[], value: number): number
  *   （`weekNumber` は常に `null`。`viewType: 'day'` では常に `null`）
  * @param params.businessHours - 各日の時間グリッドのスロットに営業時間内フラグ
  *   （`TimeGridDay.businessHourSlots`）を付与する指定。省略時は `[]`（すべて `false`）
+ * @param params.slotMinTime - 表示する時間帯の開始（`'HH:mm'` 形式）。省略時は `'00:00'`
+ * @param params.slotMaxTime - 表示する時間帯の終了（`'HH:mm'` 形式、排他的。`'24:00'` も可）。
+ *   省略時は `'24:00'`
  */
 export function buildTimeGridViewModel(params: {
   currentDate: Date;
@@ -499,6 +549,8 @@ export function buildTimeGridViewModel(params: {
   timeAxisZones?: readonly TimeZoneId[];
   showWeekNumbers?: boolean;
   businessHours?: readonly BusinessHoursRule[];
+  slotMinTime?: string;
+  slotMaxTime?: string;
 }): TimeGridViewModel {
   const {
     currentDate,
@@ -512,7 +564,11 @@ export function buildTimeGridViewModel(params: {
     timeAxisZones = [],
     showWeekNumbers = false,
     businessHours = [],
+    slotMinTime = '00:00',
+    slotMaxTime = '24:00',
   } = params;
+  const slotMinTimeMinutes = parseSlotBoundaryTime(slotMinTime);
+  const slotMaxTimeMinutes = parseSlotBoundaryTime(slotMaxTime);
 
   // 表示範囲: week は週開始日から 7 日、day は基準日の 1 日
   const rangeStart =
@@ -610,7 +666,7 @@ export function buildTimeGridViewModel(params: {
   }
 
   // days（timeAxes を含む）より前に計算する必要がある
-  const slots = buildSlots(slotMinutes);
+  const slots = buildSlots(slotMinutes, slotMinTimeMinutes, slotMaxTimeMinutes);
 
   // 週で共有する時間軸（rangeStart 基準）。追加軸がなければ日別の差
   // （DST 対応の日別算出）は生じないため、全日でこの配列を共有し、
@@ -638,6 +694,8 @@ export function buildTimeGridViewModel(params: {
         // 最終日の翌日 0:00 は範囲終端と一致する
         dayEnd: dayEnds[index] ?? rangeEnd,
         timeZone,
+        displayStartMinutes: slotMinTimeMinutes,
+        displayEndMinutes: slotMaxTimeMinutes,
       }),
       // 追加軸がある場合のみ、この日自身の 0:00 を基準に日別算出する。追加軸の
       // タイムゾーンで週の途中に DST 切替があっても、切替後の日は正しいオフセットに
@@ -655,13 +713,18 @@ export function buildTimeGridViewModel(params: {
     };
   });
 
-  // 現在時刻線: 「今日」が可視列に含まれる場合のみその列と現地時刻の分を返す。
-  // 非表示曜日で days から除外された場合は自然に null になる
+  // 現在時刻線: 「今日」が可視列に含まれ、かつ現在時刻が表示時間帯
+  // （slotMinTimeMinutes〜slotMaxTimeMinutes）の内側にある場合のみその列と
+  // 現地時刻の分を返す。非表示曜日で days から除外された場合は自然に null になる
   const visibleDayKeys = new Set(visibleDayIndices.map((index) => dayKeys[index]));
   const todayKey = dateKeyInZone(now, timeZone);
-  const nowIndicator = visibleDayKeys.has(todayKey)
-    ? { dayKey: todayKey, minutes: minutesOfDayInZone(now, timeZone) }
-    : null;
+  const nowMinutes = minutesOfDayInZone(now, timeZone);
+  const nowIndicator =
+    visibleDayKeys.has(todayKey) &&
+    nowMinutes >= slotMinTimeMinutes &&
+    nowMinutes < slotMaxTimeMinutes
+      ? { dayKey: todayKey, minutes: nowMinutes }
+      : null;
 
   // 週番号は viewType: 'week' かつ showWeekNumbers のときのみ算出する（週内の木曜日を
   // 基準にするため weekStartsOn の値によらない。詳細は isoWeekNumberOfWeek を参照）
@@ -675,6 +738,8 @@ export function buildTimeGridViewModel(params: {
     allDaySegments,
     allDayLaneCount,
     slots,
+    slotMinTimeMinutes,
+    slotMaxTimeMinutes,
     timeAxes: sharedTimeAxes,
     nowIndicator,
     weekNumber,

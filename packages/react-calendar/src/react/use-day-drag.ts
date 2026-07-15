@@ -26,7 +26,13 @@ import type {
 import { useEffect, useRef } from 'react';
 import type { DayDragMode } from '../core/interaction';
 import { dayDragPreviewRange, timeAtGridPosition } from '../core/interaction';
-import { addDaysInZone, addMinutesInZone, dateFromKey, startOfDayInZone } from '../core/timezone';
+import {
+  addDaysInZone,
+  addMinutesInZone,
+  dateFromKey,
+  parseSlotBoundaryTime,
+  startOfDayInZone,
+} from '../core/timezone';
 import type {
   DateRange,
   EventChangeEntry,
@@ -502,6 +508,8 @@ export function useDayDrag(params: {
             fractionY,
             timeZone,
             snap: optionsRef.current.snapMinutes,
+            rangeStartMinutes: parseSlotBoundaryTime(optionsRef.current.slotMinTime),
+            rangeEndMinutes: parseSlotBoundaryTime(optionsRef.current.slotMaxTime),
           });
           const range: DateRange = {
             start: time,

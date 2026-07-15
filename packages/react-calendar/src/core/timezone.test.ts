@@ -23,6 +23,7 @@ import {
   isValidTimeZone,
   minutesOfDayInZone,
   parseDateValue,
+  parseSlotBoundaryTime,
   parseTimeOfDay,
   startOfDayInZone,
   weekdayInZone,
@@ -743,6 +744,25 @@ describe('parseTimeOfDay', () => {
     expect(() => parseTimeOfDay('24:00')).toThrow();
     expect(() => parseTimeOfDay('12:60')).toThrow();
     expect(() => parseTimeOfDay('not-a-time')).toThrow();
+  });
+});
+
+describe('parseSlotBoundaryTime', () => {
+  it("'24:00' は特例で 1440 になる（parseTimeOfDay は 24:00 を Error にするが、こちらは許容する）", () => {
+    expect(parseSlotBoundaryTime('24:00')).toBe(1440);
+  });
+
+  it("'24:00' 以外は parseTimeOfDay と同じ結果になる", () => {
+    expect(parseSlotBoundaryTime('09:00')).toBe(parseTimeOfDay('09:00'));
+    expect(parseSlotBoundaryTime('00:00')).toBe(parseTimeOfDay('00:00'));
+    expect(parseSlotBoundaryTime('23:59')).toBe(parseTimeOfDay('23:59'));
+  });
+
+  it('不正な形式は Error になる（24:00 の特例以外は parseTimeOfDay に委譲）', () => {
+    expect(() => parseSlotBoundaryTime('9:00')).toThrow();
+    expect(() => parseSlotBoundaryTime('24:30')).toThrow();
+    expect(() => parseSlotBoundaryTime('25:00')).toThrow();
+    expect(() => parseSlotBoundaryTime('not-a-time')).toThrow();
   });
 });
 

@@ -16,6 +16,7 @@ import {
   dateKeyInZone,
   isSameDayInZone,
   minutesOfDayInZone,
+  parseSlotBoundaryTime,
   startOfDayInZone,
   weekdayInZone,
 } from '../timezone';
@@ -89,6 +90,9 @@ function compareAllDayItems(a: EventOccurrence, b: EventOccurrence): number {
  * @param params.businessHours - 営業時間の指定一覧（{@link ResourceViewModel.businessHourSlots}
  *   を算出する）。リソースビューは表示日が単日のため、表示日の曜日を基準に 1 本だけ生成し
  *   全列で共有する。省略時は `[]`（すべて `isBusinessHours: false`）
+ * @param params.slotMinTime - 表示する時間帯の開始（`'HH:mm'` 形式）。省略時は `'00:00'`
+ * @param params.slotMaxTime - 表示する時間帯の終了（`'HH:mm'` 形式、排他的。`'24:00'` も可）。
+ *   省略時は `'24:00'`
  * @returns リソースビューのビューモデル
  * @example
  * ```ts
@@ -113,6 +117,8 @@ export function buildResourceViewModel(params: {
   slotMinutes: number;
   now: Date;
   businessHours?: readonly BusinessHoursRule[];
+  slotMinTime?: string;
+  slotMaxTime?: string;
 }): ResourceViewModel {
   const {
     currentDate,
@@ -123,7 +129,11 @@ export function buildResourceViewModel(params: {
     slotMinutes,
     now,
     businessHours = [],
+    slotMinTime = '00:00',
+    slotMaxTime = '24:00',
   } = params;
+  const slotMinTimeMinutes = parseSlotBoundaryTime(slotMinTime);
+  const slotMaxTimeMinutes = parseSlotBoundaryTime(slotMaxTime);
 
   const date = startOfDayInZone(currentDate, timeZone);
   const dateKey = dateKeyInZone(date, timeZone);
@@ -170,7 +180,13 @@ export function buildResourceViewModel(params: {
     }
     allDayItems.sort(compareAllDayItems);
     return {
-      items: buildDayItems(timed, { dayStart: date, dayEnd, timeZone }),
+      items: buildDayItems(timed, {
+        dayStart: date,
+        dayEnd,
+        timeZone,
+        displayStartMinutes: slotMinTimeMinutes,
+        displayEndMinutes: slotMaxTimeMinutes,
+      }),
       allDayItems,
     };
   }
@@ -190,7 +206,7 @@ export function buildResourceViewModel(params: {
     });
   }
 
-  const slots = buildSlots(slotMinutes);
+  const slots = buildSlots(slotMinutes, slotMinTimeMinutes, slotMaxTimeMinutes);
   // リソースビューは表示日が単日のため、その日の曜日を基準に 1 本だけ生成し全列で共有する
   // （列ごとの再計算はしない。businessHours 未指定時は buildBusinessHourSlots がすべて
   // isBusinessHours: false の配列を返すため、追加の分岐なしで従来の出力と一致する）
@@ -200,6 +216,14 @@ export function buildResourceViewModel(params: {
     businessHours,
   );
 
+  // 現在時刻線: 表示日が今日、かつ現在時刻が表示時間帯
+  // （slotMinTimeMinutes〜slotMaxTimeMinutes）の内側にある場合のみ分を返す。
+  const nowMinutes = minutesOfDayInZone(now, timeZone);
+  const nowIndicatorMinutes =
+    isToday && nowMinutes >= slotMinTimeMinutes && nowMinutes < slotMaxTimeMinutes
+      ? nowMinutes
+      : null;
+
   return {
     type: 'resource',
     date,
@@ -208,7 +232,9 @@ export function buildResourceViewModel(params: {
     columns,
     isEmpty: columns.length === 0,
     slots,
-    nowIndicatorMinutes: isToday ? minutesOfDayInZone(now, timeZone) : null,
+    slotMinTimeMinutes,
+    slotMaxTimeMinutes,
+    nowIndicatorMinutes,
     businessHourSlots,
   };
 }

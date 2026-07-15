@@ -103,6 +103,7 @@ export {
   isValidTimeZone,
   minutesOfDayInZone,
   parseDateValue,
+  parseSlotBoundaryTime,
   parseTimeOfDay,
   startOfDayInZone,
   type WallClockParts,

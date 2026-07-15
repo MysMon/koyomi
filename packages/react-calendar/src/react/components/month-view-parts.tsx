@@ -258,6 +258,65 @@ export function withMonthLanesStyle(dayMaxEvents: number): CSSProperties {
 }
 
 /**
+ * 時間グリッド系ビュー（週/日ビュー・リソースビュー・その仮想化版）が共有する、
+ * 表示範囲（`slotMinTimeMinutes`〜`slotMaxTimeMinutes`）に対する分の割合（%）計算。
+ *
+ * 2 つの用途で使う:
+ * - **絶対位置（top）**: `value` に分の絶対値（例: `item.startMinutes`）、
+ *   `rangeStartMinutes`/`rangeEndMinutes` に表示範囲の境界を渡す
+ * - **区間の長さ（height）**: `value` に長さ（例:
+ *   `item.endMinutes - item.startMinutes`）、`rangeStartMinutes` に `0`、
+ *   `rangeEndMinutes` に表示範囲の幅（`slotMaxTimeMinutes - slotMinTimeMinutes`）を渡す
+ *
+ * 表示範囲が既定（`0`〜`1440`）のときは、どちらの用途でも従来の
+ * `(minutes / 1440) * 100` 相当の式と数値的に完全一致する（`rangeStartMinutes` が
+ * `0` のため減算が値を変えず、加減乗除の順序が従来の式と変わらないため）。
+ *
+ * @param value - 絶対位置の分、または区間の長さ（分）
+ * @param rangeStartMinutes - 表示範囲の開始（分）。区間の長さを渡す場合は `0`
+ * @param rangeEndMinutes - 表示範囲の終了（分）。区間の長さを渡す場合は範囲の幅
+ * @returns 0〜100 の割合（%）
+ * @example
+ * ```ts
+ * percentOfSlotRange(item.startMinutes, 480, 1200); // top 用
+ * percentOfSlotRange(item.endMinutes - item.startMinutes, 0, 1200 - 480); // height 用
+ * ```
+ */
+export function percentOfSlotRange(
+  value: number,
+  rangeStartMinutes: number,
+  rangeEndMinutes: number,
+): number {
+  return ((value - rangeStartMinutes) / (rangeEndMinutes - rangeStartMinutes)) * 100;
+}
+
+/**
+ * 表示時間帯の時間数（`(slotMaxTimeMinutes - slotMinTimeMinutes) / 60`）を
+ * CSS 変数 `--koyomi-timegrid-hours` として返す（{@link withMonthLanesStyle} と同じ方式）。
+ *
+ * テーマ CSS は時間グリッドの日列・リソース列の高さを
+ * `calc(var(--koyomi-timegrid-hours, 24) * var(--koyomi-hour-height))` で計算する。
+ * 表示時間帯（`slotMinTime`/`slotMaxTime`）を制限すると全体の高さも変わるため、
+ * 実際の時間数をコンポーネントが inline で供給する。
+ *
+ * @param slotMinTimeMinutes - {@link TimeGridViewModel.slotMinTimeMinutes} /
+ *   {@link ResourceViewModel.slotMinTimeMinutes}
+ * @param slotMaxTimeMinutes - {@link TimeGridViewModel.slotMaxTimeMinutes} /
+ *   {@link ResourceViewModel.slotMaxTimeMinutes}
+ * @returns ルート要素に付与する style オブジェクト
+ */
+export function withTimegridHoursStyle(
+  slotMinTimeMinutes: number,
+  slotMaxTimeMinutes: number,
+): CSSProperties {
+  // 'as' 使用理由: withMonthLanesStyle と同じ（CSS カスタムプロパティは CSSProperties
+  // の型定義に含まれないため）。
+  return {
+    '--koyomi-timegrid-hours': String((slotMaxTimeMinutes - slotMinTimeMinutes) / 60),
+  } as CSSProperties;
+}
+
+/**
  * イベント色を CSS 変数 `--koyomi-event-color` として style に加える。
  *
  * `CSSProperties` の型定義にはカスタムプロパティが含まれないため、ここでのみ

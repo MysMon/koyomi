@@ -58,6 +58,11 @@ export interface CalendarViewProps {
    * 加工・置換できる。`TimeGridView` の `eventAriaLabel` に転送する。
    */
   timeGridEventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
+  /**
+   * 週/日ビューの初期スクロール位置（`'HH:mm'`）。`TimeGridView` の
+   * `initialScrollTime` に転送する。ref は転送しない（`TimeGridView` を直接使うこと）。
+   */
+  timeGridInitialScrollTime?: string;
   /** リストビューのイベント行のカスタム描画。`ListView` の `renderEvent` に転送する。 */
   renderListEvent?: (occurrence: EventOccurrence) => ReactNode;
   /**
@@ -179,6 +184,12 @@ export interface CalendarViewProps {
    */
   resourceEventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
   /**
+   * リソースビューの初期スクロール位置（`'HH:mm'`）。`ResourceView` /
+   * `VirtualResourceView` の `initialScrollTime` に転送する。ref は転送しない
+   * （`ResourceView` / `VirtualResourceView` を直接使うこと）。
+   */
+  resourceInitialScrollTime?: string;
+  /**
    * リソースビューを仮想化する（`ResourceView` の代わりに `VirtualResourceView` を使う）。
    * 数百列規模のリソースでの DOM 肥大を抑える。既定 `false`（全件描画の `ResourceView`）。
    * 有効時はスクロールコンテナに境界幅を CSS で与えること
@@ -273,6 +284,9 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
             {...(props.timeGridEventAriaLabel
               ? { eventAriaLabel: props.timeGridEventAriaLabel }
               : {})}
+            {...(props.timeGridInitialScrollTime !== undefined
+              ? { initialScrollTime: props.timeGridInitialScrollTime }
+              : {})}
           />
         );
       case 'list': {
@@ -344,6 +358,9 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
             ? { emptyLabel: props.resourceEmptyLabel }
             : {}),
           ...(props.resourceEventAriaLabel ? { eventAriaLabel: props.resourceEventAriaLabel } : {}),
+          ...(props.resourceInitialScrollTime !== undefined
+            ? { initialScrollTime: props.resourceInitialScrollTime }
+            : {}),
         };
         if (props.virtualizeResource === true) {
           return <VirtualResourceView {...resourceProps} />;

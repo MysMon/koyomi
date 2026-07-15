@@ -37,6 +37,12 @@
  * 上記に加え、時間グリッドの時刻軸幅をヘッダー・終日行・本体で揃えるための
  * 内部変数として --koyomi-time-axis-width も定義している（必要なら上書き可）。
  *
+ * --koyomi-timegrid-hours（内部変数、コンポーネントが inline で自動設定）:
+ *   週/日ビュー（TimeGridView）・リソースビュー（ResourceView / VirtualResourceView）の
+ *   日列・リソース列の高さを決める時間数。表示時間帯（slotMinTime/slotMaxTime）に
+ *   応じて (slotMaxTimeMinutes - slotMinTimeMinutes) / 60 がルート要素に自動設定される
+ *   （既定は 24）。--koyomi-month-lanes / --koyomi-timeline-lanes と同じ方式。
+ *
  * timeAxisZones（複数タイムゾーン軸）:
  *   週/日ビューで追加のタイムゾーン軸を指定すると、[data-koyomi="time-axis"] /
  *   [data-koyomi="timegrid-axis-gutter"] が軸の数だけ並ぶ（各 flex アイテムが
@@ -581,7 +587,10 @@
   border-inline-end: 1px solid var(--koyomi-border);
 }
 
-/* 既定の slotMinutes（60 分）を前提にした高さ。変更する場合は利用側で上書きする */
+/* 既定の slotMinutes（60 分）を前提にした高さ。変更する場合は利用側で上書きする。
+   slotMinTime を指定した場合、目盛りは slotMinTime ちょうどから始まり
+   slotMinutes の境界にスナップしない（buildSlots の仕様）ため、この高さは
+   slotMinTime と slotMinutes の位置関係によらず一定である点に注意 */
 [data-koyomi="time-slot-label"] {
   height: var(--koyomi-hour-height);
   padding-block: 2px 0;
@@ -616,7 +625,10 @@
 [data-koyomi="timegrid-day"],
 [data-koyomi="resource-column"] {
   position: relative;
-  height: calc(24 * var(--koyomi-hour-height));
+  /* --koyomi-timegrid-hours は TimeGridView/ResourceView/VirtualResourceView が
+     表示時間帯（slotMinTime/slotMaxTime、既定 00:00/24:00）の時間数を inline で
+     自動設定する（既定 24）。--koyomi-month-lanes と同じ方式 */
+  height: calc(var(--koyomi-timegrid-hours, 24) * var(--koyomi-hour-height));
   border-inline-start: 1px solid var(--koyomi-border);
   /* 空き領域からの作成ドラッグをタッチのスクロールに奪われないようにする */
   touch-action: none;

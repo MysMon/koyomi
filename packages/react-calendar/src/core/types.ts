@@ -319,17 +319,30 @@ export interface MonthViewModel {
 export interface PositionedOccurrence {
   /** 対応するオカレンス。 */
   occurrence: EventOccurrence;
-  /** 日内での表示開始（その日の 0:00 からの分。日をまたぐ場合はクランプ済み）。 */
+  /**
+   * 日内での表示開始（その日の 0:00 からの分。日境界、または表示時間帯
+   * （{@link CalendarOptions.slotMinTime}/{@link CalendarOptions.slotMaxTime}）を
+   * またぐ場合はクランプ済み）。
+   */
   startMinutes: number;
-  /** 日内での表示終了（分、排他的。日をまたぐ場合はクランプ済み）。 */
+  /**
+   * 日内での表示終了（分、排他的。日境界、または表示時間帯を
+   * またぐ場合はクランプ済み）。
+   */
   endMinutes: number;
   /** 水平位置の左端（0〜1 の割合）。 */
   left: number;
   /** 水平方向の幅（0〜1 の割合）。 */
   width: number;
-  /** オカレンスがこの日より前から続いているか。 */
+  /**
+   * オカレンスの実際の開始が、この日の表示範囲（日境界、または表示時間帯の開始）
+   * より前にあるか。
+   */
   continuesBefore: boolean;
-  /** オカレンスがこの日より後に続くか。 */
+  /**
+   * オカレンスの実際の終了が、この日の表示範囲（日境界、または表示時間帯の終了）
+   * より後に続くか。
+   */
   continuesAfter: boolean;
 }
 
@@ -442,8 +455,16 @@ export interface TimeGridViewModel {
   allDaySegments: readonly EventSegment[];
   /** 終日イベント行のレーン数。 */
   allDayLaneCount: number;
-  /** 時間軸の目盛り（{@link CalendarOptions.slotMinutes} 間隔）。 */
+  /**
+   * 時間軸の目盛り（{@link CalendarOptions.slotMinutes} 間隔）。
+   * {@link CalendarOptions.slotMinTime}/{@link CalendarOptions.slotMaxTime} で
+   * 表示時間帯を制限している場合、その範囲内のみの目盛りになる。
+   */
   slots: readonly TimeSlot[];
+  /** {@link CalendarOptions.slotMinTime} を分に変換した値（0〜1439）。 */
+  slotMinTimeMinutes: number;
+  /** {@link CalendarOptions.slotMaxTime} を分に変換した値（1〜1440）。 */
+  slotMaxTimeMinutes: number;
   /**
    * 主軸（表示タイムゾーン）と追加軸（{@link CalendarOptions.timeAxisZones}）を
    * 合わせた時間軸の配列。先頭が主軸（`slots` と同内容）、以降は
@@ -456,7 +477,10 @@ export interface TimeGridViewModel {
    * {@link TimeGridDay.timeAxes}（各日自身の 0:00 を基準に個別算出）を使う。
    */
   timeAxes: readonly TimeAxis[];
-  /** 現在時刻線の位置。表示範囲内に「今日」がない場合は `null`。 */
+  /**
+   * 現在時刻線の位置。表示範囲内に「今日」がない場合、または現在時刻が
+   * 表示時間帯（`slotMinTimeMinutes`〜`slotMaxTimeMinutes`）の外にある場合は `null`。
+   */
   nowIndicator: {
     /** 今日の列の `key`（`'YYYY-MM-DD'`）。 */
     dayKey: string;
@@ -593,9 +617,21 @@ export interface ResourceViewModel {
   columns: readonly ResourceColumn[];
   /** 列が 1 つもないか（リソース未設定かつ未割り当て列も生成されない場合）。 */
   isEmpty: boolean;
-  /** 時間軸の目盛り（{@link CalendarOptions.slotMinutes} 間隔）。 */
+  /**
+   * 時間軸の目盛り（{@link CalendarOptions.slotMinutes} 間隔）。
+   * {@link CalendarOptions.slotMinTime}/{@link CalendarOptions.slotMaxTime} で
+   * 表示時間帯を制限している場合、その範囲内のみの目盛りになる。
+   */
   slots: readonly TimeSlot[];
-  /** 現在時刻線の位置（その日の 0:00 からの分）。表示日が今日でなければ `null`。 */
+  /** {@link CalendarOptions.slotMinTime} を分に変換した値（0〜1439）。 */
+  slotMinTimeMinutes: number;
+  /** {@link CalendarOptions.slotMaxTime} を分に変換した値（1〜1440）。 */
+  slotMaxTimeMinutes: number;
+  /**
+   * 現在時刻線の位置（その日の 0:00 からの分）。表示日が今日でない場合、または
+   * 現在時刻が表示時間帯（`slotMinTimeMinutes`〜`slotMaxTimeMinutes`）の外にある
+   * 場合は `null`。
+   */
   nowIndicatorMinutes: number | null;
   /**
    * {@link ResourceViewModel.slots} と同じ並びで、各スロットが
@@ -848,6 +884,17 @@ export interface CalendarOptions {
    */
   businessHours?: readonly BusinessHoursRule[];
   /**
+   * 週/日ビュー・リソースビューで表示する時間帯の開始（`'HH:mm'` 形式）。既定は `'00:00'`。
+   * `slotMaxTime` より前である必要がある（{@link CalendarOptions.slotMaxTime} を参照）。
+   */
+  slotMinTime?: string;
+  /**
+   * 週/日ビュー・リソースビューで表示する時間帯の終了（`'HH:mm'` 形式、排他的）。
+   * 既定は `'24:00'`。`'24:00'` も指定できる（1 日の終わりを表す特例）。
+   * `slotMinTime` より後である必要がある。
+   */
+  slotMaxTime?: string;
+  /**
    * 現在時刻を返す関数。「今日」の判定と現在時刻線に使用する。
    * テストでの時刻固定に利用できる。既定は `() => new Date()`。
    */
@@ -937,6 +984,10 @@ export interface ResolvedCalendarOptions {
   showWeekNumbers: boolean;
   /** 営業時間の指定。 */
   businessHours: readonly BusinessHoursRule[];
+  /** 表示する時間帯の開始（`'HH:mm'` 形式）。 */
+  slotMinTime: string;
+  /** 表示する時間帯の終了（`'HH:mm'` 形式、排他的。`'24:00'` も可）。 */
+  slotMaxTime: string;
   /** 現在時刻プロバイダ。 */
   now: () => Date;
 }

@@ -7,7 +7,7 @@ import type {
   TimeGridViewModel,
   TimeZoneId,
 } from '../types';
-import { buildTimeGridViewModel } from './time-grid-view';
+import { buildDayItems, buildSlots, buildTimeGridViewModel } from './time-grid-view';
 
 const TOKYO: TimeZoneId = 'Asia/Tokyo';
 const NEW_YORK: TimeZoneId = 'America/New_York';
@@ -722,6 +722,88 @@ describe('buildTimeGridViewModel', () => {
     });
   });
 
+  describe('slotMinTime/slotMaxTime（表示時間帯制限）', () => {
+    it('省略時は既定 00:00/24:00 で解決され、slotMinTimeMinutes=0・slotMaxTimeMinutes=1440 になる', () => {
+      const model = build();
+      expect(model.slotMinTimeMinutes).toBe(0);
+      expect(model.slotMaxTimeMinutes).toBe(1440);
+    });
+
+    it('既定値では slots・days[].items・nowIndicator が slotMinTime/slotMaxTime 未指定時と完全一致する（回帰ペア）', () => {
+      const occ = occurrence({
+        id: 'meeting',
+        start: at('2026-07-01T10:00', TOKYO),
+        end: at('2026-07-01T11:00', TOKYO),
+      });
+      const withoutOption = build({ occurrences: [occ] });
+      const withDefaultOption = build({
+        occurrences: [occ],
+        slotMinTime: '00:00',
+        slotMaxTime: '24:00',
+      });
+      expect(withDefaultOption.slots).toEqual(withoutOption.slots);
+      expect(withDefaultOption.days).toEqual(withoutOption.days);
+      expect(withDefaultOption.nowIndicator).toEqual(withoutOption.nowIndicator);
+    });
+
+    it('slotMinTime/slotMaxTime を指定すると slotMinTimeMinutes/slotMaxTimeMinutes・slots に反映される', () => {
+      const model = build({ slotMinutes: 60, slotMinTime: '08:00', slotMaxTime: '20:00' });
+      expect(model.slotMinTimeMinutes).toBe(480);
+      expect(model.slotMaxTimeMinutes).toBe(1200);
+      expect(model.slots[0]).toEqual({ minutes: 480, label: '08:00' });
+      expect(model.slots.at(-1)).toEqual({ minutes: 1140, label: '19:00' });
+    });
+
+    it('表示時間帯外のオカレンスは days[].items から除外され、はみ出すオカレンスはクランプされる', () => {
+      const early = occurrence({
+        id: 'early',
+        start: at('2026-07-01T05:00', TOKYO),
+        end: at('2026-07-01T06:00', TOKYO),
+      });
+      const straddling = occurrence({
+        id: 'straddling',
+        start: at('2026-07-01T19:00', TOKYO),
+        end: at('2026-07-01T21:00', TOKYO),
+      });
+      const model = build({
+        occurrences: [early, straddling],
+        slotMinTime: '08:00',
+        slotMaxTime: '20:00',
+      });
+      const day = dayByKey(model, '2026-07-01');
+      expect(day.items.map((item) => item.occurrence.eventId)).toEqual(['straddling']);
+      expect(day.items[0]).toMatchObject({
+        startMinutes: 1140,
+        endMinutes: 1200,
+        continuesAfter: true,
+      });
+    });
+
+    it('now が表示時間帯の外側にあると nowIndicator が null になる（表示範囲内の日であっても）', () => {
+      const model = build({
+        now: at('2026-07-01T21:00', TOKYO),
+        slotMinTime: '08:00',
+        slotMaxTime: '20:00',
+      });
+      expect(model.nowIndicator).toBeNull();
+    });
+
+    it('now が表示時間帯の開始ちょうどでは非 null、終了ちょうど（排他）では null になる', () => {
+      const atStart = build({
+        now: at('2026-07-01T08:00', TOKYO),
+        slotMinTime: '08:00',
+        slotMaxTime: '20:00',
+      });
+      const atEnd = build({
+        now: at('2026-07-01T20:00', TOKYO),
+        slotMinTime: '08:00',
+        slotMaxTime: '20:00',
+      });
+      expect(atStart.nowIndicator).toEqual({ dayKey: '2026-07-01', minutes: 480 });
+      expect(atEnd.nowIndicator).toBeNull();
+    });
+  });
+
   describe('DST（America/New_York 2026-03-08）', () => {
     it('DST 開始日の予定の分計算が現地時刻基準で正しい', () => {
       // 2026-03-08 は 2:00 → 3:00 に進む日。1:00〜5:00 は絶対時間では 3 時間だが
@@ -949,5 +1031,187 @@ describe('buildTimeGridViewModel', () => {
       const wednesday = dayByKey(model, '2026-07-01');
       expect(wednesday.items).toHaveLength(0);
     });
+  });
+});
+
+describe('buildSlots', () => {
+  it('startMinutes/endMinutes 省略時は既定 0/1440 として全日分のスロットを生成する（回帰ペア）', () => {
+    expect(buildSlots(60)).toEqual(buildSlots(60, 0, 1440));
+  });
+
+  it('(60, 480, 1200) では 8:00〜19:00 の 12 スロットになり、20:00（終了、排他境界）は含まれない', () => {
+    const slots = buildSlots(60, 480, 1200);
+    expect(slots).toHaveLength(12);
+    expect(slots[0]).toEqual({ minutes: 480, label: '08:00' });
+    expect(slots[11]).toEqual({ minutes: 1140, label: '19:00' });
+    expect(slots.some((slot) => slot.minutes === 1200)).toBe(false);
+  });
+
+  it('startMinutes が slotMinutes の倍数に整列していなくても、その値からそのまま開始する（次スロットへスナップしない）', () => {
+    const slots = buildSlots(60, 490, 1200);
+    expect(slots[0]).toEqual({ minutes: 490, label: '08:10' });
+    expect(slots[1]).toEqual({ minutes: 550, label: '09:10' });
+  });
+
+  it('slotMinutes が 0 以下・非有限の場合は範囲を指定しても空配列になる（無限ループ防止ガード）', () => {
+    expect(buildSlots(0, 480, 1200)).toEqual([]);
+    expect(buildSlots(-15, 480, 1200)).toEqual([]);
+  });
+});
+
+describe('buildDayItems', () => {
+  const dayStart = at('2026-07-01T00:00', TOKYO);
+  const dayEnd = at('2026-07-02T00:00', TOKYO);
+
+  it('displayStartMinutes/displayEndMinutes 省略時は既定 0/1440 として、範囲指定なしと完全一致する（回帰ペア）', () => {
+    const occ = occurrence({
+      id: 'meeting',
+      start: at('2026-07-01T10:00', TOKYO),
+      end: at('2026-07-01T11:00', TOKYO),
+    });
+    const withoutRange = buildDayItems([occ], { dayStart, dayEnd, timeZone: TOKYO });
+    const withDefaultRange = buildDayItems([occ], {
+      dayStart,
+      dayEnd,
+      timeZone: TOKYO,
+      displayStartMinutes: 0,
+      displayEndMinutes: 1440,
+    });
+    expect(withDefaultRange).toEqual(withoutRange);
+  });
+
+  it('範囲に完全に収まるオカレンスは startMinutes/endMinutes・continuesBefore/After が不変', () => {
+    const occ = occurrence({
+      id: 'meeting',
+      start: at('2026-07-01T10:00', TOKYO),
+      end: at('2026-07-01T11:00', TOKYO),
+    });
+    const items = buildDayItems([occ], {
+      dayStart,
+      dayEnd,
+      timeZone: TOKYO,
+      displayStartMinutes: 480,
+      displayEndMinutes: 1200,
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      startMinutes: 600,
+      endMinutes: 660,
+      continuesBefore: false,
+      continuesAfter: false,
+    });
+  });
+
+  it('表示範囲の開始前から続くオカレンスは startMinutes が displayStartMinutes にクランプされ continuesBefore が立つ', () => {
+    const occ = occurrence({
+      id: 'early',
+      start: at('2026-07-01T06:00', TOKYO),
+      end: at('2026-07-01T09:00', TOKYO),
+    });
+    const items = buildDayItems([occ], {
+      dayStart,
+      dayEnd,
+      timeZone: TOKYO,
+      displayStartMinutes: 480,
+      displayEndMinutes: 1200,
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      startMinutes: 480,
+      endMinutes: 540,
+      continuesBefore: true,
+      continuesAfter: false,
+    });
+  });
+
+  it('表示範囲の終了後まで続くオカレンスは endMinutes が displayEndMinutes にクランプされ continuesAfter が立つ', () => {
+    const occ = occurrence({
+      id: 'late',
+      start: at('2026-07-01T19:00', TOKYO),
+      end: at('2026-07-01T21:00', TOKYO),
+    });
+    const items = buildDayItems([occ], {
+      dayStart,
+      dayEnd,
+      timeZone: TOKYO,
+      displayStartMinutes: 480,
+      displayEndMinutes: 1200,
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      startMinutes: 1140,
+      endMinutes: 1200,
+      continuesBefore: false,
+      continuesAfter: true,
+    });
+  });
+
+  it('表示範囲に一切重ならないオカレンス（前後どちらの外側でも）は items に現れない', () => {
+    const beforeRange = occurrence({
+      id: 'before',
+      start: at('2026-07-01T05:00', TOKYO),
+      end: at('2026-07-01T06:00', TOKYO),
+    });
+    const afterRange = occurrence({
+      id: 'after',
+      start: at('2026-07-01T21:00', TOKYO),
+      end: at('2026-07-01T22:00', TOKYO),
+    });
+    const items = buildDayItems([beforeRange, afterRange], {
+      dayStart,
+      dayEnd,
+      timeZone: TOKYO,
+      displayStartMinutes: 480,
+      displayEndMinutes: 1200,
+    });
+    expect(items).toHaveLength(0);
+  });
+
+  it('オカレンスの開始が displayStartMinutes ちょうど・終了が displayEndMinutes ちょうど（はみ出しなし）ではクランプされない', () => {
+    const occ = occurrence({
+      id: 'exact',
+      start: at('2026-07-01T08:00', TOKYO),
+      end: at('2026-07-01T20:00', TOKYO),
+    });
+    const items = buildDayItems([occ], {
+      dayStart,
+      dayEnd,
+      timeZone: TOKYO,
+      displayStartMinutes: 480,
+      displayEndMinutes: 1200,
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      startMinutes: 480,
+      endMinutes: 1200,
+      continuesBefore: false,
+      continuesAfter: false,
+    });
+  });
+
+  it('長さ 0（点）のオカレンスは表示範囲外なら除外、開始側の境界ちょうどなら含み、終了側の境界ちょうど（排他）なら除外される', () => {
+    const atStart = occurrence({
+      id: 'zero-start',
+      start: at('2026-07-01T08:00', TOKYO),
+      end: at('2026-07-01T08:00', TOKYO),
+    });
+    const atEnd = occurrence({
+      id: 'zero-end',
+      start: at('2026-07-01T20:00', TOKYO),
+      end: at('2026-07-01T20:00', TOKYO),
+    });
+    const outside = occurrence({
+      id: 'zero-outside',
+      start: at('2026-07-01T21:00', TOKYO),
+      end: at('2026-07-01T21:00', TOKYO),
+    });
+    const items = buildDayItems([atStart, atEnd, outside], {
+      dayStart,
+      dayEnd,
+      timeZone: TOKYO,
+      displayStartMinutes: 480,
+      displayEndMinutes: 1200,
+    });
+    expect(items.map((item) => item.occurrence.eventId)).toEqual(['zero-start']);
   });
 });

@@ -57,6 +57,8 @@ interface HarnessProps {
   callbacks?: CalendarInteractionCallbacks;
   snapMinutes?: number;
   defaultEventMinutes?: number;
+  slotMinTime?: string;
+  slotMaxTime?: string;
   sink?: { current: UseCalendarResult | null };
 }
 
@@ -74,6 +76,8 @@ function Harness(props: HarnessProps): ReactElement {
     ...(props.defaultEventMinutes !== undefined
       ? { defaultEventMinutes: props.defaultEventMinutes }
       : {}),
+    ...(props.slotMinTime !== undefined ? { slotMinTime: props.slotMinTime } : {}),
+    ...(props.slotMaxTime !== undefined ? { slotMaxTime: props.slotMaxTime } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -366,6 +370,87 @@ describe('useResourceGridDrag - 移動・リサイズ', () => {
       resourceId: 'room-a',
     });
     expect(sink.current?.state.dragPreview).toBeNull();
+  });
+});
+
+describe('useResourceGridDrag - 表示時間帯制限（slotMinTime/slotMaxTime）', () => {
+  it('空き領域のクリック位置が範囲外でも、作成位置は slotMinTime にクランプされる', () => {
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      slotMinTime: '08:00',
+      slotMaxTime: '20:00',
+    });
+    mockAllColumnRects(container);
+    const column = container.querySelector('[data-koyomi="resource-column"]');
+    if (column === null) {
+      throw new Error('room-a 列が見つかりません');
+    }
+    const x = columnCenterX(0);
+
+    firePointerDown(column, x, 0); // 範囲外なら 00:00 だが 08:00 にクランプされるはず
+    releasePointer(x, 0);
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      start: at(`${DAY}T08:00`),
+      end: at(`${DAY}T09:00`),
+      resourceId: 'room-a',
+    });
+  });
+
+  it('既存イベントのリサイズ（下端）で範囲外までドラッグしても終了時刻が slotMaxTime 未満にクランプされる', () => {
+    const event: CalendarEvent = {
+      id: 'ev-resource-clamp-resize',
+      title: '会議',
+      start: `${DAY}T18:00`,
+      end: `${DAY}T19:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      events: [event],
+      slotMinTime: '08:00',
+      slotMaxTime: '20:00',
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-resource-clamp-resize', `${DAY}T18:00`);
+    const resizeHandle = eventEl.querySelector('[data-koyomi-resize-handle="end"]');
+    if (resizeHandle === null) {
+      throw new Error('リサイズハンドルが見つかりません');
+    }
+    const x = columnCenterX(0);
+
+    firePointerDown(resizeHandle, x, 1080);
+    movePointer(x, 1440); // 範囲外（24:00 相当）だが 19:45 にクランプされるはず
+    releasePointer(x, 1440);
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: at(`${DAY}T18:00`), end: at(`${DAY}T19:45`) });
+  });
+
+  it('矢印キーによる移動は slotMinTime/slotMaxTime の範囲外でも適用される（意図的にクランプしない）', () => {
+    const event: CalendarEvent = {
+      id: 'ev-resource-arrow-no-clamp',
+      title: '会議',
+      start: `${DAY}T19:45`,
+      end: `${DAY}T20:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      events: [event],
+      slotMinTime: '08:00',
+      slotMaxTime: '20:00',
+    });
+    const eventEl = getEventElement(container, 'ev-resource-arrow-no-clamp', `${DAY}T19:45`);
+
+    act(() => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowDown' }); // +15 分 → 20:00〜20:15（表示時間帯の外）
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({ start: at(`${DAY}T20:00`), end: at(`${DAY}T20:15`) });
   });
 });
 

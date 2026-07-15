@@ -34,6 +34,7 @@ import {
   dateFromKey,
   dateKeyInZone,
   minutesOfDayInZone,
+  parseSlotBoundaryTime,
   startOfDayInZone,
 } from '../core/timezone';
 import type {
@@ -223,6 +224,21 @@ function fractionYFromClientY(rect: DOMRect, clientY: number): number {
 /** 1 日のミリ秒数。 */
 const MS_PER_DAY = 86_400_000;
 
+/**
+ * `state.options.slotMinTime`/`slotMaxTime` を分換算した表示範囲を返す。
+ * ポインタ操作（作成・移動・リサイズ）の対象時刻計算を表示時間帯内にクランプするために使う
+ * （矢印キー操作は対象外。{@link arrowKeyChange} を参照）。
+ */
+function slotTimeRangeMinutes(options: { slotMinTime: string; slotMaxTime: string }): {
+  rangeStartMinutes: number;
+  rangeEndMinutes: number;
+} {
+  return {
+    rangeStartMinutes: parseSlotBoundaryTime(options.slotMinTime),
+    rangeEndMinutes: parseSlotBoundaryTime(options.slotMaxTime),
+  };
+}
+
 /** 終日行の領域を示す `data-koyomi` 属性のセレクタ（セル・行いずれの要素でも一致する）。 */
 const ALLDAY_REGION_SELECTOR =
   '[data-koyomi="allday-cells"], [data-koyomi="allday-cell"], [data-koyomi="allday-row"]';
@@ -403,7 +419,7 @@ export function useTimeGridDrag(params: {
     return containing ?? nearest;
   }
 
-  /** ポインタ位置に対応する列の日時（スナップ済み）を返す。列が見つからなければ `null`。 */
+  /** ポインタ位置に対応する列の日時（スナップ済み、表示時間帯内にクランプ）を返す。列が見つからなければ `null`。 */
   function pointerDateAt(clientX: number, clientY: number): Date | null {
     const column = findColumnForClientX(clientX);
     if (column === null) {
@@ -415,6 +431,7 @@ export function useTimeGridDrag(params: {
       fractionY: fractionYFromClientY(column.element.getBoundingClientRect(), clientY),
       timeZone: state.timeZone,
       snap: state.options.snapMinutes,
+      ...slotTimeRangeMinutes(state.options),
     });
   }
 
@@ -792,6 +809,7 @@ export function useTimeGridDrag(params: {
       fractionY: fractionYFromClientY(rect, event.clientY),
       timeZone: state.timeZone,
       snap: state.options.snapMinutes,
+      ...slotTimeRangeMinutes(state.options),
     });
     startSession('create', null, anchor);
   }

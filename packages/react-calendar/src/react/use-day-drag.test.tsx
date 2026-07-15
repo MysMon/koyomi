@@ -2443,6 +2443,71 @@ describe('useDayDrag - 時間グリッドへの変換ドラッグ', () => {
     });
   });
 
+  it('slotMinTime/slotMaxTime を指定すると、時間グリッド変換のドロップ先時刻も表示時間帯内にクランプされる', () => {
+    const api = makeCalendarApi({
+      timeZone: TOKYO,
+      now: () => NOW,
+      initialDate: NOW,
+      snapMinutes: 15,
+      defaultEventMinutes: 30,
+      slotMinTime: '08:00',
+      slotMaxTime: '20:00',
+    });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid api={api} segments={[makeSegment(occurrence)]} resultRef={resultRef} />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    const timeGridDay = makeTimeGridDayElement('2026-07-11', { top: 0, height: 1440 });
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(timeGridDay);
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      // clientY=1440（24:00 相当）は範囲外だが 19:45（表示時間帯の上限）にクランプされるはず
+      dispatchPointerMove(cellCenterX(2), 1440);
+    });
+    act(() => {
+      dispatchPointerUp(cellCenterX(2), 1440);
+    });
+
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expect(updated?.allDay).toBe(false);
+    const start = updated?.start;
+    const end = updated?.end;
+    if (!(start instanceof Date) || !(end instanceof Date)) {
+      throw new Error('更新後の start/end が Date ではありません');
+    }
+    const expectedStart = dateFromKey('2026-07-11', TOKYO).getTime() + (19 * 60 + 45) * 60 * 1000;
+    expect(start.getTime()).toBe(expectedStart);
+    expect(end.getTime()).toBe(expectedStart + 30 * 60 * 1000);
+  });
+
   it('時間グリッドへの変換ドラッグ中は dragPreview.allDay が false になり、previewRange は null を返す', () => {
     const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
     const created = api.createEvent({

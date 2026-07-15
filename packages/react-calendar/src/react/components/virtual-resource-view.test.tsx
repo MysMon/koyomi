@@ -55,6 +55,8 @@ interface HarnessProps {
   resources?: readonly CalendarResource[];
   callbacks?: CalendarInteractionCallbacks;
   businessHours?: readonly BusinessHoursRule[];
+  slotMinTime?: string;
+  slotMaxTime?: string;
   viewProps?: VirtualResourceViewProps;
   sink?: { current: UseCalendarResult | null };
   handleRef?: React.Ref<VirtualResourceViewHandle>;
@@ -70,6 +72,8 @@ function Harness(props: HarnessProps): ReactElement {
     resources: props.resources ?? [],
     unassignedLane: 'auto',
     ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
+    ...(props.slotMinTime !== undefined ? { slotMinTime: props.slotMinTime } : {}),
+    ...(props.slotMaxTime !== undefined ? { slotMaxTime: props.slotMaxTime } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -587,5 +591,167 @@ describe('VirtualResourceView - businessHours（営業時間）', () => {
       expect(slots[17]).not.toHaveAttribute('data-koyomi-business-hours');
       expect(slots[8]).not.toHaveAttribute('data-koyomi-business-hours');
     }
+  });
+});
+
+describe('VirtualResourceView - 表示時間帯制限（slotMinTime/slotMaxTime）', () => {
+  it('省略時は既定 00:00/24:00 として、スロット数・イベントの top/height %・--koyomi-timegrid-hours が従来どおりになる（回帰ペア）', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '会議',
+        start: '2026-07-15T10:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'r0',
+      },
+    ];
+    const { container } = render(<Harness resources={makeResources(1)} events={events} />);
+    const column = container.querySelector('[data-koyomi="resource-column"]');
+    expect(column?.querySelectorAll('[data-koyomi="timegrid-slot"]')).toHaveLength(24);
+
+    const eventEl = container.querySelector('[data-koyomi="timegrid-event"]') as HTMLElement;
+    expect(eventEl.style.top).toBe(`${(600 / 1440) * 100}%`);
+    expect(eventEl.style.height).toBe(`${(60 / 1440) * 100}%`);
+
+    const root = container.querySelector('[data-koyomi="resource"]') as HTMLElement;
+    expect(root.style.getPropertyValue('--koyomi-timegrid-hours')).toBe('24');
+  });
+
+  it('slotMinTime/slotMaxTime を指定すると、スロット数・イベントの top/height %・--koyomi-timegrid-hours が表示時間帯基準になる', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '会議',
+        start: '2026-07-15T10:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'r0',
+      },
+    ];
+    const { container } = render(
+      <Harness
+        resources={makeResources(1)}
+        events={events}
+        slotMinTime="08:00"
+        slotMaxTime="20:00"
+      />,
+    );
+    const column = container.querySelector('[data-koyomi="resource-column"]');
+    expect(column?.querySelectorAll('[data-koyomi="timegrid-slot"]')).toHaveLength(12);
+
+    const eventEl = container.querySelector('[data-koyomi="timegrid-event"]') as HTMLElement;
+    expect(eventEl.style.top).toBe(`${((600 - 480) / (1200 - 480)) * 100}%`);
+    expect(eventEl.style.height).toBe(`${(60 / (1200 - 480)) * 100}%`);
+
+    const root = container.querySelector('[data-koyomi="resource"]') as HTMLElement;
+    expect(root.style.getPropertyValue('--koyomi-timegrid-hours')).toBe('12');
+  });
+
+  it('表示時間帯の外側にしか存在しないオカレンスは timegrid-event として描画されない', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'early',
+        title: '早朝',
+        start: '2026-07-15T05:00',
+        end: '2026-07-15T06:00',
+        resourceId: 'r0',
+      },
+    ];
+    const { container } = render(
+      <Harness
+        resources={makeResources(1)}
+        events={events}
+        slotMinTime="08:00"
+        slotMaxTime="20:00"
+      />,
+    );
+    expect(container.querySelector('[data-koyomi="timegrid-event"]')).toBeNull();
+  });
+});
+
+describe('VirtualResourceView - 初期スクロール位置（initialScrollTime）・命令的スクロール（scrollToTime）', () => {
+  /** jsdom は scrollHeight を常に 0 として扱うため、テスト内で固定値へ差し替える。 */
+  let scrollHeightDescriptor: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    scrollHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight');
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get: () => 2000,
+    });
+  });
+
+  afterEach(() => {
+    if (scrollHeightDescriptor !== undefined) {
+      Object.defineProperty(HTMLElement.prototype, 'scrollHeight', scrollHeightDescriptor);
+    }
+  });
+
+  function getRoot(container: HTMLElement): HTMLElement {
+    const root = container.querySelector('[data-koyomi="resource"]');
+    if (!(root instanceof HTMLElement)) {
+      throw new Error('resource ルートが見つかりません');
+    }
+    return root;
+  }
+
+  it('initialScrollTime 省略時はマウント時に scrollTop が変化しない（回帰ペア）', () => {
+    const { container } = render(<Harness resources={makeResources(1)} />);
+    expect(getRoot(container).scrollTop).toBe(0);
+  });
+
+  it('initialScrollTime 指定時にマウント時 1 回だけ scrollTop が設定される', () => {
+    const { container } = render(
+      <Harness resources={makeResources(1)} viewProps={{ initialScrollTime: '09:00' }} />,
+    );
+    expect(getRoot(container).scrollTop).toBe((540 / 1440) * 2000);
+  });
+
+  it('ref.current.scrollToTime(time) で任意のタイミングにスクロールできる（scrollToResource と共存する）', () => {
+    const handleRef = createRef<VirtualResourceViewHandle>();
+    const { container } = render(<Harness resources={makeResources(1)} handleRef={handleRef} />);
+    const root = getRoot(container);
+    expect(root.scrollTop).toBe(0);
+
+    act(() => {
+      handleRef.current?.scrollToTime('12:00');
+    });
+    expect(root.scrollTop).toBe((720 / 1440) * 2000);
+    // scrollToTime は縦スクロールのみを変更し、横スクロール（scrollLeft）には干渉しない
+    expect(root.scrollLeft).toBe(0);
+  });
+
+  it('表示時間帯制限（slotMinTime/slotMaxTime）を指定していても initialScrollTime/scrollToTime は機能する（独立性の確認）', () => {
+    const handleRef = createRef<VirtualResourceViewHandle>();
+    const { container } = render(
+      <Harness
+        resources={makeResources(1)}
+        slotMinTime="08:00"
+        slotMaxTime="20:00"
+        handleRef={handleRef}
+        viewProps={{ initialScrollTime: '10:00' }}
+      />,
+    );
+    const root = getRoot(container);
+    expect(root.scrollTop).toBe(((600 - 480) / (1200 - 480)) * 2000);
+
+    act(() => {
+      handleRef.current?.scrollToTime('14:00');
+    });
+    expect(root.scrollTop).toBe(((840 - 480) / (1200 - 480)) * 2000);
+  });
+
+  it('アンマウント後に再マウントすると initialScrollTime が再適用される', () => {
+    const { container, unmount } = render(
+      <Harness resources={makeResources(1)} viewProps={{ initialScrollTime: '09:00' }} />,
+    );
+    const root = getRoot(container);
+    expect(root.scrollTop).toBe((540 / 1440) * 2000);
+    root.scrollTop = 999;
+    unmount();
+
+    const { container: remounted } = render(
+      <Harness resources={makeResources(1)} viewProps={{ initialScrollTime: '09:00' }} />,
+    );
+    expect(getRoot(remounted).scrollTop).toBe((540 / 1440) * 2000);
   });
 });

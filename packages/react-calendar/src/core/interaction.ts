@@ -58,34 +58,50 @@ export function snapToInterval(minutes: number, snap: number): number {
 /**
  * 時間グリッドの列内の縦位置（0〜1）から、その列の日における日時を計算する。
  *
- * 縦位置は列の高さ全体を 0:00〜24:00 に対応づけ、`snap` 間隔に
- * スナップした現地時刻を返す。結果は `interval`（正規化後の `snap`）の
- * 倍数のうち 1440 分（24:00）未満で最大のものを上限に、0 を下限にクランプ
- * される。`interval` が 1440 以上の場合は上限も 0 になり、常に日の 0:00 を返す。
+ * 縦位置は列の高さ全体を `rangeStartMinutes`〜`rangeEndMinutes`（省略時は
+ * 0:00〜24:00）に対応づけ、`snap` 間隔にスナップした現地時刻を返す。結果は
+ * `interval`（正規化後の `snap`）の倍数のうち `rangeEndMinutes` 分未満で最大のものを
+ * 上限に、`rangeStartMinutes` を下限にクランプされる。範囲が `interval` 未満の場合は
+ * 上限も `rangeStartMinutes` になり、常に範囲の開始時刻を返す。
  *
  * 現地時刻への分加算（{@link addMinutesInZone}）で日時化するため、
  * DST の切り替え日でも縦位置と現地時刻の対応が保たれる
  * （存在しない時刻は直後の実在時刻に繰り上げて解決される）。
  *
  * @param params.day - 対象列の日の 0:00（絶対時刻）
- * @param params.fractionY - 列内の縦位置（0 = 0:00、1 = 24:00）
+ * @param params.fractionY - 列内の縦位置（0 = `rangeStartMinutes`、1 = `rangeEndMinutes`）
  * @param params.timeZone - 表示タイムゾーン
  * @param params.snap - スナップ間隔（分）
+ * @param params.rangeStartMinutes - 表示範囲の開始（分）。既定 `0`
+ * @param params.rangeEndMinutes - 表示範囲の終了（分）。既定 `1440`
  */
 export function timeAtGridPosition(params: {
   day: Date;
   fractionY: number;
   timeZone: TimeZoneId;
   snap: number;
+  rangeStartMinutes?: number;
+  rangeEndMinutes?: number;
 }): Date {
-  const { day, fractionY, timeZone, snap } = params;
+  const {
+    day,
+    fractionY,
+    timeZone,
+    snap,
+    rangeStartMinutes = 0,
+    rangeEndMinutes = MINUTES_PER_DAY,
+  } = params;
   const interval = normalizeSnap(snap);
-  const snapped = snapToInterval(fractionY * MINUTES_PER_DAY, interval);
-  // 上限は「interval の倍数のうち 1440 分未満で最大のもの」。
-  // interval が 1440 を割り切らない場合でも格子から外れず、
-  // interval が 1440 以上の場合は 0（日の 0:00）にクランプされる。
-  const maxOnGrid = Math.max(0, Math.floor((MINUTES_PER_DAY - 1) / interval) * interval);
-  const minutes = Math.min(Math.max(snapped, 0), maxOnGrid);
+  const raw = rangeStartMinutes + fractionY * (rangeEndMinutes - rangeStartMinutes);
+  const snapped = snapToInterval(raw, interval);
+  // 上限は「interval の倍数のうち rangeEndMinutes 分未満で最大のもの」（かつ下限
+  // rangeStartMinutes 以上）。interval が範囲の長さ以上の場合は上限も
+  // rangeStartMinutes になり、常に範囲の開始時刻にクランプされる。
+  const maxOnGrid = Math.max(
+    rangeStartMinutes,
+    Math.floor((rangeEndMinutes - 1) / interval) * interval,
+  );
+  const minutes = Math.min(Math.max(snapped, rangeStartMinutes), maxOnGrid);
   return addMinutesInZone(day, minutes, timeZone);
 }
 

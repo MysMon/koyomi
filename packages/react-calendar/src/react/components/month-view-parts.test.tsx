@@ -3,9 +3,11 @@ import type { DateRange, EventOccurrence } from '../../core/types';
 import {
   formatEventAriaLabel,
   formatOccurrenceRangeLabel,
+  percentOfSlotRange,
   resolveEventAriaLabel,
   withEventColorStyle,
   withMonthLanesStyle,
+  withTimegridHoursStyle,
 } from './month-view-parts';
 
 function occurrence(allDay = false): EventOccurrence {
@@ -78,6 +80,48 @@ describe('month-view-parts', () => {
     expect(withEventColorStyle({ top: '10%' }, '#abcdef')).toEqual({
       top: '10%',
       '--koyomi-event-color': '#abcdef',
+    });
+  });
+
+  describe('percentOfSlotRange', () => {
+    it('既定の 0〜1440 の範囲では MINUTES_PER_DAY 基準の従来計算と数値的に完全一致する（回帰ペア）', () => {
+      const cases: readonly [number, number][] = [
+        [600, 660],
+        [0, 1440],
+        [10, 1430],
+        [123, 987],
+        [0, 60],
+        [1380, 1440],
+      ];
+      for (const [start, end] of cases) {
+        // top（絶対位置）: 既存の `(minutes / 1440) * 100` と完全一致
+        expect(percentOfSlotRange(start, 0, 1440)).toBe((start / 1440) * 100);
+        expect(percentOfSlotRange(end, 0, 1440)).toBe((end / 1440) * 100);
+        // height（区間の長さ）: 区間を 0 起点の範囲として渡すことで、
+        // 既存の `((end - start) / 1440) * 100` と完全一致する
+        expect(percentOfSlotRange(end - start, 0, 1440)).toBe(((end - start) / 1440) * 100);
+      }
+    });
+
+    it('制限範囲（480〜1200）では範囲に対する割合になる', () => {
+      expect(percentOfSlotRange(480, 480, 1200)).toBe(0);
+      expect(percentOfSlotRange(1200, 480, 1200)).toBe(100);
+      expect(percentOfSlotRange(840, 480, 1200)).toBe(50);
+    });
+
+    it('区間の長さ（height 用）は range を 0 起点にすることで範囲幅に対する割合になる', () => {
+      // 480〜1200（幅 720 分）のうち 360 分間の区間は幅の半分
+      expect(percentOfSlotRange(360, 0, 1200 - 480)).toBe(50);
+    });
+  });
+
+  describe('withTimegridHoursStyle', () => {
+    it('既定の表示時間帯（0〜1440 分）では 24 になる', () => {
+      expect(withTimegridHoursStyle(0, 1440)).toEqual({ '--koyomi-timegrid-hours': '24' });
+    });
+
+    it('表示時間帯を制限すると、その時間数（分差 / 60）になる', () => {
+      expect(withTimegridHoursStyle(480, 1200)).toEqual({ '--koyomi-timegrid-hours': '12' });
     });
   });
 });

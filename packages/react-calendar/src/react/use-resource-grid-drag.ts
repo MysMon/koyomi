@@ -31,6 +31,7 @@ import {
   addDaysInZone,
   addMinutesInZone,
   minutesOfDayInZone,
+  parseSlotBoundaryTime,
   startOfDayInZone,
 } from '../core/timezone';
 import type {
@@ -183,6 +184,21 @@ function fractionYFromClientY(rect: DOMRect, clientY: number): number {
 }
 
 /**
+ * `state.options.slotMinTime`/`slotMaxTime` を分換算した表示範囲を返す。
+ * ポインタ操作（作成・移動・リサイズ）の対象時刻計算を表示時間帯内にクランプするために使う
+ * （矢印キー操作は対象外。`use-time-grid-drag.ts` の同名ヘルパと同じ方針）。
+ */
+function slotTimeRangeMinutes(options: { slotMinTime: string; slotMaxTime: string }): {
+  rangeStartMinutes: number;
+  rangeEndMinutes: number;
+} {
+  return {
+    rangeStartMinutes: parseSlotBoundaryTime(options.slotMinTime),
+    rangeEndMinutes: parseSlotBoundaryTime(options.slotMaxTime),
+  };
+}
+
+/**
  * リソースビューのドラッグインタラクションを提供するフック。
  *
  * 変更の適用はライブラリが行う（`api.updateEvent`）。繰り返しイベントの場合は
@@ -274,6 +290,7 @@ export function useResourceGridDrag(params: {
       fractionY: fractionYFromClientY(column.element.getBoundingClientRect(), clientY),
       timeZone: state.timeZone,
       snap: state.options.snapMinutes,
+      ...slotTimeRangeMinutes(state.options),
     });
   }
 
@@ -638,6 +655,7 @@ export function useResourceGridDrag(params: {
       fractionY: fractionYFromClientY(rect, event.clientY),
       timeZone: state.timeZone,
       snap: state.options.snapMinutes,
+      ...slotTimeRangeMinutes(state.options),
     });
     startSession('create', null, anchor, column.resource?.id ?? null);
   }
