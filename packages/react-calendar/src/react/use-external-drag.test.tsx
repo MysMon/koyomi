@@ -23,7 +23,7 @@ import type { ReactElement } from 'react';
 import { useRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseDateValue } from '../core/timezone';
-import type { CalendarEvent, CalendarResource } from '../core/types';
+import type { BusinessHoursRule, CalendarEvent, CalendarResource } from '../core/types';
 import { ListView } from './components/list-view';
 import { MonthView } from './components/month-view';
 import { ResourceView } from './components/resource-view';
@@ -72,6 +72,9 @@ interface HarnessProps {
   unassignedLane?: 'auto' | 'always';
   snapMinutes?: number;
   defaultEventMinutes?: number;
+  eventOverlap?: boolean;
+  eventConstraint?: 'businessHours' | readonly BusinessHoursRule[];
+  businessHours?: readonly BusinessHoursRule[];
   onExternalDrop: (info: ExternalDropInfo<Payload>) => void;
   onError?: (error: unknown) => void;
   calendarSink?: { current: UseCalendarResult | null };
@@ -92,6 +95,9 @@ function Harness(props: HarnessProps): ReactElement {
     ...(props.defaultEventMinutes !== undefined
       ? { defaultEventMinutes: props.defaultEventMinutes }
       : {}),
+    ...(props.eventOverlap !== undefined ? { eventOverlap: props.eventOverlap } : {}),
+    ...(props.eventConstraint !== undefined ? { eventConstraint: props.eventConstraint } : {}),
+    ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
   });
   if (props.calendarSink) {
     props.calendarSink.current = calendar;
@@ -972,5 +978,141 @@ describe('useExternalDrag - onError', () => {
     expect(() => releasePointer(10, 10)).not.toThrow();
 
     expect(errorSpy).toHaveBeenCalledWith(thrown);
+  });
+});
+
+describe('useExternalDrag - 宣言的な重なり・配置制約', () => {
+  it('月ビューで eventOverlap: false のとき、既存の終日イベントのセルへのドロップは拒否され、dragPreview.invalid が true になる', () => {
+    const onExternalDrop = vi.fn();
+    const existing: CalendarEvent = {
+      id: 'existing',
+      title: '既存',
+      start: '2026-07-20',
+      allDay: true,
+    };
+    const calendarSink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(
+      <Harness
+        view="month"
+        events={[existing]}
+        onExternalDrop={onExternalDrop}
+        calendarSink={calendarSink}
+        eventOverlap={false}
+      />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const cell = container.querySelector(
+      '[data-koyomi="month-day"][data-koyomi-date="2026-07-20"]',
+    );
+    if (!(source instanceof HTMLElement) || !(cell instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockElementsFromPoint([cell]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+    expect(calendarSink.current?.state.dragPreview?.invalid).toBe(true);
+
+    releasePointer(10, 10);
+    expect(onExternalDrop).not.toHaveBeenCalled();
+  });
+
+  it('既定値（eventOverlap: true）では既存の終日イベントのセルへのドロップも通常どおり許可される', () => {
+    const onExternalDrop = vi.fn();
+    const existing: CalendarEvent = {
+      id: 'existing',
+      title: '既存',
+      start: '2026-07-20',
+      allDay: true,
+    };
+    const { container } = render(
+      <Harness view="month" events={[existing]} onExternalDrop={onExternalDrop} />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const cell = container.querySelector(
+      '[data-koyomi="month-day"][data-koyomi-date="2026-07-20"]',
+    );
+    if (!(source instanceof HTMLElement) || !(cell instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockElementsFromPoint([cell]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+    releasePointer(10, 10);
+    expect(onExternalDrop).toHaveBeenCalledTimes(1);
+  });
+
+  it("週ビューで eventConstraint: 'businessHours' の営業時間外へのドロップは拒否される", () => {
+    const businessHours: BusinessHoursRule[] = [
+      { daysOfWeek: [0, 1, 2, 3, 4, 5, 6], startTime: '09:00', endTime: '18:00' },
+    ];
+    const onExternalDrop = vi.fn();
+    const { container } = render(
+      <Harness
+        view="week"
+        onExternalDrop={onExternalDrop}
+        eventConstraint="businessHours"
+        businessHours={businessHours}
+      />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const column = container.querySelector(
+      '[data-koyomi="timegrid-day"][data-koyomi-date="2026-07-15"]',
+    );
+    if (!(source instanceof HTMLElement) || !(column instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockRect(column, { left: 0, top: 0, width: 100, height: 1440 });
+    mockElementsFromPoint([column]);
+
+    firePointerDown(source);
+    movePointer(50, 1140); // 19:00（営業時間外）
+    releasePointer(50, 1140);
+
+    expect(onExternalDrop).not.toHaveBeenCalled();
+  });
+
+  it('リソースビューで eventOverlap: false のとき、同じ列の既存イベントと重なるドロップは拒否され、別列へのドロップは許可される', () => {
+    const onExternalDrop = vi.fn();
+    const existing: CalendarEvent = {
+      id: 'existing',
+      title: '既存',
+      start: '2026-07-15T09:00',
+      end: '2026-07-15T10:00',
+      resourceId: 'room-a',
+    };
+    const { container } = render(
+      <Harness
+        view="resource"
+        resources={[ROOM_A]}
+        events={[existing]}
+        onExternalDrop={onExternalDrop}
+        snapMinutes={15}
+        defaultEventMinutes={30}
+        eventOverlap={false}
+      />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const column = container.querySelector(
+      '[data-koyomi="resource-column"][data-koyomi-resource="r:room-a"]',
+    );
+    if (!(source instanceof HTMLElement) || !(column instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockRect(column, { left: 0, top: 0, width: 100, height: 1440 });
+    mockElementsFromPoint([column]);
+
+    // room-a 列 9:15（既存 9:00〜10:00 と重なる） → 拒否される
+    firePointerDown(source);
+    movePointer(50, 555);
+    releasePointer(50, 555);
+    expect(onExternalDrop).not.toHaveBeenCalled();
+
+    // room-a 列 11:00（既存とは無関係） → 許可される
+    firePointerDown(source);
+    movePointer(50, 660);
+    releasePointer(50, 660);
+    expect(onExternalDrop).toHaveBeenCalledTimes(1);
   });
 });

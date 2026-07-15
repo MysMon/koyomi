@@ -33,6 +33,8 @@
  *   --koyomi-now-color              現在時刻線（now-indicator）の色
  *   --koyomi-business-hours-bg      営業時間内区間（businessHours）の背景色
  *                                    （週/日・リソース・タイムラインビュー共通）
+ *   --koyomi-invalid-color          宣言的制約（eventOverlap / eventConstraint）に
+ *                                    違反しているプレビュー（[data-koyomi-invalid="true"]）の色
  *
  * 上記に加え、時間グリッドの時刻軸幅をヘッダー・終日行・本体で揃えるための
  * 内部変数として --koyomi-time-axis-width も定義している（必要なら上書き可）。
@@ -82,6 +84,7 @@
   --koyomi-timeline-header-width: 120px;
   --koyomi-now-color: #ea4335;
   --koyomi-business-hours-bg: rgba(26, 115, 232, 0.06);
+  --koyomi-invalid-color: #d93025;
 
   background-color: var(--koyomi-bg);
   color: var(--koyomi-fg);
@@ -112,6 +115,7 @@
     --koyomi-event-fg: #202124;
     --koyomi-now-color: #ea4335;
     --koyomi-business-hours-bg: rgba(138, 180, 248, 0.08);
+    --koyomi-invalid-color: #f28b82;
   }
 }
 
@@ -128,6 +132,7 @@
   --koyomi-event-fg: #202124;
   --koyomi-now-color: #ea4335;
   --koyomi-business-hours-bg: rgba(138, 180, 248, 0.08);
+  --koyomi-invalid-color: #f28b82;
 }
 
 [data-koyomi-theme="light"] [data-koyomi="root"],
@@ -142,6 +147,7 @@
   --koyomi-event-fg: #ffffff;
   --koyomi-business-hours-bg: rgba(26, 115, 232, 0.06);
   --koyomi-now-color: #ea4335;
+  --koyomi-invalid-color: #d93025;
 }
 
 /*
@@ -418,6 +424,12 @@
   pointer-events: none;
 }
 
+/* 宣言的制約（eventOverlap / eventConstraint）に違反しているプレビューは、
+   opacity は既存値（0.2）を維持したまま色だけをアクセントから invalid-color に切り替える */
+[data-koyomi="day-selection"][data-koyomi-invalid="true"] {
+  background-color: var(--koyomi-invalid-color);
+}
+
 /* ---------------------------------------------------------------------------
  * 週/日ビュー（時間グリッド）
  * ------------------------------------------------------------------------ */
@@ -540,6 +552,12 @@
 /* ドラッグ中の終日イベントの移動先プレビュー（列全体をハイライト） */
 [data-koyomi="resource-allday-cell"][data-koyomi-preview-target="true"] {
   box-shadow: inset 0 0 0 2px var(--koyomi-accent);
+}
+
+/* 宣言的制約（eventOverlap / eventConstraint）に違反している終日移動先プレビューは、
+   ハイライトの色をアクセントから invalid-color に切り替える */
+[data-koyomi="resource-allday-cell"][data-koyomi-preview-target="true"][data-koyomi-invalid="true"] {
+  box-shadow: inset 0 0 0 2px var(--koyomi-invalid-color);
 }
 
 [data-koyomi="allday-event"] {
@@ -764,6 +782,13 @@
   background-color: var(--koyomi-accent);
   opacity: 0.2;
   pointer-events: none;
+}
+
+/* 宣言的制約（eventOverlap / eventConstraint）に違反しているプレビューは、
+   opacity は既存値（0.2）を維持したまま色だけをアクセントから invalid-color に切り替える */
+[data-koyomi="timegrid-preview"][data-koyomi-invalid="true"] {
+  border-color: var(--koyomi-invalid-color);
+  background-color: var(--koyomi-invalid-color);
 }
 
 [data-koyomi="now-indicator"] {
@@ -1304,6 +1329,13 @@
   background-color: var(--koyomi-accent);
   opacity: 0.2;
   pointer-events: none;
+}
+
+/* 宣言的制約（eventOverlap / eventConstraint）に違反しているプレビューは、
+   opacity は既存値（0.2）を維持したまま色だけをアクセントから invalid-color に切り替える */
+[data-koyomi="timeline-preview"][data-koyomi-invalid="true"] {
+  border-color: var(--koyomi-invalid-color);
+  background-color: var(--koyomi-invalid-color);
 }
 
 /* ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createCalendar } from '../core/calendar';
 import { parseDateValue } from '../core/timezone';
 import type {
+  BusinessHoursRule,
   CalendarApi,
   CalendarEvent,
   EventOccurrence,
@@ -166,6 +167,9 @@ function renderHarness(
     defaultEventMinutes?: number;
     slotMinTime?: string;
     slotMaxTime?: string;
+    eventOverlap?: boolean;
+    eventConstraint?: 'businessHours' | readonly BusinessHoursRule[];
+    businessHours?: readonly BusinessHoursRule[];
   } = {},
 ): { sink: { current: Sink | null }; unmount: () => void } {
   const {
@@ -175,6 +179,9 @@ function renderHarness(
     defaultEventMinutes = 60,
     slotMinTime,
     slotMaxTime,
+    eventOverlap,
+    eventConstraint,
+    businessHours,
   } = options;
   const sink: { current: Sink | null } = { current: null };
   const factory = (): CalendarApi =>
@@ -189,6 +196,9 @@ function renderHarness(
       defaultEventMinutes,
       ...(slotMinTime !== undefined ? { slotMinTime } : {}),
       ...(slotMaxTime !== undefined ? { slotMaxTime } : {}),
+      ...(eventOverlap !== undefined ? { eventOverlap } : {}),
+      ...(eventConstraint !== undefined ? { eventConstraint } : {}),
+      ...(businessHours !== undefined ? { businessHours } : {}),
     });
 
   const view =
@@ -1839,5 +1849,270 @@ describe('autoScrollVelocity', () => {
     expect(
       autoScrollVelocity({ edgeStart: 0, edgeEnd: 600, pointer: 0, threshold: 10, maxSpeed: 40 }),
     ).toBe(-40);
+  });
+});
+
+describe('useTimeGridDrag - 宣言的な重なり・配置制約', () => {
+  it('既定値（eventOverlap: true）では既存イベントと重なる移動も previewFor().invalid が undefined のまま適用される', () => {
+    const existing: CalendarEvent = {
+      id: 'existing',
+      title: '既存',
+      start: `${MON}T10:00`,
+      end: `${MON}T11:00`,
+    };
+    const moving: CalendarEvent = {
+      id: 'moving',
+      title: '対象',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const onEventChange = vi.fn();
+    const { sink } = renderHarness({ events: [existing, moving], callbacks: { onEventChange } });
+    const occurrenceKey = `moving@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    firePointerDown(eventEl, columnCenterX(TUE), 600);
+    movePointer(columnCenterX(MON), 600);
+
+    const days = getTimeGridDays(sink.current as Sink);
+    const monday = days.find((day) => day.key === MON);
+    if (monday === undefined) {
+      throw new Error('対象日が見つからない');
+    }
+    expect(sink.current?.drag.previewFor(monday)?.invalid).toBeUndefined();
+
+    releasePointer(columnCenterX(MON), 600);
+    expect(onEventChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('eventOverlap: false では既存イベントと重なる移動が拒否され、previewFor().invalid が true になる', () => {
+    const existing: CalendarEvent = {
+      id: 'existing',
+      title: '既存',
+      start: `${MON}T10:00`,
+      end: `${MON}T11:00`,
+    };
+    const moving: CalendarEvent = {
+      id: 'moving',
+      title: '対象',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const onEventChange = vi.fn();
+    const { sink } = renderHarness({
+      events: [existing, moving],
+      callbacks: { onEventChange },
+      eventOverlap: false,
+    });
+    const occurrenceKey = `moving@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    firePointerDown(eventEl, columnCenterX(TUE), 600);
+    movePointer(columnCenterX(MON), 600);
+
+    const days = getTimeGridDays(sink.current as Sink);
+    const monday = days.find((day) => day.key === MON);
+    if (monday === undefined) {
+      throw new Error('対象日が見つからない');
+    }
+    expect(sink.current?.drag.previewFor(monday)?.invalid).toBe(true);
+
+    releasePointer(columnCenterX(MON), 600);
+    expect(onEventChange).not.toHaveBeenCalled();
+    expect(sink.current?.calendar.api.getEvents().find((e) => e.id === 'moving')).toMatchObject({
+      start: `${TUE}T10:00`,
+    });
+  });
+
+  it('動かす側のみ overlap: true でも、重ねられる側が既定（拒否）なら eventOverlap: false のもとで拒否される', () => {
+    const existing: CalendarEvent = {
+      id: 'existing',
+      title: '既存',
+      start: `${MON}T10:00`,
+      end: `${MON}T11:00`,
+    };
+    const moving: CalendarEvent = {
+      id: 'moving',
+      title: '対象',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+      overlap: true,
+    };
+    const onEventChange = vi.fn();
+    renderHarness({
+      events: [existing, moving],
+      callbacks: { onEventChange },
+      eventOverlap: false,
+    });
+    const occurrenceKey = `moving@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    firePointerDown(eventEl, columnCenterX(TUE), 600);
+    movePointer(columnCenterX(MON), 600);
+    releasePointer(columnCenterX(MON), 600);
+
+    expect(onEventChange).not.toHaveBeenCalled();
+  });
+
+  it('動かす側・重ねられる側の両方が overlap: true なら、eventOverlap: false でも重ねられる（双方向セマンティクス）', () => {
+    const existing: CalendarEvent = {
+      id: 'existing',
+      title: '既存',
+      start: `${MON}T10:00`,
+      end: `${MON}T11:00`,
+      overlap: true,
+    };
+    const moving: CalendarEvent = {
+      id: 'moving',
+      title: '対象',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+      overlap: true,
+    };
+    const onEventChange = vi.fn();
+    const { sink } = renderHarness({
+      events: [existing, moving],
+      callbacks: { onEventChange },
+      eventOverlap: false,
+    });
+    const occurrenceKey = `moving@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    firePointerDown(eventEl, columnCenterX(TUE), 600);
+    movePointer(columnCenterX(MON), 600);
+    releasePointer(columnCenterX(MON), 600);
+
+    expect(onEventChange).toHaveBeenCalledTimes(1);
+    expect(sink.current?.calendar.api.getEvents().find((e) => e.id === 'moving')).toMatchObject({
+      start: at(`${MON}T10:00`),
+    });
+  });
+
+  it("eventConstraint: 'businessHours' で営業時間外への移動は拒否され、営業時間内へは適用される", () => {
+    const businessHours: BusinessHoursRule[] = [
+      { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' },
+    ];
+    const event: CalendarEvent = {
+      id: 'constrained',
+      title: 'MTG',
+      start: `${MON}T10:00`,
+      end: `${MON}T11:00`,
+    };
+    const onEventChange = vi.fn();
+    const { sink } = renderHarness({
+      events: [event],
+      callbacks: { onEventChange },
+      eventConstraint: 'businessHours',
+      businessHours,
+    });
+    const occurrenceKey = `constrained@${at(`${MON}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    // 19:00 開始（営業時間 09:00〜18:00 の外）へ移動 → 拒否される
+    firePointerDown(eventEl, columnCenterX(MON), 600);
+    movePointer(columnCenterX(MON), 1140); // 10:00 → 19:00
+    const days = getTimeGridDays(sink.current as Sink);
+    const monday = days.find((day) => day.key === MON);
+    if (monday === undefined) {
+      throw new Error('対象日が見つからない');
+    }
+    expect(sink.current?.drag.previewFor(monday)?.invalid).toBe(true);
+    releasePointer(columnCenterX(MON), 1140);
+    expect(onEventChange).not.toHaveBeenCalled();
+
+    // 火曜 10:00〜11:00（営業時間内）へ移動 → 許可される
+    firePointerDown(eventEl, columnCenterX(MON), 600);
+    movePointer(columnCenterX(TUE), 600);
+    releasePointer(columnCenterX(TUE), 600);
+    expect(onEventChange).toHaveBeenCalledTimes(1);
+    expect(
+      sink.current?.calendar.api.getEvents().find((e) => e.id === 'constrained'),
+    ).toMatchObject({ start: at(`${TUE}T10:00`) });
+  });
+
+  it('終日行への変換ドラッグでも、変換後の範囲が既存イベントと重なる場合は拒否される（eventOverlap: false）', () => {
+    const existing: CalendarEvent = {
+      id: 'existing-allday',
+      title: '既存終日',
+      start: TUE,
+      end: WED,
+      allDay: true,
+    };
+    const converting: CalendarEvent = {
+      id: 'converting',
+      title: '変換対象',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const onEventChange = vi.fn();
+    const { sink } = renderHarness({
+      events: [existing, converting],
+      callbacks: { onEventChange },
+      eventOverlap: false,
+    });
+    const occurrenceKey = `converting@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(TUE);
+
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(makeAlldayCellElement());
+
+    firePointerDown(eventEl, x, 600);
+    movePointer(x, 10); // 終日行相当の位置へ（変換後は TUE 1 日分の終日イベントになる）
+
+    expect(sink.current?.calendar.state.dragPreview?.invalid).toBe(true);
+
+    releasePointer(x, 10);
+    expect(onEventChange).not.toHaveBeenCalled();
+    // 拒否されたため allDay: true への変換は適用されず、時間指定のまま
+    expect(
+      sink.current?.calendar.api.getEvents().find((e) => e.id === 'converting')?.allDay,
+    ).not.toBe(true);
+  });
+
+  it('空き領域からの新規作成も eventOverlap: false による拒否の対象になる', () => {
+    const existing: CalendarEvent = {
+      id: 'existing',
+      title: '既存',
+      start: `${MON}T10:00`,
+      end: `${MON}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [existing], eventOverlap: false });
+    const dayEl = screen.getByTestId(`day-${MON}`);
+    const x = columnCenterX(MON);
+
+    firePointerDown(dayEl, x, 615); // 10:15（既存イベントと重なる）
+    releasePointer(x, 615);
+
+    // 既存の 1 件のみで、新規作成は行われない
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(1);
+  });
+
+  it('矢印キーによる移動も eventOverlap: false による拒否の対象になる', () => {
+    const existing: CalendarEvent = {
+      id: 'existing',
+      title: '既存',
+      start: `${MON}T11:00`,
+      end: `${MON}T12:00`,
+    };
+    const moving: CalendarEvent = {
+      id: 'moving',
+      title: '対象',
+      start: `${MON}T10:00`,
+      end: `${MON}T11:00`,
+    };
+    const onEventChange = vi.fn();
+    renderHarness({
+      events: [existing, moving],
+      callbacks: { onEventChange },
+      eventOverlap: false,
+      snapMinutes: 60,
+    });
+    const occurrenceKey = `moving@${at(`${MON}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    // ArrowDown で +60 分（10:00〜11:00 → 11:00〜12:00）。既存イベントと重なるため拒否される
+    fireEvent.keyDown(eventEl, { key: 'ArrowDown' });
+
+    expect(onEventChange).not.toHaveBeenCalled();
   });
 });

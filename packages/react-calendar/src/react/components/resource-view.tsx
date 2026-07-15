@@ -286,40 +286,47 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
           {/* row と gridcell の間に挟まるレイアウト用ラッパー。role="presentation" で
               所有関係を透過させる（row の required owned elements 違反を避ける） */}
           <div data-koyomi="resource-allday-cells" role="presentation">
-            {columns.map((column) => (
-              // biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA gridcell
-              // biome-ignore lint/a11y/useFocusableInteractive: 現状クリック専用でキーボード操作に未対応（既知の制限。docs/accessibility.md 参照）
-              <div
-                key={column.key}
-                {...drag.getAllDayCellProps(column)}
-                data-koyomi="resource-allday-cell"
-                role="gridcell"
-                aria-label={
-                  column.resource?.title ?? ariaLabelText(unassignedLabel, DEFAULT_UNASSIGNED_LABEL)
-                }
-                data-koyomi-preview-target={drag.isAllDayPreviewTarget(column) ? 'true' : undefined}
-                // 終日アイテムはレーン（配列順）で縦積みするため、レーン数分の高さを確保する
-                // （週/日ビューの allday-cells の minHeight と同じ方式）
-                style={{
-                  minHeight: `calc(${Math.max(2, column.allDayItems.length)} * var(--koyomi-lane-height, 24px))`,
-                }}
-              >
-                {column.allDayItems.map((occurrence, lane) => (
-                  <AllDayItemButton
-                    key={occurrence.key}
-                    occurrence={occurrence}
-                    column={column}
-                    lane={lane}
-                    timeZone={timeZone}
-                    locale={locale}
-                    renderAllDayItem={renderAllDayItem}
-                    drag={stableDrag}
-                    isDragging={drag.isDragging}
-                    eventAriaLabel={eventAriaLabel}
-                  />
-                ))}
-              </div>
-            ))}
+            {columns.map((column) => {
+              const isPreviewTarget = drag.isAllDayPreviewTarget(column);
+              return (
+                // biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA gridcell
+                // biome-ignore lint/a11y/useFocusableInteractive: 現状クリック専用でキーボード操作に未対応（既知の制限。docs/accessibility.md 参照）
+                <div
+                  key={column.key}
+                  {...drag.getAllDayCellProps(column)}
+                  data-koyomi="resource-allday-cell"
+                  role="gridcell"
+                  aria-label={
+                    column.resource?.title ??
+                    ariaLabelText(unassignedLabel, DEFAULT_UNASSIGNED_LABEL)
+                  }
+                  data-koyomi-preview-target={isPreviewTarget ? 'true' : undefined}
+                  data-koyomi-invalid={
+                    isPreviewTarget && (state.dragPreview?.invalid ?? false) ? 'true' : undefined
+                  }
+                  // 終日アイテムはレーン（配列順）で縦積みするため、レーン数分の高さを確保する
+                  // （週/日ビューの allday-cells の minHeight と同じ方式）
+                  style={{
+                    minHeight: `calc(${Math.max(2, column.allDayItems.length)} * var(--koyomi-lane-height, 24px))`,
+                  }}
+                >
+                  {column.allDayItems.map((occurrence, lane) => (
+                    <AllDayItemButton
+                      key={occurrence.key}
+                      occurrence={occurrence}
+                      column={column}
+                      lane={lane}
+                      timeZone={timeZone}
+                      locale={locale}
+                      renderAllDayItem={renderAllDayItem}
+                      drag={stableDrag}
+                      isDragging={drag.isDragging}
+                      eventAriaLabel={eventAriaLabel}
+                    />
+                  ))}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -559,6 +566,7 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
           data-koyomi="timegrid-preview"
           data-kind={preview.kind}
           aria-hidden="true"
+          {...(preview.invalid ? { 'data-koyomi-invalid': 'true' } : {})}
           style={{
             top: `${percentOfSlotRange(preview.startMinutes, slotMinTimeMinutes, slotMaxTimeMinutes)}%`,
             height: `${percentOfSlotRange(preview.endMinutes - preview.startMinutes, 0, rangeWidth)}%`,

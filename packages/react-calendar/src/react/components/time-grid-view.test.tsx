@@ -608,6 +608,69 @@ describe('TimeGridView', () => {
     expect(style.top).toContain('41.66');
     expect(style.height).toContain('8.33');
   });
+
+  it('dragPreview.invalid: true のとき timegrid-preview に data-koyomi-invalid="true" が付与される', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(<Harness initialView="day" sink={sink} />);
+
+    act(() => {
+      sink.current?.api.setDragPreview({
+        kind: 'create',
+        occurrenceKey: null,
+        range: {
+          start: new Date('2026-07-15T01:00:00Z'),
+          end: new Date('2026-07-15T03:00:00Z'),
+        },
+        allDay: false,
+        invalid: true,
+      });
+    });
+
+    const preview = container.querySelector('[data-koyomi="timegrid-preview"]');
+    expect(preview).toHaveAttribute('data-koyomi-invalid', 'true');
+  });
+
+  it('dragPreview.invalid 省略時は timegrid-preview に data-koyomi-invalid 属性が付かない', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(<Harness initialView="day" sink={sink} />);
+
+    act(() => {
+      sink.current?.api.setDragPreview({
+        kind: 'create',
+        occurrenceKey: null,
+        range: {
+          start: new Date('2026-07-15T01:00:00Z'),
+          end: new Date('2026-07-15T03:00:00Z'),
+        },
+        allDay: false,
+      });
+    });
+
+    const preview = container.querySelector('[data-koyomi="timegrid-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).not.toHaveAttribute('data-koyomi-invalid');
+  });
+
+  it('終日行の day-selection（allDay プレビュー）にも dragPreview.invalid が data-koyomi-invalid として反映される', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(<Harness initialView="week" sink={sink} />);
+
+    act(() => {
+      sink.current?.api.setDragPreview({
+        kind: 'create',
+        occurrenceKey: null,
+        range: {
+          start: new Date('2026-07-14T15:00:00Z'), // 2026-07-15 0:00 JST
+          end: new Date('2026-07-15T15:00:00Z'), // 2026-07-16 0:00 JST
+        },
+        allDay: true,
+        invalid: true,
+      });
+    });
+
+    const selection = container.querySelector('[data-koyomi="day-selection"]');
+    expect(selection).toHaveAttribute('data-koyomi-invalid', 'true');
+  });
 });
 
 describe('TimeGridView - showWeekNumbers（週番号）', () => {

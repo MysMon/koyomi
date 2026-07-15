@@ -171,6 +171,7 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
   const { timeZone, options } = state;
   const { locale } = options;
   const previewRange = dayDrag.previewRange;
+  const previewInvalid = dayDrag.previewInvalid;
 
   return (
     <div data-koyomi="multimonth" style={withMonthLanesStyle(options.dayMaxEvents)}>
@@ -181,6 +182,7 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
           timeZone={timeZone}
           locale={locale}
           previewRange={previewRange}
+          previewInvalid={previewInvalid}
           dayDrag={stableDayDrag}
           renderEvent={renderEvent}
           overflowLabel={overflowLabel}
@@ -210,6 +212,8 @@ function MultiMonthMonthSection(props: {
   locale: string;
   /** ドラッグプレビューの日範囲（操作中でなければ `null`）。 */
   previewRange: DateRange | null;
+  /** ドラッグプレビューが宣言的制約に違反しているか（`previewRange` が `null` の間は無視される）。 */
+  previewInvalid: boolean;
   /**
    * 日セル・帯セグメントのドラッグ操作ハンドラ（`MultiMonthView` 全体で共有する
    * 単一インスタンスを `useStableDayDrag` で参照安定化させたもの）。
@@ -249,6 +253,7 @@ function MultiMonthMonthSection(props: {
     timeZone,
     locale,
     previewRange,
+    previewInvalid,
     dayDrag,
     renderEvent,
     overflowLabel,
@@ -296,6 +301,7 @@ function MultiMonthMonthSection(props: {
               timeZone={timeZone}
               locale={locale}
               selectionSpan={selectionSpan}
+              selectionInvalid={previewInvalid}
               dayDrag={dayDrag}
               renderEvent={renderEvent}
               overflowLabel={overflowLabel}

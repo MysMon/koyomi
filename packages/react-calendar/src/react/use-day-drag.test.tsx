@@ -3154,3 +3154,569 @@ describe('useDayDrag - 適用前フック（onBeforeSelectRange / onBeforeEventC
     expect(updated?.end).toBe('2026-07-10');
   });
 });
+
+describe('useDayDrag - 宣言的な重なり・配置制約', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('既定値（eventOverlap: true・eventConstraint 未指定）では previewInvalid が常に false のまま従来どおり移動できる', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    api.createEvent({ title: '既存', start: '2026-07-10', end: '2026-07-12', allDay: true });
+    const moving = api.createEvent({
+      title: '移動対象',
+      start: '2026-07-06',
+      end: '2026-07-07',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === moving.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(0),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(4)); // 7/10 相当（既存イベントと重なる）
+    });
+    expect(resultRef.current?.previewInvalid).toBe(false);
+    act(() => {
+      dispatchPointerUp(cellCenterX(4));
+    });
+
+    expect(onEventChange).toHaveBeenCalledTimes(1);
+    const updated = api.getEvents().find((event) => event.id === moving.id);
+    expectDateKey(updated?.start, '2026-07-10');
+  });
+
+  it('eventOverlap: false では既存の終日イベントと重なる移動が拒否され、previewInvalid が true になる', () => {
+    const api = makeCalendarApi({
+      timeZone: TOKYO,
+      now: () => NOW,
+      initialDate: NOW,
+      eventOverlap: false,
+    });
+    api.createEvent({ title: '既存', start: '2026-07-10', end: '2026-07-12', allDay: true });
+    const moving = api.createEvent({
+      title: '移動対象',
+      start: '2026-07-06',
+      end: '2026-07-07',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === moving.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(0),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(4)); // 7/10 相当（既存イベントと重なる）
+    });
+    expect(resultRef.current?.previewInvalid).toBe(true);
+    act(() => {
+      dispatchPointerUp(cellCenterX(4));
+    });
+
+    expect(onEventChange).not.toHaveBeenCalled();
+    const updated = api.getEvents().find((event) => event.id === moving.id);
+    expect(updated?.start).toBe('2026-07-06');
+  });
+
+  it('動かす側のみ overlap: true でも、重ねられる側が既定（拒否）なら eventOverlap: false のもとで拒否される', () => {
+    const api = makeCalendarApi({
+      timeZone: TOKYO,
+      now: () => NOW,
+      initialDate: NOW,
+      eventOverlap: false,
+    });
+    api.createEvent({ title: '既存', start: '2026-07-10', end: '2026-07-12', allDay: true });
+    const moving = api.createEvent({
+      title: '移動対象',
+      start: '2026-07-06',
+      end: '2026-07-07',
+      allDay: true,
+      overlap: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === moving.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(0),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerUp(cellCenterX(4));
+    });
+
+    expect(onEventChange).not.toHaveBeenCalled();
+  });
+
+  it('動かす側・重ねられる側の両方が overlap: true なら、eventOverlap: false でも重ねられる（双方向セマンティクス）', () => {
+    const api = makeCalendarApi({
+      timeZone: TOKYO,
+      now: () => NOW,
+      initialDate: NOW,
+      eventOverlap: false,
+    });
+    api.createEvent({
+      title: '既存',
+      start: '2026-07-10',
+      end: '2026-07-12',
+      allDay: true,
+      overlap: true,
+    });
+    const moving = api.createEvent({
+      title: '移動対象',
+      start: '2026-07-06',
+      end: '2026-07-07',
+      allDay: true,
+      overlap: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === moving.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(0),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(4));
+    });
+    expect(resultRef.current?.previewInvalid).toBe(false);
+    act(() => {
+      dispatchPointerUp(cellCenterX(4));
+    });
+
+    expect(onEventChange).toHaveBeenCalledTimes(1);
+    const updated = api.getEvents().find((event) => event.id === moving.id);
+    expectDateKey(updated?.start, '2026-07-10');
+  });
+
+  it("eventConstraint: 'businessHours' は時間指定イベントの帯移動に適用され、営業時間外の曜日への移動は拒否される（allDay: false 扱い）", () => {
+    const api = makeCalendarApi({
+      timeZone: TOKYO,
+      now: () => NOW,
+      initialDate: NOW,
+      eventConstraint: 'businessHours',
+      businessHours: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' }],
+    });
+    const created = api.createEvent({
+      title: 'MTG',
+      start: '2026-07-08T09:00',
+      end: '2026-07-08T10:00',
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(5)); // 2026-07-11（土）へ。09:00〜10:00 の現地時刻は維持される
+    });
+    expect(resultRef.current?.previewInvalid).toBe(true);
+    act(() => {
+      dispatchPointerUp(cellCenterX(5));
+    });
+
+    expect(onEventChange).not.toHaveBeenCalled();
+    expect(api.getEvents().find((event) => event.id === created.id)?.start).toBe(
+      '2026-07-08T09:00',
+    );
+  });
+
+  it("eventConstraint: 'businessHours' でも営業時間内の曜日への移動は許可される", () => {
+    const api = makeCalendarApi({
+      timeZone: TOKYO,
+      now: () => NOW,
+      initialDate: NOW,
+      eventConstraint: 'businessHours',
+      businessHours: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' }],
+    });
+    const created = api.createEvent({
+      title: 'MTG',
+      start: '2026-07-08T09:00',
+      end: '2026-07-08T10:00',
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(3)); // 2026-07-09（木）
+    });
+    expect(resultRef.current?.previewInvalid).toBe(false);
+    act(() => {
+      dispatchPointerUp(cellCenterX(3));
+    });
+
+    expect(onEventChange).toHaveBeenCalledTimes(1);
+    const updated = api.getEvents().find((event) => event.id === created.id)?.start;
+    expect(updated).toBeInstanceOf(Date);
+    if (!(updated instanceof Date)) {
+      throw new Error('Date ではありません');
+    }
+    // 現地時刻 09:00 を維持したまま 7/8 → 7/9 に日付だけ 1 日ずれる
+    expect(updated.getTime()).toBe(occurrence.start.getTime() + 24 * 60 * 60 * 1000);
+  });
+
+  it('終日イベントには eventConstraint が適用されない（営業時間外の曜日でも移動できる）', () => {
+    const api = makeCalendarApi({
+      timeZone: TOKYO,
+      now: () => NOW,
+      initialDate: NOW,
+      eventConstraint: 'businessHours',
+      businessHours: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' }],
+    });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-09',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(5)); // 2026-07-11（土）
+    });
+    expect(resultRef.current?.previewInvalid).toBe(false);
+    act(() => {
+      dispatchPointerUp(cellCenterX(5));
+    });
+
+    expect(onEventChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('時間グリッドへの変換ドラッグでも、変換後の時間帯が既存イベントと重なる場合は拒否される（eventOverlap: false）', () => {
+    const api = makeCalendarApi({
+      timeZone: TOKYO,
+      now: () => NOW,
+      initialDate: NOW,
+      snapMinutes: 15,
+      defaultEventMinutes: 60,
+      eventOverlap: false,
+    });
+    api.createEvent({ title: '既存会議', start: '2026-07-11T09:30', end: '2026-07-11T11:00' });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    const timeGridDay = makeTimeGridDayElement('2026-07-11', { top: 0, height: 1440 });
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(timeGridDay);
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(2), 600); // 10:00 相当（既存会議 09:30〜11:00 と重なる）
+    });
+    expect(resultRef.current?.isDragging).toBe(true);
+    act(() => {
+      dispatchPointerUp(cellCenterX(2), 600);
+    });
+
+    expect(onEventChange).not.toHaveBeenCalled();
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expect(updated?.allDay).toBe(true);
+  });
+
+  it('セルの空きドラッグによる新規作成も eventOverlap: false による拒否の対象になる', () => {
+    const api = makeCalendarApi({
+      timeZone: TOKYO,
+      now: () => NOW,
+      initialDate: NOW,
+      eventOverlap: false,
+    });
+    api.createEvent({ title: '既存', start: '2026-07-10', end: '2026-07-11', allDay: true });
+
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(<TestGrid api={api} resultRef={resultRef} />);
+    setupCellRects(container);
+
+    const cell710 = container.querySelector('[data-testid="cell-2026-07-10"]');
+    if (!(cell710 instanceof HTMLElement)) {
+      throw new Error('セル要素が見つかりません');
+    }
+
+    act(() => {
+      cell710.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(4),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(4)); // 同じセル内でも pointermove でプレビューが計算される
+    });
+    expect(resultRef.current?.previewInvalid).toBe(true);
+    act(() => {
+      dispatchPointerUp(cellCenterX(4));
+    });
+
+    // 既存の 1 件のみで、新規作成は行われない
+    expect(api.getEvents()).toHaveLength(1);
+  });
+
+  it('矢印キーによる移動も eventOverlap: false による拒否の対象になる', () => {
+    const api = makeCalendarApi({
+      timeZone: TOKYO,
+      now: () => NOW,
+      initialDate: NOW,
+      eventOverlap: false,
+    });
+    api.createEvent({ title: '既存', start: '2026-07-10', end: '2026-07-11', allDay: true });
+    const created = api.createEvent({
+      title: '移動対象',
+      start: '2026-07-09',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    // ArrowRight で 7/9 → 7/10（既存イベントと重なる）
+    act(() => {
+      segment.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    });
+
+    expect(onEventChange).not.toHaveBeenCalled();
+    expect(api.getEvents().find((event) => event.id === created.id)?.start).toBe('2026-07-09');
+  });
+});

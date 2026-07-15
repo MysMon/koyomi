@@ -467,6 +467,11 @@ interface MonthWeekRowProps {
   /** 選択（ドラッグプレビュー）帯の可視列範囲。交差しなければ `null`。 */
   selectionSpan: WeekSelectionSpan | null;
   /**
+   * 選択（ドラッグプレビュー）帯が宣言的制約（`eventOverlap` / `eventConstraint`）に
+   * 違反しているか。`selectionSpan` が `null` の週では無視される。
+   */
+  selectionInvalid: boolean;
+  /**
    * 日セル・帯セグメントのドラッグ操作ハンドラ。`useStableDayDrag` で参照を
    * 安定化させたものを渡すこと（そのまま `useDayDrag` の戻り値を渡すと、
    * 毎レンダー新規参照になり本コンポーネントの `memo` 化が効かなくなる）。
@@ -525,6 +530,7 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
     timeZone,
     locale,
     selectionSpan,
+    selectionInvalid,
     dayDrag,
     renderEvent,
     overflowLabel,
@@ -663,6 +669,7 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
         <div
           data-koyomi="day-selection"
           aria-hidden="true"
+          {...(selectionInvalid ? { 'data-koyomi-invalid': 'true' } : {})}
           style={{
             insetInlineStart: `${(selectionSpan.startCol / columnCount) * 100}%`,
             width: `${(selectionSpan.span / columnCount) * 100}%`,

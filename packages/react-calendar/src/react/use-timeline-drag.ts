@@ -22,7 +22,13 @@ import type {
   PointerEvent as ReactPointerEvent,
   Ref,
 } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  isDragCandidateValid,
+  type OverlapBlocker,
+  occurrenceBlocksOverlap,
+  resolveConstraintRules,
+} from '../core/constraints';
 import { dayDragPreviewRange, dragPreviewRange, timeAtTimelineOffset } from '../core/interaction';
 import {
   addDaysInZone,
@@ -32,10 +38,13 @@ import {
   startOfDayInZone,
 } from '../core/timezone';
 import type {
+  BusinessHoursRule,
   CalendarEventPatch,
+  CalendarViewModel,
   DateRange,
   EventOccurrence,
   RecurringEditScope,
+  ResolvedCalendarOptions,
   TimelineItem,
   TimelineRow,
 } from '../core/types';
@@ -101,6 +110,11 @@ export interface TimelinePreviewSegment {
   startMinutes: number;
   /** 表示終了（表示分、排他）。 */
   endMinutes: number;
+  /**
+   * このプレビューが宣言的制約（`eventOverlap` / `eventConstraint`）に違反しているか。
+   * 省略時（`undefined`）は違反していない（`false`）と同義。
+   */
+  invalid?: boolean;
 }
 
 /** `useTimelineDrag` が返すハンドラ集。 */
@@ -162,6 +176,74 @@ function fractionXFromClientX(rect: DOMRect, clientX: number): number {
 }
 
 /**
+ * 現在のビューモデルから、行（レーン）ごとの重なり判定用ブロッカー一覧を構築する。
+ *
+ * レーン（リソース ID。未割り当ては `null`）ごとに、その行の帯（`row.items`、
+ * 終日・時間指定の区別なく同じレーン空間に配置済み）を対象にする。
+ */
+function collectTimelineBlockersByLane(
+  viewModel: CalendarViewModel,
+  eventOverlap: boolean,
+): Map<string | null, readonly OverlapBlocker[]> {
+  const result = new Map<string | null, readonly OverlapBlocker[]>();
+  if (viewModel.type !== 'timeline') {
+    return result;
+  }
+  for (const row of viewModel.rows) {
+    const laneId = row.resource?.id ?? null;
+    const lane = new Map<string, OverlapBlocker>();
+    for (const item of row.items) {
+      const occurrence = item.occurrence;
+      if (lane.has(occurrence.key)) {
+        continue;
+      }
+      lane.set(occurrence.key, {
+        key: occurrence.key,
+        start: occurrence.start,
+        end: occurrence.end,
+        blocksOverlap: occurrenceBlocksOverlap(occurrence.event, eventOverlap),
+      });
+    }
+    result.set(laneId, [...lane.values()]);
+  }
+  return result;
+}
+
+/** 指定レーン（リソース ID。未割り当ては `null`）のブロッカー一覧を返す（未知のレーンは空配列）。 */
+function blockersForLane(
+  byLane: Map<string | null, readonly OverlapBlocker[]>,
+  laneId: string | null,
+): readonly OverlapBlocker[] {
+  return byLane.get(laneId) ?? [];
+}
+
+/**
+ * 動かしている側の overlap 実効値（重なりを拒否するか）を求める。
+ * 新規作成（`occurrence` が `null`）では動かしている側の個別設定が存在しないため、
+ * グローバル `eventOverlap` をそのまま動かしている側の値として使う。
+ */
+function resolveMoverBlocksOverlap(
+  occurrence: EventOccurrence | null,
+  eventOverlap: boolean,
+): boolean {
+  return occurrence === null
+    ? eventOverlap === false
+    : occurrenceBlocksOverlap(occurrence.event, eventOverlap);
+}
+
+/**
+ * 対象（新規作成は `null`）に適用される配置制約の実効ルールを解決する。
+ * イベント個別の `constraint` が優先され、未指定ならグローバル `eventConstraint` を使う。
+ */
+function resolveConstraintRulesForOccurrence(
+  occurrence: EventOccurrence | null,
+  eventConstraint: ResolvedCalendarOptions['eventConstraint'],
+  businessHours: readonly BusinessHoursRule[],
+): readonly BusinessHoursRule[] | null {
+  return resolveConstraintRules(occurrence?.event.constraint ?? eventConstraint, businessHours);
+}
+
+/**
  * タイムラインビューのドラッグインタラクションを提供するフック。
  *
  * 変更の適用はライブラリが行う（`api.updateEvent`）。繰り返しイベントの場合は
@@ -190,6 +272,22 @@ export function useTimelineDrag(params: {
   /** 直後の click イベントを 1 回だけ抑制するフラグ。 */
   const suppressNextClickRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
+
+  /**
+   * レーンごとの重なり判定用ブロッカー一覧。`calendar.viewModel` が変わらない限り
+   * （= ビューモデルに影響する状態が変わらない限り）再計算しない
+   * （毎 pointermove の再計算を避けるための memo 化）。
+   */
+  const blockersByLane = useMemo(
+    () =>
+      collectTimelineBlockersByLane(
+        params.calendar.viewModel,
+        params.calendar.state.options.eventOverlap,
+      ),
+    [params.calendar.viewModel, params.calendar.state.options.eventOverlap],
+  );
+  const blockersByLaneRef = useRef(blockersByLane);
+  blockersByLaneRef.current = blockersByLane;
 
   useEffect(() => {
     return () => {
@@ -331,11 +429,40 @@ export function useTimelineDrag(params: {
   }
 
   /**
+   * 候補範囲が宣言的制約に違反していないかを判定する（新規作成は `occurrence: null`）。
+   * `laneId` は判定対象のレーン（移動先の行のリソース ID。未割り当ては `null`）。
+   */
+  function isCandidateValid(
+    occurrence: EventOccurrence | null,
+    range: DateRange,
+    allDay: boolean,
+    laneId: string | null,
+  ): boolean {
+    const { state } = paramsRef.current.calendar;
+    return isDragCandidateValid({
+      range,
+      allDay,
+      excludeKey: occurrence?.key ?? null,
+      moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, state.options.eventOverlap),
+      blockers: blockersForLane(blockersByLaneRef.current, laneId),
+      constraintRules: resolveConstraintRulesForOccurrence(
+        occurrence,
+        state.options.eventConstraint,
+        state.options.businessHours,
+      ),
+      timeZone: state.timeZone,
+    });
+  }
+
+  /**
    * 作成を確定する（`onBeforeSelectRange` で拒否されなければ、`onSelectRange` が
    * あればそれを呼び、なければ既定作成する）。
    */
   async function commitCreateRange(range: DateRange, resourceId: string | null): Promise<void> {
     try {
+      if (!isCandidateValid(null, range, false, resourceId)) {
+        return;
+      }
       const gate = checkBeforeSelectRange(paramsRef.current.callbacks, {
         range,
         allDay: false,
@@ -418,11 +545,19 @@ export function useTimelineDrag(params: {
       if (!timeChanged && !resourceChanged) {
         return;
       }
+      const validationRange = timeChanged
+        ? range
+        : { start: occurrence.start, end: occurrence.end };
+      if (
+        !isCandidateValid(occurrence, validationRange, occurrence.allDay, session.targetResourceId)
+      ) {
+        return;
+      }
       const action: 'move' | 'resize' =
         session.mode === 'move' || session.mode === 'allday-move' ? 'move' : 'resize';
       const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
         occurrence,
-        range: timeChanged ? range : { start: occurrence.start, end: occurrence.end },
+        range: validationRange,
         allDay: occurrence.allDay,
         resourceId: session.targetResourceId,
         action,
@@ -562,6 +697,13 @@ export function useTimelineDrag(params: {
       ) {
         session.hasMoved = true;
       }
+      const previewAllDay = session.occurrence?.allDay ?? false;
+      const invalid = !isCandidateValid(
+        session.occurrence,
+        range,
+        previewAllDay,
+        session.targetResourceId,
+      );
       paramsRef.current.calendar.api.setDragPreview({
         kind:
           session.mode === 'move' || session.mode === 'allday-move'
@@ -571,8 +713,9 @@ export function useTimelineDrag(params: {
               : 'resize',
         occurrenceKey: session.occurrence?.key ?? null,
         range,
-        allDay: session.occurrence?.allDay ?? false,
+        allDay: previewAllDay,
         resourceId: session.targetResourceId,
+        ...(invalid ? { invalid: true } : {}),
       });
     };
 
@@ -733,6 +876,16 @@ export function useTimelineDrag(params: {
     range: DateRange | null,
     resourceId: string | null,
   ): Promise<void> {
+    if (
+      !isCandidateValid(
+        occurrence,
+        range ?? { start: occurrence.start, end: occurrence.end },
+        occurrence.allDay,
+        resourceId,
+      )
+    ) {
+      return;
+    }
     const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
       occurrence,
       range: range ?? { start: occurrence.start, end: occurrence.end },
@@ -941,6 +1094,7 @@ export function useTimelineDrag(params: {
       kind: preview.kind,
       startMinutes: startsInRange ? displayOf(preview.range.start) : 0,
       endMinutes: endsInRange ? displayOf(preview.range.end) : totalMinutes,
+      ...(preview.invalid ? { invalid: true } : {}),
     };
   }
 

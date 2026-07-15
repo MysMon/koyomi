@@ -655,6 +655,73 @@ describe('ResourceView - ドラッグプレビュー', () => {
     expect(allDayCells[0]).not.toHaveAttribute('data-koyomi-preview-target');
     expect(allDayCells[1]).toHaveAttribute('data-koyomi-preview-target', 'true');
   });
+
+  it('dragPreview.invalid: true のとき timegrid-preview に data-koyomi-invalid="true" が付与される', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(<Harness resources={[ROOM_A]} sink={sink} />);
+
+    act(() => {
+      sink.current?.api.setDragPreview({
+        kind: 'move',
+        occurrenceKey: 'e1@2026-07-15T01:00:00.000Z',
+        range: {
+          start: new Date('2026-07-15T01:00:00Z'),
+          end: new Date('2026-07-15T03:00:00Z'),
+        },
+        allDay: false,
+        resourceId: 'room-a',
+        invalid: true,
+      });
+    });
+
+    const preview = container.querySelector('[data-koyomi="timegrid-preview"]');
+    expect(preview).toHaveAttribute('data-koyomi-invalid', 'true');
+  });
+
+  it('dragPreview.invalid 省略時は timegrid-preview に data-koyomi-invalid 属性が付かない', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(<Harness resources={[ROOM_A]} sink={sink} />);
+
+    act(() => {
+      sink.current?.api.setDragPreview({
+        kind: 'move',
+        occurrenceKey: 'e1@2026-07-15T01:00:00.000Z',
+        range: {
+          start: new Date('2026-07-15T01:00:00Z'),
+          end: new Date('2026-07-15T03:00:00Z'),
+        },
+        allDay: false,
+        resourceId: 'room-a',
+      });
+    });
+
+    const preview = container.querySelector('[data-koyomi="timegrid-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).not.toHaveAttribute('data-koyomi-invalid');
+  });
+
+  it('終日プレビュー対象列（data-koyomi-preview-target）にも dragPreview.invalid が data-koyomi-invalid として反映される', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(<Harness resources={[ROOM_A, ROOM_B]} sink={sink} />);
+
+    act(() => {
+      sink.current?.api.setDragPreview({
+        kind: 'move',
+        occurrenceKey: 'ad1@2026-07-15T00:00:00.000Z',
+        range: {
+          start: new Date('2026-07-14T15:00:00Z'),
+          end: new Date('2026-07-15T15:00:00Z'),
+        },
+        allDay: true,
+        resourceId: 'room-b',
+        invalid: true,
+      });
+    });
+
+    const allDayCells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
+    expect(allDayCells[0]).not.toHaveAttribute('data-koyomi-invalid');
+    expect(allDayCells[1]).toHaveAttribute('data-koyomi-invalid', 'true');
+  });
 });
 
 describe('ResourceView - ARIA', () => {

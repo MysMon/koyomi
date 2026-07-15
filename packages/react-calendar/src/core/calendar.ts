@@ -67,6 +67,8 @@ const DEFAULT_OPTIONS: Omit<ResolvedCalendarOptions, 'now'> = {
   hiddenWeekdays: [],
   showWeekNumbers: false,
   businessHours: [],
+  eventOverlap: true,
+  eventConstraint: null,
   slotMinTime: '00:00',
   slotMaxTime: '24:00',
 };
@@ -113,6 +115,9 @@ function resolveOptions(
   if (options?.businessHours !== undefined) {
     assertBusinessHours(options.businessHours);
   }
+  if (options?.eventConstraint !== undefined && Array.isArray(options.eventConstraint)) {
+    assertBusinessHours(options.eventConstraint);
+  }
   if (options?.slotMinTime !== undefined || options?.slotMaxTime !== undefined) {
     assertSlotTimeRange(
       options?.slotMinTime ?? current.slotMinTime,
@@ -143,6 +148,13 @@ function resolveOptions(
     showWeekNumbers: options?.showWeekNumbers ?? current.showWeekNumbers,
     businessHours:
       options?.businessHours !== undefined ? [...options.businessHours] : current.businessHours,
+    eventOverlap: options?.eventOverlap ?? current.eventOverlap,
+    eventConstraint:
+      options?.eventConstraint !== undefined
+        ? Array.isArray(options.eventConstraint)
+          ? [...options.eventConstraint]
+          : options.eventConstraint
+        : current.eventConstraint,
     slotMinTime: options?.slotMinTime ?? current.slotMinTime,
     slotMaxTime: options?.slotMaxTime ?? current.slotMaxTime,
     now: options?.now ?? current.now,
@@ -156,6 +168,27 @@ function businessHoursRuleEqual(a: BusinessHoursRule, b: BusinessHoursRule): boo
     a.endTime === b.endTime &&
     a.daysOfWeek.length === b.daysOfWeek.length &&
     a.daysOfWeek.every((weekday, index) => weekday === b.daysOfWeek[index])
+  );
+}
+
+/**
+ * {@link ResolvedCalendarOptions.eventConstraint} 同士が等しいかどうかを比較する。
+ * 両方 `null`、両方 `'businessHours'`、または配列同士（{@link businessHoursRuleEqual} で
+ * 各要素を比較）のいずれかで一致すれば等しい（型が異なる組み合わせは常に不一致）。
+ */
+function eventConstraintEqual(
+  a: ResolvedCalendarOptions['eventConstraint'],
+  b: ResolvedCalendarOptions['eventConstraint'],
+): boolean {
+  if (a === null || b === null || typeof a === 'string' || typeof b === 'string') {
+    return a === b;
+  }
+  return (
+    a.length === b.length &&
+    a.every((rule, index) => {
+      const other = b[index];
+      return other !== undefined && businessHoursRuleEqual(rule, other);
+    })
   );
 }
 
@@ -187,6 +220,8 @@ function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOpt
       const other = b.businessHours[index];
       return other !== undefined && businessHoursRuleEqual(rule, other);
     }) &&
+    a.eventOverlap === b.eventOverlap &&
+    eventConstraintEqual(a.eventConstraint, b.eventConstraint) &&
     a.slotMinTime === b.slotMinTime &&
     a.slotMaxTime === b.slotMaxTime
   );

@@ -514,6 +514,50 @@ describe('TimelineView - ドラッグプレビュー', () => {
     // 対象外の行（crane-1）にはプレビューが出ない
     expect(rows[0]?.querySelector('[data-koyomi="timeline-preview"]')).toBeNull();
   });
+
+  it('dragPreview.invalid: true のとき timeline-preview に data-koyomi-invalid="true" が付与される', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(<Harness resources={[CRANE_1]} timelineDays={1} sink={sink} />);
+
+    act(() => {
+      sink.current?.api.setDragPreview({
+        kind: 'move',
+        occurrenceKey: 'e1@2026-07-15T01:00:00.000Z',
+        range: {
+          start: new Date('2026-07-15T01:00:00Z'),
+          end: new Date('2026-07-15T03:00:00Z'),
+        },
+        allDay: false,
+        resourceId: 'crane-1',
+        invalid: true,
+      });
+    });
+
+    const preview = container.querySelector('[data-koyomi="timeline-preview"]');
+    expect(preview).toHaveAttribute('data-koyomi-invalid', 'true');
+  });
+
+  it('dragPreview.invalid 省略時は timeline-preview に data-koyomi-invalid 属性が付かない', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(<Harness resources={[CRANE_1]} timelineDays={1} sink={sink} />);
+
+    act(() => {
+      sink.current?.api.setDragPreview({
+        kind: 'move',
+        occurrenceKey: 'e1@2026-07-15T01:00:00.000Z',
+        range: {
+          start: new Date('2026-07-15T01:00:00Z'),
+          end: new Date('2026-07-15T03:00:00Z'),
+        },
+        allDay: false,
+        resourceId: 'crane-1',
+      });
+    });
+
+    const preview = container.querySelector('[data-koyomi="timeline-preview"]');
+    expect(preview).not.toBeNull();
+    expect(preview).not.toHaveAttribute('data-koyomi-invalid');
+  });
 });
 
 describe('TimelineView - ARIA', () => {

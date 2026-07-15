@@ -154,6 +154,23 @@ export interface CalendarEvent {
    * `false` の場合、表示・クリックは可能だが変更操作は無効になる。
    */
   editable?: boolean;
+  /**
+   * このイベントに他のイベントを重ねてよいかどうか。省略時は
+   * {@link CalendarOptions.eventOverlap}（既定 `true`）に従う。
+   *
+   * 判定は「動かしている側（ドラッグ/リサイズ/キーボード操作の対象、または
+   * 新規作成・外部ドラッグ）」と「重ねられる側（既存に配置されている側）」の
+   * 双方の実効値（`overlap` ?? {@link CalendarOptions.eventOverlap}）を見て、
+   * どちらかが `false` なら重なりを拒否する。
+   */
+  overlap?: boolean;
+  /**
+   * このイベントのドロップ先を制限する。省略時は {@link CalendarOptions.eventConstraint} に従う。
+   * 移動・リサイズのドラッグ対象がこのイベント自身のときにのみ使われる
+   * （新規作成・外部ドラッグ受け入れでは常に {@link CalendarOptions.eventConstraint} を使う）。
+   * 終日イベントには適用されない。
+   */
+  constraint?: 'businessHours' | readonly BusinessHoursRule[];
   /** 利用者定義の任意データ。ライブラリは内容に関知しない。 */
   extendedProps?: Record<string, unknown>;
 }
@@ -759,6 +776,12 @@ export interface DragPreview {
    * 操作時のみ設定される（`null` は未割り当てレーン）。既存ビューでは常に省略。
    */
   resourceId?: string | null;
+  /**
+   * このプレビューが宣言的制約（{@link CalendarOptions.eventOverlap} /
+   * {@link CalendarOptions.eventConstraint}）に違反しているか。省略時（`undefined`）は
+   * 違反していない（`false`）と同義。
+   */
+  invalid?: boolean;
 }
 
 /** カレンダーの内部状態のスナップショット。 */
@@ -884,6 +907,31 @@ export interface CalendarOptions {
    */
   businessHours?: readonly BusinessHoursRule[];
   /**
+   * イベントの重なりを許可するかどうかの既定値。既定は `true`（制約なし、現状維持）。
+   *
+   * `false` にすると、移動・リサイズ・作成の結果が既存イベントと重なる操作は
+   * 適用されない（対象は同一レーン。リソース/タイムラインビューは同一 resourceId、
+   * それ以外のビューはレーン区分なしで表示中の全オカレンスが対象）。時間指定・終日は
+   * 絶対時刻の区間 `[start, end)` で統一的に比較する（終日イベントも日単位の絶対区間
+   * として扱う）。
+   *
+   * 判定は「動かしている側」と「重ねられる側」の双方の実効値（イベント個別の
+   * {@link CalendarEvent.overlap} が優先、省略時はこの値）を見て、どちらかが `false`
+   * なら重なりを拒否する（新規作成・外部ドラッグでは動かしている側の個別設定が
+   * 存在しないため、この値がそのまま動かしている側の値として使われる）。
+   */
+  eventOverlap?: boolean;
+  /**
+   * イベントのドロップ先を制限する既定値。既定は未指定（制約なし）。
+   *
+   * `'businessHours'` を指定すると {@link CalendarOptions.businessHours} の範囲内にのみ
+   * ドロップを許可する。{@link BusinessHoursRule} の配列を渡すと独自の範囲を指定できる
+   * （`businessHours` と同形式）。**終日イベントには適用されない**（時間帯の制約は
+   * 時間指定イベントのみが対象）。イベント個別の {@link CalendarEvent.constraint} が
+   * 指定されている場合はそちらが優先される。
+   */
+  eventConstraint?: 'businessHours' | readonly BusinessHoursRule[];
+  /**
    * 週/日ビュー・リソースビューで表示する時間帯の開始（`'HH:mm'` 形式）。既定は `'00:00'`。
    * `slotMaxTime` より前である必要がある（{@link CalendarOptions.slotMaxTime} を参照）。
    */
@@ -984,6 +1032,10 @@ export interface ResolvedCalendarOptions {
   showWeekNumbers: boolean;
   /** 営業時間の指定。 */
   businessHours: readonly BusinessHoursRule[];
+  /** イベントの重なりを許可するかどうかの既定値。 */
+  eventOverlap: boolean;
+  /** イベントのドロップ先を制限する既定値。未指定（制約なし）は `null`。 */
+  eventConstraint: 'businessHours' | readonly BusinessHoursRule[] | null;
   /** 表示する時間帯の開始（`'HH:mm'` 形式）。 */
   slotMinTime: string;
   /** 表示する時間帯の終了（`'HH:mm'` 形式、排他的。`'24:00'` も可）。 */

@@ -190,5 +190,10 @@ export function samePreviewSegment(
   if (a === null || b === null) {
     return false;
   }
-  return a.kind === b.kind && a.startMinutes === b.startMinutes && a.endMinutes === b.endMinutes;
+  return (
+    a.kind === b.kind &&
+    a.startMinutes === b.startMinutes &&
+    a.endMinutes === b.endMinutes &&
+    (a.invalid ?? false) === (b.invalid ?? false)
+  );
 }

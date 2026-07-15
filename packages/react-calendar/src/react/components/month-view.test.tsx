@@ -936,6 +936,47 @@ describe('MonthView - ドラッグプレビューの選択帯', () => {
     });
     expect(container.querySelector('[data-koyomi="day-selection"]')).toBeNull();
   });
+
+  it('dragPreview.invalid: true のとき day-selection に data-koyomi-invalid="true" が付与される', () => {
+    const apiRef: { current: CalendarApi | null } = { current: null };
+    const { container } = render(<Harness apiRef={apiRef} />);
+
+    act(() => {
+      apiRef.current?.setDragPreview({
+        kind: 'create',
+        occurrenceKey: null,
+        range: {
+          start: new Date('2026-07-07T15:00:00Z'), // 2026-07-08 0:00 JST
+          end: new Date('2026-07-08T15:00:00Z'), // 2026-07-09 0:00 JST
+        },
+        allDay: true,
+        invalid: true,
+      });
+    });
+
+    const selection = container.querySelector('[data-koyomi="day-selection"]');
+    expect(selection).toHaveAttribute('data-koyomi-invalid', 'true');
+  });
+
+  it('dragPreview.invalid 省略時は day-selection に data-koyomi-invalid 属性が付かない', () => {
+    const apiRef: { current: CalendarApi | null } = { current: null };
+    const { container } = render(<Harness apiRef={apiRef} />);
+
+    act(() => {
+      apiRef.current?.setDragPreview({
+        kind: 'create',
+        occurrenceKey: null,
+        range: {
+          start: new Date('2026-07-07T15:00:00Z'),
+          end: new Date('2026-07-08T15:00:00Z'),
+        },
+        allDay: true,
+      });
+    });
+
+    const selection = container.querySelector('[data-koyomi="day-selection"]');
+    expect(selection).not.toHaveAttribute('data-koyomi-invalid');
+  });
 });
 
 /**
@@ -966,6 +1007,7 @@ function makeFakeDayDrag(
       'data-koyomi-resize-handle': 'start',
     }),
     previewRange: null,
+    previewInvalid: false,
     isDragging: false,
   };
 }

@@ -155,6 +155,7 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
   const { locale } = options;
   const firstWeek = weeks[0];
   const previewRange = dayDrag.previewRange;
+  const previewInvalid = dayDrag.previewInvalid;
 
   // ドラッグプレビューとの交差判定は週ごとに一度だけここで行い、交差しない週には
   // 常に同じ `null` を渡す。これにより MonthWeekRow（memo化済み）は、無関係な週を
@@ -193,6 +194,7 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
             timeZone={timeZone}
             locale={locale}
             selectionSpan={selectionSpan}
+            selectionInvalid={previewInvalid}
             dayDrag={stableDayDrag}
             renderEvent={renderEvent}
             overflowLabel={overflowLabel}

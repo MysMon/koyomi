@@ -349,6 +349,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
             data-koyomi="timeline-preview"
             data-kind={preview.kind}
             aria-hidden="true"
+            {...(preview.invalid ? { 'data-koyomi-invalid': 'true' } : {})}
             style={{
               insetInlineStart: `${(preview.startMinutes / totalMinutes) * 100}%`,
               width: `${((preview.endMinutes - preview.startMinutes) / totalMinutes) * 100}%`,

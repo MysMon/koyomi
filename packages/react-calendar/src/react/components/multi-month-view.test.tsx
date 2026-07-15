@@ -416,6 +416,29 @@ describe('MultiMonthView - ドラッグによる月またぎ移動', () => {
   });
 });
 
+describe('MultiMonthView - ドラッグプレビューの選択帯', () => {
+  it('dragPreview.invalid: true のとき day-selection に data-koyomi-invalid="true" が付与される', () => {
+    const apiRef: { current: CalendarApi | null } = { current: null };
+    const { container } = render(<Harness apiRef={apiRef} />);
+
+    act(() => {
+      apiRef.current?.setDragPreview({
+        kind: 'create',
+        occurrenceKey: null,
+        range: {
+          start: new Date('2026-07-07T15:00:00Z'), // 2026-07-08 0:00 JST
+          end: new Date('2026-07-08T15:00:00Z'), // 2026-07-09 0:00 JST
+        },
+        allDay: true,
+        invalid: true,
+      });
+    });
+
+    const selection = container.querySelector('[data-koyomi="day-selection"]');
+    expect(selection).toHaveAttribute('data-koyomi-invalid', 'true');
+  });
+});
+
 describe('MultiMonthView - クリック操作', () => {
   // month-view.test.tsx の「MonthView - クリック操作」と同じ 3 ケースを移植する
   // （goToDay / handleOverflowClick は MonthView と同型のロジック）。

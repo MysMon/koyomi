@@ -25,7 +25,13 @@ import type {
   PointerEvent as ReactPointerEvent,
   Ref,
 } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  isDragCandidateValid,
+  type OverlapBlocker,
+  occurrenceBlocksOverlap,
+  resolveConstraintRules,
+} from '../core/constraints';
 import { dragPreviewRange, timeAtGridPosition } from '../core/interaction';
 import {
   addDaysInZone,
@@ -35,11 +41,14 @@ import {
   startOfDayInZone,
 } from '../core/timezone';
 import type {
+  BusinessHoursRule,
   CalendarEventPatch,
+  CalendarViewModel,
   DateRange,
   EventOccurrence,
   PositionedOccurrence,
   RecurringEditScope,
+  ResolvedCalendarOptions,
   ResourceColumn,
   TimeZoneId,
 } from '../core/types';
@@ -110,6 +119,11 @@ export interface ResourcePreviewSegment {
   startMinutes: number;
   /** 日内の表示終了（分、排他）。 */
   endMinutes: number;
+  /**
+   * このプレビューが宣言的制約（`eventOverlap` / `eventConstraint`）に違反しているか。
+   * 省略時（`undefined`）は違反していない（`false`）と同義。
+   */
+  invalid?: boolean;
 }
 
 /** `useResourceGridDrag` が返すハンドラ集。 */
@@ -199,6 +213,80 @@ function slotTimeRangeMinutes(options: { slotMinTime: string; slotMaxTime: strin
 }
 
 /**
+ * 現在のビューモデルから、リソース列（レーン）ごとの重なり判定用ブロッカー一覧を構築する。
+ *
+ * レーン（リソース ID。未割り当ては `null`）ごとに、その列の時間指定アイテム
+ * （`column.items`）と終日アイテム（`column.allDayItems`）の両方を対象にする
+ * （終日イベントも絶対時刻の区間として時間指定と統一的に比較する）。
+ */
+function collectResourceBlockersByLane(
+  viewModel: CalendarViewModel,
+  eventOverlap: boolean,
+): Map<string | null, readonly OverlapBlocker[]> {
+  const result = new Map<string | null, readonly OverlapBlocker[]>();
+  if (viewModel.type !== 'resource') {
+    return result;
+  }
+  for (const column of viewModel.columns) {
+    const laneId = column.resource?.id ?? null;
+    const lane = new Map<string, OverlapBlocker>();
+    const addOccurrence = (occurrence: EventOccurrence): void => {
+      if (lane.has(occurrence.key)) {
+        return;
+      }
+      lane.set(occurrence.key, {
+        key: occurrence.key,
+        start: occurrence.start,
+        end: occurrence.end,
+        blocksOverlap: occurrenceBlocksOverlap(occurrence.event, eventOverlap),
+      });
+    };
+    for (const item of column.items) {
+      addOccurrence(item.occurrence);
+    }
+    for (const occurrence of column.allDayItems) {
+      addOccurrence(occurrence);
+    }
+    result.set(laneId, [...lane.values()]);
+  }
+  return result;
+}
+
+/** 指定レーン（リソース ID。未割り当ては `null`）のブロッカー一覧を返す（未知のレーンは空配列）。 */
+function blockersForLane(
+  byLane: Map<string | null, readonly OverlapBlocker[]>,
+  laneId: string | null,
+): readonly OverlapBlocker[] {
+  return byLane.get(laneId) ?? [];
+}
+
+/**
+ * 動かしている側の overlap 実効値（重なりを拒否するか）を求める。
+ * 新規作成（`occurrence` が `null`）では動かしている側の個別設定が存在しないため、
+ * グローバル `eventOverlap` をそのまま動かしている側の値として使う。
+ */
+function resolveMoverBlocksOverlap(
+  occurrence: EventOccurrence | null,
+  eventOverlap: boolean,
+): boolean {
+  return occurrence === null
+    ? eventOverlap === false
+    : occurrenceBlocksOverlap(occurrence.event, eventOverlap);
+}
+
+/**
+ * 対象（新規作成は `null`）に適用される配置制約の実効ルールを解決する。
+ * イベント個別の `constraint` が優先され、未指定ならグローバル `eventConstraint` を使う。
+ */
+function resolveConstraintRulesForOccurrence(
+  occurrence: EventOccurrence | null,
+  eventConstraint: ResolvedCalendarOptions['eventConstraint'],
+  businessHours: readonly BusinessHoursRule[],
+): readonly BusinessHoursRule[] | null {
+  return resolveConstraintRules(occurrence?.event.constraint ?? eventConstraint, businessHours);
+}
+
+/**
  * リソースビューのドラッグインタラクションを提供するフック。
  *
  * 変更の適用はライブラリが行う（`api.updateEvent`）。繰り返しイベントの場合は
@@ -227,6 +315,22 @@ export function useResourceGridDrag(params: {
   /** 直後の click イベントを 1 回だけ抑制するフラグ。 */
   const suppressNextClickRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
+
+  /**
+   * レーンごとの重なり判定用ブロッカー一覧。`calendar.viewModel` が変わらない限り
+   * （= ビューモデルに影響する状態が変わらない限り）再計算しない
+   * （毎 pointermove の再計算を避けるための memo 化）。
+   */
+  const blockersByLane = useMemo(
+    () =>
+      collectResourceBlockersByLane(
+        params.calendar.viewModel,
+        params.calendar.state.options.eventOverlap,
+      ),
+    [params.calendar.viewModel, params.calendar.state.options.eventOverlap],
+  );
+  const blockersByLaneRef = useRef(blockersByLane);
+  blockersByLaneRef.current = blockersByLane;
 
   useEffect(() => {
     return () => {
@@ -323,6 +427,32 @@ export function useResourceGridDrag(params: {
   }
 
   /**
+   * 候補範囲が宣言的制約に違反していないかを判定する（新規作成は `occurrence: null`）。
+   * `laneId` は判定対象のレーン（移動先の列のリソース ID。未割り当ては `null`）。
+   */
+  function isCandidateValid(
+    occurrence: EventOccurrence | null,
+    range: DateRange,
+    allDay: boolean,
+    laneId: string | null,
+  ): boolean {
+    const { state } = paramsRef.current.calendar;
+    return isDragCandidateValid({
+      range,
+      allDay,
+      excludeKey: occurrence?.key ?? null,
+      moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, state.options.eventOverlap),
+      blockers: blockersForLane(blockersByLaneRef.current, laneId),
+      constraintRules: resolveConstraintRulesForOccurrence(
+        occurrence,
+        state.options.eventConstraint,
+        state.options.businessHours,
+      ),
+      timeZone: state.timeZone,
+    });
+  }
+
+  /**
    * 作成（時間指定・終日共通）を確定する。`onBeforeSelectRange` で拒否されなければ、
    * `onSelectRange` があればそれを呼び、なければ選択レーンの `resourceId` を含めて
    * 既定作成する（未割り当てレーンでは `resourceId` を付けない）。
@@ -333,6 +463,9 @@ export function useResourceGridDrag(params: {
     resourceId: string | null,
   ): Promise<void> {
     try {
+      if (!isCandidateValid(null, range, allDay, resourceId)) {
+        return;
+      }
       const gate = checkBeforeSelectRange(paramsRef.current.callbacks, {
         range,
         allDay,
@@ -416,6 +549,16 @@ export function useResourceGridDrag(params: {
         if (session.targetResourceId === session.initialResourceId) {
           return;
         }
+        if (
+          !isCandidateValid(
+            occurrence,
+            { start: occurrence.start, end: occurrence.end },
+            occurrence.allDay,
+            session.targetResourceId,
+          )
+        ) {
+          return;
+        }
         const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
           occurrence,
           range: { start: occurrence.start, end: occurrence.end },
@@ -445,6 +588,9 @@ export function useResourceGridDrag(params: {
 
       const range = computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY);
       if (range === null) {
+        return;
+      }
+      if (!isCandidateValid(occurrence, range, false, session.targetResourceId)) {
         return;
       }
       const action: 'move' | 'resize' = session.mode === 'move' ? 'move' : 'resize';
@@ -579,12 +725,23 @@ export function useResourceGridDrag(params: {
       if (session.mode === 'allday-move') {
         const occurrenceForPreview = session.occurrence;
         if (occurrenceForPreview !== null) {
+          const conversionRange = {
+            start: occurrenceForPreview.start,
+            end: occurrenceForPreview.end,
+          };
+          const invalid = !isCandidateValid(
+            occurrenceForPreview,
+            conversionRange,
+            true,
+            session.targetResourceId,
+          );
           paramsRef.current.calendar.api.setDragPreview({
             kind: 'move',
             occurrenceKey: occurrenceForPreview.key,
-            range: { start: occurrenceForPreview.start, end: occurrenceForPreview.end },
+            range: conversionRange,
             allDay: true,
             resourceId: session.targetResourceId,
+            ...(invalid ? { invalid: true } : {}),
           });
         }
         return;
@@ -600,12 +757,14 @@ export function useResourceGridDrag(params: {
       ) {
         session.hasMoved = true;
       }
+      const invalid = !isCandidateValid(session.occurrence, range, false, session.targetResourceId);
       paramsRef.current.calendar.api.setDragPreview({
         kind: session.mode === 'move' ? 'move' : session.mode === 'create' ? 'create' : 'resize',
         occurrenceKey: session.occurrence?.key ?? null,
         range,
         allDay: false,
         resourceId: session.targetResourceId,
+        ...(invalid ? { invalid: true } : {}),
       });
     };
 
@@ -773,6 +932,16 @@ export function useResourceGridDrag(params: {
     resourceId: string | null,
     allDay: boolean,
   ): Promise<void> {
+    if (
+      !isCandidateValid(
+        occurrence,
+        range ?? { start: occurrence.start, end: occurrence.end },
+        allDay,
+        resourceId,
+      )
+    ) {
+      return;
+    }
     const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
       occurrence,
       range: range ?? { start: occurrence.start, end: occurrence.end },
@@ -996,6 +1165,7 @@ export function useResourceGridDrag(params: {
       kind: preview.kind,
       startMinutes: startsInDay ? minutesOfDayInZone(preview.range.start, timeZone) : 0,
       endMinutes: endsAtOrAfterDayEnd ? 1440 : minutesOfDayInZone(preview.range.end, timeZone),
+      ...(preview.invalid ? { invalid: true } : {}),
     };
   }
 

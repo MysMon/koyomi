@@ -15,6 +15,15 @@
 
 // カレンダーエンジン
 export { createCalendar } from './core/calendar';
+// 宣言的な重なり・配置制約の判定
+export {
+  hasBlockingOverlap,
+  isDragCandidateValid,
+  isRangeWithinBusinessHours,
+  type OverlapBlocker,
+  occurrenceBlocksOverlap,
+  resolveConstraintRules,
+} from './core/constraints';
 // 日付範囲ユーティリティ
 export {
   addMonthsInZone,

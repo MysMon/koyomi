@@ -411,7 +411,12 @@ function samePreviewSegment(
   if (a === null || b === null) {
     return false;
   }
-  return a.kind === b.kind && a.startMinutes === b.startMinutes && a.endMinutes === b.endMinutes;
+  return (
+    a.kind === b.kind &&
+    a.startMinutes === b.startMinutes &&
+    a.endMinutes === b.endMinutes &&
+    (a.invalid ?? false) === (b.invalid ?? false)
+  );
 }
 
 /**
@@ -518,6 +523,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
   const alldayPreviewRange = state.dragPreview?.allDay ? state.dragPreview.range : null;
   const alldaySelectionSpan =
     alldayPreviewRange !== null ? computeDaySpan(days, alldayPreviewRange, timeZone) : null;
+  const alldaySelectionInvalid = state.dragPreview?.invalid ?? false;
 
   return (
     <div
@@ -636,6 +642,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
               <div
                 data-koyomi="day-selection"
                 aria-hidden="true"
+                {...(alldaySelectionInvalid ? { 'data-koyomi-invalid': 'true' } : {})}
                 style={{
                   insetInlineStart: `${(alldaySelectionSpan.startCol / columnCount) * 100}%`,
                   width: `${(alldaySelectionSpan.span / columnCount) * 100}%`,
@@ -847,6 +854,7 @@ function TimeGridDayColumnImpl(props: {
           data-koyomi="timegrid-preview"
           data-kind={preview.kind}
           aria-hidden="true"
+          {...(preview.invalid ? { 'data-koyomi-invalid': 'true' } : {})}
           style={{
             top: `${percentOfSlotRange(preview.startMinutes, slotMinTimeMinutes, slotMaxTimeMinutes)}%`,
             height: `${percentOfSlotRange(preview.endMinutes - preview.startMinutes, 0, rangeWidth)}%`,

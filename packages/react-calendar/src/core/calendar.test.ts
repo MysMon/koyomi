@@ -133,6 +133,34 @@ describe('createCalendar', () => {
       ).toThrow();
     });
 
+    it('eventOverlap / eventConstraint は省略時にそれぞれ true / null になる', () => {
+      const calendar = makeCalendar();
+      expect(calendar.getState().options.eventOverlap).toBe(true);
+      expect(calendar.getState().options.eventConstraint).toBeNull();
+    });
+
+    it("eventConstraint に 'businessHours' を指定できる", () => {
+      const calendar = makeCalendar({ eventConstraint: 'businessHours' });
+      expect(calendar.getState().options.eventConstraint).toBe('businessHours');
+    });
+
+    it('eventConstraint に配列を指定できる（businessHours とは独立）', () => {
+      const rules: BusinessHoursRule[] = [
+        { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' },
+      ];
+      const calendar = makeCalendar({ eventConstraint: rules });
+      expect(calendar.getState().options.eventConstraint).toEqual(rules);
+    });
+
+    it('eventConstraint 配列の startTime が endTime 以降だと Error になる（businessHours と同じ検証）', () => {
+      expect(() =>
+        createCalendar({
+          timeZone: 'Asia/Tokyo',
+          eventConstraint: [{ daysOfWeek: [1], startTime: '18:00', endTime: '09:00' }],
+        }),
+      ).toThrow();
+    });
+
     it('slotMinTime/slotMaxTime は省略時に既定 00:00/24:00 になる', () => {
       const calendar = makeCalendar();
       expect(calendar.getState().options.slotMinTime).toBe('00:00');
@@ -254,6 +282,24 @@ describe('createCalendar', () => {
       calendar.setDragPreview(null); // 既に null
       calendar.updateOptions({}); // 空パッチ
       calendar.updateOptions({ dayMaxEvents: 4, locale: 'ja' }); // 既定値と同じ
+      calendar.updateOptions({ eventOverlap: true }); // 既定値と同じ
+
+      expect(listener).not.toHaveBeenCalled();
+      expect(calendar.getState()).toBe(before);
+    });
+
+    it('eventConstraint が同一内容（配列の中身が同じ）なら通知されない', () => {
+      const rules: BusinessHoursRule[] = [
+        { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' },
+      ];
+      const calendar = makeCalendar({ eventConstraint: rules });
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+      const before = calendar.getState();
+
+      calendar.updateOptions({
+        eventConstraint: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' }],
+      });
 
       expect(listener).not.toHaveBeenCalled();
       expect(calendar.getState()).toBe(before);
@@ -517,6 +563,33 @@ describe('createCalendar', () => {
           timeZone: 'America/New_York',
           events: [],
           businessHours: [{ daysOfWeek: [1], startTime: '17:00', endTime: '09:00' }],
+        }),
+      ).toThrow();
+
+      expect(calendar.getState()).toBe(before);
+      expect(calendar.getState().timeZone).toBe('Asia/Tokyo');
+      expect(calendar.getEvents()).toEqual([MEETING]);
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('updateOptions({ eventOverlap, eventConstraint }) で反映される', () => {
+      const calendar = makeCalendar();
+      calendar.updateOptions({ eventOverlap: false, eventConstraint: 'businessHours' });
+      expect(calendar.getState().options.eventOverlap).toBe(false);
+      expect(calendar.getState().options.eventConstraint).toBe('businessHours');
+    });
+
+    it('updateOptions は不正な eventConstraint 配列を含むパッチ全体を原子的に拒否する（他フィールドも巻き戻る）', () => {
+      const calendar = makeCalendar({ events: [MEETING] });
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+      const before = calendar.getState();
+
+      expect(() =>
+        calendar.updateOptions({
+          timeZone: 'America/New_York',
+          events: [],
+          eventConstraint: [{ daysOfWeek: [1], startTime: '18:00', endTime: '09:00' }],
         }),
       ).toThrow();
 
@@ -1856,6 +1929,19 @@ describe('createCalendar', () => {
       businessHours.push({ daysOfWeek: [2], startTime: '10:00', endTime: '11:00' });
 
       expect(calendar.getState().options.businessHours).toHaveLength(1);
+    });
+
+    it('eventConstraint に渡した配列を事後変更しても反映されない（businessHours と同じ複製規則）', () => {
+      const rules: BusinessHoursRule[] = [
+        { daysOfWeek: [1], startTime: '09:00', endTime: '17:00' },
+      ];
+      const calendar = makeCalendar({ eventConstraint: rules });
+
+      rules.push({ daysOfWeek: [2], startTime: '10:00', endTime: '11:00' });
+
+      expect(calendar.getState().options.eventConstraint).toEqual([
+        { daysOfWeek: [1], startTime: '09:00', endTime: '17:00' },
+      ]);
     });
 
     it('setEvents に同一参照を渡すと no-op、createEvent 後に同じ入力配列を渡し直すと反映される（高速パスの無効化）', () => {

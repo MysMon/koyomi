@@ -23,7 +23,13 @@ import type {
   PointerEvent as ReactPointerEvent,
   Ref,
 } from 'react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import {
+  isDragCandidateValid,
+  type OverlapBlocker,
+  occurrenceBlocksOverlap,
+  resolveConstraintRules,
+} from '../core/constraints';
 import type { DayDragMode } from '../core/interaction';
 import { dayDragPreviewRange, timeAtGridPosition } from '../core/interaction';
 import {
@@ -34,6 +40,8 @@ import {
   startOfDayInZone,
 } from '../core/timezone';
 import type {
+  BusinessHoursRule,
+  CalendarViewModel,
   DateRange,
   EventChangeEntry,
   EventOccurrence,
@@ -121,6 +129,11 @@ export interface DayDragHandlers {
    * 場合は `null` を返す（そちらは `useTimeGridDrag` 側のプレビューが担当する）。
    */
   previewRange: DateRange | null;
+  /**
+   * 現在のドラッグプレビューが宣言的制約（`eventOverlap` / `eventConstraint`）に
+   * 違反しているか。ドラッグ中でない、または時間グリッドへの変換プレビュー中は常に `false`。
+   */
+  previewInvalid: boolean;
   /** ドラッグ操作が進行中か。 */
   isDragging: boolean;
 }
@@ -192,6 +205,78 @@ function fractionYFromClientY(rect: DOMRect, clientY: number): number {
 }
 
 /**
+ * 現在のビューモデルから、日単位ドラッグ（帯）の重なり判定用ブロッカー一覧を構築する。
+ *
+ * 月/複数月ビューは各週のセグメント、時間グリッドは終日行のセグメントを対象にする
+ * （レーンの区別はなく、表示中の全オカレンスが対象）。同じオカレンスが複数週に
+ * わたって現れる場合はオカレンスキーで重複排除する。
+ */
+function collectBandBlockers(
+  viewModel: CalendarViewModel,
+  eventOverlap: boolean,
+): readonly OverlapBlocker[] {
+  const blockers = new Map<string, OverlapBlocker>();
+  const addSegment = (segment: EventSegment): void => {
+    const occurrence = segment.occurrence;
+    if (blockers.has(occurrence.key)) {
+      return;
+    }
+    blockers.set(occurrence.key, {
+      key: occurrence.key,
+      start: occurrence.start,
+      end: occurrence.end,
+      blocksOverlap: occurrenceBlocksOverlap(occurrence.event, eventOverlap),
+    });
+  };
+  if (viewModel.type === 'month') {
+    for (const week of viewModel.weeks) {
+      for (const segment of week.segments) {
+        addSegment(segment);
+      }
+    }
+  } else if (viewModel.type === 'multiMonth') {
+    for (const month of viewModel.months) {
+      for (const week of month.weeks) {
+        for (const segment of week.segments) {
+          addSegment(segment);
+        }
+      }
+    }
+  } else if (viewModel.type === 'timeGrid') {
+    for (const segment of viewModel.allDaySegments) {
+      addSegment(segment);
+    }
+  }
+  return [...blockers.values()];
+}
+
+/**
+ * 動かしている側の overlap 実効値（重なりを拒否するか）を求める。
+ * 新規作成（`occurrence` が `null`）では動かしている側の個別設定が存在しないため、
+ * グローバル `eventOverlap` をそのまま動かしている側の値として使う。
+ */
+function resolveMoverBlocksOverlap(
+  occurrence: EventOccurrence | null,
+  eventOverlap: boolean,
+): boolean {
+  return occurrence === null
+    ? eventOverlap === false
+    : occurrenceBlocksOverlap(occurrence.event, eventOverlap);
+}
+
+/**
+ * 対象（新規作成は `null`）に適用される配置制約の実効ルールを解決する。
+ * イベント個別の `constraint` が優先され、未指定ならグローバル `eventConstraint` を使う。
+ */
+function resolveConstraintRulesForOccurrence(
+  occurrence: EventOccurrence | null,
+  eventConstraint: ResolvedCalendarOptions['eventConstraint'],
+  businessHours: readonly BusinessHoursRule[],
+): readonly BusinessHoursRule[] | null {
+  return resolveConstraintRules(occurrence?.event.constraint ?? eventConstraint, businessHours);
+}
+
+/**
  * 日単位ドラッグのインタラクションを提供するフック。
  *
  * 月ビューでは時間指定イベントの帯（span 1）も日単位で移動できる
@@ -229,6 +314,18 @@ export function useDayDrag(params: {
   /** 時間グリッドへの変換ドラッグ（`snapMinutes` / `defaultEventMinutes`）で参照する。 */
   const optionsRef = useRef<ResolvedCalendarOptions>(calendar.state.options);
   optionsRef.current = calendar.state.options;
+
+  /**
+   * 重なり判定用のブロッカー一覧。`calendar.viewModel` が変わらない限り
+   * （= ビューモデルに影響する状態が変わらない限り）再計算しない
+   * （毎 pointermove の再計算を避けるための memo 化）。
+   */
+  const blockers = useMemo(
+    () => collectBandBlockers(calendar.viewModel, calendar.state.options.eventOverlap),
+    [calendar.viewModel, calendar.state.options.eventOverlap],
+  );
+  const blockersRef = useRef<readonly OverlapBlocker[]>(blockers);
+  blockersRef.current = blockers;
 
   // アンマウント時、ドラッグ中であれば document リスナーを解除する
   useEffect(() => {
@@ -309,6 +406,23 @@ export function useDayDrag(params: {
    * あればそれを呼び、なければ即時作成する）。
    */
   async function commitSelection(range: DateRange): Promise<void> {
+    const options = optionsRef.current;
+    const valid = isDragCandidateValid({
+      range,
+      allDay: true,
+      excludeKey: null,
+      moverBlocksOverlap: resolveMoverBlocksOverlap(null, options.eventOverlap),
+      blockers: blockersRef.current,
+      constraintRules: resolveConstraintRulesForOccurrence(
+        null,
+        options.eventConstraint,
+        options.businessHours,
+      ),
+      timeZone: timeZoneRef.current,
+    });
+    if (!valid) {
+      return;
+    }
     const gate = checkBeforeSelectRange(callbacksRef.current, { range, allDay: true });
     const allowed = typeof gate === 'boolean' ? gate : await gate;
     if (!allowed) {
@@ -335,6 +449,23 @@ export function useDayDrag(params: {
     action: 'move' | 'resize' = 'move',
   ): Promise<void> {
     try {
+      const options = optionsRef.current;
+      const valid = isDragCandidateValid({
+        range,
+        allDay: occurrence.allDay,
+        excludeKey: occurrence.key,
+        moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, options.eventOverlap),
+        blockers: blockersRef.current,
+        constraintRules: resolveConstraintRulesForOccurrence(
+          occurrence,
+          options.eventConstraint,
+          options.businessHours,
+        ),
+        timeZone: timeZoneRef.current,
+      });
+      if (!valid) {
+        return;
+      }
       const gate = checkBeforeEventChange(callbacksRef.current, {
         occurrence,
         range,
@@ -390,6 +521,23 @@ export function useDayDrag(params: {
     range: DateRange,
   ): Promise<void> {
     try {
+      const options = optionsRef.current;
+      const valid = isDragCandidateValid({
+        range,
+        allDay: false,
+        excludeKey: occurrence.key,
+        moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, options.eventOverlap),
+        blockers: blockersRef.current,
+        constraintRules: resolveConstraintRulesForOccurrence(
+          occurrence,
+          options.eventConstraint,
+          options.businessHours,
+        ),
+        timeZone: timeZoneRef.current,
+      });
+      if (!valid) {
+        return;
+      }
       const gate = checkBeforeEventChange(callbacksRef.current, {
         occurrence,
         range,
@@ -517,11 +665,26 @@ export function useDayDrag(params: {
           };
           session.moved = true;
           session.timedConversion = range;
+          const options = optionsRef.current;
+          const invalid = !isDragCandidateValid({
+            range,
+            allDay: false,
+            excludeKey: occurrence.key,
+            moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, options.eventOverlap),
+            blockers: blockersRef.current,
+            constraintRules: resolveConstraintRulesForOccurrence(
+              occurrence,
+              options.eventConstraint,
+              options.businessHours,
+            ),
+            timeZone,
+          });
           apiRef.current.setDragPreview({
             kind: 'move',
             occurrenceKey: occurrence.key,
             range,
             allDay: false,
+            ...(invalid ? { invalid: true } : {}),
           });
           return;
         }
@@ -537,6 +700,23 @@ export function useDayDrag(params: {
       if (pointerDay.getTime() !== anchorDay.getTime()) {
         session.moved = true;
       }
+      const options = optionsRef.current;
+      // 制約判定の allDay は「候補の最終的な allDay らしさ」を使う（見た目は常に帯だが、
+      // 元イベントが時間指定なら occurrence.allDay === false のまま維持される）。
+      const finalAllDay = occurrence === null ? true : occurrence.allDay;
+      const invalid = !isDragCandidateValid({
+        range,
+        allDay: finalAllDay,
+        excludeKey: occurrence?.key ?? null,
+        moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, options.eventOverlap),
+        blockers: blockersRef.current,
+        constraintRules: resolveConstraintRulesForOccurrence(
+          occurrence,
+          options.eventConstraint,
+          options.businessHours,
+        ),
+        timeZone: timeZoneRef.current,
+      });
       apiRef.current.setDragPreview({
         kind: toPreviewKind(kind),
         occurrenceKey: occurrence?.key ?? null,
@@ -546,6 +726,7 @@ export function useDayDrag(params: {
         // 見た目のフラグであり、イベント自体の allDay 属性とは独立している
         // （時間指定だが複数日にまたがるセグメントの移動でも帯として見せる）。
         allDay: true,
+        ...(invalid ? { invalid: true } : {}),
       });
     };
 
@@ -835,6 +1016,7 @@ export function useDayDrag(params: {
     // allDay: false（時間グリッドへの変換中）のプレビューは本フックの領域（帯）では
     // 描画しない。そちらは `useTimeGridDrag` 側の `previewFor` が担当する。
     previewRange: dragPreview?.allDay ? dragPreview.range : null,
+    previewInvalid: dragPreview?.allDay ? (dragPreview.invalid ?? false) : false,
     isDragging: dragPreview !== null,
   };
 }
