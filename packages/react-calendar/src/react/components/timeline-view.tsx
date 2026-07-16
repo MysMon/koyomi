@@ -56,7 +56,7 @@ export interface TimelineViewProps {
   renderEvent?: (item: TimelineItem) => ReactNode;
   /**
    * 行見出しの内容をカスタマイズする関数。
-   * `defaultContent` は既定の内容（リソース名、未割り当て行は `unassignedLabel`）。
+   * `defaultContent` は既定の内容（リソース名、未割り当て行は `messages.timeline.unassigned`）。
    * @param row - 対象の行
    * @param defaultContent - 既定の内容
    */

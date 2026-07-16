@@ -97,9 +97,10 @@ export interface UseRecurrenceRuleEditorResult {
 /**
  * 繰り返しルールを構造化状態として編集する。
  *
- * RRULE 文字列の相互変換・検証・説明文生成は `core/recurrence-editor.ts` の
- * 純関数（{@link parseRecurrenceRule} 等）に委譲し、このフックは React の状態
- * 管理（`state` の保持・setter の安定化）のみを担う。UI は提供しない
+ * RRULE 文字列の相互変換・検証は `core/recurrence-editor.ts` の純関数
+ * （{@link parseRecurrenceRule} 等）に、説明文・検証エラー・非対応理由の文言化は
+ * メッセージカタログ（`messages.recurrenceEditor`）に委譲し、このフックは React の
+ * 状態管理（`state` の保持・setter の安定化）のみを担う。UI は提供しない
  * （ヘッドレス）。
  *
  * @param options - フックのオプション

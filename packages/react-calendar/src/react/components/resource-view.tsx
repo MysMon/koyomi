@@ -74,7 +74,7 @@ export interface ResourceViewProps {
   renderAllDayItem?: (occurrence: EventOccurrence) => ReactNode;
   /**
    * 列見出しの内容をカスタマイズする関数。
-   * `defaultContent` は既定の内容（リソース名、未割り当て列は `unassignedLabel`）。
+   * `defaultContent` は既定の内容（リソース名、未割り当て列は `messages.resource.unassigned`）。
    * @param column - 対象の列
    * @param defaultContent - 既定の内容
    */
