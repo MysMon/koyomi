@@ -146,7 +146,7 @@ interface CalendarEventHistory {
 }
 ```
 
-イベント変更の undo/redo 履歴マネージャです（フレームワーク非依存）。「1 操作 = 1 履歴単位」で `EventChangeEntry` の一覧をスタックに積み、`undo`/`redo` は `applyEventChangeEntries` を `api.getEvents()` の内容へ適用した結果を `api.setEvents()` に渡します（`setEvents` は `onEventsChange` を発火させないため、適用自体が新たな履歴を生みません）。React では薄いラッパー `useCalendarHistory` を使うのが基本です。
+イベント変更の undo/redo 履歴マネージャです（フレームワーク非依存）。「1 操作 = 1 履歴単位」で `EventChangeEntry` の一覧をスタックに積み、`undo`/`redo` は `applyEventChangeEntriesWithApplied` を `api.getEvents()` の内容へ適用し、1 件以上適用できた場合のみ結果を `api.setEvents()` に渡します（`setEvents` は `onEventsChange` を発火させないため、適用自体が新たな履歴を生みません）。React では薄いラッパー `useCalendarHistory` を使うのが基本です。
 
 ```ts
 import { createEventHistory } from '@koyomi-cal/react';
@@ -159,7 +159,7 @@ history.redo(); // もう一度変更後の状態にする
 ```
 
 - `push` — `changes` が空配列なら何もしない。非空なら積み、`redo` スタックを破棄する。`limit` 超過分は最古のエントリから破棄する
-- `undo`/`redo` — 対象がなければ `false` を返す。適用直前に期待する状態と食い違うエントリ（`applyEventChangeEntries` のドリフト検出）は安全にスキップする
+- `undo`/`redo` — 対象がなければ `false` を返す。適用直前に期待する状態と食い違うエントリ（ドリフト検出）は安全にスキップする。**1 件も適用できなかった場合は `false` を返し、そのエントリは履歴から破棄される**（反対のスタックには積まれない）。**一部のみ適用できた場合は `true` を返し、実際に適用できたエントリだけが反対のスタックに積まれる**。削除の取り消しは `EventChangeEntry.index` により元の位置に復元される
 - `api.subscribe` は監視しない（`setEvents` 以外の要因による状態変化は自動検出しない）
 
 詳細な運用（`push` を呼ぶタイミング、`clear()` を呼ぶべきタイミングなど）は [予定の管理: undo（元に戻す）を実装する](./events.md#undo元に戻すを実装する) を参照してください。
@@ -230,22 +230,19 @@ interface UseCalendarAnnouncerResult {
   message: string;
   announce: (text: string) => void;
   wrapCallbacks: (callbacks?: CalendarInteractionCallbacks) => CalendarInteractionCallbacks;
-  wrapRangeChange: (
-    onRangeChange?: (info: CalendarRangeChangeInfo) => void,
-  ) => (info: CalendarRangeChangeInfo) => void;
 }
 
 function classifyEventChangeVerb(occurrence: EventOccurrence, change: EventChange): EventChangeVerb
 ```
 
-予定の変更・作成・削除、およびビュー・基準日・表示範囲の変更を `aria-live` リージョンへ通知するヘッドレスなフックです。`CalendarProvider` の `callbacks` を `wrapCallbacks` で、`useCalendar` の `onRangeChange` を `wrapRangeChange` でラップします。通知文言は `calendar` の `state.options.locale` から自動的に解決され、`messages`（`MessageCatalogOverrides`）でカタログの `announcer` グループを部分上書きできます（`CalendarProvider` の `messages` prop とは独立に解決されるため、揃えたい場合は同じ値を両方に渡してください）。`classifyEventChangeVerb` は移動・サイズ変更・終日⇔時間指定変換のいずれかをロケールに依存せず判定するヘルパー関数で、`messages.announcer.eventChanged` のようなカスタム文言関数の内部で種別を再利用したい場合に使えます。詳細・カスタマイズ方法は [アクセシビリティ: 変更の読み上げ通知](./accessibility.md#変更の読み上げ通知usecalendarannouncer) を参照してください。
+予定の変更・作成・削除、およびビュー・基準日・表示範囲の変更を `aria-live` リージョンへ通知するヘッドレスなフックです。`CalendarProvider` の `callbacks` を `wrapCallbacks` でラップし、加えて `calendar` の状態変更を内部で購読します（`announce: { viewChange: true }` のときのみビュー変更を通知）。通知文言は `calendar` の `state.options.locale` から自動的に解決され、`messages`（`MessageCatalogOverrides`）でカタログの `announcer` グループを部分上書きできます（`CalendarProvider` の `messages` prop とは独立に解決されるため、揃えたい場合は同じ値を両方に渡してください）。`classifyEventChangeVerb` は移動・サイズ変更・終日⇔時間指定変換のいずれかをロケールに依存せず判定するヘルパー関数で、`messages.announcer.eventChanged` のようなカスタム文言関数の内部で種別を再利用したい場合に使えます。詳細・カスタマイズ方法は [アクセシビリティ: 変更の読み上げ通知](./accessibility.md#変更の読み上げ通知usecalendarannouncer) を参照してください。
 
 ```tsx
 import { CalendarProvider, CalendarView, useCalendar, useCalendarAnnouncer } from '@koyomi-cal/react';
 
 function App() {
   const calendar = useCalendar();
-  const announcer = useCalendarAnnouncer({ calendar });
+  const announcer = useCalendarAnnouncer({ calendar, announce: { viewChange: true } });
   return (
     <div>
       <div {...announcer.liveRegionProps}>{announcer.message}</div>
@@ -898,7 +895,7 @@ interface ToolbarProps {
 | `CalendarEvent` | カレンダーイベント（ソースデータ）。下表参照 |
 | `CalendarEventInput` | `Omit<CalendarEvent, 'id'> & { id?: EventId }`。`createEvent` の入力 |
 | `CalendarEventPatch` | `Omit<CalendarEvent, 'id'>` の各フィールドが省略可能かつ明示的に `\| undefined` を許容する部分更新型（`exactOptionalPropertyTypes: true` でも `{ rrule: undefined }` のようなリテラルをそのまま書ける）。キーが存在し値が `undefined` の場合はそのフィールドを削除するが、必須フィールドだった `title` / `start` は削除されず元の値を維持する |
-| `EventChangeEntry` | `{ before?: CalendarEvent; after?: CalendarEvent }`。1 件のイベントの変更前後のスナップショット（undo 用途）。`before` のみは削除、`after` のみは新規作成、両方ありは変更を表す |
+| `EventChangeEntry` | `{ before?: CalendarEvent; after?: CalendarEvent; index?: number }`。1 件のイベントの変更前後のスナップショット（undo 用途）。`before` のみは削除、`after` のみは新規作成、両方ありは変更を表す。`index` は挿入位置の復元に使う位置情報（`before` を持つエントリは変更前の一覧内での位置、新規作成のみのエントリは変更後の一覧内での位置） |
 | `EventOccurrence` | イベントのオカレンス。下表参照 |
 | `RecurringEditScope` | `'this' | 'thisAndFollowing' | 'all'`。繰り返しの編集・削除の適用範囲 |
 | `CalendarResource` | カレンダーのリソース（会議室・設備・担当者など、予定の割当先）。下表参照 |
@@ -1215,8 +1212,10 @@ Google カレンダーの編集・削除操作（繰り返しの「この予定�
 | `RecurringTarget`（型） | `{ occurrenceStart: Date; scope: RecurringEditScope }` |
 | `CreateEventResult`（型） | `{ events: CalendarEvent[]; created: CalendarEvent }` |
 | `EventMutationResult`（型） | `{ events: CalendarEvent[]; changes: EventChangeEntry[] }` |
-| `EventChangeEntry`（型） | `{ before?: CalendarEvent; after?: CalendarEvent }`。`before` のみは削除、`after` のみは新規作成、両方ありは変更を表す |
-| `applyEventChangeEntries(events, changes, direction): CalendarEvent[]` | `changes` の各エントリを `direction`（`'before'` = 取り消し／`'after'` = やり直し・再現）の方向へ適用する。対象イベントが想定と食い違うエントリ（presence-only のドリフト検出）は安全にスキップする。undo/redo の実装に使う（詳細は [予定の管理: undo（元に戻す）を実装する](./events.md#undo元に戻すを実装する) を参照） |
+| `EventChangeEntry`（型） | `{ before?: CalendarEvent; after?: CalendarEvent; index?: number }`。`before` のみは削除、`after` のみは新規作成、両方ありは変更を表す。`index` は挿入位置の復元に使う位置情報 |
+| `applyEventChangeEntries(events, changes, direction): CalendarEvent[]` | `changes` の各エントリを `direction`（`'before'` = 取り消し／`'after'` = やり直し・再現）の方向へ適用する。対象イベントが想定と食い違うエントリ（presence-only のドリフト検出）は安全にスキップする。現在の一覧に存在しない id を新たに書き込む場合（削除の取り消し・作成のやり直し）は `index` が指す位置に挿入する（省略時は末尾）。undo/redo の実装に使う（詳細は [予定の管理: undo（元に戻す）を実装する](./events.md#undo元に戻すを実装する) を参照） |
+| `applyEventChangeEntriesWithApplied(events, changes, direction): EventChangeApplyResult` | `applyEventChangeEntries` の拡張版。適用後のイベント一覧に加えて、実際に適用された（ドリフトによりスキップされなかった）エントリの一覧 `applied` も返す |
+| `EventChangeApplyResult`（型） | `{ events: CalendarEvent[]; applied: EventChangeEntry[] }` |
 | `EventChangeDirection`（型） | `'before' \| 'after'` |
 
 ```ts

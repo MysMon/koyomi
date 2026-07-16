@@ -71,7 +71,10 @@ describe('createEventHistory: push', () => {
   });
 
   it('limit 件を超えて push すると最古のエントリが破棄される（limit+1 回目の push 後、undo は limit 回しか実行できない）', () => {
-    const api = makeApi([]);
+    // undo（'before' 方向）は creation-only エントリの対象 id が現在の一覧に
+    // 存在することを前提にする（presence-only のドリフト検出）ため、
+    // 実際に a/b/c を含む状態から始める
+    const api = makeApi([ev('a'), ev('b'), ev('c')]);
     const history = createEventHistory({ api, limit: 2 });
 
     history.push([{ after: ev('a') }]);
@@ -84,7 +87,9 @@ describe('createEventHistory: push', () => {
   });
 
   it('limit 省略時の既定は 100（101 回 push すると undo は 100 回しか実行できない）', () => {
-    const api = makeApi([]);
+    // undo（'before' 方向）が creation-only エントリを正しく適用できるよう、
+    // 対象イベントすべてを実際に存在する状態から始める
+    const api = makeApi(Array.from({ length: 101 }, (_, index) => ev(`e${index}`)));
     const history = createEventHistory({ api });
 
     for (let index = 0; index < 101; index += 1) {
@@ -104,7 +109,9 @@ describe('createEventHistory: push', () => {
     Number.NaN,
     Number.POSITIVE_INFINITY,
   ])('limit に %s を指定すると 1 にクランプされる（2 回目の push で最古のエントリが破棄される）', (limit) => {
-    const api = makeApi([]);
+    // undo（'before' 方向）が creation-only エントリを正しく適用できるよう、
+    // 対象イベントを実際に存在する状態から始める
+    const api = makeApi([ev('a'), ev('b')]);
     const history = createEventHistory({ api, limit });
 
     history.push([{ after: ev('a') }]);
@@ -195,6 +202,143 @@ describe('createEventHistory: undo/redo', () => {
     history.redo();
 
     expect(onEventsChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('createEventHistory: undo の順序復元（削除の取り消し）', () => {
+  it('[A, B, C] から中間の B を削除して undo すると、元の順序 [A, B, C] に復元される', () => {
+    const api = makeApi([ev('a'), ev('b'), ev('c')]);
+    const history = createEventHistory({ api });
+    history.push(api.deleteEvent('b'));
+
+    history.undo();
+
+    expect(api.getEvents()).toEqual([ev('a'), ev('b'), ev('c')]);
+  });
+
+  it('先頭の削除も undo で元の位置（先頭）に復元される', () => {
+    const api = makeApi([ev('a'), ev('b'), ev('c')]);
+    const history = createEventHistory({ api });
+    history.push(api.deleteEvent('a'));
+
+    history.undo();
+
+    expect(api.getEvents()).toEqual([ev('a'), ev('b'), ev('c')]);
+  });
+
+  it('末尾の削除も undo で元の位置（末尾）に復元される', () => {
+    const api = makeApi([ev('a'), ev('b'), ev('c')]);
+    const history = createEventHistory({ api });
+    history.push(api.deleteEvent('c'));
+
+    history.undo();
+
+    expect(api.getEvents()).toEqual([ev('a'), ev('b'), ev('c')]);
+  });
+
+  it('複数イベントの削除（シリーズ分割相当）も、undo で元の並び順に復元される', () => {
+    // 1 回の diffEventChanges 呼び出し（例: scope 'all' でマスターとオーバーライドを
+    // 同時に削除する場合など）で生成される複数エントリを想定し、index はすべて
+    // 同じ元の配列（[A, B, C, D]）内での位置を共有する
+    const a = ev('a');
+    const b = ev('b');
+    const c = ev('c');
+    const d = ev('d');
+    const api = makeApi([a, d]); // b（index 1）・c（index 2）は既に削除済みという想定
+    const history = createEventHistory({ api });
+    history.push([
+      { before: b, index: 1 },
+      { before: c, index: 2 },
+    ]);
+
+    history.undo();
+
+    expect(api.getEvents()).toEqual([a, b, c, d]);
+  });
+
+  it('index を持たない手組みのエントリ（新規作成の即時反映パターン相当）は undo で削除・redo で末尾に追加される（後方互換）', () => {
+    const created = ev('created');
+    // 即時作成により既に一覧に追加済みという想定（apps/demo/src/patterns/undo.tsx と同様、
+    // index を持たない { after: created } のみで push する）
+    const api = makeApi([ev('a'), created]);
+    const history = createEventHistory({ api });
+    history.push([{ after: created }]);
+
+    history.undo();
+    expect(api.getEvents()).toEqual([ev('a')]);
+
+    history.redo();
+    expect(api.getEvents()).toEqual([ev('a'), created]);
+  });
+});
+
+describe('createEventHistory: 適用追跡（0 件 / 部分適用）', () => {
+  it('undo で全エントリがドリフトによりスキップされた場合、false を返し、そのエントリは履歴から破棄される（setEvents は呼ばれず、redo 対象にもならない）', () => {
+    const before = ev('a', { title: '変更前' });
+    const after = ev('a', { title: '変更後' });
+    const api = makeApi([after]);
+    const history = createEventHistory({ api });
+    history.push([{ before, after }]);
+    // 外部要因（history を経由しない setEvents）で id 'a' が一覧から消える
+    api.setEvents([]);
+    const setEventsSpy = vi.spyOn(api, 'setEvents');
+    const listener = vi.fn();
+    history.subscribe(listener);
+
+    const result = history.undo();
+
+    expect(result).toBe(false);
+    expect(setEventsSpy).not.toHaveBeenCalled();
+    expect(api.getEvents()).toEqual([]);
+    expect(history.canUndo()).toBe(false); // ドリフトしたエントリは破棄される
+    expect(history.canRedo()).toBe(false); // 反対スタックには積まれない
+    expect(listener).toHaveBeenCalledTimes(1); // スタックが変わったため notify される
+  });
+
+  it('redo で全エントリがドリフトによりスキップされた場合も同様に false を返し、そのエントリは履歴から破棄される', () => {
+    const before = ev('a', { title: '変更前' });
+    const after = ev('a', { title: '変更後' });
+    const api = makeApi([after]);
+    const history = createEventHistory({ api });
+    history.push([{ before, after }]);
+    history.undo();
+    // undo 後、外部要因で id 'a' が一覧から消える
+    api.setEvents([]);
+    const setEventsSpy = vi.spyOn(api, 'setEvents');
+
+    const result = history.redo();
+
+    expect(result).toBe(false);
+    expect(setEventsSpy).not.toHaveBeenCalled();
+    expect(history.canRedo()).toBe(false);
+    expect(history.canUndo()).toBe(false);
+  });
+
+  it('undo で一部のエントリのみ適用できた場合、true を返し、適用できたエントリだけが redo 対象になる', () => {
+    const aBefore = ev('a', { title: 'a-変更前' });
+    const aAfter = ev('a', { title: 'a-変更後' });
+    const bBefore = ev('b', { title: 'b-変更前' });
+    const bAfter = ev('b', { title: 'b-変更後' });
+    // 'a' は外部要因で既に一覧から消えている想定（'b' のみ実際に存在する）
+    const api = makeApi([bAfter]);
+    const history = createEventHistory({ api });
+    history.push([
+      { before: aBefore, after: aAfter },
+      { before: bBefore, after: bAfter },
+    ]);
+
+    const undoResult = history.undo();
+
+    expect(undoResult).toBe(true);
+    expect(api.getEvents()).toEqual([bBefore]); // 'b' のみ取り消される
+    expect(history.canRedo()).toBe(true);
+
+    const redoResult = history.redo();
+
+    expect(redoResult).toBe(true);
+    expect(api.getEvents()).toEqual([bAfter]); // redo でも 'b' のみ再適用される（'a' は対象外）
+    expect(history.canRedo()).toBe(false);
+    expect(history.canUndo()).toBe(true);
   });
 });
 

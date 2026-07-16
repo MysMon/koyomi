@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { expandEvents } from './expansion';
 import {
   applyEventChangeEntries,
+  applyEventChangeEntriesWithApplied,
   applyPatch,
   createEventIn,
   deleteEventIn,
@@ -2300,7 +2301,7 @@ describe('before/after スナップショット（undo 基盤）', () => {
         makeContext(),
       );
       expect(result.changes).toEqual([
-        { before: single, after: findById(result.events, 'single-1') },
+        { before: single, after: findById(result.events, 'single-1'), index: 0 },
       ]);
       expect(reconstructAfter([single], result.changes)).toEqual(byId(result.events));
       expect(reconstructBefore(result.events, result.changes)).toEqual(byId([single]));
@@ -2318,7 +2319,8 @@ describe('before/after スナップショット（undo 基盤）', () => {
         { occurrenceStart, scope: 'this' },
         makeContext(),
       );
-      expect(result.changes).toEqual([{ after: findById(result.events, 'gen-1') }]);
+      // 新規作成のみのエントリの index は変更後の一覧内での位置（[master, gen-1] の 1）
+      expect(result.changes).toEqual([{ after: findById(result.events, 'gen-1'), index: 1 }]);
       expect(reconstructAfter([master], result.changes)).toEqual(byId(result.events));
       expect(reconstructBefore(result.events, result.changes)).toEqual(byId([master]));
     });
@@ -2353,14 +2355,18 @@ describe('before/after スナップショット（undo 基盤）', () => {
       expect(result.changes).toHaveLength(3);
       const byChangeId = (id: string) =>
         result.changes.find((change) => (change.before ?? change.after)?.id === id);
+      // before があるエントリの index は元の配列（[master, ov-2, ov-5]）内での位置
       expect(byChangeId('master-1')).toEqual({
         before: master,
         after: findById(result.events, 'master-1'),
+        index: 0,
       });
-      expect(byChangeId('gen-1')).toEqual({ after: findById(result.events, 'gen-1') });
+      // 新規作成のみのエントリの index は変更後の配列（[master-1, ov-2, ov-5, gen-1]）内での位置
+      expect(byChangeId('gen-1')).toEqual({ after: findById(result.events, 'gen-1'), index: 3 });
       expect(byChangeId('ov-5')).toEqual({
         before: afterSplit,
         after: findById(result.events, 'ov-5'),
+        index: 2,
       });
       // 分割点より前の ov-2 は付け替えの対象外なので changes に含まれない
       expect(byChangeId('ov-2')).toBeUndefined();
@@ -2383,7 +2389,7 @@ describe('before/after スナップショット（undo 基盤）', () => {
         makeContext(),
       );
       expect(result.changes).toEqual([
-        { before: master, after: findById(result.events, 'master-1') },
+        { before: master, after: findById(result.events, 'master-1'), index: 0 },
       ]);
       expect(reconstructAfter(events, result.changes)).toEqual(byId(result.events));
       expect(reconstructBefore(result.events, result.changes)).toEqual(byId(events));
@@ -2398,7 +2404,7 @@ describe('before/after スナップショット（undo 基盤）', () => {
         start: new Date('2026-07-01T05:00:00Z'),
       };
       const result = deleteEventInWithChanges([single], 'single-1', undefined, makeContext());
-      expect(result.changes).toEqual([{ before: single }]);
+      expect(result.changes).toEqual([{ before: single, index: 0 }]);
       expect(reconstructAfter([single], result.changes)).toEqual(byId(result.events));
       expect(reconstructBefore(result.events, result.changes)).toEqual(byId([single]));
     });
@@ -2415,7 +2421,7 @@ describe('before/after スナップショット（undo 基盤）', () => {
         makeContext(),
       );
       expect(result.changes).toEqual([
-        { before: master, after: findById(result.events, 'master-1') },
+        { before: master, after: findById(result.events, 'master-1'), index: 0 },
       ]);
       expect(reconstructAfter([master], result.changes)).toEqual(byId(result.events));
       expect(reconstructBefore(result.events, result.changes)).toEqual(byId([master]));
@@ -2434,10 +2440,12 @@ describe('before/after スナップショット（undo 基盤）', () => {
       expect(result.changes).toHaveLength(2);
       const byChangeId = (id: string) =>
         result.changes.find((change) => (change.before ?? change.after)?.id === id);
-      expect(byChangeId('ov-3')).toEqual({ before: override });
+      // index は元の配列（[master, override]）内での位置
+      expect(byChangeId('ov-3')).toEqual({ before: override, index: 1 });
       expect(byChangeId('master-1')).toEqual({
         before: master,
         after: findById(result.events, 'master-1'),
+        index: 0,
       });
       expect(reconstructAfter(events, result.changes)).toEqual(byId(result.events));
       expect(reconstructBefore(result.events, result.changes)).toEqual(byId(events));
@@ -2467,11 +2475,13 @@ describe('before/after スナップショット（undo 基盤）', () => {
       expect(result.changes).toHaveLength(2);
       const byChangeId = (id: string) =>
         result.changes.find((change) => (change.before ?? change.after)?.id === id);
+      // index は元の配列（[master, atBoundary, beforeBoundary]）内での位置
       expect(byChangeId('master-1')).toEqual({
         before: master,
         after: findById(result.events, 'master-1'),
+        index: 0,
       });
-      expect(byChangeId('ov-4')).toEqual({ before: atBoundary });
+      expect(byChangeId('ov-4')).toEqual({ before: atBoundary, index: 1 });
       // 分割点より前の ov-2 は変更されないので changes に含まれない
       expect(byChangeId('ov-2')).toBeUndefined();
       expect(reconstructAfter(events, result.changes)).toEqual(byId(result.events));
@@ -2494,8 +2504,9 @@ describe('before/after スナップショット（undo 基盤）', () => {
       expect(result.changes).toHaveLength(2);
       const byChangeId = (id: string) =>
         result.changes.find((change) => (change.before ?? change.after)?.id === id);
-      expect(byChangeId('master-1')).toEqual({ before: master });
-      expect(byChangeId('ov-3')).toEqual({ before: override });
+      // index は元の配列（[master, override]）内での位置
+      expect(byChangeId('master-1')).toEqual({ before: master, index: 0 });
+      expect(byChangeId('ov-3')).toEqual({ before: override, index: 1 });
       expect(reconstructAfter(events, result.changes)).toEqual(byId(result.events));
       expect(reconstructBefore(result.events, result.changes)).toEqual(byId(events));
     });
@@ -2511,7 +2522,8 @@ describe('before/after スナップショット（undo 基盤）', () => {
         { occurrenceStart: occ, newStart: new Date('2026-07-03T06:00:00Z'), scope: 'this' },
         makeContext(),
       );
-      expect(result.changes).toEqual([{ after: findById(result.events, 'gen-1') }]);
+      // 新規作成のみのエントリの index は変更後の一覧内での位置（[master, gen-1] の 1）
+      expect(result.changes).toEqual([{ after: findById(result.events, 'gen-1'), index: 1 }]);
       expect(reconstructAfter([master], result.changes)).toEqual(byId(result.events));
       expect(reconstructBefore(result.events, result.changes)).toEqual(byId([master]));
     });
@@ -2598,7 +2610,7 @@ describe('before/after スナップショット（undo 基盤）', () => {
         makeContext(),
       );
       expect(result.changes).toEqual([
-        { before: master, after: findById(result.events, 'master-1') },
+        { before: master, after: findById(result.events, 'master-1'), index: 0 },
       ]);
     });
   });
@@ -2732,5 +2744,136 @@ describe('applyEventChangeEntries', () => {
     expect(events).toEqual(before);
     expect(events[0]).toBe(untouched);
     expect(events[1]).toBe(changedAfter);
+  });
+
+  describe('index による挿入位置の復元', () => {
+    it("削除の取り消し（'before' 方向）は index の位置（元の配列内での位置）に復元する", () => {
+      const a = ev('a');
+      const b = ev('b', { title: '元のタイトル' });
+      const c = ev('c');
+      // [a, b, c] から b（index 1）を削除した後の一覧が [a, c] という想定
+      const result = applyEventChangeEntries([a, c], [{ before: b, index: 1 }], 'before');
+      expect(result).toEqual([a, b, c]);
+    });
+
+    it('先頭・末尾の削除も、それぞれ index 0・末尾へ復元する', () => {
+      const a = ev('a');
+      const b = ev('b');
+      const c = ev('c');
+      expect(applyEventChangeEntries([b, c], [{ before: a, index: 0 }], 'before')).toEqual([
+        a,
+        b,
+        c,
+      ]);
+      expect(applyEventChangeEntries([a, b], [{ before: c, index: 2 }], 'before')).toEqual([
+        a,
+        b,
+        c,
+      ]);
+    });
+
+    it('複数の削除（シリーズ分割相当）を index 昇順に処理し、元の並び順を安定して復元する', () => {
+      const a = ev('a');
+      const b = ev('b');
+      const c = ev('c');
+      const d = ev('d');
+      // [a, b, c, d] から b（index 1）・c（index 2）をまとめて削除した想定。
+      // changes の記載順序を意図的に入れ替えても、index 昇順で処理されるため結果は変わらない
+      const result = applyEventChangeEntries(
+        [a, d],
+        [
+          { before: c, index: 2 },
+          { before: b, index: 1 },
+        ],
+        'before',
+      );
+      expect(result).toEqual([a, b, c, d]);
+    });
+
+    it("作成のやり直し（'after' 方向）も index の位置（変更後の配列内での位置）に復元する", () => {
+      const a = ev('a');
+      const b = ev('b');
+      const c = ev('c');
+      // [a, b, c] で b（index 1）が新規作成されたエントリの再現
+      const result = applyEventChangeEntries([a, c], [{ after: b, index: 1 }], 'after');
+      expect(result).toEqual([a, b, c]);
+    });
+
+    it('index を省略した挿入エントリは末尾に追加される（後方互換）', () => {
+      const a = ev('a');
+      const b = ev('b');
+      expect(applyEventChangeEntries([a], [{ after: b }], 'after')).toEqual([a, b]);
+    });
+
+    it('index が現在の要素数以上の場合は末尾にクランプされる', () => {
+      const a = ev('a');
+      const b = ev('b');
+      const result = applyEventChangeEntries([a], [{ before: b, index: 99 }], 'before');
+      expect(result).toEqual([a, b]);
+    });
+
+    it('既存 id への書き込み（更新）は index の指定にかかわらず元の位置を維持する', () => {
+      const a = ev('a', { title: '変更前' });
+      const b = ev('b');
+      const updatedA = ev('a', { title: '変更後' });
+      const result = applyEventChangeEntries(
+        [a, b],
+        [{ before: a, after: updatedA, index: 99 }],
+        'after',
+      );
+      expect(result).toEqual([updatedA, b]);
+    });
+  });
+});
+
+describe('applyEventChangeEntriesWithApplied', () => {
+  /** テスト用の最小イベント。 */
+  function ev(id: string, overrides: Partial<CalendarEvent> = {}): CalendarEvent {
+    return {
+      id,
+      title: `イベント${id}`,
+      start: new Date('2026-07-01T00:00:00Z'),
+      ...overrides,
+    };
+  }
+
+  it('全エントリが適用された場合、applied に changes と同じ内容が含まれ、events は applyEventChangeEntries と同じ結果になる', () => {
+    const before = ev('a', { title: '変更前' });
+    const after = ev('a', { title: '変更後' });
+    const changes: EventChangeEntry[] = [{ before, after }];
+    const result = applyEventChangeEntriesWithApplied([after], changes, 'before');
+    expect(result.applied).toEqual(changes);
+    expect(result.events).toEqual(applyEventChangeEntries([after], changes, 'before'));
+  });
+
+  it('一部エントリがドリフトによりスキップされた場合、applied には適用できたエントリのみが含まれる', () => {
+    const missingBefore = ev('a', { title: 'a-変更前' });
+    const missingAfter = ev('a', { title: 'a-変更後' });
+    const presentBefore = ev('b', { title: 'b-変更前' });
+    const presentAfter = ev('b', { title: 'b-変更後' });
+    const changes: EventChangeEntry[] = [
+      { before: missingBefore, after: missingAfter },
+      { before: presentBefore, after: presentAfter },
+    ];
+
+    const result = applyEventChangeEntriesWithApplied([presentAfter], changes, 'before');
+
+    expect(result.applied).toEqual([{ before: presentBefore, after: presentAfter }]);
+    expect(result.events).toEqual([presentBefore]);
+  });
+
+  it('全エントリがドリフトによりスキップされた場合、applied は空配列になり events は変化しない', () => {
+    const missingBefore = ev('a', { title: 'a-変更前' });
+    const missingAfter = ev('a', { title: 'a-変更後' });
+    const events = [ev('z')];
+
+    const result = applyEventChangeEntriesWithApplied(
+      events,
+      [{ before: missingBefore, after: missingAfter }],
+      'before',
+    );
+
+    expect(result.applied).toEqual([]);
+    expect(result.events).toEqual(events);
   });
 });

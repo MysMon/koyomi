@@ -2,18 +2,19 @@
  * @packageDocumentation
  * `useCalendarAnnouncer` — aria-live 通知フック（ヘッドレスな announcer）。
  *
- * `CalendarProvider` の `callbacks`（{@link CalendarInteractionCallbacks}）と
- * `useCalendar` の `onRangeChange` をラップするヘルパーを返す。予定の移動・
- * リサイズ・既定即時作成・削除の確定後、およびビュー・基準日・表示範囲の変更後に、
- * 中央メッセージカタログ（`messages.announcer`、`messages` オプションで部分上書き可）の
- * 文言を aria-live リージョンへ通知する。
+ * `CalendarProvider` の `callbacks`（{@link CalendarInteractionCallbacks}）をラップする
+ * ヘルパー（`wrapCallbacks`）を返し、加えて `calendar` の状態を内部で購読する。予定の
+ * 移動・リサイズ・既定即時作成・削除の確定後、および（`announce.viewChange: true` の
+ * ときのみ）ビュー・基準日・表示範囲の変更後に、中央メッセージカタログ
+ * （`messages.announcer`、`messages` オプションで部分上書き可）の文言を aria-live
+ * リージョンへ通知する。
  *
  * 完全に opt-in なモジュールで、既存のコンポーネント・フックの挙動・DOM は
  * 一切変更しない。`CalendarProvider` に依存せず自前でカタログを解決するため、
  * Provider の配下に置く必要はない。
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CalendarRangeChangeInfo,
   CalendarResource,
@@ -55,8 +56,7 @@ interface AnnouncerContext {
 }
 
 /**
- * 自動通知の対象。省略キーは既定 `true`。
- * ビュー変更（`viewChanged`）は `wrapRangeChange` の呼び出し自体が opt-in なため対象に含まない。
+ * 自動通知の対象。`viewChange` を除き、省略キーは既定 `true`。
  */
 export interface AnnouncerTargets {
   /** `onEventChange` を自動通知するか。既定 `true`。 */
@@ -65,6 +65,14 @@ export interface AnnouncerTargets {
   eventCreate?: boolean;
   /** `onEventDelete` を自動通知するか。既定 `true`。 */
   eventDelete?: boolean;
+  /**
+   * ビュー・基準日・表示範囲の変更（`calendar` への内部購読で検知）を自動通知するか。
+   *
+   * **既定 `false`**。他の 3 項目とは既定値が異なる opt-in 項目
+   * （ビュー変更はナビゲーション操作のたびに発生し得るため、常時通知が
+   * 要るとは限らない）。
+   */
+  viewChange?: boolean;
 }
 
 /** {@link useCalendarAnnouncer} のオプション。 */
@@ -76,7 +84,7 @@ export interface UseCalendarAnnouncerOptions {
   calendar: UseCalendarResult;
   /** live region の緊急度。既定は `'polite'`（`role="status"`）。`'assertive'` は `role="alert"`。 */
   politeness?: 'polite' | 'assertive';
-  /** 自動通知の対象。省略キーは既定 `true`。 */
+  /** 自動通知の対象。{@link AnnouncerTargets} を参照（`viewChange` のみ既定 `false`）。 */
   announce?: AnnouncerTargets;
   /**
    * 中央メッセージカタログの部分上書き。省略時は `calendar` の `locale` に対応する
@@ -109,14 +117,6 @@ export interface UseCalendarAnnouncerResult {
    * 安定した関数参照（`useCallback`）を返すため、呼び出し側の `useMemo` 依存に安全に使える。
    */
   wrapCallbacks: (callbacks?: CalendarInteractionCallbacks) => CalendarInteractionCallbacks;
-  /**
-   * `CalendarOptions.onRangeChange` をラップし、ビュー・基準日・表示範囲の変更後に
-   * 自動で `announce` する新しいコールバックを返す。`useCalendar({ onRangeChange: ... })` に渡す
-   * （`useCalendar` の `onRangeChange` は 1 枠のみのため、このフックが直接奪うことはしない）。
-   */
-  wrapRangeChange: (
-    onRangeChange?: (info: CalendarRangeChangeInfo) => void,
-  ) => (info: CalendarRangeChangeInfo) => void;
 }
 
 /**
@@ -202,12 +202,13 @@ function currentCtx(calendar: UseCalendarResult): AnnouncerContext {
 /**
  * aria-live 通知フック（ヘッドレスな announcer）。
  *
- * `CalendarProvider` の `callbacks` と `useCalendar` の `onRangeChange` をラップする
- * ヘルパー（{@link UseCalendarAnnouncerResult.wrapCallbacks} /
- * {@link UseCalendarAnnouncerResult.wrapRangeChange}）を返す。予定の移動・リサイズ・
- * 既定即時作成・削除の確定後、および明示的に配線した場合はビュー変更後に、
- * 中央メッセージカタログ（`messages.announcer`、`messages` オプションで部分上書き可）の
- * 文言を live region へ通知する。
+ * `CalendarProvider` の `callbacks` をラップするヘルパー
+ * （{@link UseCalendarAnnouncerResult.wrapCallbacks}）を返し、加えて `calendar` の
+ * 状態変更を内部で購読する。予定の移動・リサイズ・既定即時作成・削除の確定後、
+ * および `announce.viewChange: true` を指定した場合はビュー・基準日・表示範囲の
+ * 変更後（マウント後の変化のみ。初期マウント自体は通知しない）に、中央メッセージ
+ * カタログ（`messages.announcer`、`messages` オプションで部分上書き可）の文言を
+ * live region へ通知する。
  *
  * カスタムの `onSelectRange`（ダイアログ等）を使う経路では作成が確定したかどうかを
  * アプリ側しか把握できないため自動通知しない。作成確定時に
@@ -222,7 +223,7 @@ function currentCtx(calendar: UseCalendarResult): AnnouncerContext {
  * ```tsx
  * function App() {
  *   const calendar = useCalendar();
- *   const announcer = useCalendarAnnouncer({ calendar });
+ *   const announcer = useCalendarAnnouncer({ calendar, announce: { viewChange: true } });
  *   return (
  *     <div>
  *       <div {...announcer.liveRegionProps}>{announcer.message}</div>
@@ -240,8 +241,9 @@ export function useCalendarAnnouncer(
   const politeness = options.politeness ?? 'polite';
 
   // document リスナー等は持たないが、他のフック（use-calendar-shortcuts.ts 等）と
-  // 同じく ref 経由で最新値を参照する。wrapCallbacks/wrapRangeChange を安定した
-  // 関数参照（useCallback の空配列依存）で返すため。
+  // 同じく ref 経由で最新値を参照する。wrapCallbacks を安定した関数参照
+  // （useCallback の空配列依存）で返すため、また下記のビュー変更購読 effect からも
+  // 呼び出し時点の最新値を参照するため。
   const calendarRef = useRef(options.calendar);
   calendarRef.current = options.calendar;
   const messagesRef = useRef(options.messages);
@@ -345,29 +347,66 @@ export function useCalendarAnnouncer(
     [announce],
   );
 
-  const wrapRangeChange = useCallback(
-    (onRangeChange?: (info: CalendarRangeChangeInfo) => void) => {
-      return (info: CalendarRangeChangeInfo) => {
-        onRangeChange?.(info);
-        const ctx = currentCtx(calendarRef.current);
-        const catalog = resolveMessageCatalog(ctx.locale, messagesRef.current);
-        const title = formatViewTitle(
-          info.view,
-          info.currentDate,
-          { start: info.rangeStart, end: info.rangeEnd },
-          ctx.timeZone,
-          ctx.locale,
-        );
-        announce(catalog.announcer.viewChanged(info, title));
+  // ビュー・基準日・表示範囲の変更を検知する内部購読。`calendar.api` に対して
+  // マウント後（`useEffect` 内）に 1 度だけ登録し、以後は `api.subscribe` の
+  // 通知のたびに現在値を前回値と比較する。マウント時点の値は「比較の基準値」
+  // としてのみ記録し、通知は行わない（この effect 自身の初回実行では
+  // announce しない）。`viewChange` が `false`（既定）の間も購読自体は張ったまま
+  // にする（判定はコールバック内で行う。`targetsRef` を後から `true` へ切り替えた
+  // 場合に、切り替え後の最初の変化から正しく検知できるようにするため）。
+  useEffect(() => {
+    const api = options.calendar.api;
+
+    /** 比較対象のスナップショットを現在の状態から作る。 */
+    const snapshot = () => {
+      const state = api.getState();
+      const range = api.getVisibleRange();
+      return {
+        view: state.view,
+        currentDate: state.currentDate,
+        rangeStart: range.start,
+        rangeEnd: range.end,
       };
-    },
-    [announce],
-  );
+    };
+
+    let previous = snapshot();
+
+    const unsubscribe = api.subscribe(() => {
+      const next = snapshot();
+      const changed =
+        next.view !== previous.view ||
+        next.currentDate.getTime() !== previous.currentDate.getTime() ||
+        next.rangeStart.getTime() !== previous.rangeStart.getTime() ||
+        next.rangeEnd.getTime() !== previous.rangeEnd.getTime();
+      previous = next;
+      if (!changed || targetsRef.current?.viewChange !== true) {
+        return;
+      }
+      const ctx = currentCtx(calendarRef.current);
+      const catalog = resolveMessageCatalog(ctx.locale, messagesRef.current);
+      const info: CalendarRangeChangeInfo = {
+        view: next.view,
+        currentDate: next.currentDate,
+        rangeStart: next.rangeStart,
+        rangeEnd: next.rangeEnd,
+      };
+      const title = formatViewTitle(
+        info.view,
+        info.currentDate,
+        { start: info.rangeStart, end: info.rangeEnd },
+        ctx.timeZone,
+        ctx.locale,
+      );
+      announce(catalog.announcer.viewChanged(info, title));
+    });
+
+    return unsubscribe;
+  }, [options.calendar.api, announce]);
 
   const liveRegionProps = useMemo(() => buildLiveRegionProps(politeness), [politeness]);
 
   return useMemo(
-    () => ({ liveRegionProps, message, announce, wrapCallbacks, wrapRangeChange }),
-    [liveRegionProps, message, announce, wrapCallbacks, wrapRangeChange],
+    () => ({ liveRegionProps, message, announce, wrapCallbacks }),
+    [liveRegionProps, message, announce, wrapCallbacks],
   );
 }

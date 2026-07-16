@@ -597,129 +597,149 @@ describe('useCalendarAnnouncer', () => {
     });
   });
 
-  describe('wrapRangeChange', () => {
-    const VIEWS_WITH_RANGES: readonly {
-      view: CalendarViewType;
-      currentDate: Date;
-      rangeStart: Date;
-      rangeEnd: Date;
-    }[] = [
-      {
-        view: 'month',
-        currentDate: new Date('2026-07-15T01:00:00Z'),
-        rangeStart: new Date('2026-06-30T15:00:00Z'),
-        rangeEnd: new Date('2026-07-31T15:00:00Z'),
-      },
-      {
-        view: 'week',
-        currentDate: new Date('2026-07-15T01:00:00Z'),
-        rangeStart: new Date('2026-07-11T15:00:00Z'),
-        rangeEnd: new Date('2026-07-18T15:00:00Z'),
-      },
-      {
-        view: 'day',
-        currentDate: new Date('2026-07-15T01:00:00Z'),
-        rangeStart: new Date('2026-07-14T15:00:00Z'),
-        rangeEnd: new Date('2026-07-15T15:00:00Z'),
-      },
-      {
-        view: 'list',
-        currentDate: new Date('2026-07-15T01:00:00Z'),
-        rangeStart: new Date('2026-07-14T15:00:00Z'),
-        rangeEnd: new Date('2026-08-13T15:00:00Z'),
-      },
-      {
-        view: 'year',
-        currentDate: new Date('2026-07-15T01:00:00Z'),
-        rangeStart: new Date('2025-12-31T15:00:00Z'),
-        rangeEnd: new Date('2026-12-31T15:00:00Z'),
-      },
-      {
-        view: 'multiMonth',
-        currentDate: new Date('2026-07-15T01:00:00Z'),
-        rangeStart: new Date('2026-06-30T15:00:00Z'),
-        rangeEnd: new Date('2026-09-30T15:00:00Z'),
-      },
-      {
-        view: 'resource',
-        currentDate: new Date('2026-07-15T01:00:00Z'),
-        rangeStart: new Date('2026-07-14T15:00:00Z'),
-        rangeEnd: new Date('2026-07-15T15:00:00Z'),
-      },
-      {
-        view: 'timeline',
-        currentDate: new Date('2026-07-15T01:00:00Z'),
-        rangeStart: new Date('2026-07-14T15:00:00Z'),
-        rangeEnd: new Date('2026-07-15T15:00:00Z'),
-      },
+  describe('ビュー変更の自動通知（calendar への内部購読）', () => {
+    const VIEWS: readonly CalendarViewType[] = [
+      'month',
+      'week',
+      'day',
+      'list',
+      'year',
+      'multiMonth',
+      'resource',
+      'timeline',
     ];
 
     it.each(
-      VIEWS_WITH_RANGES,
-    )('view=$view で formatViewTitle 相当の期間タイトルを含む既定文言で announce される', ({
-      view,
-      currentDate,
-      rangeStart,
-      rangeEnd,
-    }) => {
-      const calendar = makeCalendar();
-      const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
-      const handler = result.current.wrapRangeChange();
-      const title = formatViewTitle(
-        view,
-        currentDate,
-        { start: rangeStart, end: rangeEnd },
-        'Asia/Tokyo',
-        'ja',
+      VIEWS,
+    )('announce: { viewChange: true } のとき、view=%s への setView 後に formatViewTitle 相当の文言で announce される', (view) => {
+      // 対象の view が既定（'month'）と同じだと setView が no-op になるため、
+      // 異なる初期 view から始める
+      const initialView = view === 'week' ? 'month' : 'week';
+      const calendar = makeCalendar({ initialView });
+      const { result } = renderHook(() =>
+        useCalendarAnnouncer({ calendar, announce: { viewChange: true } }),
       );
 
       act(() => {
-        handler({ view, currentDate, rangeStart, rangeEnd });
+        calendar.api.setView(view);
       });
 
+      const state = calendar.api.getState();
+      const range = calendar.api.getVisibleRange();
+      const title = formatViewTitle(state.view, state.currentDate, range, 'Asia/Tokyo', 'ja');
       expect(result.current.message).toBe(`表示を${title}に切り替えました`);
     });
 
-    it('month ビューで具体的な文言（表示を2026年7月に切り替えました）になる', () => {
+    it('announce: { viewChange: true } のとき、goTo（基準日変更）後にも announce される', () => {
       const calendar = makeCalendar();
-      const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
-      const handler = result.current.wrapRangeChange();
+      const { result } = renderHook(() =>
+        useCalendarAnnouncer({ calendar, announce: { viewChange: true } }),
+      );
 
       act(() => {
-        handler({
-          view: 'month',
-          currentDate: new Date('2026-07-15T01:00:00Z'),
-          rangeStart: new Date('2026-06-30T15:00:00Z'),
-          rangeEnd: new Date('2026-07-31T15:00:00Z'),
+        calendar.api.goTo(new Date('2026-08-15T01:00:00Z'));
+      });
+
+      const state = calendar.api.getState();
+      const range = calendar.api.getVisibleRange();
+      const title = formatViewTitle(state.view, state.currentDate, range, 'Asia/Tokyo', 'ja');
+      expect(result.current.message).toBe(`表示を${title}に切り替えました`);
+    });
+
+    it('announce.viewChange を省略（既定 false）すると setView しても announce されない', () => {
+      const calendar = makeCalendar();
+      const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
+
+      act(() => {
+        calendar.api.setView('week');
+      });
+
+      expect(result.current.message).toBe('');
+    });
+
+    it('announce: { viewChange: false } を明示指定した場合も同様に announce されない', () => {
+      const calendar = makeCalendar();
+      const { result } = renderHook(() =>
+        useCalendarAnnouncer({ calendar, announce: { viewChange: false } }),
+      );
+
+      act(() => {
+        calendar.api.setView('week');
+      });
+
+      expect(result.current.message).toBe('');
+    });
+
+    it('初期マウント時点では announce されない（マウント後の変化のみが対象）', () => {
+      const calendar = makeCalendar();
+      const { result } = renderHook(() =>
+        useCalendarAnnouncer({ calendar, announce: { viewChange: true } }),
+      );
+
+      expect(result.current.message).toBe('');
+    });
+
+    it('ビュー・基準日・表示範囲のいずれも変わらない操作（イベント追加）では announce されない', () => {
+      const calendar = makeCalendar();
+      const { result } = renderHook(() =>
+        useCalendarAnnouncer({ calendar, announce: { viewChange: true } }),
+      );
+
+      act(() => {
+        calendar.api.createEvent({
+          title: '新規予定',
+          start: new Date('2026-07-16T01:00:00Z'),
+          end: new Date('2026-07-16T02:00:00Z'),
         });
       });
 
-      expect(result.current.message).toBe('表示を2026年7月に切り替えました');
+      expect(result.current.message).toBe('');
     });
 
-    it('userHandler が先に呼ばれ、その後 announce される', () => {
+    it('messages.announcer.viewChanged を指定すると setView 後にカスタム文言・info が渡って announce される', () => {
       const calendar = makeCalendar();
-      const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
-      const userHandler = vi.fn();
-      let messageWhenUserHandlerCalled: string | undefined;
-      userHandler.mockImplementation(() => {
-        messageWhenUserHandlerCalled = result.current.message;
-      });
-      const handler = result.current.wrapRangeChange(userHandler);
-      const info: CalendarRangeChangeInfo = {
-        view: 'month',
-        currentDate: new Date('2026-07-15T01:00:00Z'),
-        rangeStart: new Date('2026-06-30T15:00:00Z'),
-        rangeEnd: new Date('2026-07-31T15:00:00Z'),
-      };
+      const viewChanged = vi.fn(
+        (_info: CalendarRangeChangeInfo, _title: string) => 'カスタム表示切替文言',
+      );
+      const messages: MessageCatalogOverrides = { announcer: { viewChanged } };
+      const { result } = renderHook(() =>
+        useCalendarAnnouncer({ calendar, announce: { viewChange: true }, messages }),
+      );
 
       act(() => {
-        handler(info);
+        calendar.api.setView('week');
       });
 
-      expect(userHandler).toHaveBeenCalledWith(info);
-      expect(messageWhenUserHandlerCalled).toBe('');
-      expect(result.current.message).toBe('表示を2026年7月に切り替えました');
+      expect(viewChanged).toHaveBeenCalledTimes(1);
+      const call = viewChanged.mock.calls[0];
+      if (call === undefined) {
+        throw new Error('viewChanged が呼ばれていません');
+      }
+      const [infoArg] = call;
+      expect(infoArg.view).toBe('week');
+      expect(result.current.message).toBe('カスタム表示切替文言');
+    });
+
+    it('announce.viewChange の切替は、次の変化から反映される（購読は張りっぱなし）', () => {
+      const calendar = makeCalendar();
+      const { result, rerender } = renderHook(
+        ({ viewChange }: { viewChange: boolean }) =>
+          useCalendarAnnouncer({ calendar, announce: { viewChange } }),
+        { initialProps: { viewChange: false } },
+      );
+
+      // viewChange: false の間は setView しても announce されない
+      act(() => {
+        calendar.api.setView('week');
+      });
+      expect(result.current.message).toBe('');
+
+      // true に切り替えた後の変化からは announce される
+      rerender({ viewChange: true });
+      act(() => {
+        calendar.api.setView('day');
+      });
+      expect(result.current.message).not.toBe('');
     });
   });
 
@@ -809,20 +829,24 @@ describe('useCalendarAnnouncer', () => {
       const calendar = makeCalendar();
       const viewChanged = vi.fn(() => 'カスタム表示切替文言');
       const messages: MessageCatalogOverrides = { announcer: { viewChanged } };
-      const { result } = renderHook(() => useCalendarAnnouncer({ calendar, messages }));
-      const handler = result.current.wrapRangeChange();
-      const info: CalendarRangeChangeInfo = {
-        view: 'month',
-        currentDate: new Date('2026-07-15T01:00:00Z'),
-        rangeStart: new Date('2026-06-30T15:00:00Z'),
-        rangeEnd: new Date('2026-07-31T15:00:00Z'),
-      };
+      const { result } = renderHook(() =>
+        useCalendarAnnouncer({ calendar, announce: { viewChange: true }, messages }),
+      );
 
       act(() => {
-        handler(info);
+        calendar.api.goTo(new Date('2026-07-15T01:00:00Z'));
       });
 
-      expect(viewChanged).toHaveBeenCalledWith(info, '2026年7月');
+      const state = calendar.api.getState();
+      const range = calendar.api.getVisibleRange();
+      const expectedInfo: CalendarRangeChangeInfo = {
+        view: state.view,
+        currentDate: state.currentDate,
+        rangeStart: range.start,
+        rangeEnd: range.end,
+      };
+
+      expect(viewChanged).toHaveBeenCalledWith(expectedInfo, '2026年7月');
       expect(result.current.message).toBe('カスタム表示切替文言');
     });
 
@@ -894,15 +918,14 @@ describe('useCalendarAnnouncer', () => {
   });
 
   describe('安定した関数参照', () => {
-    it('wrapCallbacks / wrapRangeChange / announce は再レンダーを跨いで同一参照を保つ', () => {
+    it('wrapCallbacks / announce は再レンダーを跨いで同一参照を保つ', () => {
       const calendar = makeCalendar();
       const { result, rerender } = renderHook(() => useCalendarAnnouncer({ calendar }));
 
-      const { wrapCallbacks, wrapRangeChange, announce } = result.current;
+      const { wrapCallbacks, announce } = result.current;
       rerender();
 
       expect(result.current.wrapCallbacks).toBe(wrapCallbacks);
-      expect(result.current.wrapRangeChange).toBe(wrapRangeChange);
       expect(result.current.announce).toBe(announce);
     });
   });

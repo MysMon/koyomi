@@ -261,7 +261,7 @@ describe('useTimelineDrag - 移動・リサイズ', () => {
       resourceId: 'crane-2',
       // 単発イベントの移動では、変更前（event）・変更後（events[0]）の
       // before/after が 1 件のみ含まれる
-      changes: [{ before: event, after: events[0] }],
+      changes: [{ before: event, after: events[0], index: 0 }],
     });
   });
 
@@ -470,7 +470,7 @@ describe('useTimelineDrag - 終日帯の日単位移動', () => {
       allDay: true,
       scope: null,
       resourceId: 'crane-1',
-      changes: [{ before: event, after: events[0] }],
+      changes: [{ before: event, after: events[0], index: 0 }],
     });
   });
 });
@@ -511,7 +511,7 @@ describe("useTimelineDrag - timelineScale !== 'hour' の日単位スナップ", 
       allDay: false,
       scope: null,
       resourceId: 'crane-1',
-      changes: [{ before: event, after: events[0] }],
+      changes: [{ before: event, after: events[0], index: 0 }],
     });
   });
 
@@ -715,7 +715,7 @@ describe('useTimelineDrag - キーボード操作', () => {
       allDay: false,
       scope: null,
       resourceId: 'crane-1',
-      changes: [{ before: event, after: events[0] }],
+      changes: [{ before: event, after: events[0], index: 0 }],
     });
   });
 
@@ -779,7 +779,7 @@ describe('useTimelineDrag - キーボード操作', () => {
       allDay: false,
       scope: null,
       resourceId: 'crane-2',
-      changes: [{ before: event, after: events[0] }],
+      changes: [{ before: event, after: events[0], index: 0 }],
     });
   });
 

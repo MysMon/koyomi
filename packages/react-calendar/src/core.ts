@@ -60,11 +60,13 @@ export {
 // イベント変更の純粋関数
 export {
   applyEventChangeEntries,
+  applyEventChangeEntriesWithApplied,
   applyPatch,
   type CreateEventResult,
   createEventIn,
   deleteEventIn,
   deleteEventInWithChanges,
+  type EventChangeApplyResult,
   type EventChangeDirection,
   type EventChangeEntry,
   type EventMutationResult,

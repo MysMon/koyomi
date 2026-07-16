@@ -655,10 +655,12 @@ describe('createCalendar', () => {
       const created = calendar.createEvent({ title: 'a', start: '2026-07-15T13:00' });
 
       const updateChanges = calendar.updateEvent(created.id, { title: 'b' });
-      expect(updateChanges).toEqual([{ before: created, after: { ...created, title: 'b' } }]);
+      expect(updateChanges).toEqual([
+        { before: created, after: { ...created, title: 'b' }, index: 0 },
+      ]);
 
       const deleteChanges = calendar.deleteEvent(created.id);
-      expect(deleteChanges).toEqual([{ before: { ...created, title: 'b' } }]);
+      expect(deleteChanges).toEqual([{ before: { ...created, title: 'b' }, index: 0 }]);
       expect(calendar.getEvents()).toEqual([]);
     });
 

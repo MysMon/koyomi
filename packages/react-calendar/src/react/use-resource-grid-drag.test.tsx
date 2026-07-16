@@ -298,7 +298,7 @@ describe('useResourceGridDrag - 移動・リサイズ', () => {
       resourceId: 'room-b',
       // 単発イベントの移動では、変更前（event）・変更後（events[0]）の
       // before/after が 1 件のみ含まれる
-      changes: [{ before: event, after: events[0] }],
+      changes: [{ before: event, after: events[0], index: 0 }],
     });
   });
 
@@ -599,7 +599,7 @@ describe('useResourceGridDrag - 終日アイテムの列間移動', () => {
       allDay: true,
       scope: null,
       resourceId: 'room-b',
-      changes: [{ before: event, after: events[0] }],
+      changes: [{ before: event, after: events[0], index: 0 }],
     });
   });
 });
@@ -637,7 +637,7 @@ describe('useResourceGridDrag - キーボード操作', () => {
       allDay: false,
       scope: null,
       resourceId: 'room-a',
-      changes: [{ before: event, after: events[0] }],
+      changes: [{ before: event, after: events[0], index: 0 }],
     });
   });
 
@@ -697,7 +697,7 @@ describe('useResourceGridDrag - キーボード操作', () => {
       allDay: false,
       scope: null,
       resourceId: 'room-b',
-      changes: [{ before: event, after: events[0] }],
+      changes: [{ before: event, after: events[0], index: 0 }],
     });
   });
 

@@ -414,7 +414,7 @@ describe('useTimeGridDrag', () => {
       scope: null,
       // 単発イベントの移動では、変更前（event）・変更後（events[0]）の
       // before/after が 1 件のみ含まれる
-      changes: [{ before: event, after: events[0] }],
+      changes: [{ before: event, after: events[0], index: 0 }],
     });
   });
 
@@ -950,7 +950,7 @@ describe('useTimeGridDrag', () => {
       scope: null,
       // 単発イベントの削除では、削除前のイベント（event）のみが before として
       // 1 件含まれる（after は持たない）
-      changes: [{ before: event }],
+      changes: [{ before: event, index: 0 }],
     });
   });
 
@@ -982,7 +982,7 @@ describe('useTimeGridDrag', () => {
     expect(onEventDelete).toHaveBeenCalledWith({
       occurrence: expect.objectContaining({ eventId: 'recurring-delete-notify' }),
       scope: 'this',
-      changes: [{ before: event, after: events[0] }],
+      changes: [{ before: event, after: events[0], index: 0 }],
     });
   });
 
@@ -1087,7 +1087,7 @@ describe('useTimeGridDrag', () => {
       newRange: { start: at(`${TUE}T10:15`), end: at(`${TUE}T11:15`) },
       allDay: false,
       scope: null,
-      changes: [{ before: event, after: events[0] }],
+      changes: [{ before: event, after: events[0], index: 0 }],
     });
   });
 
@@ -1412,7 +1412,7 @@ describe('useTimeGridDrag - 終日行への変換ドラッグ', () => {
       newRange: { start: at(`${TUE}T00:00`), end: at(`${WED}T00:00`) },
       allDay: true,
       scope: null,
-      changes: [{ before: event, after: events[0] }],
+      changes: [{ before: event, after: events[0], index: 0 }],
     });
   });
 
@@ -1512,7 +1512,7 @@ describe('useTimeGridDrag - 終日行への変換ドラッグ', () => {
       newRange: { start: at(`${TUE}T12:00`), end: at(`${TUE}T13:00`) },
       allDay: false,
       scope: null,
-      changes: [{ before: event, after: events[0] }],
+      changes: [{ before: event, after: events[0], index: 0 }],
     });
   });
 

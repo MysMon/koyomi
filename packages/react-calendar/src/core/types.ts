@@ -259,6 +259,14 @@ export interface EventChangeEntry {
   before?: CalendarEvent;
   /** 変更後のイベント。削除の場合は存在しない。 */
   after?: CalendarEvent;
+  /**
+   * 変更前の一覧内での位置（`before` を持つエントリ）。新規作成のみ（`before`
+   * を持たない）のエントリは変更後の一覧内での位置。
+   *
+   * `applyEventChangeEntries`（undo/redo）が削除の取り消し・作成のやり直しで
+   * 挿入位置を復元するために使う。省略時は末尾に挿入される。
+   */
+  index?: number;
 }
 
 // ---------------------------------------------------------------------------

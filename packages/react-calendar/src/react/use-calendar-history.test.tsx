@@ -79,7 +79,10 @@ describe('useCalendarHistory', () => {
   });
 
   it('limitオプションを超えるpushで最古のエントリが破棄される', () => {
-    const calendar = makeCalendar([]);
+    // undo（'before' 方向）は creation-only エントリの対象 id が現在の一覧に
+    // 存在することを前提にする（presence-only のドリフト検出）ため、
+    // 実際に a/b を含む状態から始める
+    const calendar = makeCalendar([ev('a'), ev('b')]);
     const { result } = renderHook(() => useCalendarHistory({ calendar, limit: 1 }));
 
     act(() => {

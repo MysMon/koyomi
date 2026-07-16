@@ -64,14 +64,14 @@ Koyomi の各ビューが実装している WAI-ARIA パターン、キーボー
 
 ## 変更の読み上げ通知（useCalendarAnnouncer）
 
-予定の移動・リサイズ・既定即時作成・削除、およびビュー・基準日・表示範囲の変更を `aria-live` リージョンで通知したい場合は `useCalendarAnnouncer` フックが使えます。`CalendarProvider` の `callbacks` と `useCalendar` の `onRangeChange` をラップするヘルパーを返す、opt-in のヘッドレスなフックです。
+予定の移動・リサイズ・既定即時作成・削除、およびビュー・基準日・表示範囲の変更を `aria-live` リージョンで通知したい場合は `useCalendarAnnouncer` フックが使えます。`CalendarProvider` の `callbacks` をラップするヘルパーを返し、加えて `calendar` の状態変更を内部で購読する、opt-in のヘッドレスなフックです。
 
 ```tsx
 import { CalendarProvider, CalendarView, useCalendar, useCalendarAnnouncer } from '@koyomi-cal/react';
 
 function App() {
   const calendar = useCalendar();
-  const announcer = useCalendarAnnouncer({ calendar });
+  const announcer = useCalendarAnnouncer({ calendar, announce: { viewChange: true } });
 
   return (
     <div>
@@ -86,12 +86,14 @@ function App() {
 // 期待される動作:
 // - 予定をドラッグ移動すると announcer.message が「会議 を 7月16日 10:00〜11:00 に
 //   移動しました」のような日本語文言に更新される
+// - ビューを切り替えると（announce.viewChange: true のため）announcer.message が
+//   「表示を2026年7月に切り替えました」のような文言に更新される
 // - live region 要素（role="status" aria-live="polite"）はデフォルトテーマの sr-only
 //   スタイルで視覚的には非表示になる
 ```
 
 - **自動通知の対象** — `wrapCallbacks` でラップした `onEventChange`（移動・リサイズ・終日⇔時間指定変換）・`onEventDelete`（キーボード削除）・`onSelectRange` 未指定時の既定即時作成、いずれも確定後に通知します（`announce` オプションの `eventChange` / `eventCreate` / `eventDelete` で個別に無効化できます。既定はすべて `true`）。**カスタムの `onSelectRange`（ダイアログ等）を使う経路では、作成が確定したかどうかをアプリ側しか把握できないため自動通知しません**。作成確定時に `announcer.announce(text)` を手動で呼んでください
-- **ビュー変更の通知** — `wrapRangeChange` で `useCalendar({ onRangeChange: announcer.wrapRangeChange(onRangeChange) })` のように配線すると、ビュー・基準日・表示範囲の変更後に通知されます（`useCalendar` の `onRangeChange` は登録枠が 1 つのみのため、明示的に合成します）
+- **ビュー変更の通知** — `announce: { viewChange: true }` を指定すると、`calendar` への内部購読によってビュー・基準日・表示範囲の変更後（マウント後の変化のみ。初期マウント自体は通知しません）に自動で通知されます。他の 3 項目と異なり**既定は `false`**（opt-in）です。配線に `useCalendar` の `onRangeChange` は不要です（内部で `calendar.api.subscribe` を直接購読するため、`useCalendar` の `onRangeChange` 枠とは独立です）
 - **`politeness`**（既定 `'polite'`）— `'assertive'` にすると `role="alert"` / `aria-live="assertive"` になります
 - **通知文言** — `calendar` の `state.options.locale` から自動的に中央メッセージカタログ（`messages.announcer`）が解決されるため、`useCalendar` の `locale` を切り替えれば通知文言も追従します。`messages`（`MessageCatalogOverrides`）を渡すと `announcer` グループの文言を部分的に上書きできます（`CalendarProvider` の `messages` prop とは独立して解決されるため、揃えたい場合は同じ値を両方に渡してください）。カスタム関数は `eventChanged(change, verb, rangeLabel, resourceLabel)` のように、既に整形済みの日時範囲ラベル・リソース名・変更種別（`EventChangeVerb`）を直接受け取って全文を組み立てます。詳細は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照してください
 - 同一文言の連続通知（同じ予定を同じ内容で 2 回移動した場合等）でも、末尾に不可視トークンが交互に付くことでスクリーンリーダーが再読み上げできます

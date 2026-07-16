@@ -8,7 +8,7 @@
  * 既存仕様のため、適用自体が新たな履歴を生まない）。
  */
 
-import { applyEventChangeEntries } from './mutations';
+import { applyEventChangeEntriesWithApplied } from './mutations';
 import type { CalendarApi, EventChangeEntry } from './types';
 
 /** {@link createEventHistory} のオプション。 */
@@ -29,9 +29,23 @@ export interface CalendarEventHistory {
    * redo スタックは破棄される。
    */
   push(changes: readonly EventChangeEntry[]): void;
-  /** 直前の操作を取り消す。適用した場合は `true`、対象がない場合は `false`。 */
+  /**
+   * 直前の操作を取り消す。
+   *
+   * 1 件以上のエントリを適用できた場合は `true`。対象がない場合、または
+   * すべてのエントリがドリフト（対象イベントの不在・想定外の存在）により
+   * スキップされた場合は `false` を返す。後者の場合、そのエントリは
+   * 履歴（undo スタック）から破棄され、redo スタックへは積まれない。
+   */
   undo(): boolean;
-  /** 取り消した操作をやり直す。適用した場合は `true`、対象がない場合は `false`。 */
+  /**
+   * 取り消した操作をやり直す。
+   *
+   * 1 件以上のエントリを適用できた場合は `true`。対象がない場合、または
+   * すべてのエントリがドリフトによりスキップされた場合は `false` を返す。
+   * 後者の場合、そのエントリは履歴（redo スタック）から破棄され、undo
+   * スタックへは積まれない。
+   */
   redo(): boolean;
   /** undo 可能かどうか。 */
   canUndo(): boolean;
@@ -70,9 +84,12 @@ function normalizeLimit(limit: number | undefined): number {
  * @returns {@link CalendarEventHistory}
  *
  * @remarks
- * - `undo` / `redo` は {@link applyEventChangeEntries} を `api.getEvents()` の
- *   呼び出し時点の内容に適用し、結果を `api.setEvents()` に渡す。対象イベントが
- *   想定と食い違うエントリ（presence-only のドリフト検出）は安全にスキップされる
+ * - `undo` / `redo` は {@link applyEventChangeEntriesWithApplied} を `api.getEvents()`
+ *   の呼び出し時点の内容に適用し、1 件以上適用できた場合のみ結果を `api.setEvents()`
+ *   に渡す。対象イベントが想定と食い違うエントリ（presence-only のドリフト検出）は
+ *   安全にスキップされる。1 件も適用できなかった場合はそのエントリを履歴から破棄し
+ *   `setEvents` は呼ばない。一部のみ適用できた場合は、実際に適用できたエントリだけを
+ *   反対のスタック（undo → redo、redo → undo）に積む
  * - `api.subscribe` は監視しない。`setEvents` 以外の要因による状態変化の
  *   自動的なドリフト検出は行わない
  *
@@ -99,9 +116,28 @@ export function createEventHistory(options: CalendarEventHistoryOptions): Calend
     }
   }
 
-  /** スタックから取り出した 1 履歴単位を指定方向へ適用し、`api.setEvents` に渡す。 */
-  function apply(changes: readonly EventChangeEntry[], direction: 'before' | 'after'): void {
-    api.setEvents(applyEventChangeEntries(api.getEvents(), changes, direction));
+  /**
+   * スタックから取り出した 1 履歴単位を指定方向へ適用する。
+   *
+   * 1 件も適用できなかった場合は `api.setEvents` を呼ばず `false` を返す
+   * （そのエントリは呼び出し側でスタックから破棄済み・積み直さない）。
+   * 1 件以上適用できた場合は `api.setEvents` を呼び、実際に適用できたエントリ
+   * （`applied`）を返す（呼び出し側が反対のスタックへ積む）。
+   */
+  function apply(
+    changes: readonly EventChangeEntry[],
+    direction: 'before' | 'after',
+  ): readonly EventChangeEntry[] | undefined {
+    const { events, applied } = applyEventChangeEntriesWithApplied(
+      api.getEvents(),
+      changes,
+      direction,
+    );
+    if (applied.length === 0) {
+      return undefined;
+    }
+    api.setEvents(events);
+    return applied;
   }
 
   return {
@@ -121,9 +157,15 @@ export function createEventHistory(options: CalendarEventHistoryOptions): Calend
       if (changes === undefined) {
         return false;
       }
+      // 適用の成否によらず、このエントリはスタックから取り除く
+      // （1 件も適用できなかった場合はそのまま破棄し、積み直さない）
       undoStack = undoStack.slice(0, -1);
-      apply(changes, 'before');
-      redoStack = [...redoStack, changes];
+      const applied = apply(changes, 'before');
+      if (applied === undefined) {
+        notify();
+        return false;
+      }
+      redoStack = [...redoStack, applied];
       notify();
       return true;
     },
@@ -134,8 +176,12 @@ export function createEventHistory(options: CalendarEventHistoryOptions): Calend
         return false;
       }
       redoStack = redoStack.slice(0, -1);
-      apply(changes, 'after');
-      undoStack = [...undoStack, changes];
+      const applied = apply(changes, 'after');
+      if (applied === undefined) {
+        notify();
+        return false;
+      }
+      undoStack = [...undoStack, applied];
       notify();
       return true;
     },

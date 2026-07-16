@@ -221,7 +221,7 @@ export function formatWeekday(weekday: Weekday, locale: string): string {
 /**
  * 現在のビューに応じた期間タイトルを整形する。
  *
- * `Toolbar` の見出しと `useCalendarAnnouncer` の既定のビュー変更通知（`wrapRangeChange`）の
+ * `Toolbar` の見出しと `useCalendarAnnouncer` の既定のビュー変更通知（`announce.viewChange`）の
  * 両方から共通で使う。
  *
  * @param view - 対象のビュー

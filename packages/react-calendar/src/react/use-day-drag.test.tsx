@@ -1606,7 +1606,7 @@ describe('useDayDrag - onEventDelete 通知', () => {
       scope: null,
       // 単発イベントの削除では、削除前のイベント（created）のみが before として
       // 1 件含まれる（after は持たない）
-      changes: [{ before: created }],
+      changes: [{ before: created, index: 0 }],
     });
   });
 
@@ -1654,7 +1654,7 @@ describe('useDayDrag - onEventDelete 通知', () => {
       scope: 'all',
       // scope: 'all' はマスター（created）自体を削除する。オーバーライドは
       // 存在しないため、changes はマスターの before のみの 1 件になる
-      changes: [{ before: created }],
+      changes: [{ before: created, index: 0 }],
     });
   });
 
@@ -2439,7 +2439,7 @@ describe('useDayDrag - 時間グリッドへの変換ドラッグ', () => {
       scope: null,
       // 単発イベントの変換では、変更前（created）・変更後（updated）の
       // before/after が 1 件のみ含まれる
-      changes: [{ before: created, after: updated }],
+      changes: [{ before: created, after: updated, index: 0 }],
     });
   });
 

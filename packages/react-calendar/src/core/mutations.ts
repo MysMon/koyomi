@@ -1134,6 +1134,11 @@ function isEventStructurallyEqual(a: CalendarEvent, b: CalendarEvent): boolean {
  * 場合は {@link isEventStructurallyEqual} で値としての差分の有無も確認し、値も同一なら
  * 「影響を受けていない」として changes に含めない。
  *
+ * `index`（{@link EventChangeEntry.index}）は、`before` を持つエントリ（削除・更新）
+ * には `before` 配列内での位置を、新規作成のみ（`before` なし）のエントリには
+ * `after` 配列内での位置を記録する。undo（削除の取り消し）・redo（作成のやり直し）
+ * が挿入位置を復元するために使う。
+ *
  * @param before - 操作前のイベント配列
  * @param after - 操作後のイベント配列
  * @returns 影響を受けた各イベントの before/after 一覧（順序は保証しない）
@@ -1145,19 +1150,21 @@ function diffEventChanges(
   const beforeById = new Map(before.map((event) => [event.id, event]));
   const afterById = new Map(after.map((event) => [event.id, event]));
   const changes: EventChangeEntry[] = [];
-  for (const [id, beforeEvent] of beforeById) {
-    const afterEvent = afterById.get(id);
+  // before 配列を添字付きで走査することで、Map.get の戻り値型（number | undefined）を
+  // 経由せず index を number として直接記録できる
+  before.forEach((beforeEvent, index) => {
+    const afterEvent = afterById.get(beforeEvent.id);
     if (afterEvent === undefined) {
-      changes.push({ before: beforeEvent });
+      changes.push({ before: beforeEvent, index });
     } else if (afterEvent !== beforeEvent && !isEventStructurallyEqual(beforeEvent, afterEvent)) {
-      changes.push({ before: beforeEvent, after: afterEvent });
+      changes.push({ before: beforeEvent, after: afterEvent, index });
     }
-  }
-  for (const [id, afterEvent] of afterById) {
-    if (!beforeById.has(id)) {
-      changes.push({ after: afterEvent });
+  });
+  after.forEach((afterEvent, index) => {
+    if (!beforeById.has(afterEvent.id)) {
+      changes.push({ after: afterEvent, index });
     }
-  }
+  });
   return changes;
 }
 
@@ -1338,6 +1345,105 @@ export function moveOccurrenceInWithChanges(
 export type EventChangeDirection = 'before' | 'after';
 
 /**
+ * {@link applyEventChangeEntries} / {@link applyEventChangeEntriesWithApplied} の
+ * 適用結果。
+ */
+export interface EventChangeApplyResult {
+  /** 適用後のイベント一覧。 */
+  events: CalendarEvent[];
+  /**
+   * 実際に適用された（ドリフトによりスキップされなかった）エントリの一覧。
+   * `changes` と同じ順序の部分列になる。
+   */
+  applied: EventChangeEntry[];
+}
+
+/**
+ * changes の各エントリを、現在のイベント一覧に対して before/after いずれかの
+ * 方向へ適用する（{@link applyEventChangeEntries} / {@link applyEventChangeEntriesWithApplied}
+ * の共通実装）。
+ *
+ * - `direction: 'before'` → 変更前の状態へ戻す（取り消し／undo）
+ * - `direction: 'after'` → 変更後の状態を適用する（やり直し／redo、または再現）
+ *
+ * 適用直前に期待する現在の状態（`'before'` 方向なら `after` が、`'after'` 方向なら
+ * `before` が、現在の一覧に存在するはず）と食い違うエントリ（対象イベントが既に
+ * 消えている／想定外に存在している）は安全にスキップし、他のエントリの適用は
+ * 継続する。存在の有無のみを見る判定であり、値の内容までは比較しない
+ * （presence-only）。
+ *
+ * 現在の一覧に存在しない id を新たに書き込む（削除の取り消し・作成のやり直し）
+ * 場合は、そのエントリの {@link EventChangeEntry.index} が指す位置
+ * （`Math.min(index, 現在の要素数)`。省略時は末尾）に挿入する。複数の挿入がある
+ * 場合は `index` の昇順に処理して安定した順序にする。既存 id への書き込み（内容の
+ * 更新）は元の位置を維持する。
+ *
+ * 入力の `events` 配列・各イベントは変更しない（純粋関数）。
+ */
+function applyEventChangeEntriesCore(
+  events: readonly CalendarEvent[],
+  changes: readonly EventChangeEntry[],
+  direction: EventChangeDirection,
+): EventChangeApplyResult {
+  const byId = new Map(events.map((event) => [event.id, event]));
+  const applied: EventChangeEntry[] = [];
+  // 現在の一覧に存在しなかった id への書き込み（挿入）とその挿入位置。
+  // 同じバッチ内で同じ id が「削除→挿入」を繰り返す場合は最後の状態を採用する
+  const insertions = new Map<EventId, number | undefined>();
+
+  for (const change of changes) {
+    const expected = direction === 'before' ? change.after : change.before;
+    const write = direction === 'before' ? change.before : change.after;
+    // before/after は同じイベントの id を共有するため、どちらか定義されている方から取れる
+    const id = expected?.id ?? write?.id;
+    if (id === undefined) {
+      continue;
+    }
+    const shouldBePresent = expected !== undefined;
+    const isPresent = byId.has(id);
+    if (shouldBePresent !== isPresent) {
+      // ドリフト: 対象イベントが既に消えている、または想定外に存在しているためスキップ
+      continue;
+    }
+    applied.push(change);
+    if (write === undefined) {
+      byId.delete(id);
+      insertions.delete(id);
+    } else {
+      byId.set(id, write);
+      if (!isPresent) {
+        insertions.set(id, change.index);
+      }
+    }
+  }
+
+  // 挿入扱いではない既存 id（一覧に存在し続けている id）を元の順序で並べたベース配列
+  const base: CalendarEvent[] = [];
+  for (const event of events) {
+    if (!insertions.has(event.id)) {
+      const current = byId.get(event.id);
+      if (current !== undefined) {
+        base.push(current);
+      }
+    }
+  }
+
+  // 挿入は index 昇順に処理して安定させる（index 省略時は末尾扱い）
+  const orderedInsertions = [...insertions].sort(
+    ([, a], [, b]) => (a ?? Number.POSITIVE_INFINITY) - (b ?? Number.POSITIVE_INFINITY),
+  );
+  for (const [id, index] of orderedInsertions) {
+    const value = byId.get(id);
+    if (value === undefined) {
+      continue;
+    }
+    base.splice(Math.min(index ?? base.length, base.length), 0, value);
+  }
+
+  return { events: base, applied };
+}
+
+/**
  * changes の各エントリを、現在のイベント一覧に対して before/after いずれかの
  * 方向へ適用する。
  *
@@ -1348,7 +1454,12 @@ export type EventChangeDirection = 'before' | 'after';
  * `before` が、現在の一覧に存在するはず）と食い違うエントリ（対象イベントが既に
  * 消えている／想定外に存在している）は安全にスキップし、他のエントリの適用は
  * 継続する。存在の有無のみを見る判定であり、値の内容までは比較しない
- * （presence-only）。入力の `events` 配列・各イベントは変更しない（純粋関数）。
+ * （presence-only）。削除の取り消し・作成のやり直しで新たに書き込まれるイベントは
+ * {@link EventChangeEntry.index} の位置に挿入される（省略時は末尾）。
+ * 入力の `events` 配列・各イベントは変更しない（純粋関数）。
+ *
+ * 何件のエントリが実際に適用されたかを知りたい場合は
+ * {@link applyEventChangeEntriesWithApplied} を使う。
  *
  * @remarks
  * presence-only のため、同じ `id` のイベントが `changes` 記録後に（この関数を経由しない
@@ -1374,26 +1485,25 @@ export function applyEventChangeEntries(
   changes: readonly EventChangeEntry[],
   direction: EventChangeDirection,
 ): CalendarEvent[] {
-  const byId = new Map(events.map((event) => [event.id, event]));
-  for (const change of changes) {
-    const expected = direction === 'before' ? change.after : change.before;
-    const write = direction === 'before' ? change.before : change.after;
-    // before/after は同じイベントの id を共有するため、どちらか定義されている方から取れる
-    const id = expected?.id ?? write?.id;
-    if (id === undefined) {
-      continue;
-    }
-    const shouldBePresent = expected !== undefined;
-    const isPresent = byId.has(id);
-    if (shouldBePresent !== isPresent) {
-      // ドリフト: 対象イベントが既に消えている、または想定外に存在しているためスキップ
-      continue;
-    }
-    if (write === undefined) {
-      byId.delete(id);
-    } else {
-      byId.set(id, write);
-    }
-  }
-  return [...byId.values()];
+  return applyEventChangeEntriesCore(events, changes, direction).events;
+}
+
+/**
+ * {@link applyEventChangeEntries} の拡張版。適用後のイベント一覧に加えて、
+ * 実際に適用された（ドリフトによりスキップされなかった）エントリの一覧も返す。
+ *
+ * 1 件も適用されなかったかどうか（`applied.length === 0`）を undo/redo 側が
+ * 判定するために使う（{@link createEventHistory} の実装を参照）。
+ *
+ * @param events - 現在のイベント一覧
+ * @param changes - 適用する変更（{@link EventChangeEntry} の一覧）
+ * @param direction - 適用する方向
+ * @returns 適用後のイベント一覧と、実際に適用されたエントリの一覧
+ */
+export function applyEventChangeEntriesWithApplied(
+  events: readonly CalendarEvent[],
+  changes: readonly EventChangeEntry[],
+  direction: EventChangeDirection,
+): EventChangeApplyResult {
+  return applyEventChangeEntriesCore(events, changes, direction);
 }
