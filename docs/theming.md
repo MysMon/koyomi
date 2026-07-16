@@ -31,13 +31,13 @@ import '@koyomi-cal/react/theme.css';
 | `--koyomi-bg` | 背景色 | `#ffffff` |
 | `--koyomi-fg` | 文字色 | `#1b2028` |
 | `--koyomi-border` | 罫線色 | `#e6e8ef` |
-| `--koyomi-muted` | 補助テキスト色（曜日ラベル・時刻ラベルなど） | `#6b7280` |
+| `--koyomi-muted` | 補助テキスト色（曜日ラベル・時刻ラベルなど） | `#606974` |
 | `--koyomi-accent` | アクセント色（選択中のビュー・今日の日付など） | `#14608f` |
 | `--koyomi-today-bg` | 「今日」のセル背景色 | `#e8f1f8` |
 | `--koyomi-event-color` | イベントの既定色。`event.color` を持つイベントは要素に inline で同名の変数が設定され、そちらが優先される | `#14608f` |
 | `--koyomi-event-fg` | アクセント塗りつぶし面（「今日」の日付マーカーなど）の文字色 | `#ffffff` |
 | `--koyomi-event-tint` | イベントチップの背景色に混ぜるイベント色の割合。チップは「淡色背景＋濃色文字」で描画され、淡色背景は `color-mix(in srgb, イベント色 var(--koyomi-event-tint), var(--koyomi-bg))` で合成される | `14%` |
-| `--koyomi-event-ink` | イベントチップの文字色に混ぜるイベント色の割合（残りは `--koyomi-fg` 側） | `78%` |
+| `--koyomi-event-ink` | イベントチップの文字色に混ぜるイベント色の割合（残りは `--koyomi-fg` 側） | `65%` |
 | `--koyomi-shadow` | 持ち上がり要素（選択中のビューセグメント・ホバー中のチップなど）の影 | 弱い 2 層のドロップシャドウ |
 | `--koyomi-radius` | 角丸の半径（ボタン・イベント共通） | `6px` |
 | `--koyomi-font-size` | 基準フォントサイズ | `13px` |
