@@ -26,6 +26,7 @@
 - [アクセシビリティ](./docs/accessibility.md)
 - [タイムゾーン](./docs/timezones.md)
 - [テーマとスタイリング](./docs/theming.md)
+- [カスタマイズガイド](./docs/customization.md)
 - [API リファレンス](./docs/api.md)
 
 ## インストール

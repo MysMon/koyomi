@@ -305,7 +305,7 @@ console.log(eventEl?.style.getPropertyValue('--koyomi-event-color')); // => '#e6
   - `[data-koyomi="resource-column"]`（リソースビュー本体のイベント・目盛り・プレビュー・現在時刻線の基準。`timegrid-day` と同じ役割）
   - `[data-koyomi="timeline-row"]`（タイムラインビューの帯 `timeline-item`・営業時間帯 `timeline-business-hours`・プレビュー・現在時刻線（縦線）の基準）
 - **逆に、日セルを positioned にしないでください**: 月ビューの帯（`month-event`）・終日行の帯（`allday-event`）は、複数日にまたがっても DOM 上は**開始日のセル（`month-day` / `allday-cell`）の子**として描画されます（アクセシビリティ上の所有関係の要請）。帯の % 座標は上記の週行/セル列コンテナ（`month-week` / `allday-cells`）を基準に計算されているため、セル自体に `position: relative` 等を当てると帯の基準がセルに変わり、複数日の帯が 1 セル幅に潰れて壊れます。バッジ等をセル内で絶対配置したい場合は、セルではなく `renderDayCell` で差し込む自前のラッパー要素に `position: relative` を当ててください。
-- **`renderDayCell` の `defaultContent` を positioned な自前ラッパーの内側に入れないでください**: 月ビューの「+N 件」ボタン（`month-overflow`）も `month-event` と同じ方式で絶対配置され（positioned ancestor は `month-day` ではなく `month-week`）、`insetInlineStart` / `width` はその週の可視列数を基準にした % で計算されています。`defaultContent`（`month-day-number` と `month-overflow` を含む）を `position: relative` な自前のラッパー要素で丸ごと囲むと、`month-overflow` の絶対配置がその自前ラッパー基準に変わってしまい、% がセル 1 個分の幅に対する割合として解決されるため配置が崩れます。バッジ等の装飾で positioned なラッパーが必要な場合は、`defaultContent` とは別の兄弟要素として差し込んでください（`defaultContent` 自体はラップせずそのまま返す）。
+- **`renderDayCell` の `ctx.defaultContent` を positioned な自前ラッパーの内側に入れないでください**: 月ビューの「+N 件」ボタン（`month-overflow`）も `month-event` と同じ方式で絶対配置され（positioned ancestor は `month-day` ではなく `month-week`）、`insetInlineStart` / `width` はその週の可視列数を基準にした % で計算されています。`ctx.defaultContent`（`month-day-number` と `month-overflow` を含む）を `position: relative` な自前のラッパー要素で丸ごと囲むと、`month-overflow` の絶対配置がその自前ラッパー基準に変わってしまい、% がセル 1 個分の幅に対する割合として解決されるため配置が崩れます。バッジ等の装飾で positioned なラッパーが必要な場合は、`ctx.defaultContent` とは別の兄弟要素として差し込んでください（`ctx.defaultContent` 自体はラップせずそのまま返す）。
 - **inline の % は祖先の実寸に依存する**: 上記の基準要素には、% が正しく解決されるよう明示的な高さ（または `min-height`）が必要です。例えば `[data-koyomi="timegrid-day"]` の `top` / `height` は 1 日（1440 分）に対する割合なので、その要素の高さが 0 のままだとイベントは潰れて表示されます（デフォルトテーマでは `height: calc(24 * var(--koyomi-hour-height))` を設定しています）。同様に月ビューの `[data-koyomi="month-days"]` にも `dayMaxEvents` のレーン数を見込んだ `min-height` が必要です。
 - **終日行コンテナの `min-height`**: 終日イベントの帯（`allday-event`）はレーン（縦位置）ごとに積み重なりますが、実際のレーン数はビューモデル側でしか把握できません。そのためコンテナ（`[data-koyomi="allday-cells"]` / `[data-koyomi="resource-allday-cells"]`）には既定で 2 レーン分の `min-height`（フォールバック）が必要です。週/日ビューはさらに実際のレーン数（`allDayLaneCount`）に応じた `min-height` をコンテナ自身に inline で上書きしますが、リソースビューは列ごとの `resource-allday-cell` 側にレーン数に応じた `min-height` を inline で持たせる方式のため、コンテナの `min-height` は常にこのフォールバック値のままです。
 - **リソースビューのスクロールと固定表示**: リソース列は数十〜数百列に増えうるため、縦横のスクロールはルート `[data-koyomi="resource"]` だけが担います（`overflow: auto`。行ごとに個別のスクロールコンテナを作ると、横スクロール位置や縦スクロールバー分の列幅がずれます）。列見出し行＋終日行（`resource-grid`）は縦スクロール中も上端に固定されるよう `position: sticky; top: 0;`＋背景色が、時間軸の余白列（`timegrid-axis-gutter`）と時間軸本体（`time-axis`）は横スクロール中も左端に固定されるよう `position: sticky; inset-inline-start: 0;` が必要です（タイムラインビューの行見出し列と同じ手法）。
@@ -321,9 +321,11 @@ console.log(eventEl?.style.getPropertyValue('--koyomi-event-color')); // => '#e6
 
 `MonthView` / `TimeGridView` / `ListView` は、それぞれ `renderEvent` prop でイベントの**内容**（ボタン内部の中身）だけをカスタマイズできます。ボタン要素自体（`data-koyomi-*` 属性、クリック・ドラッグの挙動）は変わりません。
 
-- `MonthView`: `renderEvent?: (segment: EventSegment) => ReactNode`
-- `TimeGridView`: `renderEvent?: (item: PositionedOccurrence) => ReactNode`（終日行のイベント内容はカスタマイズ対象外）
-- `ListView`: `renderEvent?: (occurrence: EventOccurrence) => ReactNode`
+- `MonthView`: `renderEvent?: (segment: EventSegment, ctx: EventContentContext) => ReactNode`
+- `TimeGridView`: `renderEvent?: (item: PositionedOccurrence, ctx: EventContentContext) => ReactNode`（終日行のイベント内容は `renderAllDayEvent` を使う）
+- `ListView`: `renderEvent?: (occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode`
+
+第 2 引数の `ctx` には、省略時の内容（`ctx.defaultContent`）・描画枠の種別（`ctx.slot`）・分解済みパーツ（`ctx.parts`。整形済みの時刻テキストやタイトル）が渡されるため、「既定に足す」「時刻とタイトルを並べ替える」が既定の整形を再構築せずに書けます。全ビュー共通で一括定義したい場合は `CalendarProvider` の `renderEventContent` prop が使えます。詳細・レシピは [カスタマイズガイド](./customization.md) を参照してください。
 
 イベント以外にも、日セルへのコンテンツの差し込み（`renderDayCell`）、日ヘッダー・日付見出し（`renderDayHeader`）を差し替えられます。一覧は [ビュー: ビューコンポーネントのカスタマイズ props](./views.md#ビューコンポーネントのカスタマイズ-props) を参照してください。
 
@@ -341,8 +343,8 @@ function MonthDemo() {
   });
   return (
     <CalendarProvider value={calendar}>
-      {/* セグメントのタイトルの前に絵文字を付ける */}
-      <MonthView renderEvent={(segment) => `★ ${segment.occurrence.event.title}`} />
+      {/* 既定の内容（開始時刻＋タイトル）の前に絵文字を付ける */}
+      <MonthView renderEvent={(_segment, ctx) => <>★ {ctx.defaultContent}</>} />
     </CalendarProvider>
   );
 }
@@ -361,8 +363,16 @@ function ListDemo() {
   });
   return (
     <CalendarProvider value={calendar}>
-      {/* タイトルを太字にする */}
-      <ListView renderEvent={(occurrence) => <strong>{occurrence.event.title}</strong>} />
+      {/* 既定の時刻・色見本の部位を保ったまま、タイトルだけ太字にする */}
+      <ListView
+        renderEvent={(occurrence, ctx) => (
+          <>
+            {ctx.parts.time}
+            {ctx.parts.swatch}
+            <strong data-koyomi="list-event-title">{occurrence.event.title}</strong>
+          </>
+        )}
+      />
     </CalendarProvider>
   );
 }
@@ -385,6 +395,8 @@ function DayDemo() {
       <TimeGridView
         renderEvent={(item) => `${item.occurrence.event.title}（${item.startMinutes}分〜）`}
       />
+      {/* ctx を使う場合: 既定の時刻範囲テキストを再利用してタイトルの後ろへ回す */}
+      {/* <TimeGridView renderEvent={(item, ctx) => `${ctx.parts.titleText} ${ctx.parts.timeText}`} /> */}
     </CalendarProvider>
   );
 }
@@ -541,6 +553,7 @@ formatSlotLabel(540, 'en-US'); // => '09:00 AM'
 
 ## 関連ページ
 
+- [カスタマイズガイド（render prop・renderEventContent・自作ビュー）](./customization.md)
 - [ビュー（月・週・日・リスト・年・複数月・リソース・タイムライン）](./views.md)
 - [予定の管理](./events.md)
 - [インタラクション（作成・移動・リサイズ）](./interactions.md)

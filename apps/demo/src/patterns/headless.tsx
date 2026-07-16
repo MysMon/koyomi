@@ -252,15 +252,15 @@ export function HeadlessPattern(): ReactElement {
   /**
    * 月セルに絵文字バッジ・「開いている」アウトラインを差し込む（`renderDayCell`）。
    *
-   * 注意: `defaultContent`（`month-day-number` と `month-overflow` を含む）は
+   * 注意: `ctx.defaultContent`（`month-day-number` と `month-overflow` を含む）は
    * `.headless-day-cell`（position: relative の装飾ラッパー）の**内側に入れない**。
    * デフォルトテーマの「+N 件」ボタンはイベント帯（`month-event`）と同じ方式で
    * 絶対配置され、positioned ancestor はセル（`month-day`）ではなく
-   * `month-week` を想定している。`defaultContent` を positioned な自前ラッパーで
+   * `month-week` を想定している。`ctx.defaultContent` を positioned な自前ラッパーで
    * 丸ごと囲むと「+N 件」の絶対配置の基準がそのラッパーに変わり、% がセル 1 個分の
    * 幅を基準に解決されてしまい配置が壊れる（`docs/theming.md` の「自前スタイルを
    * ゼロから当てる場合の注意」参照）。ここでは `.headless-day-cell` を
-   * `defaultContent` とは別の兄弟要素として描画し、セル全体を覆う見た目
+   * `ctx.defaultContent` とは別の兄弟要素として描画し、セル全体を覆う見た目
    * （バッジ位置・アウトライン）は CSS Grid のセル重複配置（`headless.css`）で
    * 実現する（`position` を使わないため、月セルを positioned にせずに済む）。
    */

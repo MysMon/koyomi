@@ -331,36 +331,42 @@ calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
 
 ## ビューコンポーネントのカスタマイズ props
 
-各ビューには、日単位のコンテンツの差し込みのための props があります（すべて省略可能）。`CalendarView` 経由で使う場合はビュー名を接頭辞にした名前で転送されます（括弧内）。
+各ビューには、コンテンツの差し込みのためのカスタム描画スロット（render prop）があります（すべて省略可能）。`CalendarView` 経由で使う場合はビュー名を接頭辞にした名前で転送されます（括弧内）。
+
+すべてのスロットは `(item, ctx) => ReactNode` の形をとり、`ctx.defaultContent` に省略時の内容が渡されます（そのまま返せば省略時と同じ表示。既定に足す・ラップする用途に使えます）。イベント内容のスロット（`renderEvent` / `renderAllDayEvent` / `renderAllDayItem`）にはさらに `ctx.slot`（描画枠の種別）と `ctx.parts`（整形済みの時刻テキスト・タイトル等の分解済みパーツ）が渡されます。共通ルール・差し替えの境界・レシピは [カスタマイズガイド](./customization.md) を参照してください。
 
 | コンポーネント | prop | 用途 |
 | --- | --- | --- |
 | `MonthView` | `renderEvent`（`renderMonthEvent`） | セグメントの表示内容 |
-| `MonthView` | `renderDayCell`（`renderMonthDayCell`） | 日セルに祝日ラベルやバッジ等を差し込み（第 2 引数で既定内容を受け取る） |
+| `MonthView` | `renderDayCell`（`renderMonthDayCell`） | 日セルに祝日ラベルやバッジ等を差し込み |
 | `MonthView` | `overflowButtonProps`（`monthOverflowButtonProps`） | 「+N 件」ボタンに追加する props（`aria-haspopup` / `aria-expanded` 等）。自前のポップオーバーと連携する用途（詳細は[インタラクション](./interactions.md)） |
 | `TimeGridView` | `renderEvent`（`renderTimeGridEvent`） | 時間指定イベントブロックの表示内容（終日行は対象外。終日行は `renderAllDayEvent` を使う） |
 | `TimeGridView` | `renderAllDayEvent`（`renderTimeGridAllDayEvent`） | 終日行の帯の表示内容（既定はタイトルのみ） |
 | `TimeGridView` | `renderDayHeader`（`renderTimeGridDayHeader`） | 日ヘッダーの内容 |
-| `ListView` | `renderEvent`（`renderListEvent`） | 予定行の表示内容 |
+| `ListView` | `renderEvent`（`renderListEvent`） | 予定行の表示内容（`ctx.parts` に時刻・色見本・タイトルの部位ノードが渡される） |
 | `ListView` | `renderDayHeader`（`renderListDayHeader`） | 日付見出しの内容 |
-| `YearView` | `renderMonthHeader`（`renderYearMonthHeader`） | ミニ月グリッドの見出しの内容（第 2 引数で既定内容を受け取る） |
-| `YearView` | `renderDayCell`（`renderYearDayCell`） | 日セルの内容（日番号＋件数マーカー）をラップ・置換（第 2 引数で既定内容を受け取る） |
+| `YearView` | `renderMonthHeader`（`renderYearMonthHeader`） | ミニ月グリッドの見出しの内容 |
+| `YearView` | `renderDayCell`（`renderYearDayCell`） | 日セルの内容（日番号＋件数マーカー）をラップ・置換 |
 | `MultiMonthView` | `renderEvent`（`renderMultiMonthEvent`） | セグメントの表示内容（既定は `MonthView` と同じ） |
-| `MultiMonthView` | `renderDayCell`（`renderMultiMonthDayCell`） | 日セルに祝日ラベルやバッジ等を差し込み（第 2 引数で既定内容を受け取る。前後月の日付セルはインタラクティブでないため適用されない） |
+| `MultiMonthView` | `renderDayCell`（`renderMultiMonthDayCell`） | 日セルに祝日ラベルやバッジ等を差し込み（前後月の日付セルはインタラクティブでないため適用されない） |
 | `MultiMonthView` | `overflowButtonProps`（`multiMonthOverflowButtonProps`） | 「+N 件」ボタンに追加する props（`MonthView` と同じ） |
 | `ResourceView` | `renderEvent`（`renderResourceEvent`） | 時間指定イベントブロックの表示内容（時間指定は `renderEvent`・終日は `renderAllDayItem`） |
 | `ResourceView` | `renderAllDayItem`（`renderResourceAllDayItem`） | 終日アイテムの表示内容（既定はタイトルのみ）。`VirtualResourceView` にも同じ prop がある |
-| `ResourceView` | `renderColumnHeader`（`renderResourceColumnHeader`） | 列見出しの内容（リソース名、または未割り当て列は `messages.resource.unassigned`）をラップ・置換（第 2 引数で既定内容を受け取る） |
+| `ResourceView` | `renderColumnHeader`（`renderResourceColumnHeader`） | 列見出しの内容（リソース名、または未割り当て列は `messages.resource.unassigned`）をラップ・置換 |
 | `TimelineView` | `renderEvent`（`renderTimelineEvent`） | 帯（タイムラインアイテム）の表示内容 |
-| `TimelineView` | `renderRowHeader`（`renderTimelineRowHeader`） | 行見出しの内容（リソース名、または未割り当て行は `messages.timeline.unassigned`）をラップ・置換（第 2 引数で既定内容を受け取る） |
+| `TimelineView` | `renderRowHeader`（`renderTimelineRowHeader`） | 行見出しの内容（リソース名、または未割り当て行は `messages.timeline.unassigned`）をラップ・置換 |
 | `Toolbar` | `views`（`readonly CalendarViewType[]`） | ビュー切替ボタンとして表示するビューの一覧・並び順（既定 `['month', 'week', 'day', 'list']`。年・複数月・リソース・タイムラインビューは opt-in） |
+
+イベント内容を全ビュー共通で一括定義したい場合は、ビュー個別の render prop の代わりに `CalendarProvider` の `renderEventContent` prop が使えます（優先順位はビュー個別 > 中央 > 既定。詳細は [カスタマイズガイド: ビュー横断で一括定義する](./customization.md#ビュー横断で一括定義するrendereventcontent)）。
 
 「+N 件」の文言・空状態のメッセージ・未割り当てラベル・イベントや日セクションの aria-label・`Toolbar` のボタン表示文字列は、上記の props ではなく `CalendarProvider` の中央メッセージカタログ（`messages` prop）から解決されます。ロケール連動・部分上書き・自前ロケールの作り方は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照してください。
 
 ```tsx
 <Toolbar views={['month', 'week', 'day', 'list', 'year', 'multiMonth', 'resource', 'timeline']} />
 <CalendarView
-  renderYearDayCell={(day, defaultContent) => (day.isToday ? <strong>{defaultContent}</strong> : defaultContent)}
+  renderYearDayCell={(day, ctx) =>
+    day.isToday ? <strong>{ctx.defaultContent}</strong> : ctx.defaultContent
+  }
 />
 ```
 
@@ -722,4 +728,5 @@ calendar.api.toggleResourceCollapsed('site-a'); // 再度呼ぶと展開に戻�
 - [アクセシビリティ](./accessibility.md)
 - [タイムゾーン](./timezones.md)
 - [テーマとスタイリング](./theming.md)
+- [カスタマイズガイド](./customization.md)
 - [API リファレンス](./api.md)
