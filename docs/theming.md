@@ -18,25 +18,28 @@ Koyomi のビルトインコンポーネントはヘッドレスです。ロジ�
 import '@koyomi-cal/react/theme.css';
 ```
 
-デフォルトテーマは `[data-koyomi="root"]` 配下すべてに `box-sizing: border-box` を適用し、ボタン・見出しのブラウザ既定スタイル（余白・枠線・フォントサイズなど）をリセットしたうえで、各部位の見た目を組み立てます。フォーカス時のアウトライン（`:focus-visible`）やドラッグ中の半透明表示（`[data-koyomi-dragging="true"]`）もここに含まれます。
+デフォルトテーマは `[data-koyomi="root"]` と `[data-koyomi="toolbar"]`（`Toolbar` はルートの外にスタンドアロンで置けるため独立したスコープを持つ）の配下すべてに `box-sizing: border-box` を適用し、ボタン・見出しのブラウザ既定スタイル（余白・枠線・フォントサイズなど）をリセットしたうえで、各部位の見た目を組み立てます。フォーカス時のアウトライン（`:focus-visible`）やドラッグ中の半透明表示（`[data-koyomi-dragging="true"]`）もここに含まれます。
 
 このリセットのセレクタは `button[data-koyomi]` / `h2[data-koyomi]` / `h3[data-koyomi]` のように、要素型に加えて `data-koyomi` 属性の有無で絞り込まれています。ライブラリが描画する `<button>` / `<h2>` / `<h3>` は必ず `data-koyomi` 属性を持つため、`renderDayCell` / `renderColumnHeader` などのカスタム描画スロットで利用者が差し込む独自の `<button>` や見出し要素（`data-koyomi` 属性を持たない）にはこのリセットが一切波及しません。
 
 ## CSS 変数一覧
 
-デフォルトテーマは `[data-koyomi="root"]` スコープで以下の CSS 変数を定義しています。同じセレクタで上書きすれば、コンポーネントの構造やクラスに触れずに配色・寸法をカスタマイズできます。
+デフォルトテーマは `[data-koyomi="root"]` と `[data-koyomi="toolbar"]` のスコープで以下の CSS 変数を定義しています。同じセレクタで上書きすれば、コンポーネントの構造やクラスに触れずに配色・寸法をカスタマイズできます。
 
 | 変数 | 概要 | 既定値（ライト） |
 | --- | --- | --- |
 | `--koyomi-bg` | 背景色 | `#ffffff` |
-| `--koyomi-fg` | 文字色 | `#1f1f1f` |
-| `--koyomi-border` | 罫線色 | `#e0e0e0` |
-| `--koyomi-muted` | 補助テキスト色（曜日ラベル・時刻ラベルなど） | `#70757a` |
-| `--koyomi-accent` | アクセント色（選択中のビュー・今日の日付など） | `#1a73e8` |
-| `--koyomi-today-bg` | 「今日」のセル背景色 | `#e8f0fe` |
-| `--koyomi-event-color` | イベントの既定色。`event.color` を持つイベントは要素に inline で同名の変数が設定され、そちらが優先される | `#1a73e8` |
-| `--koyomi-event-fg` | イベント本体の文字色 | `#ffffff` |
-| `--koyomi-radius` | 角丸の半径（ボタン・イベント共通） | `4px` |
+| `--koyomi-fg` | 文字色 | `#1b2028` |
+| `--koyomi-border` | 罫線色 | `#e6e8ef` |
+| `--koyomi-muted` | 補助テキスト色（曜日ラベル・時刻ラベルなど） | `#6b7280` |
+| `--koyomi-accent` | アクセント色（選択中のビュー・今日の日付など） | `#14608f` |
+| `--koyomi-today-bg` | 「今日」のセル背景色 | `#e8f1f8` |
+| `--koyomi-event-color` | イベントの既定色。`event.color` を持つイベントは要素に inline で同名の変数が設定され、そちらが優先される | `#14608f` |
+| `--koyomi-event-fg` | アクセント塗りつぶし面（「今日」の日付マーカーなど）の文字色 | `#ffffff` |
+| `--koyomi-event-tint` | イベントチップの背景色に混ぜるイベント色の割合。チップは「淡色背景＋濃色文字」で描画され、淡色背景は `color-mix(in srgb, イベント色 var(--koyomi-event-tint), var(--koyomi-bg))` で合成される | `14%` |
+| `--koyomi-event-ink` | イベントチップの文字色に混ぜるイベント色の割合（残りは `--koyomi-fg` 側） | `78%` |
+| `--koyomi-shadow` | 持ち上がり要素（選択中のビューセグメント・ホバー中のチップなど）の影 | 弱い 2 層のドロップシャドウ |
+| `--koyomi-radius` | 角丸の半径（ボタン・イベント共通） | `6px` |
 | `--koyomi-font-size` | 基準フォントサイズ | `13px` |
 | `--koyomi-month-header-height` | 月セルの日番号行の高さ（イベント帯の上端オフセットにも使用） | `24px` |
 | `--koyomi-lane-height` | 帯セグメント 1 レーンの高さ | `24px` |
@@ -49,15 +52,15 @@ import '@koyomi-cal/react/theme.css';
 | `--koyomi-timeline-lane-height` | タイムラインビューの帯 1 レーンの高さ | `28px` |
 | `--koyomi-timeline-header-width` | タイムラインビューの行見出し列（左端固定列）の幅 | `120px` |
 | `--koyomi-timeline-indent-width` | タイムラインビューの階層インデント幅（`CalendarResource.parentId` 使用時、深さ 1 段あたりの余白） | `16px` |
-| `--koyomi-now-color` | 現在時刻線（`now-indicator`）の色。週/日・リソース・タイムラインビュー共通 | `#ea4335` |
-| `--koyomi-invalid-color` | 宣言的制約（`eventOverlap` / `eventConstraint`）に違反しているプレビュー（`[data-koyomi-invalid="true"]`）の色 | `#d93025` |
+| `--koyomi-now-color` | 現在時刻線（`now-indicator`）の色。週/日・リソース・タイムラインビュー共通 | `#ef4444` |
+| `--koyomi-invalid-color` | 宣言的制約（`eventOverlap` / `eventConstraint`）に違反しているプレビュー（`[data-koyomi-invalid="true"]`）の色 | `#dc2626` |
 | `--koyomi-timeline-lanes` | タイムライン行の高さ計算に使うレーン数。`--koyomi-event-color` と同様、`TimelineView` が行ごとに inline で自動設定する内部変数で、通常は利用者が直接上書きするものではない | `1`（フォールバック値） |
 | `--koyomi-month-lanes` | 月ビューの週行（`month-days`）の最小高さ計算に使うレーン数。`MonthView` / `MultiMonthView` が `dayMaxEvents` の実際の値をルート要素に inline で自動設定する内部変数で、通常は利用者が直接上書きするものではない | `4`（フォールバック値） |
 | `--koyomi-timegrid-hours` | 週/日・リソースビューの本体の高さ計算に使う時間帯の時間数。`slotMinTime`/`slotMaxTime` を指定した場合の実際の値を `TimeGridView` / `ResourceView` / `VirtualResourceView` がルート要素に inline で自動設定する内部変数で、通常は利用者が直接上書きするものではない | `24`（フォールバック値） |
 | `--koyomi-timeline-row-depth` | タイムライン行のツリー内の深さ。`CalendarResource.parentId` 使用時の実際の値を `TimelineView` / `VirtualTimelineView` が行ごとに inline で自動設定する内部変数で、通常は利用者が直接上書きするものではない | `0`（フォールバック値） |
 | `--koyomi-timeline-days` | タイムラインのトラック幅（`timeline-axis` / `timeline-row` の `min-width`）計算に使う表示日数。`timelineDays` の実際の値を `TimelineView` / `VirtualTimelineView` がルート要素に inline で自動設定する内部変数で、通常は利用者が直接上書きするものではない | `1`（フォールバック値） |
 
-`event.color` / `resource.color` は任意の CSS 色を受け付けます。カスタム色を使う場合は、背景色と `--koyomi-event-fg` のコントラスト比が WCAG AA（通常文字は 4.5:1 以上）になる組み合わせを選んでください。ライト/ダークで同じ予定色を使う場合は、各テーマで文字色を明示的に上書きする必要があります。
+`event.color` / `resource.color` は任意の CSS 色を受け付けます。チップの背景・文字色はイベント色から `color-mix` で自動合成される（淡色背景＋濃色文字）ため、彩度のある中間〜濃色を指定すればライト/ダークの両方で十分なコントラストが得られます。ごく薄い色（パステル・ほぼ白）を指定すると文字色も薄く合成されるため、コントラスト比が WCAG AA（通常文字は 4.5:1 以上）を満たすかを確認してください。合成の割合は `--koyomi-event-tint` / `--koyomi-event-ink` で調整できます。
 
 `--koyomi-month-header-height` / `--koyomi-lane-height` / `--koyomi-hour-height` はコンポーネント側の inline style（`calc()`）からも参照されるため、単なる見た目の変数ではなく実際のレイアウト寸法を決めます。値を変える場合は、対応する CSS（`min-height` など）も一緒に見直すことをおすすめします。
 
@@ -77,7 +80,7 @@ import '@koyomi-cal/react/theme.css';
 
 ## ダークモード
 
-デフォルトテーマは既定で `prefers-color-scheme: dark` に追従し、OS/ブラウザの設定に応じて自動的にダーク配色（`--koyomi-bg: #202124` など）に切り替わります。
+デフォルトテーマは既定で `prefers-color-scheme: dark` に追従し、OS/ブラウザの設定に応じて自動的にダーク配色（`--koyomi-bg: #1c1f26` など）に切り替わります。
 
 明示的に切り替えたい場合は、`data-koyomi-theme="dark"` または `data-koyomi-theme="light"` を koyomi のルート要素、またはその祖先要素（例えば `<html>`）に付与します。これは `prefers-color-scheme` の設定に関わらず優先されます。
 
@@ -135,6 +138,7 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 | 時間グリッド本体 | `timegrid`（`data-koyomi-days="7\|1"`） |
 | ヘッダー行（日ヘッダー群の親、grid row） | `timegrid-header`（ISO 週番号の表示時のみ `data-koyomi-week-number`） |
 | 時間軸の余白列（ヘッダー/終日行に同居） / 時間軸本体 | `timegrid-axis-gutter` / `time-axis`（複数タイムゾーン軸。`timeAxisZones` 指定時は軸の数だけ並び、各軸に `data-koyomi-timezone="<TZ>"` が付く） |
+| 時間軸のタイムゾーンラベル（ヘッダーの余白列内、`GMT+9` など） | `time-axis-label`（`formatTimeZoneLabel` による GMT オフセット表記。夏時間を反映した表示範囲時点の値） |
 | 終日イベント行 / セル / イベント | `allday-row` / `allday-cell` / `allday-event` |
 | 終日イベントの左右端リサイズハンドル | `allday-resize`（`data-edge="start\|end"`） |
 | 日ヘッダー / 日番号ボタン | `timegrid-day-header`（`data-koyomi-date`）/ `timegrid-day-number` |
@@ -304,7 +308,7 @@ console.log(eventEl?.style.getPropertyValue('--koyomi-event-color')); // => '#e6
 - **`renderDayCell` の `defaultContent` を positioned な自前ラッパーの内側に入れないでください**: 月ビューの「+N 件」ボタン（`month-overflow`）も `month-event` と同じ方式で絶対配置され（positioned ancestor は `month-day` ではなく `month-week`）、`insetInlineStart` / `width` はその週の可視列数を基準にした % で計算されています。`defaultContent`（`month-day-number` と `month-overflow` を含む）を `position: relative` な自前のラッパー要素で丸ごと囲むと、`month-overflow` の絶対配置がその自前ラッパー基準に変わってしまい、% がセル 1 個分の幅に対する割合として解決されるため配置が崩れます。バッジ等の装飾で positioned なラッパーが必要な場合は、`defaultContent` とは別の兄弟要素として差し込んでください（`defaultContent` 自体はラップせずそのまま返す）。
 - **inline の % は祖先の実寸に依存する**: 上記の基準要素には、% が正しく解決されるよう明示的な高さ（または `min-height`）が必要です。例えば `[data-koyomi="timegrid-day"]` の `top` / `height` は 1 日（1440 分）に対する割合なので、その要素の高さが 0 のままだとイベントは潰れて表示されます（デフォルトテーマでは `height: calc(24 * var(--koyomi-hour-height))` を設定しています）。同様に月ビューの `[data-koyomi="month-days"]` にも `dayMaxEvents` のレーン数を見込んだ `min-height` が必要です。
 - **終日行コンテナの `min-height`**: 終日イベントの帯（`allday-event`）はレーン（縦位置）ごとに積み重なりますが、実際のレーン数はビューモデル側でしか把握できません。そのためコンテナ（`[data-koyomi="allday-cells"]` / `[data-koyomi="resource-allday-cells"]`）には既定で 2 レーン分の `min-height`（フォールバック）が必要です。週/日ビューはさらに実際のレーン数（`allDayLaneCount`）に応じた `min-height` をコンテナ自身に inline で上書きしますが、リソースビューは列ごとの `resource-allday-cell` 側にレーン数に応じた `min-height` を inline で持たせる方式のため、コンテナの `min-height` は常にこのフォールバック値のままです。
-- **リソースビューの横スクロールと時間軸の固定表示**: リソース列は数十〜数百列に増えうるため、横スクロールはルート `[data-koyomi="resource"]` だけが担います（`overflow-x: auto`。列見出し行・終日行・本体の 3 行を個別のスクロールコンテナにすると、横スクロール位置がずれます）。時間軸の余白列（`timegrid-axis-gutter`）と時間軸本体（`time-axis`）は、横スクロール中も左端に固定表示されるよう `position: sticky; inset-inline-start: 0;` が必要です（タイムラインビューの行見出し列と同じ手法）。
+- **リソースビューのスクロールと固定表示**: リソース列は数十〜数百列に増えうるため、縦横のスクロールはルート `[data-koyomi="resource"]` だけが担います（`overflow: auto`。行ごとに個別のスクロールコンテナを作ると、横スクロール位置や縦スクロールバー分の列幅がずれます）。列見出し行＋終日行（`resource-grid`）は縦スクロール中も上端に固定されるよう `position: sticky; top: 0;`＋背景色が、時間軸の余白列（`timegrid-axis-gutter`）と時間軸本体（`time-axis`）は横スクロール中も左端に固定されるよう `position: sticky; inset-inline-start: 0;` が必要です（タイムラインビューの行見出し列と同じ手法）。
 - **仮想化 3 ビューは境界寸法が必須**: `VirtualListView` はスクロールコンテナ（`[data-koyomi="list"][data-koyomi-virtualized]`）に `height` / `max-height`、`VirtualTimelineView` は `[data-koyomi="timeline-body"]` に `max-height`、`VirtualResourceView` はルート `[data-koyomi="resource"]`（横スクロールを担う要素）に境界幅が、それぞれ CSS で与えられている必要があります。境界寸法が無いと可視ウィンドウを計算できず、仮想化は無害に全件描画へフォールバックします（開発ビルドでは一度警告します）。
 - **クラス名は生成されない**: セレクタは常に `[data-koyomi="..."]` 属性セレクタを使います。子孫の見た目（罫線・余白・フォントなど）はすべて自分で用意する必要があります（デフォルトテーマの `src/theme/default.css` を出発点にすると早く済みます）。
 - **イベント色**: `event.color` を持つイベントには inline で `--koyomi-event-color` が設定されるだけなので、それを使うかどうか（`background-color: var(--koyomi-event-color, 既定色)` のように参照するか）は自前 CSS 側で決める必要があります。

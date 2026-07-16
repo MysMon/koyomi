@@ -20,7 +20,11 @@
  *   --koyomi-today-bg            「今日」のセル背景色
  *   --koyomi-event-color         イベントの既定色。`event.color` を持つイベントは
  *                                要素に inline で同名の変数が設定され、そちらが優先される
- *   --koyomi-event-fg            イベント本体の文字色
+ *   --koyomi-event-fg            アクセント塗りつぶし面（今日の日付・押下中ボタン等）の文字色
+ *   --koyomi-event-tint          イベントチップの背景に混ぜるイベント色の割合
+ *                                （チップは「淡色背景＋濃色文字」で描画）
+ *   --koyomi-event-ink           イベントチップの文字色に混ぜるイベント色の割合
+ *   --koyomi-shadow              持ち上がり要素（選択中セグメント・ホバー中チップ等）の影
  *   --koyomi-radius              角丸の半径（ボタン・イベント共通）
  *   --koyomi-font-size           基準フォントサイズ
  *   --koyomi-month-header-height 月セルの日番号行の高さ（イベント帯の上端オフセットにも使用）
@@ -71,16 +75,25 @@
  * 変数定義とベースリセット
  * ------------------------------------------------------------------------ */
 
-[data-koyomi="root"] {
+/* 変数は root と toolbar の両方に定義する。Toolbar は CalendarView（root を描画する）の
+   兄弟としてスタンドアロンに置く構成が標準のため、root だけに定義すると
+   Toolbar 側で変数が解決されない（検証: default-css-cascade.test.ts） */
+[data-koyomi="root"],
+[data-koyomi="toolbar"] {
   --koyomi-bg: #ffffff;
-  --koyomi-fg: #1f1f1f;
-  --koyomi-border: #e0e0e0;
-  --koyomi-muted: #70757a;
-  --koyomi-accent: #1a73e8;
-  --koyomi-today-bg: #e8f0fe;
-  --koyomi-event-color: #1a73e8;
+  --koyomi-fg: #1b2028;
+  --koyomi-border: #e6e8ef;
+  --koyomi-muted: #6b7280;
+  --koyomi-accent: #14608f;
+  --koyomi-today-bg: #e8f1f8;
+  --koyomi-event-color: #14608f;
   --koyomi-event-fg: #ffffff;
-  --koyomi-radius: 4px;
+  /* イベントチップの配色（淡色背景＋濃色文字）を event-color から合成する比率。
+     tint = 背景に混ぜる濃さ / ink = 文字色に混ぜる濃さ（残りは fg 側の色） */
+  --koyomi-event-tint: 14%;
+  --koyomi-event-ink: 78%;
+  --koyomi-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --koyomi-radius: 6px;
   --koyomi-font-size: 13px;
   --koyomi-month-header-height: 24px;
   --koyomi-lane-height: 24px;
@@ -92,12 +105,14 @@
   --koyomi-timeline-lane-height: 28px;
   --koyomi-timeline-header-width: 120px;
   --koyomi-timeline-indent-width: 16px;
-  --koyomi-now-color: #ea4335;
-  --koyomi-business-hours-bg: rgba(26, 115, 232, 0.06);
-  --koyomi-invalid-color: #d93025;
+  --koyomi-now-color: #ef4444;
+  --koyomi-business-hours-bg: rgba(20, 96, 143, 0.05);
+  --koyomi-invalid-color: #dc2626;
 
   background-color: var(--koyomi-bg);
   color: var(--koyomi-fg);
+  /* スクロールバー等のブラウザ描画部品を配色に追従させる（ダーク時は下の各ブロックで上書き） */
+  color-scheme: light;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN",
     "Noto Sans JP", sans-serif;
@@ -109,55 +124,74 @@
 [data-koyomi="root"],
 [data-koyomi="root"] *,
 [data-koyomi="root"] *::before,
-[data-koyomi="root"] *::after {
+[data-koyomi="root"] *::after,
+[data-koyomi="toolbar"],
+[data-koyomi="toolbar"] * {
   box-sizing: border-box;
 }
 
 @media (prefers-color-scheme: dark) {
-  [data-koyomi="root"] {
-    --koyomi-bg: #202124;
-    --koyomi-fg: #e8eaed;
-    --koyomi-border: #3c4043;
-    --koyomi-muted: #9aa0a6;
-    --koyomi-accent: #8ab4f8;
-    --koyomi-today-bg: #263449;
-    --koyomi-event-color: #8ab4f8;
-    --koyomi-event-fg: #202124;
-    --koyomi-now-color: #ea4335;
-    --koyomi-business-hours-bg: rgba(138, 180, 248, 0.08);
-    --koyomi-invalid-color: #f28b82;
+  [data-koyomi="root"],
+  [data-koyomi="toolbar"] {
+    --koyomi-bg: #1c1f26;
+    --koyomi-fg: #e7e9ee;
+    --koyomi-border: #333845;
+    --koyomi-muted: #9aa3b2;
+    --koyomi-accent: #7fb5da;
+    --koyomi-today-bg: #232c36;
+    --koyomi-event-color: #7fb5da;
+    --koyomi-event-fg: #1c1f26;
+    --koyomi-event-tint: 20%;
+    --koyomi-event-ink: 82%;
+    --koyomi-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+    --koyomi-now-color: #f87171;
+    --koyomi-business-hours-bg: rgba(127, 181, 218, 0.07);
+    --koyomi-invalid-color: #f87171;
+    color-scheme: dark;
   }
 }
 
 /* data-koyomi-theme による強制切替。ルート要素自身・祖先要素どちらへの付与にも対応する */
 [data-koyomi-theme="dark"] [data-koyomi="root"],
-[data-koyomi="root"][data-koyomi-theme="dark"] {
-  --koyomi-bg: #202124;
-  --koyomi-fg: #e8eaed;
-  --koyomi-border: #3c4043;
-  --koyomi-muted: #9aa0a6;
-  --koyomi-accent: #8ab4f8;
-  --koyomi-today-bg: #263449;
-  --koyomi-event-color: #8ab4f8;
-  --koyomi-event-fg: #202124;
-  --koyomi-now-color: #ea4335;
-  --koyomi-business-hours-bg: rgba(138, 180, 248, 0.08);
-  --koyomi-invalid-color: #f28b82;
+[data-koyomi="root"][data-koyomi-theme="dark"],
+[data-koyomi-theme="dark"] [data-koyomi="toolbar"],
+[data-koyomi="toolbar"][data-koyomi-theme="dark"] {
+  --koyomi-bg: #1c1f26;
+  --koyomi-fg: #e7e9ee;
+  --koyomi-border: #333845;
+  --koyomi-muted: #9aa3b2;
+  --koyomi-accent: #7fb5da;
+  --koyomi-today-bg: #232c36;
+  --koyomi-event-color: #7fb5da;
+  --koyomi-event-fg: #1c1f26;
+  --koyomi-event-tint: 20%;
+  --koyomi-event-ink: 82%;
+  --koyomi-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --koyomi-now-color: #f87171;
+  --koyomi-business-hours-bg: rgba(127, 181, 218, 0.07);
+  --koyomi-invalid-color: #f87171;
+  color-scheme: dark;
 }
 
 [data-koyomi-theme="light"] [data-koyomi="root"],
-[data-koyomi="root"][data-koyomi-theme="light"] {
+[data-koyomi="root"][data-koyomi-theme="light"],
+[data-koyomi-theme="light"] [data-koyomi="toolbar"],
+[data-koyomi="toolbar"][data-koyomi-theme="light"] {
   --koyomi-bg: #ffffff;
-  --koyomi-fg: #1f1f1f;
-  --koyomi-border: #e0e0e0;
-  --koyomi-muted: #70757a;
-  --koyomi-accent: #1a73e8;
-  --koyomi-today-bg: #e8f0fe;
-  --koyomi-event-color: #1a73e8;
+  --koyomi-fg: #1b2028;
+  --koyomi-border: #e6e8ef;
+  --koyomi-muted: #6b7280;
+  --koyomi-accent: #14608f;
+  --koyomi-today-bg: #e8f1f8;
+  --koyomi-event-color: #14608f;
   --koyomi-event-fg: #ffffff;
-  --koyomi-business-hours-bg: rgba(26, 115, 232, 0.06);
-  --koyomi-now-color: #ea4335;
-  --koyomi-invalid-color: #d93025;
+  --koyomi-event-tint: 14%;
+  --koyomi-event-ink: 78%;
+  --koyomi-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --koyomi-business-hours-bg: rgba(20, 96, 143, 0.05);
+  --koyomi-now-color: #ef4444;
+  --koyomi-invalid-color: #dc2626;
+  color-scheme: light;
 }
 
 /*
@@ -165,11 +199,14 @@
  * renderDayCell 等のカスタム描画スロットで利用者が差し込む任意の button/h2/h3 には
  * 波及させたくないため、セレクタは「data-koyomi 属性を持つ button/h2/h3」に限定する
  * （ライブラリ自身が出力する button/h2/h3 は必ず data-koyomi 属性を持つ）。
- * ルート側の `[data-koyomi="root"]` は :where() で包み、詳細度への寄与をゼロにすることで、
- * 以前の `[data-koyomi="root"] button` 等と詳細度（0,1,1 / フォーカス時は 0,2,1）を
- * 完全に一致させ、他のルールとの優先順位（カスケード結果）を一切変えていない。
+ * セレクタ全体を :where() で包んで詳細度をゼロにする。部位の見た目は
+ * `[data-koyomi="<部位名>"]`（詳細度 0,1,0）のルールで当てるため、リセットの詳細度が
+ * これ以上だと部位側の background-color 等が負けて消える（イベント帯の背景色など）。
+ * この不変条件は default-css-cascade.test.ts で検証する。
+ * Toolbar は root の外へスタンドアロンに置く構成が標準のため、対象は
+ * 「root 配下」と「toolbar 配下」の両方とする。
  */
-:where([data-koyomi="root"]) button[data-koyomi] {
+:where([data-koyomi="root"] button[data-koyomi], [data-koyomi="toolbar"] button[data-koyomi]) {
   margin: 0;
   padding: 0;
   border: none;
@@ -180,14 +217,21 @@
   cursor: pointer;
 }
 
-:where([data-koyomi="root"]) h2[data-koyomi],
-:where([data-koyomi="root"]) h3[data-koyomi] {
+:where(
+  [data-koyomi="root"] h2[data-koyomi],
+  [data-koyomi="root"] h3[data-koyomi],
+  [data-koyomi="toolbar"] h2[data-koyomi],
+  [data-koyomi="toolbar"] h3[data-koyomi]
+) {
   margin: 0;
   font-size: inherit;
   font-weight: inherit;
 }
 
-:where([data-koyomi="root"]) button[data-koyomi]:focus-visible {
+:where(
+  [data-koyomi="root"] button[data-koyomi],
+  [data-koyomi="toolbar"] button[data-koyomi]
+):focus-visible {
   outline: 2px solid var(--koyomi-accent);
   outline-offset: 2px;
 }
@@ -226,8 +270,8 @@
 [data-koyomi="toolbar"] {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
+  gap: 10px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--koyomi-border);
 }
 
@@ -239,30 +283,54 @@
 
 [data-koyomi="title"] {
   flex: 1;
-  font-size: 1.2em;
-  font-weight: 500;
+  font-size: 1.25em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
+/* ビュー切替はセグメント型コントロール（薄いトラックの上に選択中セグメントが浮かぶ） */
 [data-koyomi="toolbar-views"] {
   display: flex;
-  gap: 4px;
+  gap: 2px;
+  padding: 3px;
+  border-radius: calc(var(--koyomi-radius) + 4px);
+  background-color: color-mix(in srgb, var(--koyomi-fg) 5%, var(--koyomi-bg));
 }
 
 [data-koyomi="button"] {
-  padding: 6px 12px;
-  border: 1px solid var(--koyomi-border);
+  padding: 5px 12px;
+  border: 1px solid transparent;
   border-radius: var(--koyomi-radius);
   font-size: 0.9em;
+  font-weight: 500;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    box-shadow 0.12s ease;
 }
 
 [data-koyomi="button"]:hover {
-  background-color: var(--koyomi-border);
+  background-color: color-mix(in srgb, var(--koyomi-fg) 7%, var(--koyomi-bg));
+}
+
+/* 「今日」と前後移動はアウトラインボタンにする（セグメントの外に置かれるため） */
+[data-koyomi="button"][data-koyomi-action="today"],
+[data-koyomi="button"][data-koyomi-action="prev"],
+[data-koyomi="button"][data-koyomi-action="next"] {
+  border-color: var(--koyomi-border);
+}
+
+[data-koyomi="button"][data-koyomi-action="prev"],
+[data-koyomi="button"][data-koyomi-action="next"] {
+  padding-inline: 9px;
 }
 
 [data-koyomi="button"][aria-pressed="true"] {
-  border-color: var(--koyomi-accent);
-  background-color: var(--koyomi-accent);
-  color: var(--koyomi-event-fg);
+  background-color: var(--koyomi-bg);
+  color: color-mix(in srgb, var(--koyomi-accent) 85%, var(--koyomi-fg));
+  box-shadow: var(--koyomi-shadow);
+  font-weight: 600;
 }
 
 /* ---------------------------------------------------------------------------
@@ -277,11 +345,14 @@
   border-bottom: 1px solid var(--koyomi-border);
 }
 
+/* 曜日ラベルは日番号と左端を揃える（セル padding 4px ＋ 日番号ピルの padding 8px ＝ 12px） */
 [data-koyomi="month-weekday"] {
-  padding: 4px 8px;
+  padding: 6px 12px;
   color: var(--koyomi-muted);
-  font-size: 0.8em;
-  text-align: center;
+  font-size: 0.75em;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-align: start;
 }
 
 [data-koyomi="month-week"] {
@@ -325,28 +396,31 @@
 }
 
 [data-koyomi="month-day-number"] {
-  display: flex;
+  display: inline-flex;
   min-width: 24px;
-  height: var(--koyomi-month-header-height);
+  height: calc(var(--koyomi-month-header-height) - 2px);
   align-items: center;
   justify-content: center;
-  padding: 0 6px;
-  border-radius: var(--koyomi-radius);
+  margin-top: 2px;
+  padding: 0 8px;
+  border-radius: 999px;
   font-size: 0.85em;
+  font-weight: 500;
 }
 
 [data-koyomi="month-day-number"]:hover {
-  background-color: var(--koyomi-border);
+  background-color: color-mix(in srgb, var(--koyomi-fg) 7%, var(--koyomi-bg));
 }
 
 [data-koyomi="month-day"][data-outside] [data-koyomi="month-day-number"] {
   color: var(--koyomi-muted);
+  font-weight: 400;
 }
 
 [data-koyomi="month-day"][data-today] [data-koyomi="month-day-number"] {
-  border-radius: 999px;
   background-color: var(--koyomi-accent);
   color: var(--koyomi-event-fg);
+  font-weight: 600;
 }
 
 /*
@@ -368,18 +442,19 @@
 }
 
 [data-koyomi="month-overflow"]:hover {
-  color: var(--koyomi-fg);
+  color: var(--koyomi-accent);
   text-decoration: underline;
 }
 
+/* テキストは 1 行のまま省略記号で切り詰める。text-overflow はブロックコンテナの
+   インラインコンテンツにしか効かない（flex アイテム化した素のテキストには効かない）
+   ため、flex ではなく line-height による縦センタリングを使う */
 [data-koyomi="month-event"] {
   position: absolute;
   overflow: hidden;
-  display: flex;
-  align-items: center;
   height: calc(var(--koyomi-lane-height) - 2px);
-  gap: 4px;
-  padding: 0 4px;
+  line-height: calc(var(--koyomi-lane-height) - 2px);
+  padding: 0 6px;
   border-radius: var(--koyomi-radius);
   color: var(--koyomi-fg);
   font-size: 0.8em;
@@ -397,17 +472,28 @@
 /* 時間指定イベントは背景なし＋色ドットで表す（Google カレンダーの月ビュー相当） */
 [data-koyomi="month-event"]::before {
   content: "";
+  display: inline-block;
   width: 6px;
   height: 6px;
-  flex: none;
+  margin-inline-end: 5px;
+  vertical-align: 0.08em;
   border-radius: 999px;
   background-color: var(--koyomi-event-color, var(--koyomi-accent));
 }
 
-/* 終日イベントは色帯（塗りつぶし）で表す */
+/* 終日イベントは色帯で表す（淡色背景＋濃色文字） */
 [data-koyomi="month-event"][data-all-day] {
-  background-color: var(--koyomi-event-color, var(--koyomi-accent));
-  color: var(--koyomi-event-fg);
+  background-color: color-mix(
+    in srgb,
+    var(--koyomi-event-color, var(--koyomi-accent)) var(--koyomi-event-tint, 14%),
+    var(--koyomi-bg)
+  );
+  color: color-mix(
+    in srgb,
+    var(--koyomi-event-color, var(--koyomi-accent)) var(--koyomi-event-ink, 78%),
+    var(--koyomi-fg)
+  );
+  font-weight: 500;
 }
 
 [data-koyomi="month-event"][data-all-day]::before {
@@ -466,15 +552,36 @@
 }
 
 [data-koyomi="timegrid-axis-gutter"] {
+  display: flex;
   flex: none;
+  align-items: flex-end;
+  justify-content: flex-end;
   width: var(--koyomi-time-axis-width);
+}
+
+/* 軸のタイムゾーンラベル（GMT+9 など）。時刻ラベルの右揃えに合わせて右下へ置く */
+[data-koyomi="time-axis-label"] {
+  padding-block-end: 4px;
+  padding-inline-end: 6px;
+  color: var(--koyomi-muted);
+  font-size: 0.68em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 [data-koyomi="timegrid-day-header"],
 [data-koyomi="resource-header-cell"] {
-  padding: 4px;
+  padding: 6px 4px;
   border-inline-start: 1px solid var(--koyomi-border);
   text-align: center;
+}
+
+/* 曜日は補助情報として小さく淡く、日付ピルとの間に余白を取る（今日は日付側だけを強調する） */
+[data-koyomi="timegrid-weekday"] {
+  margin-inline-end: 6px;
+  color: var(--koyomi-muted);
+  font-size: 0.8em;
+  font-weight: 500;
 }
 
 [data-koyomi="timegrid-day-header"] {
@@ -484,7 +591,9 @@
 
 [data-koyomi="timegrid-day-header"]:first-child,
 [data-koyomi="resource-header-cell"]:first-child {
-  border-inline-start: none;
+  /* none にすると先頭列だけ flex の仮想サイズ（border+padding）が 1px 小さくなり、
+     行ごとに列幅の配分が変わって縦罫線がずれる。幅は保ったまま線だけを消す */
+  border-inline-start-color: transparent;
 }
 
 [data-koyomi="timegrid-day-header"][data-today] {
@@ -493,29 +602,42 @@
 
 [data-koyomi="timegrid-day-number"] {
   display: inline-flex;
-  min-width: 24px;
-  height: 24px;
+  min-width: 26px;
+  height: 26px;
   align-items: center;
   justify-content: center;
-  margin-top: 2px;
-  padding: 0 6px;
-  border-radius: var(--koyomi-radius);
-  font-size: 0.9em;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 0.95em;
+  font-weight: 500;
 }
 
 [data-koyomi="timegrid-day-number"]:hover {
-  background-color: var(--koyomi-border);
+  background-color: color-mix(in srgb, var(--koyomi-fg) 7%, var(--koyomi-bg));
 }
 
 [data-koyomi="timegrid-day-header"][data-today] [data-koyomi="timegrid-day-number"] {
-  border-radius: 999px;
   background-color: var(--koyomi-accent);
   color: var(--koyomi-event-fg);
+  font-weight: 600;
 }
 
 [data-koyomi="allday-row"] {
   display: flex;
   border-bottom: 1px solid var(--koyomi-border);
+}
+
+/* 本体（timegrid-body）の縦スクロールバー分だけ日列が縮み、見出し行・終日行と
+   列の縦罫線がずれるのを防ぐ。3 行すべてでスクロールバー幅を予約して揃える
+   （リソースビューは列幅固定＋横スクロールのためこの問題が起きず、対象外） */
+[data-koyomi="timegrid"] [data-koyomi="timegrid-header"],
+[data-koyomi="timegrid"] [data-koyomi="allday-row"] {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+[data-koyomi="timegrid-body"] {
+  scrollbar-gutter: stable;
 }
 
 [data-koyomi="allday-cells"],
@@ -556,7 +678,9 @@
 
 [data-koyomi="allday-cell"]:first-child,
 [data-koyomi="resource-allday-cell"]:first-child {
-  border-inline-start: none;
+  /* none にすると先頭列だけ flex の仮想サイズ（border+padding）が 1px 小さくなり、
+     行ごとに列幅の配分が変わって縦罫線がずれる。幅は保ったまま線だけを消す */
+  border-inline-start-color: transparent;
 }
 
 /* ドラッグ中の終日イベントの移動先プレビュー（列全体をハイライト） */
@@ -570,17 +694,28 @@
   box-shadow: inset 0 0 0 2px var(--koyomi-invalid-color);
 }
 
+/* month-event と同じ理由（素のテキストへの text-overflow）で flex ではなく
+   line-height による縦センタリングを使う。配色は timegrid-event と同じ
+   「淡色背景＋濃色文字」 */
 [data-koyomi="allday-event"] {
   position: absolute;
   overflow: hidden;
-  display: flex;
-  align-items: center;
   height: calc(var(--koyomi-lane-height) - 2px);
-  padding: 0 4px;
+  line-height: calc(var(--koyomi-lane-height) - 2px);
+  padding: 0 6px;
   border-radius: var(--koyomi-radius);
-  background-color: var(--koyomi-event-color, var(--koyomi-accent));
-  color: var(--koyomi-event-fg);
+  background-color: color-mix(
+    in srgb,
+    var(--koyomi-event-color, var(--koyomi-accent)) var(--koyomi-event-tint, 14%),
+    var(--koyomi-bg)
+  );
+  color: color-mix(
+    in srgb,
+    var(--koyomi-event-color, var(--koyomi-accent)) var(--koyomi-event-ink, 78%),
+    var(--koyomi-fg)
+  );
   font-size: 0.8em;
+  font-weight: 500;
   white-space: nowrap;
   text-overflow: ellipsis;
   pointer-events: auto;
@@ -589,7 +724,7 @@
 }
 
 [data-koyomi="allday-event"]:hover {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px rgba(16, 24, 40, 0.18);
 }
 
 [data-koyomi="allday-event"][data-continues-before] {
@@ -602,16 +737,40 @@
   border-end-end-radius: 0;
 }
 
-[data-koyomi="timegrid-body"],
-[data-koyomi="resource-body"] {
+[data-koyomi="timegrid-body"] {
   display: flex;
   max-height: 640px;
   overflow-y: auto;
 }
 
+/* リソースビューの本体はスクロールコンテナにしない（縦スクロールはルート
+   [data-koyomi="resource"] が担う。「リソースビュー」節を参照） */
+[data-koyomi="resource-body"] {
+  display: flex;
+}
+
+/* スクロールバーはグリッドの中に出るため、太い既定バーだと列を圧迫して目立つ。
+   細いバーで控えめにする（色は color-scheme 経由で配色に追従する） */
+[data-koyomi="timegrid-body"],
+[data-koyomi="resource-body"],
+[data-koyomi="resource"],
+[data-koyomi="timeline-body"],
+[data-koyomi="list"][data-koyomi-virtualized],
+/* 見出し行・終日行は scrollbar-gutter: stable でスクロールバー分の余白を予約する。
+   予約幅を本体（thin）と一致させ、列の縦罫線を 3 行で完全に揃える */
+  [data-koyomi="timegrid"]
+  [data-koyomi="timegrid-header"],
+[data-koyomi="timegrid"] [data-koyomi="allday-row"] {
+  scrollbar-width: thin;
+}
+
 [data-koyomi="time-axis"] {
   flex: none;
   width: var(--koyomi-time-axis-width);
+  /* 日列（timegrid-day / resource-column）と同じ明示高さを与える。flex の
+     stretch に任せるとスクロールコンテナの可視高（640px）に切り詰められ、
+     縦罫線（border-inline-end）がスクロール途中で途切れてしまう */
+  height: calc(var(--koyomi-timegrid-hours, 24) * var(--koyomi-hour-height));
   border-inline-end: 1px solid var(--koyomi-border);
 }
 
@@ -626,6 +785,7 @@
   border-top: 1px solid var(--koyomi-border);
   color: var(--koyomi-muted);
   font-size: 0.75em;
+  font-variant-numeric: tabular-nums;
   text-align: end;
 }
 
@@ -675,7 +835,9 @@
 
 [data-koyomi="timegrid-day"]:first-child,
 [data-koyomi="resource-column"]:first-child {
-  border-inline-start: none;
+  /* none にすると先頭列だけ flex の仮想サイズ（border+padding）が 1px 小さくなり、
+     行ごとに列幅の配分が変わって縦罫線がずれる。幅は保ったまま線だけを消す */
+  border-inline-start-color: transparent;
 }
 
 [data-koyomi="timegrid-day"][data-today],
@@ -699,25 +861,48 @@
   background-color: var(--koyomi-business-hours-bg);
 }
 
+/* イベントチップは「淡色背景＋濃色文字」。淡色/濃色はイベント色
+   （--koyomi-event-color）と背景/文字色を color-mix で合成して作る */
 [data-koyomi="timegrid-event"] {
   position: absolute;
   overflow: hidden;
   /* 短時間・長さ 0 の予定でもタイトル 1 行分は読めるようにする */
   min-height: 1.25em;
+  /* 高さに応じてテキストの折り返しを切り替えるコンテナクエリの基準にする */
+  container-type: size;
   /* ドラッグ移動をタッチのスクロールに奪われないようにする */
   touch-action: none;
-  padding: 2px 4px;
+  padding: 2px 6px;
   border-radius: var(--koyomi-radius);
-  background-color: var(--koyomi-event-color, var(--koyomi-accent));
+  background-color: color-mix(
+    in srgb,
+    var(--koyomi-event-color, var(--koyomi-accent)) var(--koyomi-event-tint, 14%),
+    var(--koyomi-bg)
+  );
   box-shadow: 0 0 0 1px var(--koyomi-bg);
-  color: var(--koyomi-event-fg);
+  color: color-mix(
+    in srgb,
+    var(--koyomi-event-color, var(--koyomi-accent)) var(--koyomi-event-ink, 78%),
+    var(--koyomi-fg)
+  );
   font-size: 0.8em;
+  font-weight: 500;
+}
+
+/* 2 行分の高さが無いイベント（30 分以下など）は折り返さず 1 行で省略記号切りにする
+   （折り返すと 2 行目が途中で欠けて読めないため）。しきい値は
+   「1 行分（line-height 1.3 ≒ 13.5px）＋上下 padding（4px）＋ 2 行目が意味を成す余白」 */
+@container (max-height: 30px) {
+  [data-koyomi="timegrid-event-content"] {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
 }
 
 [data-koyomi="timegrid-event"]:hover {
   box-shadow:
     0 0 0 1px var(--koyomi-bg),
-    0 1px 3px rgba(0, 0, 0, 0.3);
+    0 2px 8px rgba(16, 24, 40, 0.18);
 }
 
 [data-koyomi="timegrid-event"][data-continues-before] {
@@ -865,7 +1050,7 @@
 }
 
 [data-koyomi="list-event"]:hover {
-  background-color: var(--koyomi-border);
+  background-color: color-mix(in srgb, var(--koyomi-fg) 5%, var(--koyomi-bg));
 }
 
 [data-koyomi="list-event-time"] {
@@ -1061,13 +1246,23 @@
  * 列数が多い場合の横スクロール対応（§6.5: 列方向の仮想化は非目標、横スクロールで対応）。
  * ------------------------------------------------------------------------ */
 
-/* ルートが唯一の横スクロールコンテナ。列見出し行・終日行・本体の 3 行が
-   独立にスクロールしてずれないよう、横スクロールはここに集約する（縦スクロールは
-   従来どおり resource-body が担う） */
+/* ルートが縦横唯一のスクロールコンテナ。横は列見出し行・終日行・本体の 3 行が
+   独立にスクロールしてずれないため、縦は本体のスクロールバーが日列だけを縮めて
+   見出し行と縦罫線がずれないため（見出し行は sticky で上端に固定する） */
 [data-koyomi="resource"] {
   display: flex;
   flex-direction: column;
-  overflow-x: auto;
+  max-height: 704px;
+  overflow: auto;
+}
+
+/* 列見出し行＋終日行（resource-grid）は縦スクロール中も上端に固定する。
+   背景色が無いと下を通過する本文が透けるため必ず塗る */
+[data-koyomi="resource"] > [data-koyomi="resource-grid"] {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background-color: var(--koyomi-bg);
 }
 
 /* 各行の中身は列の最小幅の合計まで伸ばし、ルートのスクロール幅に反映させる。
@@ -1335,6 +1530,7 @@
   pointer-events: none;
 }
 
+/* タイムラインの帯も「淡色背景＋濃色文字」で統一する */
 [data-koyomi="timeline-item"] {
   position: absolute;
   overflow: hidden;
@@ -1347,10 +1543,19 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   border-radius: var(--koyomi-radius);
-  background-color: var(--koyomi-event-color, var(--koyomi-accent));
+  background-color: color-mix(
+    in srgb,
+    var(--koyomi-event-color, var(--koyomi-accent)) var(--koyomi-event-tint, 14%),
+    var(--koyomi-bg)
+  );
   box-shadow: 0 0 0 1px var(--koyomi-bg);
-  color: var(--koyomi-event-fg);
+  color: color-mix(
+    in srgb,
+    var(--koyomi-event-color, var(--koyomi-accent)) var(--koyomi-event-ink, 78%),
+    var(--koyomi-fg)
+  );
   font-size: 0.8em;
+  font-weight: 500;
   /* ドラッグ移動をタッチのスクロールに奪われないようにする */
   touch-action: none;
 }
@@ -1358,7 +1563,7 @@
 [data-koyomi="timeline-item"]:hover {
   box-shadow:
     0 0 0 1px var(--koyomi-bg),
-    0 1px 3px rgba(0, 0, 0, 0.3);
+    0 2px 8px rgba(16, 24, 40, 0.18);
 }
 
 [data-koyomi="timeline-item"][data-continues-before] {
@@ -1374,6 +1579,9 @@
 [data-koyomi="timeline-item-content"] {
   overflow: hidden;
   line-height: 1.3;
+  /* 帯幅が狭いときに文字が中途半端に欠けないよう省略記号で切り詰める */
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 [data-koyomi="timeline-preview"] {
