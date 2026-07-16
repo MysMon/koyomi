@@ -1,14 +1,17 @@
 /*
- * 「ヘッドレス」パターン専用スタイル。
+ * 「ヘッドレス」パターン専用スタイル — ブランド「和紙の手帳」。
  * ============================================================================
- * すべてのセレクタはこのパターンのルート要素（`.headless-pattern`）配下に
- * スコープする。デフォルトテーマ（`@koyomi-cal/react/theme.css`）は既に
- * `main.tsx` で読み込まれているため、ここでは
+ * デフォルトテーマ（藍系・白背景・サンセリフ）に対して、生成りの紙に墨文字・
+ * 朱色の差し色・明朝の見出しという文具的なブランドを、CSS 変数の上書きと
+ * `[data-koyomi="..."]` への追加スタイルだけで組み立てる例。
+ *
  *   1. `--koyomi-*` CSS 変数の上書きによる「ブランドテーマ」
  *   2. `[data-koyomi="..."]` 属性への追加スタイル
- *   3. このファイルが自前で描き足す要素（絵文字バッジ・ポップオーバー・
+ *   3. このファイルが自前で描き足す要素（「本日」印・ポップオーバー・
  *      詳細パネルなど）のスタイル
- * の 3 段構えで見た目を組み立てる。
+ *
+ * すべてのセレクタはこのパターンのルート要素（`.headless-pattern`）配下に
+ * スコープし、他パターン・デフォルトテーマには影響しない。
  *
  * 変数の上書きについて: デフォルトテーマは `[data-koyomi="root"]` 自身に
  * 変数を再定義しており、さらにダーク/ライト強制時は
@@ -24,6 +27,15 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+
+  /* ブランドの朱・藍・紙色（このファイル内でのみ使う） */
+  --washi-paper: #faf8f3;
+  --washi-ink: #322f28;
+  --washi-line: #e3ddd0;
+  --washi-faded: #8b8577;
+  --washi-vermilion: #b23a2a;
+  --washi-sunday: #b3402e;
+  --washi-saturday: #2f5d8a;
 }
 
 .headless-lede {
@@ -37,92 +49,126 @@
  * ブランドテーマ（CSS 変数の上書き）
  * ------------------------------------------------------------------------ */
 
+/* Toolbar は root の外にスタンドアロンで置くため、変数はデフォルトテーマが
+   [data-koyomi="toolbar"] 自身にも定義する（詳細度 0,1,0 / 強制ダーク時 0,2,0）。
+   ブランド変数で確実に上書きするため、要素型を足して 0,2,1 に引き上げる。 */
+.headless-pattern div[data-koyomi="toolbar"],
 .headless-pattern [data-koyomi="root"][data-koyomi-view] {
-  --koyomi-bg: #140e24;
-  --koyomi-fg: #f4f1ff;
-  --koyomi-border: #3a2c62;
-  --koyomi-muted: #a89bd9;
-  --koyomi-accent: #ff3d9a;
-  --koyomi-today-bg: #2a1c4d;
-  --koyomi-event-color: #7c4dff;
+  --koyomi-bg: #faf8f3;
+  --koyomi-fg: #322f28;
+  --koyomi-border: #e3ddd0;
+  --koyomi-muted: #8b8577;
+  --koyomi-accent: #b23a2a;
+  --koyomi-today-bg: #f3ede0;
+  --koyomi-event-color: #5c7d64;
   --koyomi-event-fg: #ffffff;
-  --koyomi-radius: 16px;
+  --koyomi-event-tint: 16%;
+  --koyomi-event-ink: 80%;
+  --koyomi-radius: 3px;
   --koyomi-font-size: 13px;
   --koyomi-month-header-height: 28px;
   --koyomi-lane-height: 26px;
-  --koyomi-hour-height: 64px;
-  --koyomi-now-color: #21e6c1;
-  --koyomi-business-hours-bg: rgb(255 61 154 / 8%);
-  font-family: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", ui-rounded, system-ui, sans-serif;
+  --koyomi-hour-height: 56px;
+  --koyomi-now-color: #b23a2a;
+  --koyomi-business-hours-bg: rgb(178 58 42 / 5%);
+  color-scheme: light;
 }
 
 /* ---------------------------------------------------------------------------
- * カレンダーを囲む枠（`.demo-main` は overflow: hidden のため、はみ出して
- * 描画するポップオーバーと相性が悪い。ここでは専用のシェルを用意し、
- * overflow を hidden にしないことでポップオーバーがクリップされないようにする）
+ * カレンダーを囲む紙面（`.demo-main` は overflow: hidden のため、はみ出して
+ * 描画するポップオーバーと相性が悪い。専用のシェルを用意し、overflow を
+ * hidden にしないことでポップオーバーがクリップされないようにする）
  * ------------------------------------------------------------------------ */
 
 .headless-calendar-shell {
   position: relative;
   overflow: visible;
-  border-radius: 20px;
-  padding: 3px;
-  background: linear-gradient(135deg, rgb(255 61 154 / 45%), rgb(124 77 255 / 45%));
-  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+  border: 1px solid var(--washi-line);
+  border-radius: 10px;
+  background-color: var(--washi-paper);
+  box-shadow: 0 1px 2px rgb(50 47 40 / 6%);
+}
+
+/* シェルの角丸からカレンダーがはみ出さないように内側だけ丸める */
+.headless-pattern [data-koyomi="root"][data-koyomi-view] {
+  border-bottom-left-radius: 9px;
+  border-bottom-right-radius: 9px;
+  overflow: hidden;
 }
 
 /* ---------------------------------------------------------------------------
- * ツールバー・ボタン
+ * ツールバー（手帳の見出し行: 明朝のタイトル＋朱の罫線）
  * ------------------------------------------------------------------------ */
 
 .headless-pattern [data-koyomi="toolbar"] {
-  border-radius: calc(var(--koyomi-radius) - 4px);
-  background: linear-gradient(135deg, #2a1c4d, #140e24);
+  border-top-left-radius: 9px;
+  border-top-right-radius: 9px;
+  border-bottom: 2px solid var(--washi-vermilion);
 }
 
 .headless-pattern [data-koyomi="title"] {
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
+  font-size: 1.35em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .headless-pattern [data-koyomi="button"] {
-  border: 1px solid var(--koyomi-border);
-  border-radius: 999px;
-  background-color: rgb(255 255 255 / 4%);
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.15s ease;
+  border: 1px solid var(--washi-line);
+  border-radius: var(--koyomi-radius);
+  background-color: transparent;
 }
 
 .headless-pattern [data-koyomi="button"]:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgb(255 61 154 / 25%);
+  background-color: rgb(50 47 40 / 5%);
 }
 
 .headless-pattern [data-koyomi="button"][aria-pressed="true"] {
-  border-color: transparent;
-  background: linear-gradient(135deg, #ff3d9a, #7c4dff);
+  border-color: var(--washi-vermilion);
+  background-color: var(--washi-vermilion);
   color: #ffffff;
-  box-shadow: 0 0 0 2px rgb(255 61 154 / 35%);
+  box-shadow: none;
+}
+
+/* ビュー切替のセグメントトラック（デフォルトテーマ）は紙面では使わず、
+   独立した印判風ボタンとして並べる */
+.headless-pattern [data-koyomi="toolbar-views"] {
+  padding: 0;
+  background-color: transparent;
+  gap: 6px;
 }
 
 /* ---------------------------------------------------------------------------
- * イベントの帯（月・週ビュー共通で角丸と影を強める）
+ * 月ビュー: 土日の色分け・「本日」印・イベント帯
  * ------------------------------------------------------------------------ */
 
-.headless-pattern [data-koyomi="month-event"],
-.headless-pattern [data-koyomi="timegrid-event"] {
-  border: none;
-  border-radius: calc(var(--koyomi-radius) - 8px);
-  box-shadow: 0 2px 6px rgb(0 0 0 / 35%);
+/* 曜日ヘッダー行は明朝で、日曜=朱・土曜=藍（紙のカレンダーの慣習） */
+.headless-pattern [data-koyomi="month-weekday"] {
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
+  font-size: 0.85em;
+  letter-spacing: 0.2em;
+  text-align: center;
 }
 
-.headless-pattern [data-koyomi="month-day"][data-today] {
-  box-shadow: inset 0 0 0 1px var(--koyomi-accent);
+.headless-pattern [data-koyomi="month-weekday"]:first-child {
+  color: var(--washi-sunday);
+}
+
+.headless-pattern [data-koyomi="month-weekday"]:last-child {
+  color: var(--washi-saturday);
+}
+
+/* イベント帯は紙に刷った小さな段票風（角をほぼ立て、細い輪郭線で締める） */
+.headless-pattern [data-koyomi="month-event"][data-all-day],
+.headless-pattern [data-koyomi="timegrid-event"],
+.headless-pattern [data-koyomi="allday-event"] {
+  border: 1px solid
+    color-mix(in srgb, var(--koyomi-event-color, var(--koyomi-accent)) 30%, var(--koyomi-bg));
+  box-shadow: none;
 }
 
 /* ---------------------------------------------------------------------------
- * renderDayCell: 月セルの絵文字バッジ・「開いている」アウトライン
+ * renderDayCell: 月セルの「本日」印・土日色分け・「開いている」アウトライン
  *
  * デフォルトテーマの「+N 件」ボタン（[data-koyomi="month-overflow"]）は
  * イベント帯（month-event）と同じ方式で絶対配置され、positioned ancestor は
@@ -168,22 +214,38 @@
 }
 
 .headless-day-cell[data-headless-open="true"] {
-  border-radius: 8px;
-  outline: 2px solid var(--koyomi-accent);
+  outline: 2px solid var(--washi-vermilion);
   outline-offset: -2px;
 }
 
+/* 「本日」印（今日のセルの右上に置く朱の印判風タグ） */
 .headless-day-badge {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  font-size: 13px;
-  line-height: 1;
+  top: 5px;
+  right: 5px;
+  padding: 1px 6px;
+  border: 1px solid var(--washi-vermilion);
+  border-radius: 2px;
+  color: var(--washi-vermilion);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  line-height: 1.6;
   pointer-events: none;
 }
 
+/* 日曜=朱・土曜=藍で日番号を色分けする。.headless-day-cell（装飾レイヤー）は
+   日番号ボタンの「前」の兄弟なので、後続兄弟セレクタで届く */
+.headless-day-cell[data-headless-weekday="0"] ~ [data-koyomi="month-day-number"] {
+  color: var(--washi-sunday);
+}
+
+.headless-day-cell[data-headless-weekday="6"] ~ [data-koyomi="month-day-number"] {
+  color: var(--washi-saturday);
+}
+
 /* ---------------------------------------------------------------------------
- * renderDayHeader: 週ビューの日ヘッダー装飾
+ * renderDayHeader: 週ビューの日ヘッダー（土日の色分け）
  * ------------------------------------------------------------------------ */
 
 .headless-day-header {
@@ -193,8 +255,14 @@
   gap: 4px;
 }
 
-.headless-day-header-badge {
-  font-size: 13px;
+.headless-day-header[data-headless-weekday="0"] [data-koyomi="timegrid-weekday"],
+.headless-day-header[data-headless-weekday="0"] [data-koyomi="timegrid-day-number"] {
+  color: var(--washi-sunday);
+}
+
+.headless-day-header[data-headless-weekday="6"] [data-koyomi="timegrid-weekday"],
+.headless-day-header[data-headless-weekday="6"] [data-koyomi="timegrid-day-number"] {
+  color: var(--washi-saturday);
 }
 
 /* ---------------------------------------------------------------------------
@@ -205,12 +273,7 @@
   display: flex;
   overflow: hidden;
   align-items: flex-start;
-  gap: 4px;
   width: 100%;
-}
-
-.headless-event-icon {
-  flex: none;
 }
 
 .headless-event-body {
@@ -220,7 +283,21 @@
 }
 
 .headless-event-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 0.75em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+
+/* 繰り返しオカレンスに付ける「定期」チップ */
+.headless-event-repeat {
+  padding: 0 4px;
+  border: 1px solid currentcolor;
+  border-radius: 2px;
+  font-size: 0.85em;
+  line-height: 1.5;
   opacity: 0.85;
 }
 
@@ -234,26 +311,41 @@
 .headless-event-resource {
   overflow: hidden;
   font-size: 0.7em;
-  opacity: 0.8;
+  opacity: 0.75;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* 2 行分の高さが無い短時間イベントは、時刻・タイトル・リソースを 1 行に並べて
+   途中欠けを防ぐ（テーマ側が timegrid-event に container-type: size を設定している
+   ため、その高さを基準にできる） */
+@container (max-height: 40px) {
+  .headless-event-body {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  .headless-event-time {
+    flex: none;
+  }
+}
+
 /* ---------------------------------------------------------------------------
- * 「+N 件」の自前ポップオーバー
+ * 「+N 件」の自前ポップオーバー（白い付箋紙風のカード）
  * ------------------------------------------------------------------------ */
 
 .headless-overflow-popover {
   position: absolute;
   z-index: 30;
-  width: min(260px, 80vw);
+  width: min(280px, 80vw);
   margin-top: 4px;
-  padding: 10px;
-  border: 1px solid #3a2c62;
-  border-radius: 14px;
-  background: linear-gradient(160deg, #1d1436, #2a1c4d);
-  box-shadow: 0 16px 32px rgb(0 0 0 / 45%);
-  color: #f4f1ff;
+  padding: 12px;
+  border: 1px solid var(--washi-line);
+  border-radius: 6px;
+  background-color: #fffdf8;
+  box-shadow: 0 8px 24px rgb(50 47 40 / 18%);
+  color: var(--washi-ink);
 }
 
 .headless-overflow-popover-header {
@@ -261,15 +353,17 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 6px;
-  font-size: 0.85em;
-  font-weight: 700;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--washi-line);
+  font-size: 0.9em;
+  font-weight: 600;
 }
 
 .headless-overflow-popover-close {
   padding: 2px 8px;
   border: none;
-  border-radius: 999px;
+  border-radius: 3px;
   background: transparent;
   color: inherit;
   font-size: 16px;
@@ -278,7 +372,7 @@
 }
 
 .headless-overflow-popover-close:hover {
-  background-color: rgb(255 255 255 / 12%);
+  background-color: rgb(50 47 40 / 8%);
 }
 
 .headless-overflow-popover-list {
@@ -289,6 +383,7 @@
   flex-direction: column;
   gap: 6px;
   overflow-y: auto;
+  scrollbar-width: thin;
   list-style: none;
 }
 
@@ -308,7 +403,8 @@
 
 .headless-overflow-popover-time {
   flex: none;
-  color: var(--koyomi-muted, #a89bd9);
+  color: var(--washi-faded);
+  font-variant-numeric: tabular-nums;
 }
 
 .headless-overflow-popover-title {
@@ -320,7 +416,7 @@
 .headless-overflow-popover-resource {
   flex: none;
   margin-left: auto;
-  color: var(--koyomi-muted, #a89bd9);
+  color: var(--washi-faded);
   font-size: 0.75em;
 }
 
@@ -329,49 +425,10 @@
  * ------------------------------------------------------------------------ */
 
 .headless-detail-panel {
-  border: 1px solid #3a2c62;
-  border-radius: 16px;
-  background: linear-gradient(160deg, #1d1436, #2a1c4d);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
-  color: #f4f1ff;
+  border: 1px solid var(--washi-line);
+  border-radius: 6px;
+  background-color: #fffdf8;
+  box-shadow: 0 4px 16px rgb(50 47 40 / 14%);
+  color: var(--washi-ink);
   padding: 14px 16px;
-}
-
-.headless-detail-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.headless-detail-panel-header h3 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.headless-detail-panel-close {
-  border: none;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
-  padding: 2px 6px;
-  border-radius: 999px;
-}
-
-.headless-detail-panel-close:hover {
-  background-color: rgb(255 255 255 / 12%);
-}
-
-.headless-detail-panel-time {
-  margin: 6px 0 0;
-  color: #cfc4ff;
-  font-size: 0.9em;
-}
-
-.headless-detail-panel-meta {
-  margin: 4px 0 0;
-  color: #cfc4ff;
-  font-size: 0.85em;
 }

@@ -835,7 +835,8 @@ export function UndoPattern(): ReactElement {
       <main className="demo-main">
         <CalendarProvider value={calendar} callbacks={callbacks}>
           <Toolbar />
-          <CalendarView />
+          {/* 週/日ビューの初期スクロール位置を営業時間帯（8:00）に合わせる */}
+          <CalendarView timeGridInitialScrollTime="08:00" />
         </CalendarProvider>
       </main>
 

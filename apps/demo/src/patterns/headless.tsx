@@ -10,9 +10,10 @@
  *    なしの素の `position: absolute` ポップオーバーに表示する。Escape・外側
  *    クリックで閉じる（`docs/interactions.md` の「+N 件のポップオーバーを自前で
  *    組む」レシピの、Floating UI を使わない版）。
- * 2. **カスタム描画スロット** — `renderDayCell` で月セルに絵文字バッジを、
- *    `renderEvent` で週ビューのイベント内容を、`renderDayHeader` で週ビューの
- *    日ヘッダーを、それぞれ差し替える。
+ * 2. **カスタム描画スロット** — `renderDayCell` で月セルに「本日」バッジと
+ *    土日の色分け属性を、`renderEvent` で週ビューのイベント内容（時刻・「定期」
+ *    チップ・リソース名）を、`renderDayHeader` で週ビューの日ヘッダーの
+ *    土日色分けを、それぞれ差し込む。
  * 3. **文言のカスタマイズ** — `CalendarProvider` の `messages` prop で `Toolbar`
  *    の文言の一部と月ビューの「+N 件」（`messages.month.overflow`）を
  *    「他 N 件…」形式に差し替える。
@@ -65,12 +66,12 @@ const VIEWS: readonly CalendarViewType[] = ['month', 'week'];
 /** 自前ポップオーバーの DOM id（`aria-controls` で紐付ける）。 */
 const OVERFLOW_POPOVER_ID = 'headless-overflow-popover';
 
-/** `Toolbar` の文言の一部差し替え（ブランドの雰囲気に合わせた絵文字・言い回し）。 */
+/** `Toolbar` の文言の一部差し替え（手帳ブランドの言い回しに統一する）。 */
 const MESSAGES: MessageCatalogOverrides = {
   toolbar: {
-    today: '⏱️ 今日',
-    month: '🌕 月表示',
-    week: '🌊 週表示',
+    today: '本日',
+    month: '月間',
+    week: '週間',
     prev: '前の期間へ',
     next: '次の期間へ',
   },
@@ -93,27 +94,9 @@ interface PopoverPosition {
   left: number;
 }
 
-/**
- * 日セル・日ヘッダーに付ける装飾絵文字バッジを決める。
- *
- * 今日は 📍、日曜は 🌅、土曜は 🎈、それ以外で「+N 件」が出るほど予定が
- * 多い日は 🔥。これら以外は装飾なし（`null`）。
- */
-function decorativeBadge(isToday: boolean, weekday: Weekday, overflowCount: number): string | null {
-  if (isToday) {
-    return '📍';
-  }
-  if (weekday === 0) {
-    return '🌅';
-  }
-  if (weekday === 6) {
-    return '🎈';
-  }
-  if (overflowCount > 0) {
-    return '🔥';
-  }
-  return null;
-}
+// 土日の色分け（headless.css）に使う曜日属性の値。日本の紙のカレンダーの
+// 慣習（日曜=赤・土曜=青）をブランドとして再現するため、レンダースロットから
+// data-headless-weekday 属性で曜日を CSS へ渡す。
 
 /**
  * `resourceId` → `CalendarResource` の索引を作る。
@@ -282,24 +265,17 @@ export function HeadlessPattern(): ReactElement {
    */
   const renderMonthDayCell = useCallback(
     (day: MonthDay, defaultContent: ReactNode): ReactNode => {
-      const badge = decorativeBadge(
-        day.isToday,
-        weekdayInZone(day.date, state.timeZone),
-        day.overflowCount,
-      );
+      const weekday: Weekday = weekdayInZone(day.date, state.timeZone);
       const isOpen = overflow !== null && overflow.day.key === day.key;
       return (
         <>
           <div
             className="headless-day-cell"
             data-headless-open={isOpen ? 'true' : undefined}
+            data-headless-weekday={weekday}
             ref={(element) => registerDayCellRef(day.key, element)}
           >
-            {badge !== null && (
-              <span className="headless-day-badge" aria-hidden="true">
-                {badge}
-              </span>
-            )}
+            {day.isToday && <span className="headless-day-badge">本日</span>}
           </div>
           {defaultContent}
         </>
@@ -308,21 +284,13 @@ export function HeadlessPattern(): ReactElement {
     [overflow, registerDayCellRef, state.timeZone],
   );
 
-  /** 週ビューの日ヘッダーに曜日の絵文字を添える（`renderDayHeader`）。 */
+  /** 週ビューの日ヘッダーに曜日属性を付け、土日を色分けする（`renderDayHeader`）。 */
   const renderTimeGridDayHeader = useCallback(
-    (day: TimeGridDay, defaultContent: ReactNode): ReactNode => {
-      const badge = decorativeBadge(day.isToday, day.weekday, 0);
-      return (
-        <div className="headless-day-header">
-          {badge !== null && (
-            <span className="headless-day-header-badge" aria-hidden="true">
-              {badge}
-            </span>
-          )}
-          {defaultContent}
-        </div>
-      );
-    },
+    (day: TimeGridDay, defaultContent: ReactNode): ReactNode => (
+      <div className="headless-day-header" data-headless-weekday={day.weekday}>
+        {defaultContent}
+      </div>
+    ),
     [],
   );
 
@@ -336,12 +304,10 @@ export function HeadlessPattern(): ReactElement {
           : undefined;
       return (
         <span className="headless-event-content">
-          <span className="headless-event-icon" aria-hidden="true">
-            {occurrence.isRecurring ? '🔁' : '⏰'}
-          </span>
           <span className="headless-event-body">
             <span className="headless-event-time">
               {formatTime(occurrence.start, state.timeZone, state.options.locale)}
+              {occurrence.isRecurring && <span className="headless-event-repeat">定期</span>}
             </span>
             <span className="headless-event-title">{occurrence.event.title}</span>
             {resource !== undefined && (

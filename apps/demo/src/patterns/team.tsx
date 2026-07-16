@@ -572,11 +572,12 @@ export function TeamPattern(): ReactElement {
           </label>
 
           <label className="demo-control" htmlFor="team-slot-range-select">
-            <span>表示時間帯</span>
+            <span>表示時間帯（リソース表示のみ）</span>
             <select
               id="team-slot-range-select"
               name="slotRange"
               value={slotRangeValue}
+              disabled={state.view !== 'resource'}
               onChange={(event) => {
                 const option = parseSlotRangeOption(event.target.value);
                 setSlotRangeValue(option.value);

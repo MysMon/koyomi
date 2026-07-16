@@ -20,47 +20,78 @@
  */
 
 .koyomi-demo-international {
-  /* 週番号バッジ用ガターの幅。月・週ビューの両方で共有する。 */
-  --intl-week-gutter: 34px;
+  /* 月ビューの週番号バッジ用ガターの幅。 */
+  --intl-week-gutter: 40px;
 }
 
 /* ---------------------------------------------------------------------------
  * 週番号（showWeekNumbers）の可視化
+ *
+ * 週/日ビューは時間軸の余白列（timegrid-axis-gutter の領域、GMT ラベルの上）に
+ * 表示するためガターを追加しない。月ビューだけ左（RTL 時は右）にガターを確保し、
+ * 各週行の高さ中央にバッジを置く。ガター部分にも行の区切り線を延長して、
+ * 罫線が途切れないようにする。
  * ------------------------------------------------------------------------ */
 
-/*
- * month（月ビュー全体）・timegrid（週/日ビュー全体）の内包幅に対して
- * ガター分の padding を確保する。month-weekdays/month-weeks、
- * timegrid-grid/timegrid-body はいずれもこのコンテナの内包幅を均等に
- * 列分割するため、ヘッダー行と本体行が揃って同じ分だけ右（RTL 時は左）へ
- * シフトし、列の整合は崩れない。
- */
-.koyomi-demo-international [data-koyomi="month"],
-.koyomi-demo-international [data-koyomi="timegrid"] {
+/* 月ビュー全体の内包幅に対してガター分の padding を確保する。month-weekdays /
+   month-weeks はこのコンテナの内包幅を均等に列分割するため、ヘッダー行と本体行が
+   揃って同じ分だけシフトし、列の整合は崩れない。 */
+.koyomi-demo-international [data-koyomi="month"] {
   padding-inline-start: var(--intl-week-gutter);
 }
 
-/* timegrid-header は既定で position 未指定のため、バッジの基準にするため付与する
-   （month-week はデフォルトテーマで既に position: relative）。 */
+/* ガター部分にも曜日ヘッダー行・各週行の区切り線を延長する */
+.koyomi-demo-international [data-koyomi="month-weekdays"] {
+  position: relative;
+}
+
+.koyomi-demo-international [data-koyomi="month-weekdays"]::after,
+.koyomi-demo-international [data-koyomi="month-week"]::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(-1 * var(--intl-week-gutter));
+  bottom: -1px;
+  width: var(--intl-week-gutter);
+  height: 1px;
+  background-color: var(--koyomi-border);
+  pointer-events: none;
+}
+
+/* 月ビューの週番号バッジ（各週行の左のガター内・日番号と同じ高さに揃える） */
+.koyomi-demo-international [data-koyomi="month-week"][data-koyomi-week-number]::before {
+  /* ISO 週番号であることが分かるよう "W" を冠する（例: W29） */
+  content: "W" attr(data-koyomi-week-number);
+  position: absolute;
+  inset-inline-start: calc(-1 * var(--intl-week-gutter) + 6px);
+  top: 7px;
+  width: calc(var(--intl-week-gutter) - 12px);
+  padding: 2px 0;
+  border-radius: 999px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--koyomi-muted);
+  background-color: color-mix(in srgb, var(--koyomi-fg) 5%, var(--koyomi-bg));
+  pointer-events: none;
+}
+
+/* 週/日ビューの週番号は時間軸の余白列の上部に置く（GMT ラベルと縦に並ぶ）。
+   ガターも擬似罫線も不要で、ヘッダーの区切り線が自然につながる。 */
 .koyomi-demo-international [data-koyomi="timegrid-header"] {
   position: relative;
 }
 
-.koyomi-demo-international [data-koyomi="month-week"][data-koyomi-week-number]::before,
 .koyomi-demo-international [data-koyomi="timegrid-header"][data-koyomi-week-number]::before {
-  content: attr(data-koyomi-week-number);
+  content: "W" attr(data-koyomi-week-number);
   position: absolute;
-  inset-inline-start: calc(-1 * var(--intl-week-gutter));
-  top: 6px;
-  width: calc(var(--intl-week-gutter) - 8px);
-  padding: 1px 0;
-  border-radius: 999px;
-  font-size: 11px;
-  line-height: 1.6;
+  inset-inline-start: 0;
+  top: 8px;
+  width: var(--koyomi-time-axis-width);
+  color: var(--koyomi-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
   text-align: center;
-  color: var(--demo-muted);
-  background-color: var(--demo-surface);
-  border: 1px solid var(--demo-border);
   pointer-events: none;
 }
 

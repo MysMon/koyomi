@@ -14,9 +14,11 @@
   --demo-fg: #1f1f1f;
   --demo-muted: #5f6368;
   --demo-border: #dcdfe3;
-  --demo-accent: #1a73e8;
+  --demo-accent: #14608f;
   --demo-danger: #d93025;
   --demo-shadow: 0 8px 28px rgba(32, 33, 36, 0.18);
+  /* スクロールバー・フォーム部品などブラウザ描画部品を配色に追従させる */
+  color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -26,9 +28,10 @@
     --demo-fg: #e8eaed;
     --demo-muted: #9aa0a6;
     --demo-border: #3c4043;
-    --demo-accent: #8ab4f8;
+    --demo-accent: #7fb5da;
     --demo-danger: #f28b82;
     --demo-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
   }
 }
 
@@ -38,9 +41,10 @@
   --demo-fg: #e8eaed;
   --demo-muted: #9aa0a6;
   --demo-border: #3c4043;
-  --demo-accent: #8ab4f8;
+  --demo-accent: #7fb5da;
   --demo-danger: #f28b82;
   --demo-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
 }
 
 :root[data-koyomi-theme="light"] {
@@ -49,18 +53,10 @@
   --demo-fg: #1f1f1f;
   --demo-muted: #5f6368;
   --demo-border: #dcdfe3;
-  --demo-accent: #1a73e8;
+  --demo-accent: #14608f;
   --demo-danger: #d93025;
   --demo-shadow: 0 8px 28px rgba(32, 33, 36, 0.18);
-}
-
-/* デモの予定色はライト/ダーク共通の濃色パレットなので、ダークテーマでも
- * 白文字を維持して WCAG AA のコントラストを確保する。 */
-:root[data-koyomi-theme="dark"] [data-koyomi="month-event"][data-all-day],
-:root[data-koyomi-theme="dark"] [data-koyomi="allday-event"],
-:root[data-koyomi-theme="dark"] [data-koyomi="timegrid-event"],
-:root[data-koyomi-theme="dark"] [data-koyomi="timeline-item"] {
-  --koyomi-event-fg: #ffffff;
+  color-scheme: light;
 }
 
 * {
@@ -72,8 +68,19 @@ body {
   background-color: var(--demo-bg);
   color: var(--demo-fg);
   font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN",
-    "Noto Sans JP", sans-serif;
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans JP",
+    "Hiragino Kaku Gothic ProN", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizelegibility;
+}
+
+/* カレンダー本体にもデモと同じフォントスタック（和文は Noto Sans JP で固定）を適用する。
+   ヘッドレスパターンのブランドフォント指定（より高い詳細度）はこの上書きに勝つ */
+[data-koyomi="root"],
+[data-koyomi="toolbar"] {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans JP",
+    "Hiragino Kaku Gothic ProN", sans-serif;
 }
 
 /* ---------------------------------------------------------------------------
@@ -120,10 +127,25 @@ body {
   background-color: var(--demo-surface);
   color: var(--demo-fg);
   text-decoration: none;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .demo-pattern-tab:hover {
   border-color: var(--demo-accent);
+  box-shadow: 0 1px 4px rgba(32, 33, 36, 0.12);
+}
+
+.demo-pattern-tab:focus-visible {
+  outline: 2px solid var(--demo-accent);
+  outline-offset: 2px;
+}
+
+.demo-pattern-tab-label {
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .demo-pattern-tab[aria-current="page"] {
@@ -131,9 +153,8 @@ body {
   background-color: color-mix(in srgb, var(--demo-accent) 14%, var(--demo-surface));
 }
 
-.demo-pattern-tab-label {
-  font-size: 13px;
-  font-weight: 600;
+.demo-pattern-tab[aria-current="page"] .demo-pattern-tab-label {
+  color: color-mix(in srgb, var(--demo-accent) 80%, var(--demo-fg));
 }
 
 .demo-pattern-tab-description {
@@ -187,19 +208,21 @@ body {
 .demo-controls {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  /* ラベル行の高さ差があっても入力欄の下端が揃うようにする */
+  align-items: flex-end;
   gap: 12px;
 }
 
 .demo-control {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   font-size: 12px;
   color: var(--demo-muted);
 }
 
-.demo-control select {
+.demo-control select,
+.demo-control input:not([type="checkbox"]) {
   font: inherit;
   font-size: 13px;
   color: var(--demo-fg);
@@ -207,6 +230,33 @@ body {
   border: 1px solid var(--demo-border);
   border-radius: 6px;
   padding: 6px 8px;
+  transition: border-color 0.15s ease;
+}
+
+.demo-control select:hover,
+.demo-control input:not([type="checkbox"]):hover {
+  border-color: var(--demo-accent);
+}
+
+.demo-control select:focus-visible,
+.demo-control input:focus-visible {
+  outline: 2px solid var(--demo-accent);
+  outline-offset: 1px;
+}
+
+/* チェックボックス型のコントロールは横並びにし、隣の入力欄と下端を揃える */
+.demo-control:has(> input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding-block: 8px;
+  color: var(--demo-fg);
+  font-size: 13px;
+}
+
+.demo-control input[type="checkbox"] {
+  margin: 0;
+  accent-color: var(--demo-accent);
 }
 
 .demo-theme-toggle {
@@ -218,10 +268,19 @@ body {
   border-radius: 6px;
   padding: 8px 14px;
   cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .demo-theme-toggle:hover {
   border-color: var(--demo-accent);
+  box-shadow: 0 1px 4px rgba(32, 33, 36, 0.12);
+}
+
+.demo-theme-toggle:focus-visible {
+  outline: 2px solid var(--demo-accent);
+  outline-offset: 2px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -273,6 +332,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* 操作を重ねるとログが伸び続けるため、一定の高さでスクロールに切り替える */
+  max-height: 180px;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 /* ---------------------------------------------------------------------------
@@ -291,6 +354,11 @@ body {
 
 .demo-dialog::backdrop {
   background-color: rgba(32, 33, 36, 0.5);
+}
+
+/* ダイアログコンテナ自身のフォーカスリングは出さない（フォーカスは内部のフォーム部品が示す） */
+.demo-dialog:focus-visible {
+  outline: none;
 }
 
 .demo-dialog-title {

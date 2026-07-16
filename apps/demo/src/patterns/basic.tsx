@@ -344,7 +344,9 @@ export function BasicPattern(): ReactElement {
       <main className="demo-main">
         <CalendarProvider value={calendar} callbacks={announcer.wrapCallbacks(callbacks)}>
           <Toolbar views={ALL_VIEWS} />
-          <CalendarView />
+          {/* 週/日・リソースビューは 0:00 起点だと営業時間帯が画面外になるため、
+              初期スクロール位置を 8:00 に合わせる */}
+          <CalendarView timeGridInitialScrollTime="08:00" resourceInitialScrollTime="08:00" />
         </CalendarProvider>
       </main>
 

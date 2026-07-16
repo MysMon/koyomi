@@ -262,7 +262,8 @@ export function InternationalPattern(): ReactElement {
           {...(customMessages ? { messages: CUSTOM_MESSAGES[language] } : {})}
         >
           <Toolbar views={VIEWS} />
-          <CalendarView />
+          {/* 週/日ビューの初期スクロール位置を営業時間帯（8:00）に合わせる */}
+          <CalendarView timeGridInitialScrollTime="08:00" />
         </CalendarProvider>
       </main>
 
