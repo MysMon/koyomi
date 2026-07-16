@@ -115,7 +115,11 @@ export function formatTimeZoneLabel(date: Date, timeZone: TimeZoneId, locale: st
   const parts = getCachedDateTimeFormat(locale, timeZone, 'timezone-label', {
     timeZoneName: 'shortOffset',
   }).formatToParts(date);
-  return parts.find((part) => part.type === 'timeZoneName')?.value ?? timeZone;
+  const label = parts.find((part) => part.type === 'timeZoneName')?.value ?? timeZone;
+  // オフセット 0 のラベルは ICU（Intl の実装データ）のバージョンにより
+  // 'GMT' / 'GMT+0' のどちらにも整形されうるため、実行環境に依存しない
+  // 安定した表示になるよう 'GMT' へ正規化する
+  return /^GMT[+-]0{1,2}(?::00)?$/.test(label) ? 'GMT' : label;
 }
 
 /**
