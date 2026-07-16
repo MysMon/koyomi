@@ -528,7 +528,7 @@ function RecurrenceRuleFields(props: RecurrenceRuleFieldsProps): ReactElement {
       <div className="demo-form-field">
         <span className="demo-field-label">繰り返し</span>
         <p className="demo-readonly-notice">
-          このRRULEは編集できません（{editor.unsupported.reason}）。
+          このRRULEは編集できません（{editor.unsupported.message}）。
         </p>
         <pre className="demo-recurrence-raw">{editor.unsupported.rawRRule}</pre>
         <button

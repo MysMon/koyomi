@@ -86,13 +86,14 @@ export {
 // 繰り返しルールエディタ
 export {
   buildRecurrenceRuleString,
-  describeRecurrenceRule,
   type MonthlyRecurrencePattern,
   type ParsedRecurrenceRule,
   parseRecurrenceRule,
   type RecurrenceEnd,
   type RecurrenceFrequency,
   type RecurrenceRuleState,
+  type RecurrenceUnsupportedField,
+  type RecurrenceUnsupportedReason,
   type RecurrenceValidationIssue,
   type RecurrenceWeekdayOrdinal,
   validateRecurrenceRuleState,

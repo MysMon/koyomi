@@ -3,17 +3,21 @@
  * 繰り返しルール（RRULE）の構造化編集。
  *
  * `core/recurrence.ts` の RRULE 展開エンジンとは異なり、こちらは RRULE 文字列と
- * 構造化された {@link RecurrenceRuleState} を相互変換し、フォーム入力向けの検証・
- * 説明文生成を提供する。対応範囲は `FREQ=DAILY/WEEKLY/MONTHLY/YEARLY`・`INTERVAL`・
+ * 構造化された {@link RecurrenceRuleState} を相互変換し、フォーム入力向けの検証を
+ * 提供する。対応範囲は `FREQ=DAILY/WEEKLY/MONTHLY/YEARLY`・`INTERVAL`・
  * `BYDAY`（週の曜日集合、または月の第 n 曜日）・`BYMONTHDAY`（単一値）・
  * `COUNT`/`UNTIL` のみで、範囲外の指定は {@link parseRecurrenceRule} が
  * `unsupported` として元の RRULE 文字列を保持する（内容を書き換えない）。
+ *
+ * core は React に依存しないため、検証エラー・非対応理由は機械可読な判別
+ * ユニオン（{@link RecurrenceValidationIssue}・{@link RecurrenceUnsupportedReason}）
+ * として返し、ロケールごとの文言化は `@koyomi-cal/react` の
+ * メッセージカタログ（`react/locales/*`）が担う。
  */
 
 import type { Options } from 'rrule';
 import { RRule } from 'rrule';
 import { fromFakeUTC, normalizeRRuleString, parseRRuleOptions, toFakeUTC } from './recurrence';
-import { getWallClock, weekdayInZone } from './timezone';
 import type { TimeZoneId, Weekday } from './types';
 
 /** 繰り返しの頻度。編集エディタが対応する 4 種のみ。 */
@@ -64,19 +68,67 @@ export interface RecurrenceRuleState {
   end: RecurrenceEnd;
 }
 
-/** {@link validateRecurrenceRuleState} が返す検証エラー 1 件。 */
-export interface RecurrenceValidationIssue {
-  /** エラーの対象フィールド。 */
-  field: 'interval' | 'byWeekday' | 'monthlyPattern' | 'count' | 'until';
-  /** 日本語の既定エラーメッセージ。 */
-  message: string;
-}
+/**
+ * {@link validateRecurrenceRuleState} が返す検証エラー 1 件。
+ *
+ * `field` ごとに意味のある `code` の値域が異なる判別ユニオン。文言化は
+ * `@koyomi-cal/react` のメッセージカタログ（`catalog.recurrenceEditor.validationMessage`）
+ * が担う。
+ */
+export type RecurrenceValidationIssue =
+  | { field: 'interval'; code: 'invalid' }
+  | { field: 'byWeekday'; code: 'empty' | 'duplicate' | 'outOfRange' }
+  | { field: 'monthlyPattern'; code: 'dayOfMonthInvalid' | 'ordinalInvalid' | 'weekdayInvalid' }
+  | { field: 'count'; code: 'invalid' }
+  | { field: 'until'; code: 'invalid' };
+
+/**
+ * {@link unsupportedGenericFieldReason} の `unsupportedField` が指す、対応していない
+ * RRULE のフィールドの安定識別子。`BYDAY_EXPANDED` / `BYMONTHDAY_EXPANDED` は
+ * rrule.js 内部の展開済み表現（`bynweekday` / `bynmonthday`）を指す。
+ */
+export type RecurrenceUnsupportedField =
+  | 'BYSETPOS'
+  | 'BYMONTH'
+  | 'BYYEARDAY'
+  | 'BYWEEKNO'
+  | 'BYHOUR'
+  | 'BYMINUTE'
+  | 'BYSECOND'
+  | 'BYEASTER'
+  | 'BYDAY_EXPANDED'
+  | 'BYMONTHDAY_EXPANDED';
+
+/**
+ * {@link parseRecurrenceRule} が編集エディタの対応範囲外と判断した理由の判別ユニオン。
+ *
+ * `invalidRRuleSyntax` のみ rrule.js が投げた例外由来で、`detail` に英語の原文
+ * メッセージを保持する（それ以外は判定ロジックが直接返す固定コード）。文言化は
+ * `@koyomi-cal/react` のメッセージカタログ（`catalog.recurrenceEditor.unsupportedReason`）
+ * が担う。
+ */
+export type RecurrenceUnsupportedReason =
+  | { code: 'unsupportedField'; field: RecurrenceUnsupportedField }
+  | { code: 'unsupportedWkst' }
+  | { code: 'unsupportedFrequency' }
+  | { code: 'countAndUntilBothSpecified' }
+  | { code: 'byDayFormatUnrecognized' }
+  | { code: 'dailyByDayOrByMonthDayUnsupported' }
+  | { code: 'yearlyByDayOrByMonthDayUnsupported' }
+  | { code: 'weeklyByMonthDayUnsupported' }
+  | { code: 'weeklyByDayOrdinalUnsupported' }
+  | { code: 'monthlyByDayAndByMonthDayConflict' }
+  | { code: 'monthlyByMonthDayMultipleValuesUnsupported' }
+  | { code: 'monthlyByDayMultipleTokensUnsupported' }
+  | { code: 'monthlyByDayOrdinalRequired' }
+  | { code: 'monthlyByDayOrdinalOutOfRange' }
+  | { code: 'invalidRRuleSyntax'; detail: string };
 
 /** {@link parseRecurrenceRule} の結果。 */
 export type ParsedRecurrenceRule =
   | { kind: 'none' }
   | { kind: 'editable'; state: RecurrenceRuleState }
-  | { kind: 'unsupported'; rawRRule: string; reason: string };
+  | { kind: 'unsupported'; rawRRule: string; reason: RecurrenceUnsupportedReason };
 
 /** 例外からメッセージ文字列を取り出す。 */
 function errorMessage(cause: unknown): string {
@@ -110,41 +162,41 @@ function koyomiFrequencyFromRRule(freq: Options['freq'] | undefined): Recurrence
 function unsupportedGenericFieldReason(
   parsed: Partial<Options>,
   normalizedText: string,
-): string | null {
+): RecurrenceUnsupportedReason | null {
   if (parsed.bysetpos !== undefined && parsed.bysetpos !== null) {
-    return '対応していない RRULE の指定です（BYSETPOS）';
+    return { code: 'unsupportedField', field: 'BYSETPOS' };
   }
   if (parsed.bymonth !== undefined && parsed.bymonth !== null) {
-    return '対応していない RRULE の指定です（BYMONTH）';
+    return { code: 'unsupportedField', field: 'BYMONTH' };
   }
   if (parsed.byyearday !== undefined && parsed.byyearday !== null) {
-    return '対応していない RRULE の指定です（BYYEARDAY）';
+    return { code: 'unsupportedField', field: 'BYYEARDAY' };
   }
   if (parsed.byweekno !== undefined && parsed.byweekno !== null) {
-    return '対応していない RRULE の指定です（BYWEEKNO）';
+    return { code: 'unsupportedField', field: 'BYWEEKNO' };
   }
   if (parsed.byhour !== undefined && parsed.byhour !== null) {
-    return '対応していない RRULE の指定です（BYHOUR）';
+    return { code: 'unsupportedField', field: 'BYHOUR' };
   }
   if (parsed.byminute !== undefined && parsed.byminute !== null) {
-    return '対応していない RRULE の指定です（BYMINUTE）';
+    return { code: 'unsupportedField', field: 'BYMINUTE' };
   }
   if (parsed.bysecond !== undefined && parsed.bysecond !== null) {
-    return '対応していない RRULE の指定です（BYSECOND）';
+    return { code: 'unsupportedField', field: 'BYSECOND' };
   }
   if (parsed.byeaster !== undefined && parsed.byeaster !== null) {
-    return '対応していない RRULE の指定です（BYEASTER）';
+    return { code: 'unsupportedField', field: 'BYEASTER' };
   }
   if (parsed.bynweekday !== undefined && parsed.bynweekday !== null) {
-    return '対応していない RRULE の指定です（BYDAY の内部展開形式）';
+    return { code: 'unsupportedField', field: 'BYDAY_EXPANDED' };
   }
   if (parsed.bynmonthday !== undefined && parsed.bynmonthday !== null) {
-    return '対応していない RRULE の指定です（BYMONTHDAY の内部展開形式）';
+    return { code: 'unsupportedField', field: 'BYMONTHDAY_EXPANDED' };
   }
   const wkstMatch = /(?:^|;)WKST=([A-Z]{2})/.exec(normalizedText);
   const wkstCode = wkstMatch?.[1];
   if (wkstCode !== undefined && wkstCode !== 'MO') {
-    return '対応していない RRULE の指定です（月曜以外を指定する WKST）';
+    return { code: 'unsupportedWkst' };
   }
   return null;
 }
@@ -210,7 +262,7 @@ function isSupportedOrdinal(value: number): value is RecurrenceWeekdayOrdinal {
 /** {@link resolvePatternForFrequency} の結果。 */
 type PatternResolution =
   | { ok: true; extra: Partial<Pick<RecurrenceRuleState, 'byWeekday' | 'monthlyPattern'>> }
-  | { ok: false; reason: string };
+  | { ok: false; reason: RecurrenceUnsupportedReason };
 
 /**
  * 頻度ごとに BYDAY・BYMONTHDAY の組み合わせを検証し、`RecurrenceRuleState` の
@@ -227,59 +279,55 @@ function resolvePatternForFrequency(
 
   if (freq === 'daily') {
     if (hasByDay || (byMonthDay !== undefined && byMonthDay !== null)) {
-      return { ok: false, reason: 'DAILY では BYDAY・BYMONTHDAY を編集エディタでは扱えません' };
+      return { ok: false, reason: { code: 'dailyByDayOrByMonthDayUnsupported' } };
     }
     return { ok: true, extra: {} };
   }
 
   if (freq === 'yearly') {
     if (hasByDay || (byMonthDay !== undefined && byMonthDay !== null)) {
-      return { ok: false, reason: 'YEARLY では BYDAY・BYMONTHDAY を編集エディタでは扱えません' };
+      return { ok: false, reason: { code: 'yearlyByDayOrByMonthDayUnsupported' } };
     }
     return { ok: true, extra: {} };
   }
 
   if (freq === 'weekly') {
     if (byMonthDay !== undefined && byMonthDay !== null) {
-      return { ok: false, reason: 'WEEKLY で BYMONTHDAY を編集エディタでは扱えません' };
+      return { ok: false, reason: { code: 'weeklyByMonthDayUnsupported' } };
     }
     if (!hasByDay) {
       return { ok: true, extra: {} };
     }
     if (byDayTokens.some((token) => token.ordinal !== undefined)) {
-      return { ok: false, reason: 'WEEKLY の BYDAY に第 n 週指定は使用できません' };
+      return { ok: false, reason: { code: 'weeklyByDayOrdinalUnsupported' } };
     }
     return { ok: true, extra: { byWeekday: byDayTokens.map((token) => token.weekday) } };
   }
 
   // freq === 'monthly'
   if (hasByDay && byMonthDay !== undefined && byMonthDay !== null) {
-    return { ok: false, reason: 'MONTHLY で BYDAY と BYMONTHDAY を同時に指定することはできません' };
+    return { ok: false, reason: { code: 'monthlyByDayAndByMonthDayConflict' } };
   }
   if (byMonthDay !== undefined && byMonthDay !== null) {
     if (Array.isArray(byMonthDay)) {
-      return { ok: false, reason: 'MONTHLY の BYMONTHDAY は単一の値のみ編集エディタで扱えます' };
+      return { ok: false, reason: { code: 'monthlyByMonthDayMultipleValuesUnsupported' } };
     }
     return { ok: true, extra: { monthlyPattern: { kind: 'dayOfMonth', day: byMonthDay } } };
   }
   if (hasByDay) {
     if (byDayTokens.length > 1) {
-      return { ok: false, reason: 'MONTHLY の BYDAY は単一の曜日指定のみ編集エディタで扱えます' };
+      return { ok: false, reason: { code: 'monthlyByDayMultipleTokensUnsupported' } };
     }
     const [token] = byDayTokens;
     if (token === undefined) {
-      return { ok: false, reason: 'MONTHLY の BYDAY には第 n 週指定が必要です' };
+      return { ok: false, reason: { code: 'monthlyByDayOrdinalRequired' } };
     }
     const { ordinal, weekday } = token;
     if (ordinal === undefined) {
-      return { ok: false, reason: 'MONTHLY の BYDAY には第 n 週指定が必要です' };
+      return { ok: false, reason: { code: 'monthlyByDayOrdinalRequired' } };
     }
     if (!isSupportedOrdinal(ordinal)) {
-      return {
-        ok: false,
-        reason:
-          'MONTHLY の BYDAY の第 n 週指定は 1〜4 または -1（最終週）のみ編集エディタで扱えます',
-      };
+      return { ok: false, reason: { code: 'monthlyByDayOrdinalOutOfRange' } };
     }
     return { ok: true, extra: { monthlyPattern: { kind: 'nthWeekday', ordinal, weekday } } };
   }
@@ -324,7 +372,11 @@ export function parseRecurrenceRule(params: {
     // 付与して初めて構築に失敗するケースをここで拾う
     void new RRule({ ...parsed, dtstart: toFakeUTC(dtstart, timeZone) });
   } catch (cause) {
-    return { kind: 'unsupported', rawRRule: rrule, reason: errorMessage(cause) };
+    return {
+      kind: 'unsupported',
+      rawRRule: rrule,
+      reason: { code: 'invalidRRuleSyntax', detail: errorMessage(cause) },
+    };
   }
 
   const freq = koyomiFrequencyFromRRule(parsed.freq);
@@ -332,7 +384,7 @@ export function parseRecurrenceRule(params: {
     return {
       kind: 'unsupported',
       rawRRule: rrule,
-      reason: 'DAILY・WEEKLY・MONTHLY・YEARLY 以外の頻度は編集エディタでは扱えません',
+      reason: { code: 'unsupportedFrequency' },
     };
   }
 
@@ -347,13 +399,13 @@ export function parseRecurrenceRule(params: {
     return {
       kind: 'unsupported',
       rawRRule: rrule,
-      reason: 'COUNT と UNTIL を同時に指定することはできません',
+      reason: { code: 'countAndUntilBothSpecified' },
     };
   }
 
   const byDayTokens = decodeByDayTokens(normalizedText);
   if (byDayTokens === null) {
-    return { kind: 'unsupported', rawRRule: rrule, reason: 'BYDAY の形式を解釈できません' };
+    return { kind: 'unsupported', rawRRule: rrule, reason: { code: 'byDayFormatUnrecognized' } };
   }
 
   const patternResolution = resolvePatternForFrequency(freq, parsed, byDayTokens);
@@ -390,25 +442,19 @@ export function validateRecurrenceRuleState(
   const issues: RecurrenceValidationIssue[] = [];
 
   if (!Number.isInteger(state.interval) || state.interval < 1) {
-    issues.push({
-      field: 'interval',
-      message: '繰り返し間隔（interval）は 1 以上の整数で指定してください',
-    });
+    issues.push({ field: 'interval', code: 'invalid' });
   }
 
   const byWeekday = state.byWeekday;
   if (byWeekday !== undefined) {
     if (byWeekday.length === 0) {
-      issues.push({ field: 'byWeekday', message: '曜日を 1 つ以上指定してください' });
+      issues.push({ field: 'byWeekday', code: 'empty' });
     } else if (new Set(byWeekday).size !== byWeekday.length) {
-      issues.push({ field: 'byWeekday', message: '同じ曜日を重複して指定することはできません' });
+      issues.push({ field: 'byWeekday', code: 'duplicate' });
     } else if (
       byWeekday.some((weekday) => !Number.isInteger(weekday) || weekday < 0 || weekday > 6)
     ) {
-      issues.push({
-        field: 'byWeekday',
-        message: '曜日は 0（日曜日）〜6（土曜日）の範囲で指定してください',
-      });
+      issues.push({ field: 'byWeekday', code: 'outOfRange' });
     }
   }
 
@@ -417,36 +463,27 @@ export function validateRecurrenceRuleState(
     if (monthlyPattern.kind === 'dayOfMonth') {
       const { day } = monthlyPattern;
       if (!Number.isInteger(day) || (day !== -1 && (day < 1 || day > 31))) {
-        issues.push({
-          field: 'monthlyPattern',
-          message: '月内日付は 1〜31 または -1（月末）で指定してください',
-        });
+        issues.push({ field: 'monthlyPattern', code: 'dayOfMonthInvalid' });
       }
     } else {
       const { ordinal, weekday } = monthlyPattern;
       if (ordinal !== -1 && ordinal !== 1 && ordinal !== 2 && ordinal !== 3 && ordinal !== 4) {
-        issues.push({
-          field: 'monthlyPattern',
-          message: '第 n 週の指定は 1〜4 または -1（最終週）で指定してください',
-        });
+        issues.push({ field: 'monthlyPattern', code: 'ordinalInvalid' });
       }
       if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
-        issues.push({
-          field: 'monthlyPattern',
-          message: '曜日は 0（日曜日）〜6（土曜日）の範囲で指定してください',
-        });
+        issues.push({ field: 'monthlyPattern', code: 'weekdayInvalid' });
       }
     }
   }
 
   if (state.end.type === 'count') {
     if (!Number.isInteger(state.end.count) || state.end.count < 1) {
-      issues.push({ field: 'count', message: '回数（count）は 1 以上の整数で指定してください' });
+      issues.push({ field: 'count', code: 'invalid' });
     }
   } else if (state.end.type === 'until') {
     const { until } = state.end;
     if (!(until instanceof Date) || Number.isNaN(until.getTime())) {
-      issues.push({ field: 'until', message: '終了日（until）に有効な日時を指定してください' });
+      issues.push({ field: 'until', code: 'invalid' });
     }
   }
 
@@ -558,190 +595,11 @@ export function buildRecurrenceRuleString(params: {
   const issues = validateRecurrenceRuleState(state);
   if (issues.length > 0) {
     throw new Error(
-      `不正な繰り返しルールの状態です: ${issues.map((issue) => issue.message).join('、')}`,
+      `不正な繰り返しルールの状態です: ${issues.map((issue) => `${issue.field}:${issue.code}`).join('、')}`,
     );
   }
   const normalized = normalizeRRuleString(buildRawRRuleText(state, timeZone));
   const parsedWithDtstart = parseRRuleOptions(normalized);
   void new RRule({ ...parsedWithDtstart, dtstart: toFakeUTC(dtstart, timeZone) });
   return normalized;
-}
-
-/** {@link Weekday} の日本語 1 文字表記。 */
-function weekdayNameJa(weekday: Weekday): string {
-  switch (weekday) {
-    case 0:
-      return '日';
-    case 1:
-      return '月';
-    case 2:
-      return '火';
-    case 3:
-      return '水';
-    case 4:
-      return '木';
-    case 5:
-      return '金';
-    case 6:
-      return '土';
-  }
-}
-
-/** {@link RecurrenceWeekdayOrdinal} の日本語表記（「第1」「最終」等）。 */
-function ordinalLabelJa(ordinal: RecurrenceWeekdayOrdinal): string {
-  switch (ordinal) {
-    case 1:
-      return '第1';
-    case 2:
-      return '第2';
-    case 3:
-      return '第3';
-    case 4:
-      return '第4';
-    case -1:
-      return '最終';
-  }
-}
-
-/** `describeRecurrenceRule` の `context` パラメータの型。 */
-type DescribeContext = { dtstart?: Date; timeZone?: TimeZoneId } | undefined;
-
-/** WEEKLY の曜日部分のテキスト（「月・水」等）。情報がなければ `null`。 */
-function weeklyWeekdaysJa(state: RecurrenceRuleState, context: DescribeContext): string | null {
-  const byWeekday = state.byWeekday;
-  if (byWeekday !== undefined && byWeekday.length > 0) {
-    return [...byWeekday]
-      .sort((a, b) => a - b)
-      .map((weekday) => weekdayNameJa(weekday))
-      .join('・');
-  }
-  if (context?.dtstart !== undefined && context.timeZone !== undefined) {
-    return weekdayNameJa(weekdayInZone(context.dtstart, context.timeZone));
-  }
-  return null;
-}
-
-/** 月内日付のテキスト（「15日」「末日」）。 */
-function dayOfMonthTextJa(day: number): string {
-  return day === -1 ? '末日' : `${day}日`;
-}
-
-/** MONTHLY のパターン部分のテキスト（「15日」「第2月曜日」等）。情報がなければ `null`。 */
-function monthlyPatternTextJa(state: RecurrenceRuleState, context: DescribeContext): string | null {
-  const monthlyPattern = state.monthlyPattern;
-  if (monthlyPattern !== undefined) {
-    if (monthlyPattern.kind === 'dayOfMonth') {
-      return dayOfMonthTextJa(monthlyPattern.day);
-    }
-    const { ordinal, weekday } = monthlyPattern;
-    return `${ordinalLabelJa(ordinal)}${weekdayNameJa(weekday)}曜日`;
-  }
-  if (context?.dtstart !== undefined && context.timeZone !== undefined) {
-    return dayOfMonthTextJa(getWallClock(context.dtstart, context.timeZone).day);
-  }
-  return null;
-}
-
-/** YEARLY の月日部分のテキスト（「7月1日」）。`context` がなければ `null`。 */
-function yearlyMonthDayTextJa(context: DescribeContext): string | null {
-  if (context?.dtstart === undefined || context.timeZone === undefined) {
-    return null;
-  }
-  const wall = getWallClock(context.dtstart, context.timeZone);
-  return `${wall.month}月${wall.day}日`;
-}
-
-/** 頻度ごとの基本文言を組み立てる（終了条件は含まない）。 */
-function describeBaseJa(
-  state: RecurrenceRuleState,
-  interval: number,
-  context: DescribeContext,
-): string {
-  switch (state.freq) {
-    case 'daily':
-      return interval <= 1 ? '毎日' : `${interval}日ごと`;
-    case 'weekly': {
-      const weekdays = weeklyWeekdaysJa(state, context);
-      if (interval <= 1) {
-        return weekdays === null ? '毎週' : `毎週${weekdays}`;
-      }
-      return weekdays === null ? `${interval}週ごと` : `${interval}週ごとの${weekdays}`;
-    }
-    case 'monthly': {
-      const pattern = monthlyPatternTextJa(state, context);
-      // 第n週指定（「第2月曜日」等）は「毎月」の直後に空白を挟む。
-      // 月内日付指定（「15日」等）は空白を挟まない（既存の文言慣習に合わせる）
-      const isNthWeekday = state.monthlyPattern?.kind === 'nthWeekday';
-      if (interval <= 1) {
-        if (pattern === null) {
-          return '毎月';
-        }
-        return isNthWeekday ? `毎月 ${pattern}` : `毎月${pattern}`;
-      }
-      if (pattern === null) {
-        return `${interval}ヶ月ごと`;
-      }
-      return isNthWeekday ? `${interval}ヶ月ごとの ${pattern}` : `${interval}ヶ月ごとの${pattern}`;
-    }
-    case 'yearly': {
-      const monthDay = yearlyMonthDayTextJa(context);
-      if (interval <= 1) {
-        return monthDay === null ? '毎年' : `毎年${monthDay}`;
-      }
-      return monthDay === null ? `${interval}年ごと` : `${interval}年ごとの${monthDay}`;
-    }
-  }
-}
-
-/** `until` を日本語の日付表記（「YYYY年M月D日」）に整形する。 */
-function formatUntilDateJa(until: Date, timeZone: TimeZoneId | undefined): string {
-  if (timeZone !== undefined) {
-    const wall = getWallClock(until, timeZone);
-    return `${wall.year}年${wall.month}月${wall.day}日`;
-  }
-  return `${until.getUTCFullYear()}年${until.getUTCMonth() + 1}月${until.getUTCDate()}日`;
-}
-
-/** 終了条件の末尾テキスト（「（5回）」「（2026年7月5日まで）」）。`never` は空文字列。 */
-function describeEndSuffixJa(end: RecurrenceEnd, timeZone: TimeZoneId | undefined): string {
-  if (end.type === 'count') {
-    return `（${end.count}回）`;
-  }
-  if (end.type === 'until') {
-    return `（${formatUntilDateJa(end.until, timeZone)}まで）`;
-  }
-  return '';
-}
-
-/**
- * `state` を日本語の人間可読な説明文にする。
- *
- * 検証（{@link validateRecurrenceRuleState}）を要求しない best-effort な整形であり、
- * `interval` が 1 未満・非整数の場合は表示上 1 として扱うなど、無効な状態でも
- * 例外を投げずに整形する。`byWeekday` / `monthlyPattern` が省略されており
- * `context` も渡されない場合、曜日・日にちを欠いた曖昧な文言（「毎週」「毎月」等）
- * になる（DTSTART に暗黙依存する状態を、DTSTART を知らずに説明する以上の
- * 情報は得られないための既知の制限）。
- *
- * @param state - 説明文を生成する対象の状態
- * @param context - 曜日・月内日付・年内の月日を補うための DTSTART とタイムゾーン（省略可）
- * @returns 日本語の説明文
- * @example
- * ```ts
- * describeRecurrenceRule({
- *   freq: 'weekly',
- *   interval: 1,
- *   byWeekday: [1, 3],
- *   end: { type: 'count', count: 5 },
- * });
- * // => '毎週月・水（5回）'
- * ```
- */
-export function describeRecurrenceRule(
-  state: RecurrenceRuleState,
-  context?: { dtstart?: Date; timeZone?: TimeZoneId },
-): string {
-  const interval = Number.isInteger(state.interval) && state.interval >= 1 ? state.interval : 1;
-  const base = describeBaseJa(state, interval, context);
-  return `${base}${describeEndSuffixJa(state.end, context?.timeZone)}`;
 }

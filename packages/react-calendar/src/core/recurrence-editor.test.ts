@@ -6,13 +6,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildRecurrenceRuleString,
-  describeRecurrenceRule,
   type MonthlyRecurrencePattern,
   parseRecurrenceRule,
-  type RecurrenceEnd,
   type RecurrenceRuleState,
+  type RecurrenceUnsupportedReason,
+  type RecurrenceValidationIssue,
   validateRecurrenceRuleState,
 } from './recurrence-editor';
+import type { Weekday } from './types';
 
 const TOKYO = 'Asia/Tokyo';
 
@@ -210,14 +211,16 @@ describe('parseRecurrenceRule', () => {
     expect(result.kind).toBe('unsupported');
   });
 
-  it('不正な RRULE（FOO=BAR）は unsupported になり、reason にパースエラーの原因を含む', () => {
+  it('不正な RRULE（FOO=BAR）は unsupported になり、reason.code が invalidRRuleSyntax・detail にパースエラーの原因を含む', () => {
     const result = parseRecurrenceRule({
       rrule: 'FOO=BAR',
       dtstart: TOKYO_JULY_1_9AM,
       timeZone: TOKYO,
     });
     expect(result.kind).toBe('unsupported');
-    expect(result.kind === 'unsupported' && result.reason.length).toBeGreaterThan(0);
+    const reason = result.kind === 'unsupported' ? result.reason : null;
+    expect(reason?.code).toBe('invalidRRuleSyntax');
+    expect(reason?.code === 'invalidRRuleSyntax' && reason.detail.length).toBeGreaterThan(0);
     expect(result.kind === 'unsupported' && result.rawRRule).toBe('FOO=BAR');
   });
 
@@ -302,6 +305,42 @@ describe('parseRecurrenceRule', () => {
         timeZone: TOKYO,
       }).kind,
     ).toBe('unsupported');
+  });
+
+  describe('unsupported の reason コード網羅', () => {
+    // `unsupportedField.field` の `BYDAY_EXPANDED` / `BYMONTHDAY_EXPANDED`、および
+    // `byDayFormatUnrecognized` は、rrule.js 自身の RRULE 文字列パーサ（`RRule.parseString`）
+    // と正規化（`normalizeRRuleString` が使う `RRule.optionsToString`）の往復では
+    // 到達しない防御的な分岐（rrule.js のパーサは常にこれらの形式を経由せず値を返す）
+    // のため、ここでは通常の RRULE 文字列からの到達を確認しない。
+    const cases: readonly [string, RecurrenceUnsupportedReason][] = [
+      ['FREQ=DAILY;BYSETPOS=1', { code: 'unsupportedField', field: 'BYSETPOS' }],
+      ['FREQ=DAILY;BYMONTH=1', { code: 'unsupportedField', field: 'BYMONTH' }],
+      ['FREQ=DAILY;BYYEARDAY=1', { code: 'unsupportedField', field: 'BYYEARDAY' }],
+      ['FREQ=YEARLY;BYWEEKNO=1', { code: 'unsupportedField', field: 'BYWEEKNO' }],
+      ['FREQ=DAILY;BYHOUR=9', { code: 'unsupportedField', field: 'BYHOUR' }],
+      ['FREQ=DAILY;BYMINUTE=30', { code: 'unsupportedField', field: 'BYMINUTE' }],
+      ['FREQ=DAILY;BYSECOND=30', { code: 'unsupportedField', field: 'BYSECOND' }],
+      ['FREQ=YEARLY;BYEASTER=0', { code: 'unsupportedField', field: 'BYEASTER' }],
+      ['FREQ=WEEKLY;WKST=SU', { code: 'unsupportedWkst' }],
+      ['FREQ=HOURLY', { code: 'unsupportedFrequency' }],
+      ['FREQ=DAILY;COUNT=5;UNTIL=20260705T090000Z', { code: 'countAndUntilBothSpecified' }],
+      ['FREQ=DAILY;BYDAY=MO', { code: 'dailyByDayOrByMonthDayUnsupported' }],
+      ['FREQ=YEARLY;BYMONTHDAY=1', { code: 'yearlyByDayOrByMonthDayUnsupported' }],
+      ['FREQ=WEEKLY;BYMONTHDAY=1', { code: 'weeklyByMonthDayUnsupported' }],
+      ['FREQ=WEEKLY;BYDAY=2MO', { code: 'weeklyByDayOrdinalUnsupported' }],
+      ['FREQ=MONTHLY;BYDAY=MO;BYMONTHDAY=1', { code: 'monthlyByDayAndByMonthDayConflict' }],
+      ['FREQ=MONTHLY;BYMONTHDAY=1,15', { code: 'monthlyByMonthDayMultipleValuesUnsupported' }],
+      ['FREQ=MONTHLY;BYDAY=MO,WE', { code: 'monthlyByDayMultipleTokensUnsupported' }],
+      ['FREQ=MONTHLY;BYDAY=MO', { code: 'monthlyByDayOrdinalRequired' }],
+      ['FREQ=MONTHLY;BYDAY=5MO', { code: 'monthlyByDayOrdinalOutOfRange' }],
+    ];
+
+    it.each(cases)('%s → %j', (rrule, expectedReason) => {
+      const result = parseRecurrenceRule({ rrule, dtstart: TOKYO_JULY_1_9AM, timeZone: TOKYO });
+      expect(result.kind).toBe('unsupported');
+      expect(result.kind === 'unsupported' && result.reason).toEqual(expectedReason);
+    });
   });
 });
 
@@ -409,6 +448,82 @@ describe('validateRecurrenceRuleState', () => {
     });
     expect(issues.some((issue) => issue.field === 'until')).toBe(true);
   });
+
+  // ordinal:5 / weekday:7 は型上 MonthlyRecurrencePattern の値域外だが、非 TypeScript
+  // 経由の実行時データに対する検証（code 網羅）を確認するため、上のテストと同じく
+  // 意図的に型を無視して範囲外の値を構築する
+  const outOfRangeOrdinalPattern = {
+    kind: 'nthWeekday',
+    ordinal: 5,
+    weekday: 1,
+  } as unknown as MonthlyRecurrencePattern;
+  const outOfRangeWeekdayPattern = {
+    kind: 'nthWeekday',
+    ordinal: 1,
+    weekday: 7,
+  } as unknown as MonthlyRecurrencePattern;
+  // 8 は型上 Weekday（0〜6）の値域外だが、非 TypeScript 経由の実行時データに対する
+  // 検証（code 網羅）を確認するため、上と同じく意図的に型を無視して範囲外の値を構築する
+  const outOfRangeByWeekday = [3, 8] as unknown as readonly Weekday[];
+
+  const codeCases: ReadonlyArray<[RecurrenceRuleState, RecurrenceValidationIssue]> = [
+    [
+      { ...validDaily, interval: 0 },
+      { field: 'interval', code: 'invalid' },
+    ],
+    [
+      { freq: 'weekly', interval: 1, byWeekday: [], end: { type: 'never' } },
+      { field: 'byWeekday', code: 'empty' },
+    ],
+    [
+      { freq: 'weekly', interval: 1, byWeekday: [3, 1, 3], end: { type: 'never' } },
+      { field: 'byWeekday', code: 'duplicate' },
+    ],
+    [
+      { freq: 'weekly', interval: 1, byWeekday: outOfRangeByWeekday, end: { type: 'never' } },
+      { field: 'byWeekday', code: 'outOfRange' },
+    ],
+    [
+      {
+        freq: 'monthly',
+        interval: 1,
+        monthlyPattern: { kind: 'dayOfMonth', day: 32 },
+        end: { type: 'never' },
+      },
+      { field: 'monthlyPattern', code: 'dayOfMonthInvalid' },
+    ],
+    [
+      {
+        freq: 'monthly',
+        interval: 1,
+        monthlyPattern: outOfRangeOrdinalPattern,
+        end: { type: 'never' },
+      },
+      { field: 'monthlyPattern', code: 'ordinalInvalid' },
+    ],
+    [
+      {
+        freq: 'monthly',
+        interval: 1,
+        monthlyPattern: outOfRangeWeekdayPattern,
+        end: { type: 'never' },
+      },
+      { field: 'monthlyPattern', code: 'weekdayInvalid' },
+    ],
+    [
+      { ...validDaily, end: { type: 'count', count: 0 } },
+      { field: 'count', code: 'invalid' },
+    ],
+    [
+      { ...validDaily, end: { type: 'until', until: new Date(Number.NaN) } },
+      { field: 'until', code: 'invalid' },
+    ],
+  ];
+
+  it.each(codeCases)('%#: 検証すると期待する code を含む', (state, expectedIssue) => {
+    const issues = validateRecurrenceRuleState(state);
+    expect(issues).toContainEqual(expectedIssue);
+  });
 });
 
 describe('buildRecurrenceRuleString', () => {
@@ -504,142 +619,5 @@ describe('buildRecurrenceRuleString', () => {
     const rrule = buildRecurrenceRuleString({ state, dtstart: TOKYO_JULY_1_9AM, timeZone: TOKYO });
     expect(rrule).toContain('BYMONTHDAY=10');
     expect(rrule).not.toContain('BYDAY');
-  });
-});
-
-describe('describeRecurrenceRule', () => {
-  it('DAILY: interval=1 は「毎日」、interval=2 以上は「N日ごと」になる', () => {
-    expect(describeRecurrenceRule({ freq: 'daily', interval: 1, end: { type: 'never' } })).toBe(
-      '毎日',
-    );
-    expect(describeRecurrenceRule({ freq: 'daily', interval: 2, end: { type: 'never' } })).toBe(
-      '2日ごと',
-    );
-  });
-
-  it('WEEKLY: byWeekday を指定した場合は曜日を含む文言になる', () => {
-    expect(
-      describeRecurrenceRule({
-        freq: 'weekly',
-        interval: 1,
-        byWeekday: [1, 3],
-        end: { type: 'never' },
-      }),
-    ).toBe('毎週月・水');
-  });
-
-  it('WEEKLY: byWeekday 省略・context あり → context の dtstart の曜日で補う', () => {
-    // TOKYO_JULY_1_9AM（2026-07-01, 東京）は水曜日
-    expect(
-      describeRecurrenceRule(
-        { freq: 'weekly', interval: 1, end: { type: 'never' } },
-        { dtstart: TOKYO_JULY_1_9AM, timeZone: TOKYO },
-      ),
-    ).toBe('毎週水');
-  });
-
-  it('WEEKLY: byWeekday 省略・context なし → 曜日を欠いた文言になる', () => {
-    expect(describeRecurrenceRule({ freq: 'weekly', interval: 1, end: { type: 'never' } })).toBe(
-      '毎週',
-    );
-  });
-
-  it('MONTHLY: dayOfMonth は「毎月N日」、day=-1 は「毎月末日」になる', () => {
-    expect(
-      describeRecurrenceRule({
-        freq: 'monthly',
-        interval: 1,
-        monthlyPattern: { kind: 'dayOfMonth', day: 15 },
-        end: { type: 'never' },
-      }),
-    ).toBe('毎月15日');
-    expect(
-      describeRecurrenceRule({
-        freq: 'monthly',
-        interval: 1,
-        monthlyPattern: { kind: 'dayOfMonth', day: -1 },
-        end: { type: 'never' },
-      }),
-    ).toBe('毎月末日');
-  });
-
-  it('MONTHLY: nthWeekday は「毎月 第N曜日」「毎月 最終曜日」になる', () => {
-    expect(
-      describeRecurrenceRule({
-        freq: 'monthly',
-        interval: 1,
-        monthlyPattern: { kind: 'nthWeekday', ordinal: 2, weekday: 1 },
-        end: { type: 'never' },
-      }),
-    ).toBe('毎月 第2月曜日');
-    expect(
-      describeRecurrenceRule({
-        freq: 'monthly',
-        interval: 1,
-        monthlyPattern: { kind: 'nthWeekday', ordinal: -1, weekday: 5 },
-        end: { type: 'never' },
-      }),
-    ).toBe('毎月 最終金曜日');
-  });
-
-  it('YEARLY: context から月日を補い「毎年M月D日」になる', () => {
-    expect(
-      describeRecurrenceRule(
-        { freq: 'yearly', interval: 1, end: { type: 'never' } },
-        { dtstart: TOKYO_JULY_1_9AM, timeZone: TOKYO },
-      ),
-    ).toBe('毎年7月1日');
-  });
-
-  it('YEARLY: context なしは「毎年」になる', () => {
-    expect(describeRecurrenceRule({ freq: 'yearly', interval: 1, end: { type: 'never' } })).toBe(
-      '毎年',
-    );
-  });
-
-  it('interval<=0 は表示上 1 として扱う', () => {
-    expect(describeRecurrenceRule({ freq: 'daily', interval: 0, end: { type: 'never' } })).toBe(
-      '毎日',
-    );
-  });
-
-  it('end.type=count は末尾に「（N回）」を付加する（count=1 も単数表現で問題ない）', () => {
-    const end: RecurrenceEnd = { type: 'count', count: 1 };
-    expect(describeRecurrenceRule({ freq: 'daily', interval: 1, end })).toBe('毎日（1回）');
-    expect(
-      describeRecurrenceRule({ freq: 'daily', interval: 1, end: { type: 'count', count: 5 } }),
-    ).toBe('毎日（5回）');
-  });
-
-  it('end.type=until は timeZone 指定時は現地日付、省略時は UTC 成分で整形する', () => {
-    const until = new Date('2026-07-05T00:00:00Z');
-    expect(
-      describeRecurrenceRule(
-        { freq: 'daily', interval: 1, end: { type: 'until', until } },
-        { timeZone: TOKYO },
-      ),
-    ).toBe('毎日（2026年7月5日まで）');
-    expect(
-      describeRecurrenceRule({ freq: 'daily', interval: 1, end: { type: 'until', until } }),
-    ).toBe('毎日（2026年7月5日まで）');
-  });
-
-  it('end.type=until は timeZone 指定の有無で日付が異なりうる（UTC 20:00 → 東京では翌日）', () => {
-    const until = new Date('2026-07-05T20:00:00Z'); // 東京では 7/6 5:00
-    expect(
-      describeRecurrenceRule(
-        { freq: 'daily', interval: 1, end: { type: 'until', until } },
-        { timeZone: TOKYO },
-      ),
-    ).toBe('毎日（2026年7月6日まで）');
-    expect(
-      describeRecurrenceRule({ freq: 'daily', interval: 1, end: { type: 'until', until } }),
-    ).toBe('毎日（2026年7月5日まで）');
-  });
-
-  it('end.type=never は末尾に何も付加しない', () => {
-    expect(describeRecurrenceRule({ freq: 'daily', interval: 1, end: { type: 'never' } })).toBe(
-      '毎日',
-    );
   });
 });

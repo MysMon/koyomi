@@ -143,22 +143,73 @@ describe('useRecurrenceRuleEditor', () => {
     expect(result.current.unsupported).toBeNull();
   });
 
-  it('options.describeRule を渡すと description がその戻り値になる', () => {
+  it('options.messages.recurrenceEditor.describeRule を渡すと description がその戻り値になる', () => {
     const describeRule = vi.fn().mockReturnValue('カスタム説明文');
     const { result } = renderHook(() =>
-      useRecurrenceRuleEditor({ start: START, timeZone: TOKYO, rrule: 'FREQ=DAILY', describeRule }),
+      useRecurrenceRuleEditor({
+        start: START,
+        timeZone: TOKYO,
+        rrule: 'FREQ=DAILY',
+        messages: { recurrenceEditor: { describeRule } },
+      }),
     );
 
     expect(result.current.description).toBe('カスタム説明文');
-    expect(describeRule).toHaveBeenCalledWith(result.current.state, '毎日');
+    expect(describeRule).toHaveBeenCalledWith(result.current.state, {
+      dtstart: START,
+      timeZone: TOKYO,
+    });
   });
 
-  it('options.describeRule 省略時は core 既定の日本語文言になる', () => {
+  it('options.locale / options.messages 省略時は ja の既定文言になる', () => {
     const { result } = renderHook(() =>
       useRecurrenceRuleEditor({ start: START, timeZone: TOKYO, rrule: 'FREQ=DAILY' }),
     );
 
     expect(result.current.description).toBe('毎日');
+  });
+
+  it('options.locale: "en-US" を指定すると description が英語になる', () => {
+    const { result } = renderHook(() =>
+      useRecurrenceRuleEditor({
+        start: START,
+        timeZone: TOKYO,
+        rrule: 'FREQ=DAILY',
+        locale: 'en-US',
+      }),
+    );
+
+    expect(result.current.description).toBe('Daily');
+  });
+
+  it('errors[].message に解決済みロケールの検証エラー文言が入る', () => {
+    const { result } = renderHook(() =>
+      useRecurrenceRuleEditor({ start: START, timeZone: TOKYO, rrule: 'FREQ=DAILY' }),
+    );
+
+    act(() => {
+      result.current.setInterval(0);
+    });
+
+    expect(result.current.errors).toEqual([
+      {
+        field: 'interval',
+        code: 'invalid',
+        message: '繰り返し間隔（interval）は 1 以上の整数で指定してください',
+      },
+    ]);
+  });
+
+  it('unsupported.message に解決済みロケールの非対応理由の文言が入る', () => {
+    const { result } = renderHook(() =>
+      useRecurrenceRuleEditor({ start: START, timeZone: TOKYO, rrule: 'FREQ=HOURLY' }),
+    );
+
+    expect(result.current.unsupported).toEqual({
+      rawRRule: 'FREQ=HOURLY',
+      reason: { code: 'unsupportedFrequency' },
+      message: 'DAILY・WEEKLY・MONTHLY・YEARLY 以外の頻度は編集エディタでは扱えません',
+    });
   });
 
   describe('初期値のみ有効の規約', () => {

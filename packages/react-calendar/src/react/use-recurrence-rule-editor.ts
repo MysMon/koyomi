@@ -7,18 +7,20 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   buildRecurrenceRuleString,
-  describeRecurrenceRule,
   type MonthlyRecurrencePattern,
   parseRecurrenceRule,
   type RecurrenceEnd,
   type RecurrenceFrequency,
   type RecurrenceRuleState,
+  type RecurrenceUnsupportedReason,
   type RecurrenceValidationIssue,
   validateRecurrenceRuleState,
 } from '../core/recurrence-editor';
 import { getWallClock, weekdayInZone } from '../core/timezone';
 import type { TimeZoneId, Weekday } from '../core/types';
 import { isDevBuild } from './is-dev-build';
+import { resolveMessageCatalog } from './locales/resolve';
+import type { MessageCatalogOverrides } from './locales/types';
 
 /**
  * `useRecurrenceRuleEditor` のオプション。
@@ -37,13 +39,19 @@ export interface UseRecurrenceRuleEditorOptions {
   /** 編集対象の既存 RRULE 文字列。省略時は「繰り返しなし」。初期値としてのみ使用。 */
   rrule?: string;
   /**
-   * 説明文（{@link UseRecurrenceRuleEditorResult.description}）を差し替える関数。
-   * 省略時は {@link describeRecurrenceRule} が生成する日本語の既定文言をそのまま使う。
+   * 文言を解決するロケール。`resolveMessageCatalog` と同じ規約で、言語サブタグ
+   * （`-` より前）を大文字・小文字を無視して比較し、同梱カタログにない言語は
+   * `'ja'` にフォールバックする。省略時は `'ja'`。
    *
-   * @param state - 現在の状態
-   * @param defaultDescription - core が生成した既定の説明文（日本語）
+   * `start` / `timeZone` / `rrule` と異なり初期値限定ではなく、変更するたびに
+   * 再解決される（編集対象の切り替えではなく表示言語の切り替えのため）。
    */
-  describeRule?: (state: RecurrenceRuleState, defaultDescription: string) => string;
+  locale?: string;
+  /**
+   * 既定の文言（{@link UseRecurrenceRuleEditorResult.description} 等）を
+   * 部分的に差し替える。`locale` と同様、変更するたびに再解決される。
+   */
+  messages?: MessageCatalogOverrides;
 }
 
 /** `useRecurrenceRuleEditor` の戻り値。 */
@@ -51,7 +59,7 @@ export interface UseRecurrenceRuleEditorResult {
   /** 現在の構造化状態。`null` は「繰り返しなし」。 */
   state: RecurrenceRuleState | null;
   /** 対応範囲外の RRULE を読み込んだ場合の元情報。`state` が有効な間は `null`。 */
-  unsupported: { rawRRule: string; reason: string } | null;
+  unsupported: { rawRRule: string; reason: RecurrenceUnsupportedReason; message: string } | null;
   /**
    * 頻度を変更する。
    *
@@ -78,17 +86,12 @@ export interface UseRecurrenceRuleEditorResult {
   enable(): void;
   /** 繰り返しを解除する（`state` / `unsupported` の両方を `null` に戻す）。 */
   clear(): void;
-  /** `state` の検証エラー（空配列なら有効）。 */
-  errors: readonly RecurrenceValidationIssue[];
+  /** `state` の検証エラー（空配列なら有効）。`message` は解決済みロケールの文言。 */
+  errors: readonly (RecurrenceValidationIssue & { message: string })[];
   /** 現在の状態から生成された RRULE 文字列。`state` が `null` または検証エラーがある場合は `null`。 */
   rruleString: string | null;
   /** 現在の状態の説明文。`state` が `null` の場合は `null`。 */
   description: string | null;
-}
-
-/** `options.describeRule` 省略時の既定実装（`defaultDescription` をそのまま返す）。 */
-function defaultDescribeRule(_state: RecurrenceRuleState, defaultDescription: string): string {
-  return defaultDescription;
 }
 
 /**
@@ -144,11 +147,17 @@ export function useRecurrenceRuleEditor(
   );
   const [unsupportedRawRRule, setUnsupportedRawRRule] = useState<{
     rawRRule: string;
-    reason: string;
+    reason: RecurrenceUnsupportedReason;
   } | null>(() =>
     initialParsed.kind === 'unsupported'
       ? { rawRRule: initialParsed.rawRRule, reason: initialParsed.reason }
       : null,
+  );
+
+  /** `options.locale` / `options.messages` から解決した文言カタログ。変更のたびに再解決する。 */
+  const catalog = useMemo(
+    () => resolveMessageCatalog(options.locale ?? 'ja', options.messages),
+    [options.locale, options.messages],
   );
 
   // start/timeZone/rrule は初期値としてのみ有効。開発時のみ、マウント後に異なる
@@ -226,7 +235,25 @@ export function useRecurrenceRuleEditor(
     setUnsupportedRawRRule(null);
   }, []);
 
-  const errors = useMemo(() => (state === null ? [] : validateRecurrenceRuleState(state)), [state]);
+  const errors = useMemo(() => {
+    if (state === null) {
+      return [];
+    }
+    return validateRecurrenceRuleState(state).map((issue) => ({
+      ...issue,
+      message: catalog.recurrenceEditor.validationMessage(issue),
+    }));
+  }, [state, catalog]);
+
+  const unsupported = useMemo(() => {
+    if (unsupportedRawRRule === null) {
+      return null;
+    }
+    return {
+      ...unsupportedRawRRule,
+      message: catalog.recurrenceEditor.unsupportedReason(unsupportedRawRRule.reason),
+    };
+  }, [unsupportedRawRRule, catalog]);
 
   const rruleString = useMemo(() => {
     if (state === null || errors.length > 0) {
@@ -243,17 +270,16 @@ export function useRecurrenceRuleEditor(
     if (state === null) {
       return null;
     }
-    const defaultDescription = describeRecurrenceRule(state, {
+    return catalog.recurrenceEditor.describeRule(state, {
       dtstart: initialOptionsRef.current.start,
       timeZone: initialOptionsRef.current.timeZone,
     });
-    return (options.describeRule ?? defaultDescribeRule)(state, defaultDescription);
-  }, [state, options.describeRule]);
+  }, [state, catalog]);
 
   return useMemo(
     () => ({
       state,
-      unsupported: unsupportedRawRRule,
+      unsupported,
       setFrequency,
       setInterval: setIntervalValue,
       setByWeekday,
@@ -267,7 +293,7 @@ export function useRecurrenceRuleEditor(
     }),
     [
       state,
-      unsupportedRawRRule,
+      unsupported,
       setFrequency,
       setIntervalValue,
       setByWeekday,

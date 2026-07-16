@@ -81,13 +81,14 @@ export {
 // 繰り返しルールエディタ
 export {
   buildRecurrenceRuleString,
-  describeRecurrenceRule,
   type MonthlyRecurrencePattern,
   type ParsedRecurrenceRule,
   parseRecurrenceRule,
   type RecurrenceEnd,
   type RecurrenceFrequency,
   type RecurrenceRuleState,
+  type RecurrenceUnsupportedField,
+  type RecurrenceUnsupportedReason,
   type RecurrenceValidationIssue,
   type RecurrenceWeekdayOrdinal,
   validateRecurrenceRuleState,
@@ -226,8 +227,17 @@ export {
 export { YearView, type YearViewProps } from './react/components/year-view';
 // React: コンテキスト
 export { CalendarProvider, type CalendarProviderProps, useCalendarContext } from './react/context';
+// React: 中央メッセージカタログ
+export { enMessages } from './react/locales/en';
 // React: ロケールプリセット
 export { type EnUsLabels, enUsLabels } from './react/locales/en-us';
+export { jaMessages } from './react/locales/ja';
+export { resolveMessageCatalog } from './react/locales/resolve';
+export type {
+  EventChangeVerb,
+  MessageCatalog,
+  MessageCatalogOverrides,
+} from './react/locales/types';
 // React: スクロールユーティリティ（initialScrollTime/scrollToTime）
 export { scrollContainerToTime, scrollFractionForTime } from './react/scroll-to-time';
 // React: 型
