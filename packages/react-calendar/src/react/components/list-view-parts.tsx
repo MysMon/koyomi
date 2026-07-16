@@ -20,40 +20,29 @@ import type {
 import { formatSlotLabel, minutesOfDayInZone } from '../../core/timezone';
 import type { EventOccurrence, ListDay, TimeZoneId } from '../../core/types';
 import { eventNotificationProps } from '../drag-common';
+import type { CommonMessages } from '../locales/types';
 import type { CalendarInteractionCallbacks } from '../types';
-import { formatEventAriaLabel, resolveEventAriaLabel } from './month-view-parts';
-
-/** `allDayLabel` 省略時の既定表示（終日イベントの時刻ラベル）。 */
-export const DEFAULT_ALL_DAY_LABEL = '終日';
-
-/** `emptyLabel` 省略時の既定表示（予定が 1 件もない場合のメッセージ）。 */
-export const DEFAULT_EMPTY_LABEL = '予定はありません';
-
-/**
- * 日セクションの既定 aria-label（例: `'7月16日(木) 予定2件'`）を組み立てる。
- * `ListView` / `VirtualListView` の両方で使う共通の既定文字列。予定が 0 件でも
- * 「予定0件」を含める（`VirtualListView` の既存挙動を踏襲）。
- *
- * @param defaultDayHeader - 日付見出しの既定内容（`'M月d日(曜)'` 形式）
- * @param occurrenceCount - その日の予定件数
- * @returns 既定の aria-label 文字列
- */
-export function defaultListDayAriaLabel(defaultDayHeader: string, occurrenceCount: number): string {
-  return `${defaultDayHeader} 予定${occurrenceCount}件`;
-}
+import { formatOccurrenceRangeLabel } from './month-view-parts';
 
 /**
  * 時間指定イベントの時刻ラベルを作る（表示タイムゾーンにおける、ロケールに応じた時刻表記の範囲）。
- * 終日イベントのラベルは呼び出し側で `allDayLabel` を直接使うため、ここでは扱わない。
+ * 終日イベントのラベルは呼び出し側で `messages.list.allDay` を直接使うため、ここでは扱わない。
+ *
+ * @param occurrence - 対象のオカレンス
+ * @param timeZone - 表示タイムゾーン
+ * @param locale - ロケール
+ * @param rangeSeparator - 開始側・終了側を連結する区切り記号
+ *   （{@link MessageCatalog.common.rangeSeparator}）
  */
 export function formatTimedEventTimeLabel(
   occurrence: EventOccurrence,
   timeZone: TimeZoneId,
   locale: string,
+  rangeSeparator: string,
 ): string {
   const startLabel = formatSlotLabel(minutesOfDayInZone(occurrence.start, timeZone), locale);
   const endLabel = formatSlotLabel(minutesOfDayInZone(occurrence.end, timeZone), locale);
-  return `${startLabel}〜${endLabel}`;
+  return `${startLabel}${rangeSeparator}${endLabel}`;
 }
 
 /**
@@ -89,6 +78,8 @@ export interface ListDaySectionProps {
   defaultDayHeader: string;
   /** 終日イベントの時刻ラベル。 */
   allDayLabel: ReactNode;
+  /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
+  commonMessages: CommonMessages;
   /** イベント行クリック時のハンドラ。 */
   onEventClick: (occurrence: EventOccurrence, event: ReactMouseEvent<HTMLButtonElement>) => void;
   /** イベント行キーダウン時のハンドラ（Enter / Space をクリック相当に橋渡し）。 */
@@ -102,12 +93,6 @@ export interface ListDaySectionProps {
   callbacks: CalendarInteractionCallbacks;
   /** イベント行の内容をカスタム描画する関数。 */
   renderEvent?: (occurrence: EventOccurrence) => ReactNode;
-  /**
-   * イベント行の aria-label をカスタマイズする関数。
-   * 第 2 引数に既定の aria-label 文字列（`formatEventAriaLabel` の結果）を渡すので、
-   * それを加工・置換して返せる。省略時は既定文字列をそのまま使う。
-   */
-  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
   /** 日付見出しの内容をカスタム描画する関数（第 2 引数に既定内容）。 */
   renderDayHeader?: (day: ListDay, defaultContent: ReactNode) => ReactNode;
   /** 仮想化: 高さ実測用の ref コールバック。 */
@@ -146,11 +131,11 @@ export function ListDaySection(props: ListDaySectionProps): ReactElement {
     locale,
     defaultDayHeader,
     allDayLabel,
+    commonMessages,
     onEventClick,
     onEventKeyDown,
     callbacks,
     renderEvent,
-    eventAriaLabel,
     renderDayHeader,
     sectionRef,
     role,
@@ -182,10 +167,15 @@ export function ListDaySection(props: ListDaySectionProps): ReactElement {
           data-koyomi="list-event"
           onClick={(event) => onEventClick(occurrence, event)}
           onKeyDown={onEventKeyDown}
-          aria-label={resolveEventAriaLabel(
+          aria-label={commonMessages.eventAriaLabel(
             occurrence,
-            formatEventAriaLabel(occurrence, timeZone, locale),
-            eventAriaLabel,
+            formatOccurrenceRangeLabel(
+              occurrence,
+              occurrence.allDay,
+              timeZone,
+              locale,
+              commonMessages.rangeSeparator,
+            ),
           )}
           {...(eventTabbable === false ? { tabIndex: -1 } : {})}
           {...eventNotificationProps(callbacks, occurrence)}
@@ -197,7 +187,12 @@ export function ListDaySection(props: ListDaySectionProps): ReactElement {
               <span data-koyomi="list-event-time">
                 {occurrence.allDay
                   ? allDayLabel
-                  : formatTimedEventTimeLabel(occurrence, timeZone, locale)}
+                  : formatTimedEventTimeLabel(
+                      occurrence,
+                      timeZone,
+                      locale,
+                      commonMessages.rangeSeparator,
+                    )}
               </span>
               <span
                 data-koyomi="list-event-swatch"

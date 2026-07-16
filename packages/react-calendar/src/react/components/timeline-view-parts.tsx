@@ -38,15 +38,6 @@ import { formatDayHeader, formatMonthTitle, formatRangeTitle } from './format';
 /** 1 日の分（24:00 = 1440 分）。 */
 export const MINUTES_PER_DAY = 1440;
 
-/** 未割り当て行の既定ラベル。 */
-export const DEFAULT_UNASSIGNED_LABEL = '未割り当て';
-
-/** 空状態の既定メッセージ。 */
-export const DEFAULT_EMPTY_LABEL = 'リソースがありません';
-
-/** ヘッダー行の角セル（行見出し列の列見出し）の既定 `aria-label`。 */
-export const DEFAULT_CORNER_LABEL = 'リソース';
-
 /**
  * `Ref<HTMLElement>` を `<div>` にそのまま渡せるコールバック ref に変換する
  * （`month-view-parts.tsx` の同名ヘルパと同じ橋渡し）。
@@ -187,38 +178,6 @@ export function sameTimelineRow(a: TimelineRow, b: TimelineRow): boolean {
     a.collapsed === b.collapsed &&
     sameTimelineItems(a.items, b.items)
   );
-}
-
-/**
- * 折りたたみトグルボタンの既定 aria-label を組み立てる。
- *
- * `collapsed`（トグル後ではなく現在の折りたたみ状態）に応じて、押すと何が起こるかを
- * 案内する文言にする（`collapsed: true` = 押すと展開、`false` = 押すと折りたたむ）。
- */
-export function defaultResourceToggleAriaLabel(
-  resource: CalendarResource,
-  collapsed: boolean,
-): string {
-  return collapsed ? `${resource.title} を展開する` : `${resource.title} を折りたたむ`;
-}
-
-/**
- * `resourceToggleAriaLabel` コールバックが指定されていればそれを適用し、なければ既定文字列を
- * そのまま返す（`month-view-parts.tsx` の `resolveEventAriaLabel` と同型）。
- *
- * @param resource - 対象のリソース
- * @param collapsed - 現在の折りたたみ状態
- * @param custom - 利用者が指定した `resourceToggleAriaLabel`
- */
-export function resolveResourceToggleAriaLabel(
-  resource: CalendarResource,
-  collapsed: boolean,
-  custom:
-    | ((resource: CalendarResource, collapsed: boolean, defaultLabel: string) => string)
-    | undefined,
-): string {
-  const defaultLabel = defaultResourceToggleAriaLabel(resource, collapsed);
-  return custom ? custom(resource, collapsed, defaultLabel) : defaultLabel;
 }
 
 /**

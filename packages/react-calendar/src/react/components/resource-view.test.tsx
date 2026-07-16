@@ -18,6 +18,7 @@ import type {
   ResourceColumn,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
+import type { MessageCatalogOverrides } from '../locales/types';
 import type { UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
 import type { ResourceViewHandle, ResourceViewProps } from './resource-view';
@@ -52,6 +53,8 @@ interface HarnessProps {
   slotMaxTime?: string;
   /** `ResourceView` へそのまま渡す追加 props。 */
   viewProps?: ResourceViewProps;
+  /** `CalendarProvider` の `messages` prop。 */
+  messages?: MessageCatalogOverrides;
   /** `useCalendar` の戻り値を外部から観測するための入れ物。 */
   sink?: { current: UseCalendarResult | null };
 }
@@ -74,7 +77,10 @@ function Harness(props: HarnessProps): ReactElement {
     props.sink.current = calendar;
   }
   return (
-    <CalendarProvider value={calendar}>
+    <CalendarProvider
+      value={calendar}
+      {...(props.messages !== undefined ? { messages: props.messages } : {})}
+    >
       <ResourceView {...(props.viewProps ?? {})} />
     </CalendarProvider>
   );
@@ -140,12 +146,12 @@ describe('ResourceView - 未割り当て列のラベル', () => {
     expect(unassignedHeader?.textContent).toBe('未割り当て');
   });
 
-  it('unassignedLabel でラベルを差し替えられる', () => {
+  it('messages.resource.unassigned でラベルを差し替えられる', () => {
     const { container } = render(
       <Harness
         resources={[ROOM_A]}
         unassignedLane="always"
-        viewProps={{ unassignedLabel: '担当未定' }}
+        messages={{ resource: { unassigned: '担当未定' } }}
       />,
     );
     const headers = container.querySelectorAll('[data-koyomi="resource-header-cell"]');
@@ -163,12 +169,12 @@ describe('ResourceView - 空状態', () => {
     expect(empty?.textContent).toBe('リソースがありません');
   });
 
-  it('emptyLabel でメッセージを差し替えられる', () => {
+  it('messages.resource.empty でメッセージを差し替えられる', () => {
     const { container } = render(
       <Harness
         resources={[]}
         unassignedLane="auto"
-        viewProps={{ emptyLabel: '会議室がありません' }}
+        messages={{ resource: { empty: '会議室がありません' } }}
       />,
     );
     const empty = container.querySelector('[data-koyomi="resource-empty"]');
@@ -210,7 +216,7 @@ describe('ResourceView - イベントブロック', () => {
     expect(eventEl?.textContent).toContain('定例会議');
   });
 
-  it('eventAriaLabel は既定の aria-label 文字列（リソース名込み）を defaultLabel として受け取り、返り値に置き換わる', () => {
+  it('messages.common.eventAriaLabel をオーバーライドすると、リソース名が付記される前の aria-label がカスタマイズされる', () => {
     const events: CalendarEvent[] = [
       {
         id: 'e1',
@@ -222,19 +228,17 @@ describe('ResourceView - イベントブロック', () => {
     ];
     const eventAriaLabel = (
       occurrence: import('../../core/types').EventOccurrence,
-      defaultLabel: string,
+      rangeLabel: string,
     ): string => {
       expect(occurrence.eventId).toBe('e1');
-      expect(defaultLabel).toBe('定例会議、7月15日 10:00〜11:00、会議室A');
-      return `カスタム:${defaultLabel}`;
+      expect(rangeLabel).toBe('7月15日 10:00〜11:00');
+      return `カスタム:${rangeLabel}`;
     };
     const { container } = render(
-      <Harness resources={[ROOM_A]} events={events} viewProps={{ eventAriaLabel }} />,
+      <Harness resources={[ROOM_A]} events={events} messages={{ common: { eventAriaLabel } }} />,
     );
     const eventEl = container.querySelector('[data-koyomi="timegrid-event"]');
-    expect(eventEl?.getAttribute('aria-label')).toBe(
-      'カスタム:定例会議、7月15日 10:00〜11:00、会議室A',
-    );
+    expect(eventEl?.getAttribute('aria-label')).toBe('カスタム:7月15日 10:00〜11:00、会議室A');
   });
 
   it('参照先のない resourceId のイベントは未割り当て列に入り、aria-label にリソース名を付けない', () => {
@@ -453,7 +457,7 @@ describe('ResourceView - 終日アイテム', () => {
     expect(alldayEvent?.getAttribute('aria-label')).toBe('休暇、7月15日、会議室A');
   });
 
-  it('eventAriaLabel は終日アイテムの既定 aria-label も defaultLabel として受け取る', () => {
+  it('messages.common.eventAriaLabel は終日アイテムの区切り記号適用済み日付ラベルも rangeLabel として受け取る', () => {
     const events: CalendarEvent[] = [
       {
         id: 'ad1',
@@ -466,13 +470,13 @@ describe('ResourceView - 終日アイテム', () => {
     ];
     const eventAriaLabel = (
       _occurrence: import('../../core/types').EventOccurrence,
-      defaultLabel: string,
-    ): string => `カスタム:${defaultLabel}`;
+      rangeLabel: string,
+    ): string => `カスタム:${rangeLabel}`;
     const { container } = render(
-      <Harness resources={[ROOM_A]} events={events} viewProps={{ eventAriaLabel }} />,
+      <Harness resources={[ROOM_A]} events={events} messages={{ common: { eventAriaLabel } }} />,
     );
     const alldayEvent = container.querySelector('[data-koyomi="allday-event"]');
-    expect(alldayEvent?.getAttribute('aria-label')).toBe('カスタム:休暇、7月15日、会議室A');
+    expect(alldayEvent?.getAttribute('aria-label')).toBe('カスタム:7月15日、会議室A');
   });
 
   it('renderAllDayItem で終日アイテムの内容をカスタマイズできる（renderEvent は影響しない）', () => {
@@ -803,7 +807,7 @@ describe('ResourceView - ARIA', () => {
     expect(cells[2]).toHaveAttribute('aria-label', '未割り当て');
   });
 
-  it('unassignedLabel でカスタムラベルを渡すと、未割り当て列の終日セルの aria-label にも同じラベルが反映される（columnheader と一致する）', () => {
+  it('messages.resource.unassigned でカスタムラベルを渡すと、未割り当て列の終日セルの aria-label にも同じラベルが反映される（columnheader と一致する）', () => {
     const events: CalendarEvent[] = [
       // resourceId 未指定 → 未割り当て列を生成させる
       {
@@ -814,7 +818,11 @@ describe('ResourceView - ARIA', () => {
       },
     ];
     const { container } = render(
-      <Harness resources={[ROOM_A]} events={events} viewProps={{ unassignedLabel: '担当未定' }} />,
+      <Harness
+        resources={[ROOM_A]}
+        events={events}
+        messages={{ resource: { unassigned: '担当未定' } }}
+      />,
     );
     const headers = container.querySelectorAll('[data-koyomi="resource-header-cell"]');
     const cells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
@@ -823,7 +831,7 @@ describe('ResourceView - ARIA', () => {
     expect(cells[cells.length - 1]).toHaveAttribute('aria-label', '担当未定');
   });
 
-  it('unassignedLabel に文字列でない ReactNode を渡した場合、未割り当て列の終日セルの aria-label は既定文言にフォールバックする', () => {
+  it('messages.resource.unassigned に文字列でない ReactNode を渡した場合、未割り当て列の終日セルの aria-label 属性自体が付かない', () => {
     const events: CalendarEvent[] = [
       {
         id: 'unassigned-1',
@@ -836,11 +844,11 @@ describe('ResourceView - ARIA', () => {
       <Harness
         resources={[ROOM_A]}
         events={events}
-        viewProps={{ unassignedLabel: <span>担当未定</span> }}
+        messages={{ resource: { unassigned: <span>担当未定</span> } }}
       />,
     );
     const cells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
-    expect(cells[cells.length - 1]).toHaveAttribute('aria-label', '未割り当て');
+    expect(cells[cells.length - 1]).not.toHaveAttribute('aria-label');
   });
 });
 

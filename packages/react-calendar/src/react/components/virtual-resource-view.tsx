@@ -50,21 +50,19 @@ import type {
 } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
+import type { CommonMessages } from '../locales/types';
 import { scrollContainerToTime } from '../scroll-to-time';
 import type { ResourceGridDragHandlers, ResourcePreviewSegment } from '../use-resource-grid-drag';
 import { useResourceGridDrag } from '../use-resource-grid-drag';
 import { useVirtualizer } from '../use-virtualizer';
 import {
   percentOfSlotRange,
-  resolveEventAriaLabel,
   withEventColorStyle,
   withTimegridHoursStyle,
 } from './month-view-parts';
 import {
   ariaLabelText,
   ariaLabelWithResource,
-  DEFAULT_EMPTY_LABEL,
-  DEFAULT_UNASSIGNED_LABEL,
   defaultAllDayContent,
   defaultTimedContent,
   MINUTES_PER_DAY,
@@ -102,22 +100,10 @@ export interface VirtualResourceViewProps {
   renderAllDayItem?: (occurrence: EventOccurrence) => ReactNode;
   /** 列見出しの内容をカスタマイズする関数（第 2 引数に既定内容）。 */
   renderColumnHeader?: (column: ResourceColumn, defaultContent: ReactNode) => ReactNode;
-  /** 未割り当て列の見出しラベル。省略時は「未割り当て」。 */
-  unassignedLabel?: ReactNode;
-  /** 空状態（列が 1 つもない）のメッセージ。省略時は「リソースがありません」。 */
-  emptyLabel?: ReactNode;
   /** 列 1 本分の幅（px）。既定 160（`--koyomi-resource-column-width` の既定値と同じ）。 */
   columnWidth?: number;
   /** 前後 overscan 列数。既定 3。 */
   overscan?: number;
-  /**
-   * イベントブロックの aria-label をカスタマイズする関数（`ResourceView` と同じ）。
-   * 第 2 引数に既定の aria-label 文字列（日時＋リソース名）を渡すので、
-   * それを加工・置換して返せる。省略時は既定文字列をそのまま使う。
-   * @param occurrence - 対象のオカレンス
-   * @param defaultLabel - 既定の aria-label 文字列
-   */
-  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
   /**
    * マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置（`'HH:mm'`）。
    * 表示時間帯制限（{@link CalendarOptions.slotMinTime}/{@link CalendarOptions.slotMaxTime}）とは
@@ -288,8 +274,8 @@ interface AllDayCellProps {
   itemTabbable?: boolean;
   /** 終日アイテムの表示内容のカスタマイズ関数（省略時はタイトルのみ）。 */
   renderAllDayItem: ((occurrence: EventOccurrence) => ReactNode) | undefined;
-  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
-  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
+  /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
+  commonMessages: CommonMessages;
 }
 
 /** リソースビューの終日セル 1 件分（内部に終日アイテムのボタンを縦積みする）。 */
@@ -308,7 +294,7 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
     left,
     itemTabbable,
     renderAllDayItem,
-    eventAriaLabel,
+    commonMessages,
   } = props;
   const style: CSSProperties = {
     flex: `0 0 ${columnWidth}px`,
@@ -329,9 +315,7 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
       data-koyomi="resource-allday-cell"
       data-koyomi-column-key={column.key}
       role="gridcell"
-      aria-label={
-        column.resource?.title ?? ariaLabelText(unassignedLabel, DEFAULT_UNASSIGNED_LABEL)
-      }
+      aria-label={column.resource?.title ?? ariaLabelText(unassignedLabel)}
       data-koyomi-preview-target={isPreviewTarget ? 'true' : undefined}
       data-koyomi-invalid={isPreviewTarget && isPreviewInvalid ? 'true' : undefined}
       {...(pinned === true ? { 'data-koyomi-pinned': 'true' } : {})}
@@ -348,7 +332,7 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
           timeZone={timeZone}
           locale={locale}
           renderAllDayItem={renderAllDayItem}
-          eventAriaLabel={eventAriaLabel}
+          commonMessages={commonMessages}
           {...(itemTabbable === false ? { tabbable: false } : {})}
         />
       ))}
@@ -373,7 +357,7 @@ const AllDayCell = memo(AllDayCellImpl, (prev, next) => {
     prev.left === next.left &&
     prev.itemTabbable === next.itemTabbable &&
     prev.renderAllDayItem === next.renderAllDayItem &&
-    prev.eventAriaLabel === next.eventAriaLabel
+    prev.commonMessages === next.commonMessages
   );
 });
 
@@ -392,8 +376,8 @@ interface AllDayItemButtonProps {
   tabbable?: boolean;
   /** 終日アイテムの表示内容のカスタマイズ関数（省略時はタイトルのみ）。 */
   renderAllDayItem: ((occurrence: EventOccurrence) => ReactNode) | undefined;
-  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
-  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
+  /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
+  commonMessages: CommonMessages;
 }
 
 /** リソースビューの終日アイテム 1 件分のボタン（列間移動のみ）。 */
@@ -407,7 +391,7 @@ function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
     locale,
     tabbable,
     renderAllDayItem,
-    eventAriaLabel,
+    commonMessages,
   } = props;
   const style = withEventColorStyle(
     {
@@ -423,10 +407,12 @@ function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
       {...drag.getAllDayItemProps(occurrence)}
       data-koyomi="allday-event"
       style={style}
-      aria-label={resolveEventAriaLabel(
+      aria-label={ariaLabelWithResource(
         occurrence,
-        ariaLabelWithResource(occurrence, column.resource?.title, timeZone, locale),
-        eventAriaLabel,
+        column.resource?.title,
+        timeZone,
+        locale,
+        commonMessages,
       )}
       {...(tabbable === false ? { tabIndex: -1 } : {})}
     >
@@ -446,7 +432,7 @@ const AllDayItemButton = memo(AllDayItemButtonImpl, (prev, next) => {
     prev.locale === next.locale &&
     prev.tabbable === next.tabbable &&
     prev.renderAllDayItem === next.renderAllDayItem &&
-    prev.eventAriaLabel === next.eventAriaLabel
+    prev.commonMessages === next.commonMessages
   );
 });
 
@@ -473,8 +459,8 @@ interface ResourceColumnBodyProps {
   pinned?: boolean;
   left?: number;
   eventTabbable?: boolean;
-  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
-  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
+  /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
+  commonMessages: CommonMessages;
 }
 
 /** リソースビューの 1 列分（目盛り線・イベント・プレビュー・現在時刻線）。 */
@@ -496,7 +482,7 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
     pinned,
     left,
     eventTabbable,
-    eventAriaLabel,
+    commonMessages,
   } = props;
   // 列幅は columnWidth で固定（measure: false）のため、drag.getColumnProps が返す ref を
   // そのまま使う（実測用 ref コールバックの合成は不要。measureElement 経由の配線は行わない）。
@@ -569,10 +555,12 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
             data-continues-before={item.continuesBefore ? 'true' : undefined}
             data-continues-after={item.continuesAfter ? 'true' : undefined}
             style={itemStyle}
-            aria-label={resolveEventAriaLabel(
+            aria-label={ariaLabelWithResource(
               item.occurrence,
-              ariaLabelWithResource(item.occurrence, column.resource?.title, timeZone, locale),
-              eventAriaLabel,
+              column.resource?.title,
+              timeZone,
+              locale,
+              commonMessages,
             )}
             {...(eventTabbable === false ? { tabIndex: -1 } : {})}
           >
@@ -652,7 +640,7 @@ const ResourceColumnBody = memo(ResourceColumnBodyImpl, (prev, next) => {
     prev.pinned === next.pinned &&
     prev.left === next.left &&
     prev.eventTabbable === next.eventTabbable &&
-    prev.eventAriaLabel === next.eventAriaLabel
+    prev.commonMessages === next.commonMessages
   );
 });
 
@@ -679,15 +667,14 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
     renderEvent,
     renderAllDayItem,
     renderColumnHeader,
-    unassignedLabel = DEFAULT_UNASSIGNED_LABEL,
-    emptyLabel = DEFAULT_EMPTY_LABEL,
     columnWidth = DEFAULT_COLUMN_WIDTH,
     overscan,
-    eventAriaLabel,
     initialScrollTime,
     ref,
   } = props;
-  const { api, state, viewModel, callbacks } = useCalendarContext();
+  const { api, state, viewModel, callbacks, messages } = useCalendarContext();
+  const resourceMessages = messages.resource;
+  const commonMessages = messages.common;
   const calendar = { api, state, viewModel };
   const drag = useResourceGridDrag({ calendar, callbacks });
   const stableDrag = useStableResourceDrag(drag);
@@ -857,7 +844,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
   if (isEmpty) {
     return (
       <div data-koyomi="resource">
-        <div data-koyomi="resource-empty">{emptyLabel}</div>
+        <div data-koyomi="resource-empty">{resourceMessages.empty}</div>
       </div>
     );
   }
@@ -895,7 +882,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                 <HeaderCell
                   key={column.key}
                   column={column}
-                  unassignedLabel={unassignedLabel}
+                  unassignedLabel={resourceMessages.unassigned}
                   renderColumnHeader={renderColumnHeader}
                   columnWidth={columnWidth}
                 />
@@ -913,7 +900,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                 <HeaderCell
                   key={column.key}
                   column={column}
-                  unassignedLabel={unassignedLabel}
+                  unassignedLabel={resourceMessages.unassigned}
                   renderColumnHeader={renderColumnHeader}
                   columnWidth={columnWidth}
                   pinned
@@ -940,7 +927,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                 <AllDayCell
                   key={column.key}
                   column={column}
-                  unassignedLabel={unassignedLabel}
+                  unassignedLabel={resourceMessages.unassigned}
                   columnWidth={columnWidth}
                   drag={stableDrag}
                   isDragging={drag.isDragging}
@@ -949,7 +936,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                   timeZone={timeZone}
                   locale={locale}
                   renderAllDayItem={renderAllDayItem}
-                  eventAriaLabel={eventAriaLabel}
+                  commonMessages={commonMessages}
                 />
               ) : null;
             })}
@@ -965,7 +952,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                 <AllDayCell
                   key={column.key}
                   column={column}
-                  unassignedLabel={unassignedLabel}
+                  unassignedLabel={resourceMessages.unassigned}
                   columnWidth={columnWidth}
                   drag={stableDrag}
                   isDragging={drag.isDragging}
@@ -977,7 +964,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                   left={item.start}
                   itemTabbable={false}
                   renderAllDayItem={renderAllDayItem}
-                  eventAriaLabel={eventAriaLabel}
+                  commonMessages={commonMessages}
                 />
               ) : null;
             })}
@@ -1018,7 +1005,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                 isDragging={drag.isDragging}
                 preview={drag.previewFor(column)}
                 columnWidth={columnWidth}
-                eventAriaLabel={eventAriaLabel}
+                commonMessages={commonMessages}
               />
             ) : null;
           })}
@@ -1050,7 +1037,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                 pinned
                 left={item.start}
                 eventTabbable={false}
-                eventAriaLabel={eventAriaLabel}
+                commonMessages={commonMessages}
               />
             ) : null;
           })}

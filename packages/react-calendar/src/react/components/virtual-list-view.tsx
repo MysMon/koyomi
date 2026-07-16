@@ -20,12 +20,7 @@ import type { EventOccurrence, ListDay } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
 import { useVirtualizer } from '../use-virtualizer';
-import {
-  DEFAULT_ALL_DAY_LABEL,
-  DEFAULT_EMPTY_LABEL,
-  defaultListDayAriaLabel,
-  ListDaySection,
-} from './list-view-parts';
+import { ListDaySection } from './list-view-parts';
 
 /** `estimateDayHeight` 省略時の 1 日セクションの推定高（px）。 */
 const DEFAULT_ESTIMATE_DAY_HEIGHT = 64;
@@ -42,24 +37,8 @@ const VIRTUALIZE_WARN_THRESHOLD = 40;
 export interface VirtualListViewProps {
   /** イベント行の内容をカスタム描画する関数（{@link ListView} と同じ）。 */
   renderEvent?: (occurrence: EventOccurrence) => ReactNode;
-  /** 終日イベントの時刻ラベル。省略時は「終日」。 */
-  allDayLabel?: ReactNode;
-  /** 予定が 1 件もない場合の内容。省略時は「予定はありません」。 */
-  emptyLabel?: ReactNode;
   /** 日付見出しの内容をカスタム描画する関数（第 2 引数に既定内容）。 */
   renderDayHeader?: (day: ListDay, defaultContent: ReactNode) => ReactNode;
-  /**
-   * イベント行の aria-label をカスタマイズする関数（`ListView` と同じ）。
-   * 第 2 引数に既定の aria-label 文字列を渡すので、それを加工・置換して返せる。
-   * 省略時は既定文字列をそのまま使う。
-   */
-  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
-  /**
-   * 日セクションの aria-label をカスタマイズする関数（`ListView` と同じ）。
-   * 第 2 引数に既定の aria-label 文字列（例:「7月16日(木) 予定2件」）を渡すので、
-   * それを加工・置換して返せる。省略時は既定文字列をそのまま使う。
-   */
-  dayAriaLabel?: (day: ListDay, defaultLabel: string) => string;
   /**
    * 日セクション 1 件の推定高（px）。件数に応じて変えたい場合は関数で渡す。
    * 実測（ResizeObserver）が入るまでの暫定値。既定 64。
@@ -91,14 +70,12 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
   const {
     renderEvent,
     renderDayHeader,
-    allDayLabel = DEFAULT_ALL_DAY_LABEL,
-    emptyLabel = DEFAULT_EMPTY_LABEL,
-    eventAriaLabel,
-    dayAriaLabel,
     estimateDayHeight = DEFAULT_ESTIMATE_DAY_HEIGHT,
     overscan,
   } = props;
-  const { state, viewModel, callbacks } = useCalendarContext();
+  const { state, viewModel, callbacks, messages } = useCalendarContext();
+  const listMessages = messages.list;
+  const commonMessages = messages.common;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   // SSR・初回クライアント render は非仮想化（全件）。マウント後に仮想化へ切り替えることで
@@ -226,7 +203,7 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
   if (viewModel.isEmpty) {
     return (
       <div data-koyomi="list">
-        <div data-koyomi="list-empty">{emptyLabel}</div>
+        <div data-koyomi="list-empty">{listMessages.empty}</div>
       </div>
     );
   }
@@ -237,7 +214,6 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
     extra: { pinned?: boolean; style?: CSSProperties },
   ): ReactElement => {
     const defaultDayHeader = dayHeaderFormatter.format(day.date);
-    const defaultDayAriaLabel = defaultListDayAriaLabel(defaultDayHeader, day.occurrences.length);
     return (
       <ListDaySection
         key={day.key}
@@ -245,17 +221,17 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
         timeZone={timeZone}
         locale={state.options.locale}
         defaultDayHeader={defaultDayHeader}
-        allDayLabel={allDayLabel}
+        allDayLabel={listMessages.allDay}
+        commonMessages={commonMessages}
         onEventClick={handleEventClick}
         onEventKeyDown={handleEventKeyDown}
         callbacks={callbacks}
         sectionRef={virtualizer.measureElement(day.key)}
         role="listitem"
-        ariaLabel={dayAriaLabel ? dayAriaLabel(day, defaultDayAriaLabel) : defaultDayAriaLabel}
+        ariaLabel={listMessages.dayAriaLabel(day, defaultDayHeader)}
         {...(extra.pinned === true ? { pinned: true, eventTabbable: false } : {})}
         {...(extra.style !== undefined ? { style: extra.style } : {})}
         {...(renderEvent !== undefined ? { renderEvent } : {})}
-        {...(eventAriaLabel !== undefined ? { eventAriaLabel } : {})}
         {...(renderDayHeader !== undefined ? { renderDayHeader } : {})}
       />
     );

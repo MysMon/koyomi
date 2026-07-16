@@ -26,17 +26,12 @@ import type {
   TimeSlot,
   TimeZoneId,
 } from '../../core/types';
+import type { CommonMessages } from '../locales/types';
 import type { ResourcePreviewSegment } from '../use-resource-grid-drag';
-import { formatEventAriaLabel, formatTimeLabel } from './month-view-parts';
+import { formatOccurrenceRangeLabel, formatTimeLabel } from './month-view-parts';
 
 /** 1 日の分（24:00 = 1440 分）。 */
 export const MINUTES_PER_DAY = 1440;
-
-/** 未割り当てレーンの既定ラベル。 */
-export const DEFAULT_UNASSIGNED_LABEL = '未割り当て';
-
-/** 空状態の既定メッセージ。 */
-export const DEFAULT_EMPTY_LABEL = 'リソースがありません';
 
 /**
  * `Ref<HTMLElement>` を `<div>` にそのまま渡せるコールバック ref に変換する
@@ -55,25 +50,41 @@ export function toDivRef(ref: Ref<HTMLElement>): (element: HTMLDivElement | null
 }
 
 /**
- * `ReactNode` のラベルを `aria-label` 属性用の文字列に変換する。
- * `aria-label` は文字列しか受け付けないため、`label` が文字列でない
- * （JSX 等が渡された）場合は `fallback` を使う（`toolbar.tsx` の同名ヘルパと同じ方針）。
+ * `ReactNode` のラベルが文字列であれば `aria-label` 属性用にそのまま使う。
+ * `aria-label` は文字列しか受け付けないため、文字列でない（JSX 等の）場合は
+ * `undefined`（属性自体を省略）を返す（`toolbar.tsx` の同名ヘルパと同じ方針）。
  */
-export function ariaLabelText(label: ReactNode, fallback: string): string {
-  return typeof label === 'string' ? label : fallback;
+export function ariaLabelText(label: ReactNode): string | undefined {
+  return typeof label === 'string' ? label : undefined;
 }
 
 /**
  * イベントの aria-label にリソース名を付け足す（例: `'会議、7月10日 10:00〜11:00、会議室A'`）。
+ *
+ * @param occurrence - 対象のオカレンス
+ * @param resourceTitle - リソース名（対象外・未割り当ての場合は `undefined`）
+ * @param timeZone - 表示タイムゾーン
+ * @param locale - ロケール
+ * @param commonMessages - 中央メッセージカタログの `common` グループ
  */
 export function ariaLabelWithResource(
   occurrence: EventOccurrence,
   resourceTitle: string | undefined,
   timeZone: TimeZoneId,
   locale: string,
+  commonMessages: CommonMessages,
 ): string {
-  const base = formatEventAriaLabel(occurrence, timeZone, locale);
-  return resourceTitle === undefined ? base : `${base}、${resourceTitle}`;
+  const rangeLabel = formatOccurrenceRangeLabel(
+    occurrence,
+    occurrence.allDay,
+    timeZone,
+    locale,
+    commonMessages.rangeSeparator,
+  );
+  const base = commonMessages.eventAriaLabel(occurrence, rangeLabel);
+  return resourceTitle === undefined
+    ? base
+    : `${base}${commonMessages.itemSeparator}${resourceTitle}`;
 }
 
 /** 時間指定イベントの既定の表示内容（開始時刻 + タイトル）。 */

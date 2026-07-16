@@ -11,6 +11,7 @@ import { renderToString } from 'react-dom/server';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CalendarEvent, EventOccurrence, ListDay } from '../../core/types';
 import { CalendarProvider } from '../context';
+import type { MessageCatalogOverrides } from '../locales/types';
 import type { CalendarInteractionCallbacks } from '../types';
 import { useCalendar } from '../use-calendar';
 import { VirtualListView } from './virtual-list-view';
@@ -61,8 +62,7 @@ function TestVirtualList(props: {
   callbacks?: CalendarInteractionCallbacks;
   listDays?: number;
   estimateDayHeight?: number;
-  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
-  dayAriaLabel?: (day: ListDay, defaultLabel: string) => string;
+  messages?: MessageCatalogOverrides;
 }): ReactElement {
   const calendar = useCalendar({
     timeZone: 'Asia/Tokyo',
@@ -76,12 +76,9 @@ function TestVirtualList(props: {
     <CalendarProvider
       value={calendar}
       {...(props.callbacks !== undefined ? { callbacks: props.callbacks } : {})}
+      {...(props.messages !== undefined ? { messages: props.messages } : {})}
     >
-      <VirtualListView
-        estimateDayHeight={props.estimateDayHeight ?? 50}
-        {...(props.eventAriaLabel !== undefined ? { eventAriaLabel: props.eventAriaLabel } : {})}
-        {...(props.dayAriaLabel !== undefined ? { dayAriaLabel: props.dayAriaLabel } : {})}
-      />
+      <VirtualListView estimateDayHeight={props.estimateDayHeight ?? 50} />
     </CalendarProvider>
   );
 }
@@ -134,21 +131,21 @@ describe('VirtualListView', () => {
     expect(section?.getAttribute('aria-label')).toBe('7月16日(木) 予定2件');
   });
 
-  it('dayAriaLabel は既定の aria-label 文字列を defaultLabel として受け取り、返り値に置き換わる', () => {
+  it('messages.list.dayAriaLabel は整形済みの日付見出し（dateLabel）を受け取り、返り値がそのまま aria-label になる', () => {
     const events: CalendarEvent[] = [
       { id: 'a', title: '朝会', start: '2026-07-16T09:00:00', end: '2026-07-16T09:30:00' },
     ];
     const dayAriaLabel = vi.fn(
-      (day: ListDay, defaultLabel: string) => `カスタム:${day.key}:${defaultLabel}`,
+      (day: ListDay, dateLabel: string) => `カスタム:${day.key}:${dateLabel}`,
     );
     const { container } = render(
-      <TestVirtualList events={events} listDays={40} dayAriaLabel={dayAriaLabel} />,
+      <TestVirtualList events={events} listDays={40} messages={{ list: { dayAriaLabel } }} />,
     );
     const section = container.querySelector('[data-koyomi-date="2026-07-16"]');
-    expect(section?.getAttribute('aria-label')).toBe('カスタム:2026-07-16:7月16日(木) 予定1件');
+    expect(section?.getAttribute('aria-label')).toBe('カスタム:2026-07-16:7月16日(木)');
   });
 
-  it('イベント行には既定の aria-label（ListView と同じ形式）が付き、eventAriaLabel で置き換えられる', () => {
+  it('イベント行には既定の aria-label（ListView と同じ形式）が付き、messages.common.eventAriaLabel で置き換えられる', () => {
     const events: CalendarEvent[] = [
       { id: 'a', title: '朝会', start: '2026-07-16T09:00:00', end: '2026-07-16T09:30:00' },
     ];
@@ -160,14 +157,14 @@ describe('VirtualListView', () => {
     ).toBe('朝会、7月16日 9:00〜9:30');
 
     const eventAriaLabel = vi.fn(
-      (_occurrence: EventOccurrence, defaultLabel: string) => `カスタム:${defaultLabel}`,
+      (_occurrence: EventOccurrence, rangeLabel: string) => `カスタム:${rangeLabel}`,
     );
     const { container } = render(
-      <TestVirtualList events={events} listDays={40} eventAriaLabel={eventAriaLabel} />,
+      <TestVirtualList events={events} listDays={40} messages={{ common: { eventAriaLabel } }} />,
     );
     expect(container.querySelector('[data-koyomi="list-event"]')).toHaveAttribute(
       'aria-label',
-      'カスタム:朝会、7月16日 9:00〜9:30',
+      'カスタム:7月16日 9:00〜9:30',
     );
   });
 

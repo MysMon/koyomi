@@ -15,6 +15,7 @@ import type {
   EventOccurrence,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
+import type { MessageCatalogOverrides } from '../locales/types';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
 import type { TimeGridViewHandle, TimeGridViewProps } from './time-grid-view';
@@ -51,6 +52,8 @@ interface HarnessProps {
   slotMaxTime?: string;
   /** 書式ロケール（{@link CalendarOptions.locale}）。 */
   locale?: string;
+  /** `CalendarProvider` の `messages` prop。 */
+  messages?: MessageCatalogOverrides;
 }
 
 /** `TimeGridView` を `CalendarProvider` 配下で描画するテスト用ハーネス。 */
@@ -72,7 +75,11 @@ function Harness(props: HarnessProps): ReactElement {
     props.sink.current = calendar;
   }
   return (
-    <CalendarProvider value={calendar} callbacks={props.callbacks ?? {}}>
+    <CalendarProvider
+      value={calendar}
+      callbacks={props.callbacks ?? {}}
+      {...(props.messages !== undefined ? { messages: props.messages } : {})}
+    >
       <TimeGridView {...(props.viewProps ?? {})} />
     </CalendarProvider>
   );
@@ -128,23 +135,23 @@ describe('TimeGridView', () => {
     expect(label).toBe('合宿、7月15日〜7月16日');
   });
 
-  it('eventAriaLabel は既定の aria-label 文字列を defaultLabel として受け取り、返り値に置き換わる（終日行・時間指定行の両方）', () => {
+  it('messages.common.eventAriaLabel をオーバーライドすると aria-label がカスタマイズされる（終日行・時間指定行の両方、rangeLabel のみを受け取る）', () => {
     const events: CalendarEvent[] = [
       { id: 'allday', title: '合宿', start: '2026-07-15', end: '2026-07-17', allDay: true },
       { id: 'timed', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
     ];
     const eventAriaLabel = vi.fn(
-      (_occurrence: EventOccurrence, defaultLabel: string) => `カスタム:${defaultLabel}`,
+      (_occurrence: EventOccurrence, rangeLabel: string) => `カスタム:${rangeLabel}`,
     );
     const { container } = render(
-      <Harness initialView="week" events={events} viewProps={{ eventAriaLabel }} />,
+      <Harness initialView="week" events={events} messages={{ common: { eventAriaLabel } }} />,
     );
 
     const alldaySegment = container.querySelector('[data-koyomi="allday-event"]');
-    expect(alldaySegment).toHaveAttribute('aria-label', 'カスタム:合宿、7月15日〜7月16日');
+    expect(alldaySegment).toHaveAttribute('aria-label', 'カスタム:7月15日〜7月16日');
 
     const timedEvent = container.querySelector('[data-koyomi="timegrid-event"]');
-    expect(timedEvent).toHaveAttribute('aria-label', 'カスタム:会議、7月15日 10:00〜11:00');
+    expect(timedEvent).toHaveAttribute('aria-label', 'カスタム:7月15日 10:00〜11:00');
 
     expect(eventAriaLabel).toHaveBeenCalledTimes(2);
   });

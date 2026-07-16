@@ -86,15 +86,6 @@ describe('CalendarView', () => {
       );
     });
 
-    it('monthEventAriaLabel が MonthView の eventAriaLabel へ転送される', () => {
-      const { container } = renderView('month', {
-        monthEventAriaLabel: (_occurrence, defaultLabel) => `カスタム:${defaultLabel}`,
-      });
-
-      const event = container.querySelector('[data-koyomi="month-event"]');
-      expect(event?.getAttribute('aria-label')).toBe('カスタム:会議、7月15日 10:00〜11:00');
-    });
-
     it('renderTimeGridEvent が TimeGridView へ転送される', () => {
       const { container } = renderView('week', {
         renderTimeGridEvent: (item) => (
@@ -106,15 +97,6 @@ describe('CalendarView', () => {
       expect(event?.querySelector('[data-testid="custom-timegrid"]')?.textContent).toBe(
         '会議カスタム',
       );
-    });
-
-    it('timeGridEventAriaLabel が TimeGridView の eventAriaLabel へ転送される', () => {
-      const { container } = renderView('week', {
-        timeGridEventAriaLabel: (_occurrence, defaultLabel) => `カスタム:${defaultLabel}`,
-      });
-
-      const event = container.querySelector('[data-koyomi="timegrid-event"]');
-      expect(event?.getAttribute('aria-label')).toBe('カスタム:会議、7月15日 10:00〜11:00');
     });
 
     it('renderTimeGridAllDayEvent が TimeGridView の renderAllDayEvent へ転送される', () => {
@@ -183,29 +165,6 @@ describe('CalendarView', () => {
       expect(event?.querySelector('[data-testid="custom-list"]')?.textContent).toBe('会議カスタム');
     });
 
-    it('listAllDayLabel が ListView の allDayLabel へ転送される', () => {
-      const events: CalendarEvent[] = [
-        {
-          id: 'allday',
-          title: '終日イベント',
-          start: '2026-07-16',
-          end: '2026-07-17',
-          allDay: true,
-        },
-      ];
-      const { container } = renderView('list', { listAllDayLabel: 'All day' }, events);
-
-      const time = container.querySelector('[data-koyomi="list-event-time"]');
-      expect(time?.textContent).toBe('All day');
-    });
-
-    it('listEmptyLabel が ListView の emptyLabel へ転送される', () => {
-      const { container } = renderView('list', { listEmptyLabel: 'No events' }, []);
-
-      const empty = container.querySelector('[data-koyomi="list-empty"]');
-      expect(empty?.textContent).toBe('No events');
-    });
-
     it('renderListDayHeader が ListView の renderDayHeader へ転送される', () => {
       const { container } = renderView('list', {
         renderListDayHeader: (day, defaultContent) => (
@@ -219,42 +178,6 @@ describe('CalendarView', () => {
       expect(header?.querySelector('[data-testid="custom-header"]')?.textContent).toBe(
         '2026-07-15:7月15日(水)',
       );
-    });
-
-    it('listEventAriaLabel が ListView / VirtualListView の eventAriaLabel へ転送される', () => {
-      const nonVirtual = renderView('list', {
-        listEventAriaLabel: (_occurrence, defaultLabel) => `カスタム:${defaultLabel}`,
-      });
-      expect(
-        nonVirtual.container
-          .querySelector('[data-koyomi="list-event"]')
-          ?.getAttribute('aria-label'),
-      ).toBe('カスタム:会議、7月15日 10:00〜11:00');
-
-      const virtual = renderView('list', {
-        virtualizeList: true,
-        listEventAriaLabel: (_occurrence, defaultLabel) => `カスタム:${defaultLabel}`,
-      });
-      expect(
-        virtual.container.querySelector('[data-koyomi="list-event"]')?.getAttribute('aria-label'),
-      ).toBe('カスタム:会議、7月15日 10:00〜11:00');
-    });
-
-    it('listDayAriaLabel が ListView / VirtualListView の dayAriaLabel へ転送される', () => {
-      const nonVirtual = renderView('list', {
-        listDayAriaLabel: (day, defaultLabel) => `カスタム:${day.key}:${defaultLabel}`,
-      });
-      expect(
-        nonVirtual.container.querySelector('[data-koyomi="list-day"]')?.getAttribute('aria-label'),
-      ).toBe('カスタム:2026-07-15:7月15日(水) 予定1件');
-
-      const virtual = renderView('list', {
-        virtualizeList: true,
-        listDayAriaLabel: (day, defaultLabel) => `カスタム:${day.key}:${defaultLabel}`,
-      });
-      expect(
-        virtual.container.querySelector('[data-koyomi="list-day"]')?.getAttribute('aria-label'),
-      ).toBe('カスタム:2026-07-15:7月15日(水) 予定1件');
     });
 
     it('既定では list は ListView（非仮想化）で描画される', () => {
@@ -283,25 +206,6 @@ describe('CalendarView', () => {
       const cell = container.querySelector('[data-testid="custom-cell-2026-07-15"]');
       expect(cell).not.toBeNull();
       expect(cell?.textContent).toContain('★');
-    });
-
-    it('monthOverflowLabel が MonthView の overflowLabel へ転送される', () => {
-      // dayMaxEvents 既定 4 を超えるイベントを同日に 6 件並べて「+N 件」を発生させる
-      const events: CalendarEvent[] = Array.from({ length: 6 }, (_, index) => ({
-        id: `ov-${index}`,
-        title: `予定${index}`,
-        start: '2026-07-15T10:00',
-        end: '2026-07-15T11:00',
-      }));
-      const { container } = renderView(
-        'month',
-        { monthOverflowLabel: (count) => `他 ${count} 件を表示` },
-        events,
-      );
-
-      const overflow = container.querySelector('[data-koyomi="month-overflow"]');
-      expect(overflow?.textContent).toContain('他');
-      expect(overflow?.textContent).toContain('件を表示');
     });
 
     it('monthOverflowButtonProps が MonthView の overflowButtonProps へ転送される', () => {
@@ -358,24 +262,6 @@ describe('CalendarView', () => {
       expect(cell?.textContent).toContain('☆');
     });
 
-    it('yearDayCountLabel が YearView の dayCountLabel へ転送される', () => {
-      const { container } = renderView('year', {
-        yearDayCountLabel: (count) => `${count} events`,
-      });
-
-      const day = container.querySelector('[data-koyomi-date="2026-07-15"]');
-      expect(day).toHaveAttribute('aria-label', '7月15日 1 events');
-    });
-
-    it('yearDayAriaLabel が YearView の dayAriaLabel へ転送される', () => {
-      const { container } = renderView('year', {
-        yearDayAriaLabel: (day, defaultLabel) => `カスタム:${day.key}:${defaultLabel}`,
-      });
-
-      const day = container.querySelector('[data-koyomi-date="2026-07-15"]');
-      expect(day).toHaveAttribute('aria-label', 'カスタム:2026-07-15:7月15日 予定1件');
-    });
-
     it('renderMultiMonthEvent が MultiMonthView へ転送される', () => {
       const { container } = renderView('multiMonth', {
         renderMultiMonthEvent: (segment) => (
@@ -387,25 +273,6 @@ describe('CalendarView', () => {
       expect(event?.querySelector('[data-testid="custom-multimonth"]')?.textContent).toBe(
         '会議カスタム',
       );
-    });
-
-    it('multiMonthOverflowLabel が MultiMonthView の overflowLabel へ転送される', () => {
-      // dayMaxEvents 既定 4 を超えるイベントを同日に 6 件並べて「+N 件」を発生させる
-      const events: CalendarEvent[] = Array.from({ length: 6 }, (_, index) => ({
-        id: `mm-ov-${index}`,
-        title: `予定${index}`,
-        start: '2026-07-15T10:00',
-        end: '2026-07-15T11:00',
-      }));
-      const { container } = renderView(
-        'multiMonth',
-        { multiMonthOverflowLabel: (count) => `他 ${count} 件を表示` },
-        events,
-      );
-
-      const overflow = container.querySelector('[data-koyomi="month-overflow"]');
-      expect(overflow?.textContent).toContain('他');
-      expect(overflow?.textContent).toContain('件を表示');
     });
 
     it('multiMonthOverflowButtonProps が MultiMonthView の overflowButtonProps へ転送される', () => {
@@ -429,15 +296,6 @@ describe('CalendarView', () => {
       const overflow = container.querySelector('[data-koyomi="month-overflow"]');
       expect(overflow).toHaveAttribute('aria-haspopup', 'true');
       expect(overflow).toHaveAttribute('aria-expanded', 'false');
-    });
-
-    it('multiMonthEventAriaLabel が MultiMonthView の eventAriaLabel へ転送される', () => {
-      const { container } = renderView('multiMonth', {
-        multiMonthEventAriaLabel: (_occurrence, defaultLabel) => `カスタム:${defaultLabel}`,
-      });
-
-      const event = container.querySelector('[data-koyomi="month-event"]');
-      expect(event?.getAttribute('aria-label')).toBe('カスタム:会議、7月15日 10:00〜11:00');
     });
 
     it('renderResourceEvent が ResourceView へ転送される', () => {
@@ -495,46 +353,6 @@ describe('CalendarView', () => {
       expect(
         alldayEvent?.querySelector('[data-testid="custom-resource-allday"]')?.textContent,
       ).toBe('休暇カスタム');
-    });
-
-    it('resourceUnassignedLabel が ResourceView の unassignedLabel へ転送される', () => {
-      const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
-      // DEFAULT_EVENTS は resourceId 未指定 → unassignedLane 既定 'auto' でも
-      // 未割り当て列が作られる（resource-view.test.tsx と同じ理由）
-      const { container } = renderView(
-        'resource',
-        { resourceUnassignedLabel: '担当未定' },
-        DEFAULT_EVENTS,
-        resources,
-      );
-
-      const headers = container.querySelectorAll('[data-koyomi="resource-header-cell"]');
-      const unassignedHeader = headers[headers.length - 1];
-      expect(unassignedHeader?.textContent).toBe('担当未定');
-    });
-
-    it('resourceEventAriaLabel が ResourceView の eventAriaLabel へ転送される', () => {
-      const events: CalendarEvent[] = [
-        {
-          id: 'e1',
-          title: '会議',
-          start: '2026-07-15T10:00',
-          end: '2026-07-15T11:00',
-          resourceId: 'room-a',
-        },
-      ];
-      const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
-      const { container } = renderView(
-        'resource',
-        { resourceEventAriaLabel: (_occurrence, defaultLabel) => `カスタム:${defaultLabel}` },
-        events,
-        resources,
-      );
-
-      const event = container.querySelector('[data-koyomi="timegrid-event"]');
-      expect(event?.getAttribute('aria-label')).toBe(
-        'カスタム:会議、7月15日 10:00〜11:00、会議室A',
-      );
     });
 
     describe('resourceInitialScrollTime（ResourceView への initialScrollTime 転送）', () => {
@@ -637,60 +455,6 @@ describe('CalendarView', () => {
       expect(event?.querySelector('[data-testid="custom-timeline"]')?.textContent).toBe(
         '会議カスタム',
       );
-    });
-
-    it('timelineEventAriaLabel が TimelineView の eventAriaLabel へ転送される', () => {
-      const events: CalendarEvent[] = [
-        {
-          id: 'e1',
-          title: '会議',
-          start: '2026-07-15T10:00',
-          end: '2026-07-15T11:00',
-          resourceId: 'room-a',
-        },
-      ];
-      const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
-      const { container } = renderView(
-        'timeline',
-        { timelineEventAriaLabel: (_occurrence, defaultLabel) => `カスタム:${defaultLabel}` },
-        events,
-        resources,
-      );
-
-      const event = container.querySelector('[data-koyomi="timeline-item"]');
-      expect(event?.getAttribute('aria-label')).toBe(
-        'カスタム:会議、7月15日 10:00〜11:00、会議室A',
-      );
-    });
-
-    it('timelineResourceToggleAriaLabel が TimelineView の resourceToggleAriaLabel へ転送される', () => {
-      const resources: CalendarResource[] = [
-        { id: 'parent', title: '本社' },
-        { id: 'child', title: '1F会議室', parentId: 'parent' },
-      ];
-      const { container } = renderView(
-        'timeline',
-        {
-          timelineResourceToggleAriaLabel: (resource, collapsed, defaultLabel) =>
-            `${resource.title}/${collapsed}/${defaultLabel}`,
-        },
-        [],
-        resources,
-      );
-      const toggle = container.querySelector('[data-koyomi="timeline-row-toggle"]');
-      expect(toggle).toHaveAttribute('aria-label', '本社/false/本社 を折りたたむ');
-    });
-
-    it('timelineEmptyLabel が TimelineView の emptyLabel へ転送される', () => {
-      const { container } = renderView(
-        'timeline',
-        { timelineEmptyLabel: '担当者がいません' },
-        [],
-        [],
-      );
-
-      const empty = container.querySelector('[data-koyomi="timeline-empty"]');
-      expect(empty?.textContent).toBe('担当者がいません');
     });
 
     it('既定では timeline は TimelineView（非仮想化）で描画される', () => {

@@ -34,12 +34,6 @@ export interface MonthViewProps {
    */
   renderEvent?: (segment: EventSegment) => ReactNode;
   /**
-   * 「+N 件」（あふれ集約）ラベルのカスタマイズ関数。i18n 用途。
-   * 省略時は `'+N 件'` 形式になる。
-   * @param count - 「+N 件」に集約された非表示イベント数
-   */
-  overflowLabel?: (count: number) => ReactNode;
-  /**
    * 日セルの内容をカスタマイズするスロット。祝日ラベルやバッジの注入に使う。
    * `defaultContent` は既定の内容（日番号ボタン＋（あれば）「+N 件」ボタン）であり、
    * そのまま包んで使うことも、完全に差し替えることもできる。省略時は既定内容をそのまま描画する。
@@ -58,20 +52,6 @@ export interface MonthViewProps {
     day: MonthDay,
     hiddenOccurrences: readonly EventOccurrence[],
   ) => MonthOverflowButtonProps;
-  /**
-   * イベントボタンの aria-label をカスタマイズする関数。
-   * 第 2 引数に既定の aria-label 文字列（`'タイトル、M月d日 H:mm〜H:mm'` 形式、
-   * {@link MonthWeekRow} が使う `formatEventAriaLabel` の結果）を渡すので、
-   * それを加工・置換して返せる。省略時は既定文字列をそのまま使う。
-   * @param occurrence - 対象のオカレンス
-   * @param defaultLabel - 既定の aria-label 文字列
-   */
-  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
-}
-
-/** 「+N 件」の既定ラベル。 */
-function defaultOverflowLabel(count: number): ReactNode {
-  return `+${count} 件`;
 }
 
 /**
@@ -92,14 +72,8 @@ function defaultOverflowLabel(count: number): ReactNode {
  * ```
  */
 export function MonthView(props: MonthViewProps): ReactElement | null {
-  const {
-    renderEvent,
-    overflowLabel = defaultOverflowLabel,
-    renderDayCell,
-    overflowButtonProps,
-    eventAriaLabel,
-  } = props;
-  const { api, state, viewModel, callbacks } = useCalendarContext();
+  const { renderEvent, renderDayCell, overflowButtonProps } = props;
+  const { api, state, viewModel, callbacks, messages } = useCalendarContext();
   const calendar = { api, state, viewModel };
   const dayDrag = useDayDrag({ calendar, callbacks });
   // dayDrag は毎レンダー新しいオブジェクトになるため、MonthWeekRow（memo化済み）への
@@ -197,9 +171,9 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
             selectionInvalid={previewInvalid}
             dayDrag={stableDayDrag}
             renderEvent={renderEvent}
-            overflowLabel={overflowLabel}
+            overflowLabel={messages.month.overflow}
             renderDayCell={renderDayCell}
-            eventAriaLabel={eventAriaLabel}
+            commonMessages={messages.common}
             onDayNumberClick={handleDayNumberClick}
             onOverflowClick={handleOverflowClick}
             overflowButtonProps={overflowButtonProps}

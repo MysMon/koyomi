@@ -17,6 +17,7 @@ import type {
   MonthDay,
   RecurringEditScope,
 } from '../core/types';
+import type { MessageCatalog } from './locales/types';
 
 /**
  * `useCalendar` の戻り値。
@@ -327,6 +328,14 @@ export interface CalendarInteractionCallbacks {
 export interface CalendarContextValue extends UseCalendarResult {
   /** インタラクションのコールバック集（解決済み）。 */
   callbacks: CalendarInteractionCallbacks;
+  /**
+   * 解決済みの中央メッセージカタログ。
+   *
+   * `state.options.locale` と `CalendarProviderProps.messages` から
+   * `resolveMessageCatalog` によって解決される。ビルトインのビュー
+   * コンポーネントはこれを参照して文言を決定する。
+   */
+  messages: MessageCatalog;
 }
 
 // re-export（React 層の利用者が core を直接 import しなくて済むように）

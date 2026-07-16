@@ -19,6 +19,7 @@ import type {
   Weekday,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
+import type { MessageCatalogOverrides } from '../locales/types';
 import type { CalendarInteractionCallbacks, MonthOverflowButtonProps } from '../types';
 import { useCalendar } from '../use-calendar';
 import { MultiMonthView } from './multi-month-view';
@@ -47,13 +48,12 @@ function Harness(props: {
   hiddenWeekdays?: readonly Weekday[];
   multiMonthCount?: number;
   renderEvent?: (segment: EventSegment) => ReactElement;
-  overflowLabel?: (count: number) => ReactNode;
   renderDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
   overflowButtonProps?: (
     day: MonthDay,
     hiddenOccurrences: readonly EventOccurrence[],
   ) => MonthOverflowButtonProps;
-  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
+  messages?: MessageCatalogOverrides;
   apiRef?: { current: CalendarApi | null };
 }): ReactElement {
   const calendar = useCalendar({
@@ -78,15 +78,14 @@ function Harness(props: {
     <CalendarProvider
       value={calendar}
       {...(props.callbacks !== undefined ? { callbacks: props.callbacks } : {})}
+      {...(props.messages !== undefined ? { messages: props.messages } : {})}
     >
       <MultiMonthView
         {...(props.renderEvent !== undefined ? { renderEvent: props.renderEvent } : {})}
-        {...(props.overflowLabel !== undefined ? { overflowLabel: props.overflowLabel } : {})}
         {...(props.renderDayCell !== undefined ? { renderDayCell: props.renderDayCell } : {})}
         {...(props.overflowButtonProps !== undefined
           ? { overflowButtonProps: props.overflowButtonProps }
           : {})}
-        {...(props.eventAriaLabel !== undefined ? { eventAriaLabel: props.eventAriaLabel } : {})}
       />
     </CalendarProvider>
   );
@@ -294,7 +293,7 @@ describe('MultiMonthView - カスタム描画 props', () => {
     expect(segment?.textContent).toBe('CUSTOM:朝会');
   });
 
-  it('eventAriaLabel は既定の aria-label 文字列を defaultLabel として受け取り、返り値に置き換わる（省略時は既定文字列のまま）', () => {
+  it('messages.common.eventAriaLabel をオーバーライドするとイベントセグメントの aria-label が変わる（省略時は既定文字列のまま）', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: '朝会', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
     ];
@@ -304,26 +303,32 @@ describe('MultiMonthView - カスタム描画 props', () => {
     ).toBe('朝会、7月8日 9:00〜9:30');
 
     const eventAriaLabel = vi.fn(
-      (_occurrence: EventOccurrence, defaultLabel: string) => `カスタム:${defaultLabel}`,
+      (_occurrence: EventOccurrence, rangeLabel: string) => `カスタム:${rangeLabel}`,
     );
-    const { container } = render(<Harness events={events} eventAriaLabel={eventAriaLabel} />);
+    const { container } = render(
+      <Harness events={events} messages={{ common: { eventAriaLabel } }} />,
+    );
     expect(eventAriaLabel).toHaveBeenCalledWith(
       expect.objectContaining({ eventId: 'e1' }),
-      '朝会、7月8日 9:00〜9:30',
+      '7月8日 9:00〜9:30',
     );
     expect(container.querySelector('[data-koyomi="month-event"]')).toHaveAttribute(
       'aria-label',
-      'カスタム:朝会、7月8日 9:00〜9:30',
+      'カスタム:7月8日 9:00〜9:30',
     );
   });
 
-  it('overflowLabel で「+N 件」の文言をカスタマイズできる', () => {
+  it('messages.multiMonth.overflow で「+N 件」の文言をカスタマイズできる', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
       { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
     ];
     const { container } = render(
-      <Harness events={events} dayMaxEvents={1} overflowLabel={(count) => `他${count}件`} />,
+      <Harness
+        events={events}
+        dayMaxEvents={1}
+        messages={{ multiMonth: { overflow: (count) => `他${count}件` } }}
+      />,
     );
     const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
     expect(overflowButton?.textContent).toBe('他1件');

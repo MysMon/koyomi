@@ -18,6 +18,7 @@ import type {
   Weekday,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
+import type { MessageCatalogOverrides } from '../locales/types';
 import type { CalendarInteractionCallbacks, MonthOverflowButtonProps } from '../types';
 import { useCalendar } from '../use-calendar';
 import type { DayDragHandlers } from '../use-day-drag';
@@ -41,13 +42,12 @@ function Harness(props: {
   hiddenWeekdays?: readonly Weekday[];
   showWeekNumbers?: boolean;
   renderEvent?: (segment: EventSegment) => ReactElement;
-  overflowLabel?: (count: number) => ReactNode;
   renderDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
   overflowButtonProps?: (
     day: MonthDay,
     hiddenOccurrences: readonly EventOccurrence[],
   ) => MonthOverflowButtonProps;
-  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
+  messages?: MessageCatalogOverrides;
   apiRef?: { current: CalendarApi | null };
 }): ReactElement {
   const calendar = useCalendar({
@@ -70,15 +70,14 @@ function Harness(props: {
     <CalendarProvider
       value={calendar}
       {...(props.callbacks !== undefined ? { callbacks: props.callbacks } : {})}
+      {...(props.messages !== undefined ? { messages: props.messages } : {})}
     >
       <MonthView
         {...(props.renderEvent !== undefined ? { renderEvent: props.renderEvent } : {})}
-        {...(props.overflowLabel !== undefined ? { overflowLabel: props.overflowLabel } : {})}
         {...(props.renderDayCell !== undefined ? { renderDayCell: props.renderDayCell } : {})}
         {...(props.overflowButtonProps !== undefined
           ? { overflowButtonProps: props.overflowButtonProps }
           : {})}
-        {...(props.eventAriaLabel !== undefined ? { eventAriaLabel: props.eventAriaLabel } : {})}
       />
     </CalendarProvider>
   );
@@ -195,20 +194,22 @@ describe('MonthView - イベントセグメント', () => {
     expect(segment?.textContent).toBe('CUSTOM:朝会');
   });
 
-  it('eventAriaLabel は既定の aria-label 文字列を defaultLabel として受け取り、返り値に置き換わる', () => {
+  it('messages.common.eventAriaLabel をオーバーライドするとイベントセグメントの aria-label が変わる', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: '朝会', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
     ];
-    const eventAriaLabel = vi.fn((occurrence: EventOccurrence, defaultLabel: string) => {
+    const eventAriaLabel = vi.fn((occurrence: EventOccurrence, rangeLabel: string) => {
       expect(occurrence.eventId).toBe('e1');
-      expect(defaultLabel).toBe('朝会、7月8日 9:00〜9:30');
-      return `カスタム:${defaultLabel}`;
+      expect(rangeLabel).toBe('7月8日 9:00〜9:30');
+      return `カスタム:${rangeLabel}`;
     });
-    const { container } = render(<Harness events={events} eventAriaLabel={eventAriaLabel} />);
+    const { container } = render(
+      <Harness events={events} messages={{ common: { eventAriaLabel } }} />,
+    );
 
     const segment = container.querySelector('[data-koyomi="month-event"]');
     expect(eventAriaLabel).toHaveBeenCalledTimes(1);
-    expect(segment).toHaveAttribute('aria-label', 'カスタム:朝会、7月8日 9:00〜9:30');
+    expect(segment).toHaveAttribute('aria-label', 'カスタム:7月8日 9:00〜9:30');
   });
 
   it('複数日にまたがる時間指定イベントの aria-label に終了日が含まれる', () => {
@@ -634,14 +635,18 @@ describe('MonthView - 帯セグメントのリサイズハンドル', () => {
   });
 });
 
-describe('MonthView - overflowLabel / renderDayCell', () => {
-  it('overflowLabel を渡すと「+N 件」の文言がカスタマイズされる', () => {
+describe('MonthView - messages.month.overflow / renderDayCell', () => {
+  it('messages.month.overflow を指定すると「+N 件」の文言がカスタマイズされる', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
       { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
     ];
     const { container } = render(
-      <Harness events={events} dayMaxEvents={1} overflowLabel={(count) => `他${count}件`} />,
+      <Harness
+        events={events}
+        dayMaxEvents={1}
+        messages={{ month: { overflow: (count) => `他${count}件` } }}
+      />,
     );
 
     const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');

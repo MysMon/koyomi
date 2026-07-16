@@ -75,12 +75,20 @@ export interface ToolbarMessages {
   resource: ReactNode;
   /** タイムラインビュー切替ボタンの表示文字列。 */
   timeline: ReactNode;
-  /** 「今日」ボタンの表示文字列（aria-label にも使う）。 */
+  /** 「今日」ボタンの表示文字列（文字列の場合は aria-label にも使う）。 */
   today: ReactNode;
-  /** 「前へ」ボタンの aria-label。 */
-  prev: ReactNode;
-  /** 「次へ」ボタンの aria-label。 */
-  next: ReactNode;
+  /**
+   * 「前へ」ボタンの aria-label。
+   * ボタンの表示内容は固定のグリフ（`‹`）のため、支援技術向けの名前として
+   * 必ず文字列で指定する（`ReactNode` は受け付けない）。
+   */
+  prev: string;
+  /**
+   * 「次へ」ボタンの aria-label。
+   * ボタンの表示内容は固定のグリフ（`›`）のため、支援技術向けの名前として
+   * 必ず文字列で指定する（`ReactNode` は受け付けない）。
+   */
+  next: string;
   /** ビュー切替ボタングループの `aria-label`。 */
   viewsGroup: string;
 }

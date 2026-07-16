@@ -34,30 +34,17 @@ import {
   useRef,
   useState,
 } from 'react';
-import type {
-  BusinessHourRange,
-  CalendarResource,
-  EventOccurrence,
-  TimelineItem,
-  TimelineRow,
-  TimeZoneId,
-} from '../../core/types';
+import type { BusinessHourRange, TimelineItem, TimelineRow, TimeZoneId } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
+import type { CommonMessages, TimelineMessages } from '../locales/types';
 import type { TimelinePreviewSegment } from '../use-timeline-drag';
 import { useTimelineDrag } from '../use-timeline-drag';
 import { useVirtualizer } from '../use-virtualizer';
-import {
-  formatEventAriaLabel,
-  resolveEventAriaLabel,
-  withEventColorStyle,
-} from './month-view-parts';
+import { withEventColorStyle } from './month-view-parts';
+import { ariaLabelWithResource } from './resource-view-parts';
 import type { TimelineRowDragHandlers } from './timeline-view-parts';
 import {
-  DEFAULT_CORNER_LABEL,
-  DEFAULT_EMPTY_LABEL,
-  DEFAULT_UNASSIGNED_LABEL,
-  resolveResourceToggleAriaLabel,
   sameBusinessHourRanges,
   samePreviewSegment,
   sameTimelineRow,
@@ -84,33 +71,6 @@ export interface VirtualTimelineViewProps {
   renderEvent?: (item: TimelineItem) => ReactNode;
   /** 行見出しの内容をカスタマイズする関数（第 2 引数に既定内容）。 */
   renderRowHeader?: (row: TimelineRow, defaultContent: ReactNode) => ReactNode;
-  /** 未割り当て行の見出しラベル。省略時は「未割り当て」。 */
-  unassignedLabel?: ReactNode;
-  /** 空状態（行が 1 つもない）のメッセージ。省略時は「リソースがありません」。 */
-  emptyLabel?: ReactNode;
-  /** ヘッダー行の角セルの `aria-label`。省略時は「リソース」。 */
-  cornerLabel?: string;
-  /**
-   * 帯（タイムラインアイテム）の aria-label をカスタマイズする関数（`TimelineView` と同じ）。
-   * 第 2 引数に既定の aria-label 文字列（日時＋リソース名）を渡すので、
-   * それを加工・置換して返せる。省略時は既定文字列をそのまま使う。
-   * @param occurrence - 対象のオカレンス
-   * @param defaultLabel - 既定の aria-label 文字列
-   */
-  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
-  /**
-   * 折りたたみトグルボタンの aria-label をカスタマイズする関数（`TimelineView` と同じ）。
-   * 第 3 引数に既定の aria-label 文字列を渡すので、それを加工・置換して返せる。
-   * 省略時は既定文字列をそのまま使う。
-   * @param resource - 対象のリソース（{@link TimelineRow.hasChildren} が `true` の行のみ呼ばれる）
-   * @param collapsed - トグル後ではなく現在の折りたたみ状態
-   * @param defaultLabel - 既定の aria-label 文字列
-   */
-  resourceToggleAriaLabel?: (
-    resource: CalendarResource,
-    collapsed: boolean,
-    defaultLabel: string,
-  ) => string;
   /**
    * 行 1 件分の推定高（px）。件数に応じて変えたい場合は関数で渡す。
    * 実測（ResizeObserver）が入るまでの暫定値。既定はレーン数 × 28px
@@ -164,14 +124,12 @@ interface TimelineRowGroupProps {
   style?: CSSProperties;
   /** 仮想化: 帯をタブ順に含めるか。既定 `true`（`false` で `tabIndex=-1`）。 */
   itemTabbable?: boolean;
-  /** 帯の aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
-  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
+  /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
+  commonMessages: CommonMessages;
   /** 折りたたみトグルボタンのクリックハンドラ（`api.toggleResourceCollapsed` へ委譲）。 */
   onToggleCollapse: (resourceId: string) => void;
-  /** 折りたたみトグルボタンの aria-label のカスタマイズ関数。 */
-  resourceToggleAriaLabel:
-    | ((resource: CalendarResource, collapsed: boolean, defaultLabel: string) => string)
-    | undefined;
+  /** 中央メッセージカタログの `timeline` グループ（折りたたみトグルボタンの aria-label 組み立てに使う）。 */
+  timelineMessages: TimelineMessages;
 }
 
 /** タイムラインの 1 行分（行見出し + 帯トラック）を描画する（`TimelineView` と同じ DOM 仕様）。 */
@@ -192,9 +150,9 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
     pinned,
     style,
     itemTabbable,
-    eventAriaLabel,
+    commonMessages,
     onToggleCollapse,
-    resourceToggleAriaLabel,
+    timelineMessages,
   } = props;
   const { ref, ...rowProps } = drag.getRowProps(row);
   const resource = row.resource;
@@ -225,11 +183,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
             type="button"
             data-koyomi="timeline-row-toggle"
             aria-expanded={!row.collapsed}
-            aria-label={resolveResourceToggleAriaLabel(
-              resource,
-              row.collapsed,
-              resourceToggleAriaLabel,
-            )}
+            aria-label={timelineMessages.resourceToggleAriaLabel(resource, row.collapsed)}
             onClick={() => onToggleCollapse(resource.id)}
             {...(itemTabbable === false ? { tabIndex: -1 } : {})}
           >
@@ -270,10 +224,6 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
             },
             occurrence.event.color ?? row.resource?.color,
           );
-          const defaultAriaLabel =
-            row.resource === null
-              ? formatEventAriaLabel(occurrence, timeZone, locale)
-              : `${formatEventAriaLabel(occurrence, timeZone, locale)}、${row.resource.title}`;
           return (
             <button
               type="button"
@@ -285,7 +235,13 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
               data-continues-before={item.continuesBefore ? 'true' : undefined}
               data-continues-after={item.continuesAfter ? 'true' : undefined}
               style={itemStyle}
-              aria-label={resolveEventAriaLabel(occurrence, defaultAriaLabel, eventAriaLabel)}
+              aria-label={ariaLabelWithResource(
+                occurrence,
+                row.resource?.title,
+                timeZone,
+                locale,
+                commonMessages,
+              )}
               {...(itemTabbable === false ? { tabIndex: -1 } : {})}
             >
               <div data-koyomi="timeline-item-content">
@@ -356,9 +312,9 @@ const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
     prev.pinned === next.pinned &&
     prev.style === next.style &&
     prev.itemTabbable === next.itemTabbable &&
-    prev.eventAriaLabel === next.eventAriaLabel &&
+    prev.commonMessages === next.commonMessages &&
     prev.onToggleCollapse === next.onToggleCollapse &&
-    prev.resourceToggleAriaLabel === next.resourceToggleAriaLabel
+    prev.timelineMessages === next.timelineMessages
   );
 });
 
@@ -381,19 +337,10 @@ const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
  * ```
  */
 export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactElement | null {
-  const {
-    renderEvent,
-    renderRowHeader,
-    unassignedLabel = DEFAULT_UNASSIGNED_LABEL,
-    emptyLabel = DEFAULT_EMPTY_LABEL,
-    cornerLabel = DEFAULT_CORNER_LABEL,
-    estimateRowHeight,
-    overscan,
-    eventAriaLabel,
-    resourceToggleAriaLabel,
-    ref,
-  } = props;
-  const { api, state, viewModel, callbacks } = useCalendarContext();
+  const { renderEvent, renderRowHeader, estimateRowHeight, overscan, ref } = props;
+  const { api, state, viewModel, callbacks, messages } = useCalendarContext();
+  const timelineMessages = messages.timeline;
+  const commonMessages = messages.common;
   const calendar = { api, state, viewModel };
   const drag = useTimelineDrag({ calendar, callbacks });
   const stableDrag = useStableTimelineDrag(drag);
@@ -562,7 +509,7 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
   if (isEmpty) {
     return (
       <div data-koyomi="timeline" data-koyomi-scale={scale}>
-        <div data-koyomi="timeline-empty">{emptyLabel}</div>
+        <div data-koyomi="timeline-empty">{timelineMessages.empty}</div>
       </div>
     );
   }
@@ -580,15 +527,15 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
       totalMinutes={totalMinutes}
       nowIndicatorMinutes={nowIndicatorMinutes}
       businessHourRanges={businessHourRanges}
-      unassignedLabel={unassignedLabel}
+      unassignedLabel={timelineMessages.unassigned}
       renderEvent={renderEvent}
       renderRowHeader={renderRowHeader}
       drag={stableDrag}
       isDragging={drag.isDragging}
       preview={drag.previewFor(row)}
-      eventAriaLabel={eventAriaLabel}
+      commonMessages={commonMessages}
       onToggleCollapse={onToggleCollapse}
-      resourceToggleAriaLabel={resourceToggleAriaLabel}
+      timelineMessages={timelineMessages}
       rowRef={virtualizer.measureElement(row.key)}
       {...(extra.pinned === true ? { pinned: true, itemTabbable: false } : {})}
       {...(extra.style !== undefined ? { style: extra.style } : {})}
@@ -613,7 +560,11 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
         <div ref={headerRef} data-koyomi="timeline-header-row" role="row">
           {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA columnheader */}
           {/* biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない */}
-          <div data-koyomi="timeline-corner" role="columnheader" aria-label={cornerLabel} />
+          <div
+            data-koyomi="timeline-corner"
+            role="columnheader"
+            aria-label={timelineMessages.corner}
+          />
           <TimelineAxisHeader
             days={days}
             slots={slots}

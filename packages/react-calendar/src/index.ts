@@ -209,7 +209,7 @@ export {
   type TimeGridViewProps,
 } from './react/components/time-grid-view';
 export { TimelineView, type TimelineViewProps } from './react/components/timeline-view';
-export { Toolbar, type ToolbarLabels, type ToolbarProps } from './react/components/toolbar';
+export { Toolbar, type ToolbarProps } from './react/components/toolbar';
 export {
   VirtualListView,
   type VirtualListViewProps,
@@ -229,8 +229,6 @@ export { YearView, type YearViewProps } from './react/components/year-view';
 export { CalendarProvider, type CalendarProviderProps, useCalendarContext } from './react/context';
 // React: 中央メッセージカタログ
 export { enMessages } from './react/locales/en';
-// React: ロケールプリセット
-export { type EnUsLabels, enUsLabels } from './react/locales/en-us';
 export { jaMessages } from './react/locales/ja';
 export { resolveMessageCatalog } from './react/locales/resolve';
 export type {

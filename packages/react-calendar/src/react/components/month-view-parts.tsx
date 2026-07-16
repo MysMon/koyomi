@@ -30,6 +30,7 @@ import type {
   MonthWeek,
   TimeZoneId,
 } from '../../core/types';
+import type { CommonMessages } from '../locales/types';
 import type { MonthOverflowButtonProps } from '../types';
 import type { DayCellProps, DayDragHandlers } from '../use-day-drag';
 
@@ -151,13 +152,15 @@ function inclusiveEndInstant(range: DateRange): Date {
  *
  * 終日イベントは日付範囲（`'M月d日〜M月d日'`、単日なら日付 1 つのみ）、
  * 時間指定イベントは `'M月d日 H:mm〜H:mm'`（複数日にまたがる場合は終了側にも日付を
- * 含める）の形式になる。`formatEventAriaLabel` の日時範囲部分、および
- * `useCalendarAnnouncer` の既定のイベント変更・作成通知の日時整形で共通に使う。
+ * 含める）の形式になる。`useCalendarAnnouncer` の既定のイベント変更・作成通知の
+ * 日時整形でも共通に使う。
  *
  * @param range - 対象の日時範囲（`end` 排他）
  * @param allDay - 終日として整形するか
  * @param timeZone - 表示に使うタイムゾーン
  * @param locale - ロケール
+ * @param rangeSeparator - 開始側・終了側を連結する区切り記号
+ *   （{@link MessageCatalog.common.rangeSeparator}）
  * @returns 例（`ja`）: `'7月15日〜7月16日'`（終日・複数日）、`'7月15日 10:00〜11:00'`（時間指定・単日）
  * @example
  * ```ts
@@ -166,6 +169,7 @@ function inclusiveEndInstant(range: DateRange): Date {
  *   false,
  *   'Asia/Tokyo',
  *   'ja',
+ *   '〜',
  * ); // => '7月15日 10:00〜11:00'
  * ```
  */
@@ -174,11 +178,12 @@ export function formatOccurrenceRangeLabel(
   allDay: boolean,
   timeZone: TimeZoneId,
   locale: string,
+  rangeSeparator: string,
 ): string {
   if (allDay) {
     const startLabel = formatDateLabel(range.start, timeZone, locale);
     const endLabel = formatDateLabel(inclusiveEndInstant(range), timeZone, locale);
-    return startLabel === endLabel ? startLabel : `${startLabel}〜${endLabel}`;
+    return startLabel === endLabel ? startLabel : `${startLabel}${rangeSeparator}${endLabel}`;
   }
   const startDateLabel = formatDateLabel(range.start, timeZone, locale);
   const endDateLabel = formatDateLabel(range.end, timeZone, locale);
@@ -186,14 +191,19 @@ export function formatOccurrenceRangeLabel(
   const endTime = formatTimeLabel(range.end, timeZone, locale);
   // 複数日にまたがる場合は終了側にも日付を含める（読み上げの欠落防止）
   return startDateLabel === endDateLabel
-    ? `${startDateLabel} ${startTime}〜${endTime}`
-    : `${startDateLabel} ${startTime}〜${endDateLabel} ${endTime}`;
+    ? `${startDateLabel} ${startTime}${rangeSeparator}${endTime}`
+    : `${startDateLabel} ${startTime}${rangeSeparator}${endDateLabel} ${endTime}`;
 }
 
 /**
  * イベントの aria-label を Intl（表示 TZ）で生成する。
  * 終日イベントは日付範囲（`'タイトル、M月d日〜M月d日'`、単日なら日付 1 つのみ）、
  * 時間指定イベントは `'タイトル、M月d日 H:mm〜H:mm'` の形式になる。
+ *
+ * @deprecated 全ビューの移行完了後に削除する。移行済みのビューは
+ *   `messages.common.eventAriaLabel` と `messages.common.rangeSeparator` を
+ *   直接使うこと（この関数は区切り記号が `〜` 固定のため、locale='en' でも
+ *   日本語の区切り記号のままになる）。
  */
 export function formatEventAriaLabel(
   occurrence: EventOccurrence,
@@ -201,7 +211,13 @@ export function formatEventAriaLabel(
   locale: string,
 ): string {
   const title = occurrence.event.title;
-  const rangeLabel = formatOccurrenceRangeLabel(occurrence, occurrence.allDay, timeZone, locale);
+  const rangeLabel = formatOccurrenceRangeLabel(
+    occurrence,
+    occurrence.allDay,
+    timeZone,
+    locale,
+    '〜',
+  );
   return `${title}、${rangeLabel}`;
 }
 
@@ -483,11 +499,8 @@ interface MonthWeekRowProps {
   overflowLabel: (count: number) => ReactNode;
   /** 日セルの内容のカスタマイズ関数。 */
   renderDayCell: ((day: MonthDay, defaultContent: ReactNode) => ReactNode) | undefined;
-  /**
-   * イベントボタンの aria-label のカスタマイズ関数。既定文字列（`formatEventAriaLabel` の結果）
-   * を受け取って加工・置換できる。省略時は既定文字列をそのまま使う。
-   */
-  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
+  /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
+  commonMessages: CommonMessages;
   /** 日番号クリック時のハンドラ。 */
   onDayNumberClick: (date: Date) => void;
   /**
@@ -535,7 +548,7 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
     renderEvent,
     overflowLabel,
     renderDayCell,
-    eventAriaLabel,
+    commonMessages,
     onDayNumberClick,
     onOverflowClick,
     overflowButtonProps,
@@ -657,7 +670,7 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
                     locale={locale}
                     columnCount={columnCount}
                     renderEvent={renderEvent}
-                    eventAriaLabel={eventAriaLabel}
+                    commonMessages={commonMessages}
                     dayDrag={dayDrag}
                   />
                 ))}
@@ -688,11 +701,11 @@ const MonthEventButton = memo(function MonthEventButton(props: {
   /** この週の可視列数（幅%計算の基準）。 */
   columnCount: number;
   renderEvent: ((segment: EventSegment) => ReactNode) | undefined;
-  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
-  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
+  /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
+  commonMessages: CommonMessages;
   dayDrag: MonthDayDragHandlers;
 }): ReactElement {
-  const { segment, timeZone, locale, columnCount, renderEvent, eventAriaLabel, dayDrag } = props;
+  const { segment, timeZone, locale, columnCount, renderEvent, commonMessages, dayDrag } = props;
   const occurrence = segment.occurrence;
   const segmentProps = dayDrag.getSegmentProps(segment);
   const isEditable = occurrence.event.editable !== false;
@@ -713,10 +726,15 @@ const MonthEventButton = memo(function MonthEventButton(props: {
       {...(occurrence.allDay ? ALL_DAY_EVENT_ATTRS : {})}
       data-koyomi="month-event"
       style={style}
-      aria-label={resolveEventAriaLabel(
+      aria-label={commonMessages.eventAriaLabel(
         occurrence,
-        formatEventAriaLabel(occurrence, timeZone, locale),
-        eventAriaLabel,
+        formatOccurrenceRangeLabel(
+          occurrence,
+          occurrence.allDay,
+          timeZone,
+          locale,
+          commonMessages.rangeSeparator,
+        ),
       )}
     >
       {renderEvent ? renderEvent(segment) : defaultSegmentContent(segment, timeZone, locale)}

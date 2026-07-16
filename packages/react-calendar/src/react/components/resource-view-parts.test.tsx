@@ -8,9 +8,9 @@ import {
 } from './resource-view-parts';
 
 describe('resource-view-parts', () => {
-  it('文字列ラベルだけを aria-label に使い、ReactNode はフォールバックする', () => {
-    expect(ariaLabelText('会議室', '既定')).toBe('会議室');
-    expect(ariaLabelText(123, '既定')).toBe('既定');
+  it('文字列ラベルはそのまま aria-label に使い、文字列でない ReactNode は undefined（属性省略）になる', () => {
+    expect(ariaLabelText('会議室')).toBe('会議室');
+    expect(ariaLabelText(123)).toBeUndefined();
   });
 
   it('リソースの表示フィールドを比較する', () => {

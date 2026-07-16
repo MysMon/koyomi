@@ -10,6 +10,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { CalendarEvent, CalendarViewType, EventOccurrence, ListDay } from '../../core/types';
 import { CalendarProvider } from '../context';
+import type { MessageCatalogOverrides } from '../locales/types';
 import type { CalendarInteractionCallbacks } from '../types';
 import { useCalendar } from '../use-calendar';
 import type { ListViewProps } from './list-view';
@@ -26,11 +27,8 @@ function TestListView(props: {
   events?: readonly CalendarEvent[];
   callbacks?: CalendarInteractionCallbacks;
   renderEvent?: ListViewProps['renderEvent'];
-  allDayLabel?: ListViewProps['allDayLabel'];
-  emptyLabel?: ListViewProps['emptyLabel'];
   renderDayHeader?: ListViewProps['renderDayHeader'];
-  eventAriaLabel?: ListViewProps['eventAriaLabel'];
-  dayAriaLabel?: ListViewProps['dayAriaLabel'];
+  messages?: MessageCatalogOverrides;
   view?: CalendarViewType;
   timeZone?: string;
 }): ReactElement {
@@ -48,14 +46,11 @@ function TestListView(props: {
     <CalendarProvider
       value={calendar}
       {...(props.callbacks !== undefined ? { callbacks: props.callbacks } : {})}
+      {...(props.messages !== undefined ? { messages: props.messages } : {})}
     >
       <ListView
         {...(props.renderEvent !== undefined ? { renderEvent: props.renderEvent } : {})}
-        {...(props.allDayLabel !== undefined ? { allDayLabel: props.allDayLabel } : {})}
-        {...(props.emptyLabel !== undefined ? { emptyLabel: props.emptyLabel } : {})}
         {...(props.renderDayHeader !== undefined ? { renderDayHeader: props.renderDayHeader } : {})}
-        {...(props.eventAriaLabel !== undefined ? { eventAriaLabel: props.eventAriaLabel } : {})}
-        {...(props.dayAriaLabel !== undefined ? { dayAriaLabel: props.dayAriaLabel } : {})}
       />
     </CalendarProvider>
   );
@@ -354,7 +349,7 @@ describe('ListView', () => {
     }).not.toThrow();
   });
 
-  it('イベント行には既定の aria-label（formatEventAriaLabel と同じ形式）が付く（仮想化の有無で読み上げが変わらない）', () => {
+  it('イベント行には既定の aria-label（common.eventAriaLabel と同じ形式）が付く（仮想化の有無で読み上げが変わらない）', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
     ];
@@ -364,18 +359,20 @@ describe('ListView', () => {
     expect(button).toHaveAttribute('aria-label', '会議、7月16日 10:00〜11:00');
   });
 
-  it('eventAriaLabel は既定の aria-label 文字列を defaultLabel として受け取り、返り値に置き換わる', () => {
+  it('messages.common.eventAriaLabel をオーバーライドするとイベント行の aria-label が変わる', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
     ];
     const eventAriaLabel = vi.fn(
-      (occurrence: EventOccurrence, defaultLabel: string) =>
-        `カスタム:${occurrence.eventId}:${defaultLabel}`,
+      (occurrence: EventOccurrence, rangeLabel: string) =>
+        `カスタム:${occurrence.eventId}:${rangeLabel}`,
     );
-    const { container } = render(<TestListView events={events} eventAriaLabel={eventAriaLabel} />);
+    const { container } = render(
+      <TestListView events={events} messages={{ common: { eventAriaLabel } }} />,
+    );
 
     const button = container.querySelector('[data-koyomi="list-event"]');
-    expect(button).toHaveAttribute('aria-label', 'カスタム:e1:会議、7月16日 10:00〜11:00');
+    expect(button).toHaveAttribute('aria-label', 'カスタム:e1:7月16日 10:00〜11:00');
   });
 
   it('日セクションには既定で「M月d日(曜) 予定N件」形式の aria-label が付く（VirtualListView と同じ既定文字列）', () => {
@@ -389,17 +386,19 @@ describe('ListView', () => {
     expect(section).toHaveAttribute('aria-label', '7月16日(木) 予定2件');
   });
 
-  it('dayAriaLabel は既定の aria-label 文字列を defaultLabel として受け取り、返り値に置き換わる', () => {
+  it('messages.list.dayAriaLabel は整形済みの日付見出し（dateLabel）を受け取り、返り値がそのまま aria-label になる', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
     ];
     const dayAriaLabel = vi.fn(
-      (day: ListDay, defaultLabel: string) => `カスタム:${day.key}:${defaultLabel}`,
+      (day: ListDay, dateLabel: string) => `カスタム:${day.key}:${dateLabel}`,
     );
-    const { container } = render(<TestListView events={events} dayAriaLabel={dayAriaLabel} />);
+    const { container } = render(
+      <TestListView events={events} messages={{ list: { dayAriaLabel } }} />,
+    );
 
     const section = container.querySelector('[data-koyomi="list-day"]');
-    expect(section).toHaveAttribute('aria-label', 'カスタム:2026-07-16:7月16日(木) 予定1件');
+    expect(section).toHaveAttribute('aria-label', 'カスタム:2026-07-16:7月16日(木)');
   });
 
   it('renderEvent を渡すと既定の内容の代わりにカスタム内容が描画される', () => {
@@ -426,18 +425,22 @@ describe('ListView', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('allDayLabel を指定すると終日イベントの時刻ラベルに反映される（省略時は「終日」）', () => {
+  it('messages.list.allDay を指定すると終日イベントの時刻ラベルに反映される（省略時は「終日」）', () => {
     const events: CalendarEvent[] = [
       { id: 'allday', title: '終日イベント', start: '2026-07-16', end: '2026-07-17', allDay: true },
     ];
-    const { container } = render(<TestListView events={events} allDayLabel="All day" />);
+    const { container } = render(
+      <TestListView events={events} messages={{ list: { allDay: 'All day' } }} />,
+    );
 
     const time = container.querySelector('[data-koyomi="list-event-time"]');
     expect(time?.textContent).toBe('All day');
   });
 
-  it('emptyLabel を指定すると予定なし時のメッセージに反映される（省略時は「予定はありません」）', () => {
-    const { container } = render(<TestListView events={[]} emptyLabel="No events" />);
+  it('messages.list.empty を指定すると予定なし時のメッセージに反映される（省略時は「予定はありません」）', () => {
+    const { container } = render(
+      <TestListView events={[]} messages={{ list: { empty: 'No events' } }} />,
+    );
 
     const empty = container.querySelector('[data-koyomi="list-empty"]');
     expect(empty?.textContent).toBe('No events');

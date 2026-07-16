@@ -39,6 +39,7 @@ import type {
   TimeZoneId,
 } from '../../core/types';
 import { useCalendarContext } from '../context';
+import type { CommonMessages } from '../locales/types';
 import { scrollContainerToTime } from '../scroll-to-time';
 import type { DayDragHandlers } from '../use-day-drag';
 import { useDayDrag } from '../use-day-drag';
@@ -47,7 +48,6 @@ import { useTimeGridDrag } from '../use-time-grid-drag';
 import { formatWeekday } from './format';
 import {
   percentOfSlotRange,
-  resolveEventAriaLabel,
   withEventColorStyle,
   withTimegridHoursStyle,
 } from './month-view-parts';
@@ -88,14 +88,6 @@ export interface TimeGridViewProps {
    * ```
    */
   renderDayHeader?: (day: TimeGridDay, defaultContent: ReactNode) => ReactNode;
-  /**
-   * イベントボタン（時間指定・終日行の両方）の aria-label をカスタマイズする関数。
-   * 第 2 引数に既定の aria-label 文字列を渡すので、それを加工・置換して返せる。
-   * 省略時は既定文字列をそのまま使う。
-   * @param occurrence - 対象のオカレンス
-   * @param defaultLabel - 既定の aria-label 文字列
-   */
-  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
   /**
    * マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置（`'HH:mm'`）。
    * 表示時間帯制限（{@link CalendarOptions.slotMinTime}/{@link CalendarOptions.slotMaxTime}）とは
@@ -222,18 +214,28 @@ function formatTimeOfDayLabel(date: Date, timeZone: TimeZoneId, locale: string):
 }
 
 /**
- * イベントの aria-label を Intl（表示 TZ）で生成する。
- * 終日イベントは日付範囲のみ（`'タイトル、M月d日〜M月d日'`、単日なら日付 1 つ。
+ * イベントの日時範囲ラベルを Intl（表示 TZ）で生成する。
+ * 終日イベントは日付範囲のみ（`'M月d日〜M月d日'`、単日なら日付 1 つ。
  * `end` は排他的なので 1 ミリ秒前が属する日を終了日とする）、
- * 時間指定イベントは `'タイトル、M月d日 H:mm〜H:mm'`
+ * 時間指定イベントは `'M月d日 H:mm〜H:mm'`
  * （複数日にまたがる場合は終了側にも日付を含める）。
+ *
+ * 時刻部分は `formatTimeOfDayLabel`（`hourCycle: 'h23'` 固定）で整形する
+ * （`month-view-parts.tsx` の `formatTimeLabel` と異なり、`locale` の慣習に
+ * かかわらず常に 24 時間制になる。既知の制限として今回のスコープ外）。
+ *
+ * @param occurrence - 対象のオカレンス
+ * @param timeZone - 表示タイムゾーン
+ * @param locale - ロケール
+ * @param rangeSeparator - 開始側・終了側を連結する区切り記号
+ *   （{@link MessageCatalog.common.rangeSeparator}）
  */
-function formatOccurrenceAriaLabel(
+function formatTimeGridRangeLabel(
   occurrence: EventOccurrence,
   timeZone: TimeZoneId,
   locale: string,
+  rangeSeparator: string,
 ): string {
-  const title = occurrence.event.title;
   if (occurrence.allDay) {
     const inclusiveEnd =
       occurrence.end.getTime() > occurrence.start.getTime()
@@ -241,17 +243,15 @@ function formatOccurrenceAriaLabel(
         : occurrence.start;
     const startLabel = formatDateLabel(occurrence.start, timeZone, locale);
     const endLabel = formatDateLabel(inclusiveEnd, timeZone, locale);
-    return startLabel === endLabel
-      ? `${title}、${startLabel}`
-      : `${title}、${startLabel}〜${endLabel}`;
+    return startLabel === endLabel ? startLabel : `${startLabel}${rangeSeparator}${endLabel}`;
   }
   const startDateLabel = formatDateLabel(occurrence.start, timeZone, locale);
   const endDateLabel = formatDateLabel(occurrence.end, timeZone, locale);
   const startTime = formatTimeOfDayLabel(occurrence.start, timeZone, locale);
   const endTime = formatTimeOfDayLabel(occurrence.end, timeZone, locale);
   return startDateLabel === endDateLabel
-    ? `${title}、${startDateLabel} ${startTime}〜${endTime}`
-    : `${title}、${startDateLabel} ${startTime}〜${endDateLabel} ${endTime}`;
+    ? `${startDateLabel} ${startTime}${rangeSeparator}${endTime}`
+    : `${startDateLabel} ${startTime}${rangeSeparator}${endDateLabel} ${endTime}`;
 }
 
 /**
@@ -456,15 +456,9 @@ function samePreviewSegment(
  * ```
  */
 export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
-  const {
-    renderEvent,
-    renderAllDayEvent,
-    renderDayHeader,
-    eventAriaLabel,
-    initialScrollTime,
-    ref,
-  } = props;
-  const { api, state, viewModel, callbacks } = useCalendarContext();
+  const { renderEvent, renderAllDayEvent, renderDayHeader, initialScrollTime, ref } = props;
+  const { api, state, viewModel, callbacks, messages } = useCalendarContext();
+  const commonMessages = messages.common;
   const calendar = { api, state, viewModel };
   const dayDrag = useDayDrag({ calendar, callbacks });
   const timeGridDrag = useTimeGridDrag({ calendar, callbacks });
@@ -647,7 +641,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
                         locale={locale}
                         dayDrag={dayDrag}
                         renderAllDayEvent={renderAllDayEvent}
-                        eventAriaLabel={eventAriaLabel}
+                        commonMessages={commonMessages}
                       />
                     ))}
                 </div>
@@ -695,7 +689,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
               nowIndicatorDayKey={nowIndicator?.dayKey ?? null}
               nowIndicatorMinutes={nowIndicator?.minutes ?? null}
               renderEvent={renderEvent}
-              eventAriaLabel={eventAriaLabel}
+              commonMessages={commonMessages}
               drag={stableDrag}
               isDragging={timeGridDrag.isDragging}
               preview={timeGridDrag.previewFor(day)}
@@ -733,10 +727,10 @@ function AllDaySegmentButton(props: {
   dayDrag: DayDragHandlers;
   /** 終日行の帯の表示内容のカスタマイズ関数（省略時はタイトルのみ）。 */
   renderAllDayEvent: ((segment: EventSegment) => ReactNode) | undefined;
-  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
-  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
+  /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
+  commonMessages: CommonMessages;
 }): ReactElement {
-  const { segment, columnCount, timeZone, locale, dayDrag, renderAllDayEvent, eventAriaLabel } =
+  const { segment, columnCount, timeZone, locale, dayDrag, renderAllDayEvent, commonMessages } =
     props;
   const occurrence = segment.occurrence;
   const segmentProps = dayDrag.getSegmentProps(segment);
@@ -758,10 +752,9 @@ function AllDaySegmentButton(props: {
       data-continues-before={segment.continuesBefore ? 'true' : undefined}
       data-continues-after={segment.continuesAfter ? 'true' : undefined}
       style={style}
-      aria-label={resolveEventAriaLabel(
+      aria-label={commonMessages.eventAriaLabel(
         occurrence,
-        formatOccurrenceAriaLabel(occurrence, timeZone, locale),
-        eventAriaLabel,
+        formatTimeGridRangeLabel(occurrence, timeZone, locale, commonMessages.rangeSeparator),
       )}
     >
       {renderAllDayEvent ? renderAllDayEvent(segment) : occurrence.event.title}
@@ -796,8 +789,8 @@ function TimeGridDayColumnImpl(props: {
   nowIndicatorDayKey: string | null;
   nowIndicatorMinutes: number | null;
   renderEvent: ((item: PositionedOccurrence) => ReactNode) | undefined;
-  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
-  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
+  /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
+  commonMessages: CommonMessages;
   drag: TimeGridColumnDragHandlers;
   /** ドラッグ操作が進行中か（{@link TimeGridEventButton} の memo 判定に使う）。 */
   isDragging: boolean;
@@ -814,7 +807,7 @@ function TimeGridDayColumnImpl(props: {
     nowIndicatorDayKey,
     nowIndicatorMinutes,
     renderEvent,
-    eventAriaLabel,
+    commonMessages,
     drag,
     isDragging,
     preview,
@@ -863,7 +856,7 @@ function TimeGridDayColumnImpl(props: {
           slotMinTimeMinutes={slotMinTimeMinutes}
           slotMaxTimeMinutes={slotMaxTimeMinutes}
           renderEvent={renderEvent}
-          eventAriaLabel={eventAriaLabel}
+          commonMessages={commonMessages}
           drag={drag}
           isDragging={isDragging}
         />
@@ -913,7 +906,7 @@ const TimeGridDayColumn = memo(TimeGridDayColumnImpl, (prev, next) => {
     prev.nowIndicatorDayKey === next.nowIndicatorDayKey &&
     prev.nowIndicatorMinutes === next.nowIndicatorMinutes &&
     prev.renderEvent === next.renderEvent &&
-    prev.eventAriaLabel === next.eventAriaLabel &&
+    prev.commonMessages === next.commonMessages &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&
     samePreviewSegment(prev.preview, next.preview)
@@ -930,8 +923,8 @@ function TimeGridEventButtonImpl(props: {
   /** 表示時間帯の終了（分）。既定（`slotMaxTime` 未指定）は `1440`。 */
   slotMaxTimeMinutes: number;
   renderEvent: ((item: PositionedOccurrence) => ReactNode) | undefined;
-  /** イベントボタンの aria-label のカスタマイズ関数（省略時は既定文字列をそのまま使う）。 */
-  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
+  /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
+  commonMessages: CommonMessages;
   drag: TimeGridColumnDragHandlers;
   /** ドラッグ操作が進行中か（このコンポーネント自体は使わないが、memo 判定に必要）。 */
   isDragging: boolean;
@@ -943,7 +936,7 @@ function TimeGridEventButtonImpl(props: {
     slotMinTimeMinutes,
     slotMaxTimeMinutes,
     renderEvent,
-    eventAriaLabel,
+    commonMessages,
     drag,
   } = props;
   const occurrence = item.occurrence;
@@ -967,10 +960,9 @@ function TimeGridEventButtonImpl(props: {
       data-continues-before={item.continuesBefore ? 'true' : undefined}
       data-continues-after={item.continuesAfter ? 'true' : undefined}
       style={style}
-      aria-label={resolveEventAriaLabel(
+      aria-label={commonMessages.eventAriaLabel(
         occurrence,
-        formatOccurrenceAriaLabel(occurrence, timeZone, locale),
-        eventAriaLabel,
+        formatTimeGridRangeLabel(occurrence, timeZone, locale, commonMessages.rangeSeparator),
       )}
     >
       <div data-koyomi="timegrid-event-content">
@@ -1009,7 +1001,7 @@ const TimeGridEventButton = memo(TimeGridEventButtonImpl, (prev, next) => {
     prev.slotMinTimeMinutes === next.slotMinTimeMinutes &&
     prev.slotMaxTimeMinutes === next.slotMaxTimeMinutes &&
     prev.renderEvent === next.renderEvent &&
-    prev.eventAriaLabel === next.eventAriaLabel &&
+    prev.commonMessages === next.commonMessages &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging
   );

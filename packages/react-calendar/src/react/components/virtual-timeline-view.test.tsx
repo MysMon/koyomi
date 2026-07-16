@@ -16,6 +16,7 @@ import type {
   TimelineScale,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
+import type { MessageCatalogOverrides } from '../locales/types';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
 import type { VirtualTimelineViewHandle, VirtualTimelineViewProps } from './virtual-timeline-view';
@@ -64,6 +65,7 @@ interface HarnessProps {
   businessHours?: readonly BusinessHoursRule[];
   callbacks?: CalendarInteractionCallbacks;
   viewProps?: VirtualTimelineViewProps;
+  messages?: MessageCatalogOverrides;
   sink?: { current: UseCalendarResult | null };
   handleRef?: React.Ref<VirtualTimelineViewHandle>;
 }
@@ -85,7 +87,11 @@ function Harness(props: HarnessProps): ReactElement {
     props.sink.current = calendar;
   }
   return (
-    <CalendarProvider value={calendar} {...(props.callbacks ? { callbacks: props.callbacks } : {})}>
+    <CalendarProvider
+      value={calendar}
+      {...(props.callbacks ? { callbacks: props.callbacks } : {})}
+      {...(props.messages !== undefined ? { messages: props.messages } : {})}
+    >
       <VirtualTimelineView ref={props.handleRef} {...(props.viewProps ?? {})} />
     </CalendarProvider>
   );
@@ -330,7 +336,7 @@ describe('VirtualTimelineView', () => {
     expect(body.scrollTop).toBe(84);
   });
 
-  it('eventAriaLabel は既定の aria-label 文字列（日時＋リソース名）を defaultLabel として受け取り、返り値に置き換わる', () => {
+  it('messages.common.eventAriaLabel をオーバーライドすると、リソース名が付記される前の aria-label がカスタマイズされる', () => {
     const events: CalendarEvent[] = [
       {
         id: 'e0',
@@ -342,13 +348,17 @@ describe('VirtualTimelineView', () => {
     ];
     const eventAriaLabel = (
       _occurrence: import('../../core/types').EventOccurrence,
-      defaultLabel: string,
-    ): string => `カスタム:${defaultLabel}`;
+      rangeLabel: string,
+    ): string => `カスタム:${rangeLabel}`;
     const { container } = render(
-      <Harness resources={makeResources(3)} events={events} viewProps={{ eventAriaLabel }} />,
+      <Harness
+        resources={makeResources(3)}
+        events={events}
+        messages={{ common: { eventAriaLabel } }}
+      />,
     );
     const item = container.querySelector('[data-koyomi="timeline-item"]');
-    expect(item).toHaveAttribute('aria-label', 'カスタム:作業0、7月15日 9:00〜10:00、リソース0');
+    expect(item).toHaveAttribute('aria-label', 'カスタム:7月15日 9:00〜10:00、リソース0');
   });
 
   it('矢印キー（→）で帯を移動でき、onEventChange が呼ばれる（D&D 配線の確認）', () => {
@@ -543,18 +553,19 @@ describe('VirtualTimelineView - リソースの階層グルーピング（parent
     expect(container.querySelectorAll('[data-koyomi="timeline-row-group"]')).toHaveLength(1);
   });
 
-  it('resourceToggleAriaLabel で aria-label をカスタマイズできる', () => {
+  it('messages.timeline.resourceToggleAriaLabel をオーバーライドすると aria-label をカスタマイズできる', () => {
     const { container } = render(
       <Harness
         resources={[PARENT, CHILD]}
-        viewProps={{
-          resourceToggleAriaLabel: (resource, collapsed, defaultLabel) =>
-            `${resource.title}/${collapsed}/${defaultLabel}`,
+        messages={{
+          timeline: {
+            resourceToggleAriaLabel: (resource, collapsed) => `${resource.title}/${collapsed}`,
+          },
         }}
       />,
     );
     const toggle = container.querySelector('[data-koyomi="timeline-row-toggle"]');
-    expect(toggle).toHaveAttribute('aria-label', '本社/false/本社 を折りたたむ');
+    expect(toggle).toHaveAttribute('aria-label', '本社/false');
   });
 
   it('pinned 行のトグルボタンはタブ順から外れる（tabindex=-1）', async () => {

@@ -13,8 +13,9 @@
  * 2. **カスタム描画スロット** — `renderDayCell` で月セルに絵文字バッジを、
  *    `renderEvent` で週ビューのイベント内容を、`renderDayHeader` で週ビューの
  *    日ヘッダーを、それぞれ差し替える。
- * 3. **文言 props** — `overflowLabel` で「他 N 件…」形式に、`Toolbar` の
- *    `labels` の一部を差し替える。
+ * 3. **文言のカスタマイズ** — `CalendarProvider` の `messages` prop で `Toolbar`
+ *    の文言の一部と月ビューの「+N 件」（`messages.month.overflow`）を
+ *    「他 N 件…」形式に差し替える。
  * 4. **ブランドテーマ** — `headless.css` で `--koyomi-*` 変数と
  *    `[data-koyomi="..."]` を上書きし、デフォルトテーマとは明確に異なる
  *    見た目にする（このパターンのカレンダーだけに適用され、他パターンや
@@ -29,11 +30,11 @@ import type {
   CalendarResource,
   CalendarViewType,
   EventOccurrence,
+  MessageCatalogOverrides,
   MonthDay,
   MonthOverflowButtonProps,
   PositionedOccurrence,
   TimeGridDay,
-  ToolbarLabels,
   Weekday,
 } from '@koyomi-cal/react';
 import {
@@ -65,12 +66,17 @@ const VIEWS: readonly CalendarViewType[] = ['month', 'week'];
 const OVERFLOW_POPOVER_ID = 'headless-overflow-popover';
 
 /** `Toolbar` の文言の一部差し替え（ブランドの雰囲気に合わせた絵文字・言い回し）。 */
-const TOOLBAR_LABELS: ToolbarLabels = {
-  today: '⏱️ 今日',
-  month: '🌕 月表示',
-  week: '🌊 週表示',
-  prev: '前の期間へ',
-  next: '次の期間へ',
+const MESSAGES: MessageCatalogOverrides = {
+  toolbar: {
+    today: '⏱️ 今日',
+    month: '🌕 月表示',
+    week: '🌊 週表示',
+    prev: '前の期間へ',
+    next: '次の期間へ',
+  },
+  month: {
+    overflow: (count) => `他 ${count} 件…`,
+  },
 };
 
 /** 「+N 件」ポップオーバーが開いているときの状態。 */
@@ -248,9 +254,6 @@ export function HeadlessPattern(): ReactElement {
     [],
   );
 
-  /** 月ビューの「+N 件」の文言を「他 N 件…」形式にする。 */
-  const monthOverflowLabel = useCallback((count: number): ReactNode => `他 ${count} 件…`, []);
-
   /** 「+N 件」ボタンに ARIA 属性を付与する（自前ポップオーバーとの連携用）。 */
   const monthOverflowButtonProps = useCallback(
     (day: MonthDay, _hiddenOccurrences: readonly EventOccurrence[]): MonthOverflowButtonProps => {
@@ -362,11 +365,10 @@ export function HeadlessPattern(): ReactElement {
       </header>
 
       <div className="headless-calendar-shell" ref={shellRef}>
-        <CalendarProvider value={calendar} callbacks={callbacks}>
-          <Toolbar views={VIEWS} labels={TOOLBAR_LABELS} />
+        <CalendarProvider value={calendar} callbacks={callbacks} messages={MESSAGES}>
+          <Toolbar views={VIEWS} />
           <CalendarView
             renderMonthDayCell={renderMonthDayCell}
-            monthOverflowLabel={monthOverflowLabel}
             monthOverflowButtonProps={monthOverflowButtonProps}
             renderTimeGridEvent={renderTimeGridEvent}
             renderTimeGridDayHeader={renderTimeGridDayHeader}

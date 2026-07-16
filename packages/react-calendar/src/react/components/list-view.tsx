@@ -25,12 +25,7 @@ import type {
 import { useMemo } from 'react';
 import type { EventOccurrence, ListDay } from '../../core/types';
 import { useCalendarContext } from '../context';
-import {
-  DEFAULT_ALL_DAY_LABEL,
-  DEFAULT_EMPTY_LABEL,
-  defaultListDayAriaLabel,
-  ListDaySection,
-} from './list-view-parts';
+import { ListDaySection } from './list-view-parts';
 
 /**
  * {@link ListView} の props。
@@ -44,37 +39,11 @@ export interface ListViewProps {
    */
   renderEvent?: (occurrence: EventOccurrence) => ReactNode;
   /**
-   * 終日イベントの時刻ラベル（`list-event-time`）として表示する内容。
-   * 省略時は「終日」を表示する。
-   */
-  allDayLabel?: ReactNode;
-  /**
-   * 予定が 1 件もない場合（`list-empty`）に表示する内容。
-   * 省略時は「予定はありません」を表示する。
-   */
-  emptyLabel?: ReactNode;
-  /**
    * 日付見出し（`list-day-header`）の内容をカスタム描画する関数。
    * 第 2 引数に既定の内容（`'M月d日(曜)'` 形式のラベル）を渡すので、
    * それをラップして返すこともできる。省略時は既定の内容をそのまま表示する。
    */
   renderDayHeader?: (day: ListDay, defaultContent: ReactNode) => ReactNode;
-  /**
-   * イベント行（`list-event`）の aria-label をカスタマイズする関数。
-   * 第 2 引数に既定の aria-label 文字列（`formatEventAriaLabel` の結果）を渡すので、
-   * それを加工・置換して返せる。省略時は既定文字列をそのまま使う。
-   * @param occurrence - 対象のオカレンス
-   * @param defaultLabel - 既定の aria-label 文字列
-   */
-  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
-  /**
-   * 日セクション（`list-day`）の aria-label をカスタマイズする関数。
-   * 第 2 引数に既定の aria-label 文字列（例:「7月16日(木) 予定2件」、`VirtualListView`
-   * と同じ形式）を渡すので、それを加工・置換して返せる。省略時は既定文字列をそのまま使う。
-   * @param day - 対象の日
-   * @param defaultLabel - 既定の aria-label 文字列
-   */
-  dayAriaLabel?: (day: ListDay, defaultLabel: string) => string;
 }
 
 /**
@@ -83,6 +52,11 @@ export interface ListViewProps {
  * `useCalendarContext()` から取得したビューモデルが `'list'` でない場合は
  * 何も描画しない（`null` を返す）。`CalendarView` から呼ばれる場合は
  * 自動的に出し分けられるが、単独で配置してもこの判定により安全に動作する。
+ *
+ * 終日イベントの時刻ラベル・空状態のメッセージ・イベント行/日セクションの
+ * aria-label は `CalendarProvider` の `messages` prop（`messages.list` /
+ * `messages.common`）で差し替えられる（省略時は `state.options.locale` に
+ * 対応する既定カタログ）。
  *
  * @example
  * ```tsx
@@ -95,17 +69,12 @@ export interface ListViewProps {
  * ```
  */
 export function ListView(props: ListViewProps): ReactElement | null {
-  const {
-    renderEvent,
-    renderDayHeader,
-    allDayLabel = DEFAULT_ALL_DAY_LABEL,
-    emptyLabel = DEFAULT_EMPTY_LABEL,
-    eventAriaLabel,
-    dayAriaLabel,
-  } = props;
-  const { state, viewModel, callbacks } = useCalendarContext();
+  const { renderEvent, renderDayHeader } = props;
+  const { state, viewModel, callbacks, messages } = useCalendarContext();
   const timeZone = state.timeZone;
   const locale = state.options.locale;
+  const listMessages = messages.list;
+  const commonMessages = messages.common;
   // 日付見出しの Intl.DateTimeFormat は生成コストがあるため memo 化する
   // （VirtualListView と同様。ロケール・タイムゾーンが変わらない限り再生成しない）。
   const dayHeaderFormatter = useMemo(
@@ -147,7 +116,7 @@ export function ListView(props: ListViewProps): ReactElement | null {
   if (viewModel.isEmpty) {
     return (
       <div data-koyomi="list">
-        <div data-koyomi="list-empty">{emptyLabel}</div>
+        <div data-koyomi="list-empty">{listMessages.empty}</div>
       </div>
     );
   }
@@ -156,10 +125,6 @@ export function ListView(props: ListViewProps): ReactElement | null {
     <div data-koyomi="list">
       {viewModel.days.map((day) => {
         const defaultDayHeader = dayHeaderFormatter.format(day.date);
-        const defaultDayAriaLabel = defaultListDayAriaLabel(
-          defaultDayHeader,
-          day.occurrences.length,
-        );
         return (
           <ListDaySection
             key={day.key}
@@ -167,13 +132,13 @@ export function ListView(props: ListViewProps): ReactElement | null {
             timeZone={timeZone}
             locale={locale}
             defaultDayHeader={defaultDayHeader}
-            allDayLabel={allDayLabel}
+            allDayLabel={listMessages.allDay}
+            commonMessages={commonMessages}
             onEventClick={handleEventClick}
             onEventKeyDown={handleEventKeyDown}
             callbacks={callbacks}
-            ariaLabel={dayAriaLabel ? dayAriaLabel(day, defaultDayAriaLabel) : defaultDayAriaLabel}
+            ariaLabel={listMessages.dayAriaLabel(day, defaultDayHeader)}
             {...(renderEvent !== undefined ? { renderEvent } : {})}
-            {...(eventAriaLabel !== undefined ? { eventAriaLabel } : {})}
             {...(renderDayHeader !== undefined ? { renderDayHeader } : {})}
           />
         );

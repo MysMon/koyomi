@@ -19,6 +19,7 @@ import type {
   Weekday,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
+import type { MessageCatalogOverrides } from '../locales/types';
 import type { UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
 import type { TimelineViewProps } from './timeline-view';
@@ -57,6 +58,8 @@ interface HarnessProps {
   businessHours?: readonly BusinessHoursRule[];
   /** `TimelineView` へそのまま渡す追加 props。 */
   viewProps?: TimelineViewProps;
+  /** `CalendarProvider` の `messages` prop。 */
+  messages?: MessageCatalogOverrides;
   /** `useCalendar` の戻り値を外部から観測するための入れ物。 */
   sink?: { current: UseCalendarResult | null };
 }
@@ -81,7 +84,10 @@ function Harness(props: HarnessProps): ReactElement {
     props.sink.current = calendar;
   }
   return (
-    <CalendarProvider value={calendar}>
+    <CalendarProvider
+      value={calendar}
+      {...(props.messages !== undefined ? { messages: props.messages } : {})}
+    >
       <TimelineView {...(props.viewProps ?? {})} />
     </CalendarProvider>
   );
@@ -160,12 +166,12 @@ describe('TimelineView - 空状態', () => {
     expect(empty?.textContent).toBe('リソースがありません');
   });
 
-  it('emptyLabel でメッセージを差し替えられる', () => {
+  it('messages.timeline.empty でメッセージを差し替えられる', () => {
     const { container } = render(
       <Harness
         resources={[]}
         unassignedLane="auto"
-        viewProps={{ emptyLabel: '設備がありません' }}
+        messages={{ timeline: { empty: '設備がありません' } }}
       />,
     );
     const empty = container.querySelector('[data-koyomi="timeline-empty"]');
@@ -364,7 +370,7 @@ describe('TimelineView - カスタム描画 props', () => {
     expect(custom?.textContent).toBe('CUSTOM:荷揚げ');
   });
 
-  it('eventAriaLabel は既定の aria-label 文字列（日時＋リソース名）を defaultLabel として受け取り、返り値に置き換わる', () => {
+  it('messages.common.eventAriaLabel をオーバーライドすると、リソース名が付記される前の aria-label がカスタマイズされる', () => {
     const events: CalendarEvent[] = [
       {
         id: 'e1',
@@ -376,20 +382,17 @@ describe('TimelineView - カスタム描画 props', () => {
     ];
     const eventAriaLabel = (
       occurrence: import('../../core/types').EventOccurrence,
-      defaultLabel: string,
+      rangeLabel: string,
     ): string => {
       expect(occurrence.eventId).toBe('e1');
-      expect(defaultLabel).toBe('荷揚げ、7月15日 9:00〜11:00、クレーン1号機');
-      return `カスタム:${defaultLabel}`;
+      expect(rangeLabel).toBe('7月15日 9:00〜11:00');
+      return `カスタム:${rangeLabel}`;
     };
     const { container } = render(
-      <Harness resources={[CRANE_1]} events={events} viewProps={{ eventAriaLabel }} />,
+      <Harness resources={[CRANE_1]} events={events} messages={{ common: { eventAriaLabel } }} />,
     );
     const item = container.querySelector('[data-koyomi="timeline-item"]');
-    expect(item).toHaveAttribute(
-      'aria-label',
-      'カスタム:荷揚げ、7月15日 9:00〜11:00、クレーン1号機',
-    );
+    expect(item).toHaveAttribute('aria-label', 'カスタム:7月15日 9:00〜11:00、クレーン1号機');
   });
 
   it('renderRowHeader で行見出しの内容を差し替えられ、defaultContent には既定の内容が渡る', () => {
@@ -404,12 +407,12 @@ describe('TimelineView - カスタム描画 props', () => {
     expect(custom?.textContent).toBe('CUSTOM:r:crane-1:クレーン1号機');
   });
 
-  it('unassignedLabel で未割り当て行のラベルを差し替えられる', () => {
+  it('messages.timeline.unassigned で未割り当て行のラベルを差し替えられる', () => {
     const { container } = render(
       <Harness
         resources={[CRANE_1]}
         unassignedLane="always"
-        viewProps={{ unassignedLabel: '担当未定' }}
+        messages={{ timeline: { unassigned: '担当未定' } }}
       />,
     );
     const headers = container.querySelectorAll('[data-koyomi="timeline-resource-header"]');
@@ -832,17 +835,18 @@ describe('TimelineView - リソースの階層グルーピング（parentId）',
     expect(toggle).toHaveAttribute('aria-label', '本社 を折りたたむ');
   });
 
-  it('resourceToggleAriaLabel で aria-label をカスタマイズできる', () => {
+  it('messages.timeline.resourceToggleAriaLabel をオーバーライドすると aria-label をカスタマイズできる', () => {
     const { container } = render(
       <Harness
         resources={[PARENT, CHILD]}
-        viewProps={{
-          resourceToggleAriaLabel: (resource, collapsed, defaultLabel) =>
-            `${resource.title}/${collapsed}/${defaultLabel}`,
+        messages={{
+          timeline: {
+            resourceToggleAriaLabel: (resource, collapsed) => `${resource.title}/${collapsed}`,
+          },
         }}
       />,
     );
     const toggle = container.querySelector('[data-koyomi="timeline-row-toggle"]');
-    expect(toggle).toHaveAttribute('aria-label', '本社/false/本社 を折りたたむ');
+    expect(toggle).toHaveAttribute('aria-label', '本社/false');
   });
 });

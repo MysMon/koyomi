@@ -8,8 +8,9 @@
  * 1. **複数タイムゾーン軸**（`timeAxisZones`） — 「なし / NY / NY+ロンドン」を
  *    切り替え、週/日ビューの時間軸に追加のタイムゾーン列を出し分ける
  * 2. **言語切替**（`locale`） — 日本語 / English をワンスイッチで切替え、
- *    `locale` の更新（`api.updateOptions`）と `enUsLabels`（`Toolbar` の
- *    `labels` および `CalendarView` の各 `*Label` props）の適用を同時に行う
+ *    `locale` の更新（`api.updateOptions`）を行う。`Toolbar` / `CalendarView`
+ *    はいずれも `locale` に連動して中央メッセージカタログから自動で文言が
+ *    切り替わる（追加の文言 props は不要）
  * 3. **週番号**（`showWeekNumbers`） — 常時有効化し、月・週ビューの左端に
  *    パターン専用 CSS（`./international.css`）で `data-koyomi-week-number`
  *    属性をバッジとして可視化する
@@ -22,19 +23,12 @@
  * （`docs/interactions.md` 参照）。
  */
 
-import type {
-  CalendarEvent,
-  CalendarViewProps,
-  CalendarViewType,
-  TimeZoneId,
-  ToolbarLabels,
-} from '@koyomi-cal/react';
+import type { CalendarEvent, CalendarViewType, TimeZoneId } from '@koyomi-cal/react';
 import {
   addDaysInZone,
   CalendarProvider,
   CalendarView,
   dateKeyInZone,
-  enUsLabels,
   Toolbar,
   useCalendar,
 } from '@koyomi-cal/react';
@@ -161,11 +155,7 @@ export function InternationalPattern(): ReactElement {
   const [timeAxisMode, setTimeAxisMode] = useState<TimeAxisModeId>(INITIAL_TIME_AXIS_MODE);
   const [rtl, setRtl] = useState(false);
 
-  /**
-   * 言語切替（ワンスイッチ）。`locale` の更新（`api.updateOptions`）と
-   * `enUsLabels` の適用（`toolbarLabels` / `calendarViewLabels` の切替）を
-   * 1 回のクリックで同時に反映する。
-   */
+  /** 言語切替（ワンスイッチ）。`locale` の更新（`api.updateOptions`）のみで文言も追従する。 */
   function handleLanguageToggle(): void {
     const next: LanguageId = language === 'ja' ? 'en' : 'ja';
     setLanguage(next);
@@ -178,9 +168,6 @@ export function InternationalPattern(): ReactElement {
     const option = TIME_AXIS_OPTIONS.find((candidate) => candidate.value === mode);
     api.updateOptions({ timeAxisZones: option?.zones ?? [] });
   }
-
-  const toolbarLabels: ToolbarLabels = language === 'en' ? enUsLabels.toolbar : {};
-  const calendarViewLabels: CalendarViewProps = language === 'en' ? enUsLabels.calendarView : {};
 
   return (
     <div className="koyomi-demo-international demo-app" dir={rtl ? 'rtl' : undefined}>
@@ -228,8 +215,8 @@ export function InternationalPattern(): ReactElement {
 
       <main className="demo-main">
         <CalendarProvider value={calendar}>
-          <Toolbar views={VIEWS} labels={toolbarLabels} />
-          <CalendarView {...calendarViewLabels} />
+          <Toolbar views={VIEWS} />
+          <CalendarView />
         </CalendarProvider>
       </main>
 

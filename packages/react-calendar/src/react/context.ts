@@ -8,6 +8,8 @@
 
 import type { ReactElement, ReactNode } from 'react';
 import { createContext, createElement, useContext, useMemo } from 'react';
+import { resolveMessageCatalog } from './locales/resolve';
+import type { MessageCatalogOverrides } from './locales/types';
 import type {
   CalendarContextValue,
   CalendarInteractionCallbacks,
@@ -31,6 +33,17 @@ export interface CalendarProviderProps {
   value: UseCalendarResult;
   /** インタラクションのコールバック集。 */
   callbacks?: CalendarInteractionCallbacks;
+  /**
+   * 中央メッセージカタログの部分上書き。
+   *
+   * `value.state.options.locale` の言語サブタグで選ばれる同梱カタログ
+   * （`ja` / `en`、未対応言語は `ja` にフォールバック）へ、グループ単位で
+   * 浅くマージされる。**呼び出しのたびに新しいオブジェクトを渡さず、安定した
+   * 参照（コンポーネント外の定数、または `useMemo` の結果）で渡すこと**
+   * （毎レンダー新規オブジェクトだとコンテキスト値の参照が安定せず、
+   * 配下コンポーネントの不要な再レンダーを招く）。
+   */
+  messages?: MessageCatalogOverrides;
   /** 子要素。 */
   children?: ReactNode;
 }
@@ -53,19 +66,25 @@ export interface CalendarProviderProps {
  * ```
  */
 export function CalendarProvider(props: CalendarProviderProps): ReactElement {
-  const { value, callbacks, children } = props;
+  const { value, callbacks, messages, children } = props;
   const resolvedCallbacks = callbacks ?? EMPTY_CALLBACKS;
   const { api, state, viewModel } = value;
 
+  const resolvedMessages = useMemo(
+    () => resolveMessageCatalog(state.options.locale, messages),
+    [state.options.locale, messages],
+  );
+
   /**
    * 依存を `value` オブジェクトの参照ではなくフィールド単位（`api` / `state` /
-   * `viewModel` / 解決済み `callbacks`）に分解する。`value` は呼び出し側で
-   * 毎レンダー新規生成されがちだが、中身が変わっていなければコンテキスト値の
-   * 参照を保ち、配下コンポーネントの不要な再レンダーを避ける。
+   * `viewModel` / 解決済み `callbacks` / 解決済み `messages`）に分解する。
+   * `value` は呼び出し側で毎レンダー新規生成されがちだが、中身が変わって
+   * いなければコンテキスト値の参照を保ち、配下コンポーネントの不要な
+   * 再レンダーを避ける。
    */
   const contextValue = useMemo<CalendarContextValue>(
-    () => ({ api, state, viewModel, callbacks: resolvedCallbacks }),
-    [api, state, viewModel, resolvedCallbacks],
+    () => ({ api, state, viewModel, callbacks: resolvedCallbacks, messages: resolvedMessages }),
+    [api, state, viewModel, resolvedCallbacks, resolvedMessages],
   );
 
   return createElement(CalendarContext, { value: contextValue }, children);

@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { visibleRangeFor } from '../../core/date-utils';
 import type { CalendarViewType } from '../../core/types';
 import { CalendarProvider } from '../context';
+import type { MessageCatalogOverrides } from '../locales/types';
 import type { UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
 import { formatDayTitle, formatMonthTitle, formatRangeTitle, formatYearTitle } from './format';
@@ -27,10 +28,11 @@ const NOW = new Date('2026-07-15T01:00:00Z');
  */
 function renderToolbar(
   initialView?: CalendarViewType,
-  labels?: ToolbarProps['labels'],
+  messages?: MessageCatalogOverrides,
   views?: ToolbarProps['views'],
   multiMonthCount?: number,
   timelineDays?: number,
+  locale?: string,
 ) {
   const capture: { current: UseCalendarResult | null } = { current: null };
 
@@ -43,15 +45,12 @@ function renderToolbar(
       ...(initialView !== undefined ? { initialView } : {}),
       ...(multiMonthCount !== undefined ? { multiMonthCount } : {}),
       ...(timelineDays !== undefined ? { timelineDays } : {}),
-      locale: 'ja',
+      locale: locale ?? 'ja',
     });
     capture.current = calendar;
     return (
-      <CalendarProvider value={calendar}>
-        <Toolbar
-          {...(labels !== undefined ? { labels } : {})}
-          {...(views !== undefined ? { views } : {})}
-        />
+      <CalendarProvider value={calendar} {...(messages !== undefined ? { messages } : {})}>
+        <Toolbar {...(views !== undefined ? { views } : {})} />
       </CalendarProvider>
     );
   }
@@ -93,8 +92,8 @@ describe('Toolbar', () => {
     expect(viewsGroup).toHaveAttribute('aria-label', '表示切替');
   });
 
-  it('labels.viewsGroup を指定するとビュー切替グループの aria-label が差し替わる', () => {
-    const { container } = renderToolbar('month', { viewsGroup: 'View switcher' });
+  it('messages.toolbar.viewsGroup を指定するとビュー切替グループの aria-label が差し替わる', () => {
+    const { container } = renderToolbar('month', { toolbar: { viewsGroup: 'View switcher' } });
     const viewsGroup = container.querySelector('[data-koyomi="toolbar-views"]');
     expect(viewsGroup).toHaveAttribute('aria-label', 'View switcher');
   });
@@ -249,12 +248,9 @@ describe('Toolbar', () => {
     }
   });
 
-  it('labels でビュー切替ボタンの表示文字列を差し替えられる（省略時は既定の日本語）', () => {
+  it('messages.toolbar でビュー切替ボタンの表示文字列を差し替えられる（省略時は既定の日本語）', () => {
     const { container } = renderToolbar('month', {
-      month: 'Month',
-      week: 'Week',
-      day: 'Day',
-      list: 'List',
+      toolbar: { month: 'Month', week: 'Week', day: 'Day', list: 'List' },
     });
 
     expect(container.querySelector('[data-koyomi-action="view-month"]')?.textContent).toBe('Month');
@@ -263,15 +259,15 @@ describe('Toolbar', () => {
     expect(container.querySelector('[data-koyomi-action="view-list"]')?.textContent).toBe('List');
   });
 
-  it('labels.today を指定すると today ボタンの表示文字列と aria-label が差し替わる', () => {
-    const { container } = renderToolbar('month', { today: 'Today' });
+  it('messages.toolbar.today を指定すると today ボタンの表示文字列と aria-label が差し替わる', () => {
+    const { container } = renderToolbar('month', { toolbar: { today: 'Today' } });
     const today = container.querySelector('[data-koyomi-action="today"]');
     expect(today?.textContent).toBe('Today');
     expect(today?.getAttribute('aria-label')).toBe('Today');
   });
 
-  it('labels.prev / labels.next を指定すると aria-label のみ差し替わり、表示アイコンは変わらない', () => {
-    const { container } = renderToolbar('month', { prev: 'Previous', next: 'Next' });
+  it('messages.toolbar.prev / .next を指定すると aria-label のみ差し替わり、表示アイコンは変わらない', () => {
+    const { container } = renderToolbar('month', { toolbar: { prev: 'Previous', next: 'Next' } });
     const prev = container.querySelector('[data-koyomi-action="prev"]');
     const next = container.querySelector('[data-koyomi-action="next"]');
 
@@ -281,12 +277,30 @@ describe('Toolbar', () => {
     expect(next?.textContent).toBe('›');
   });
 
-  it('labels を省略すると既定の日本語文字列のまま（後方互換）', () => {
+  it('messages を省略すると既定の日本語文字列のまま', () => {
     const { container } = renderToolbar('month');
     expect(container.querySelector('[data-koyomi-action="view-month"]')?.textContent).toBe('月');
     expect(
       container.querySelector('[data-koyomi-action="today"]')?.getAttribute('aria-label'),
     ).toBe('今日');
+  });
+
+  it("locale='en-US' では messages 省略時に Toolbar が Month/Today の英語表示になる", () => {
+    const { container } = renderToolbar(
+      'month',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'en-US',
+    );
+    expect(container.querySelector('[data-koyomi-action="view-month"]')?.textContent).toBe('Month');
+    expect(container.querySelector('[data-koyomi-action="today"]')?.textContent).toBe('Today');
+    expect(
+      container.querySelector('[data-koyomi-action="today"]')?.getAttribute('aria-label'),
+    ).toBe('Today');
+    const title = container.querySelector('[data-koyomi="title"]');
+    expect(title?.textContent).toBe(formatMonthTitle(NOW, 'Asia/Tokyo', 'en-US'));
   });
 
   it('views 未指定では従来どおり月/週/日/リストの4ボタンのみになる（year ボタンは出ない。回帰ガード）', () => {
@@ -312,8 +326,8 @@ describe('Toolbar', () => {
     expect(capture.current?.api.getState().view).toBe('year');
   });
 
-  it('labels.year で年ビュー切替ボタンの表示文字列を差し替えられる', () => {
-    const { container } = renderToolbar('month', { year: 'Year' }, ['month', 'year']);
+  it('messages.toolbar.year で年ビュー切替ボタンの表示文字列を差し替えられる', () => {
+    const { container } = renderToolbar('month', { toolbar: { year: 'Year' } }, ['month', 'year']);
     expect(container.querySelector('[data-koyomi-action="view-year"]')?.textContent).toBe('Year');
   });
 
@@ -339,8 +353,8 @@ describe('Toolbar', () => {
     expect(capture.current?.api.getState().view).toBe('multiMonth');
   });
 
-  it('labels.multiMonth で複数月ビュー切替ボタンの表示文字列を差し替えられる', () => {
-    const { container } = renderToolbar('month', { multiMonth: '複数月表示' }, [
+  it('messages.toolbar.multiMonth で複数月ビュー切替ボタンの表示文字列を差し替えられる', () => {
+    const { container } = renderToolbar('month', { toolbar: { multiMonth: '複数月表示' } }, [
       'month',
       'multiMonth',
     ]);
@@ -394,12 +408,12 @@ describe('Toolbar', () => {
     expect(capture.current?.api.getState().view).toBe('timeline');
   });
 
-  it('labels.resource / labels.timeline でリソース/タイムラインビュー切替ボタンの表示文字列を差し替えられる', () => {
-    const { container } = renderToolbar('month', { resource: 'Resources', timeline: 'Timeline' }, [
+  it('messages.toolbar.resource / .timeline でリソース/タイムラインビュー切替ボタンの表示文字列を差し替えられる', () => {
+    const { container } = renderToolbar(
       'month',
-      'resource',
-      'timeline',
-    ]);
+      { toolbar: { resource: 'Resources', timeline: 'Timeline' } },
+      ['month', 'resource', 'timeline'],
+    );
     expect(container.querySelector('[data-koyomi-action="view-resource"]')?.textContent).toBe(
       'Resources',
     );
@@ -408,7 +422,7 @@ describe('Toolbar', () => {
     );
   });
 
-  it('labels を省略するとリソース/タイムラインのボタンも既定の日本語文字列になる（後方互換）', () => {
+  it('messages を省略するとリソース/タイムラインのボタンも既定の日本語文字列になる', () => {
     const { container } = renderToolbar('month', undefined, ['month', 'resource', 'timeline']);
     expect(container.querySelector('[data-koyomi-action="view-resource"]')?.textContent).toBe(
       'リソース',

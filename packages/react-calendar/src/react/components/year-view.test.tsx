@@ -16,6 +16,7 @@ import type {
   YearMonth,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
+import type { MessageCatalogOverrides } from '../locales/types';
 import type { CalendarInteractionCallbacks } from '../types';
 import { useCalendar } from '../use-calendar';
 import { YearView } from './year-view';
@@ -34,8 +35,7 @@ function Harness(props: {
   callbacks?: CalendarInteractionCallbacks;
   renderMonthHeader?: (month: YearMonth, defaultContent: ReactNode) => ReactNode;
   renderDayCell?: (day: YearDay, defaultContent: ReactNode) => ReactNode;
-  dayCountLabel?: (count: number) => string;
-  dayAriaLabel?: (day: YearDay, defaultLabel: string) => string;
+  messages?: MessageCatalogOverrides;
   apiRef?: { current: CalendarApi | null };
 }): ReactElement {
   const calendar = useCalendar({
@@ -52,14 +52,13 @@ function Harness(props: {
     <CalendarProvider
       value={calendar}
       {...(props.callbacks !== undefined ? { callbacks: props.callbacks } : {})}
+      {...(props.messages !== undefined ? { messages: props.messages } : {})}
     >
       <YearView
         {...(props.renderMonthHeader !== undefined
           ? { renderMonthHeader: props.renderMonthHeader }
           : {})}
         {...(props.renderDayCell !== undefined ? { renderDayCell: props.renderDayCell } : {})}
-        {...(props.dayCountLabel !== undefined ? { dayCountLabel: props.dayCountLabel } : {})}
-        {...(props.dayAriaLabel !== undefined ? { dayAriaLabel: props.dayAriaLabel } : {})}
       />
     </CalendarProvider>
   );
@@ -229,33 +228,38 @@ describe('YearView - 予定件数の表示', () => {
     expect(button).toHaveAttribute('aria-label', '7月11日');
   });
 
-  it('dayCountLabel で件数文言（「予定N件」部分）をカスタマイズできる（予定が 0 件の日には呼ばれない）', () => {
+  it('messages.year.dayAriaLabel をオーバーライドすると件数文言込みの aria-label 全体をカスタマイズできる', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: '朝会', start: '2026-07-10T09:00', end: '2026-07-10T09:30' },
     ];
-    const dayCountLabel = vi.fn((count: number) => `${count} events`);
-    const { container } = render(<Harness events={events} dayCountLabel={dayCountLabel} />);
+    const dayAriaLabelWithCustomCount = vi.fn((day: YearDay, dateLabel: string) =>
+      day.eventCount > 0 ? `${dateLabel} ${day.eventCount} events` : dateLabel,
+    );
+    const { container } = render(
+      <Harness
+        events={events}
+        messages={{ year: { dayAriaLabel: dayAriaLabelWithCustomCount } }}
+      />,
+    );
     const july = monthSection(container, '2026-07');
 
     expect(dayButton(july, '2026-07-10')).toHaveAttribute('aria-label', '7月10日 1 events');
     expect(dayButton(july, '2026-07-11')).toHaveAttribute('aria-label', '7月11日');
-    expect(dayCountLabel).toHaveBeenCalledTimes(1);
-    expect(dayCountLabel).toHaveBeenCalledWith(1);
   });
 
-  it('dayAriaLabel は既定の aria-label 文字列（dayCountLabel 適用後）を defaultLabel として受け取り、返り値に置き換わる', () => {
+  it('messages.year.dayAriaLabel は整形済みの日付ラベル（dateLabel）を受け取り、返り値がそのまま aria-label になる', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: '朝会', start: '2026-07-10T09:00', end: '2026-07-10T09:30' },
     ];
     const dayAriaLabel = vi.fn(
-      (day: YearDay, defaultLabel: string) => `カスタム:${day.key}:${defaultLabel}`,
+      (day: YearDay, dateLabel: string) => `カスタム:${day.key}:${dateLabel}`,
     );
-    const { container } = render(<Harness events={events} dayAriaLabel={dayAriaLabel} />);
+    const { container } = render(<Harness events={events} messages={{ year: { dayAriaLabel } }} />);
     const july = monthSection(container, '2026-07');
 
     expect(dayButton(july, '2026-07-10')).toHaveAttribute(
       'aria-label',
-      'カスタム:2026-07-10:7月10日 予定1件',
+      'カスタム:2026-07-10:7月10日',
     );
   });
 

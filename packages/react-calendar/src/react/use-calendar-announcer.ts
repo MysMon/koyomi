@@ -236,7 +236,13 @@ function describeChangeVerb(occurrence: EventOccurrence, change: EventChange): s
 function defaultEventChangedMessage(change: EventChange, ctx: AnnouncerFormatterContext): string {
   const { occurrence, newRange, resourceId } = change;
   const verb = describeChangeVerb(occurrence, change);
-  const rangeLabel = formatOccurrenceRangeLabel(newRange, change.allDay, ctx.timeZone, ctx.locale);
+  const rangeLabel = formatOccurrenceRangeLabel(
+    newRange,
+    change.allDay,
+    ctx.timeZone,
+    ctx.locale,
+    '〜',
+  );
   const resourceLabel = resolveResourceLabel(resourceId, ctx.resources);
   const base = `${occurrence.event.title} を ${rangeLabel} に${verb}しました`;
   return resourceLabel === null ? base : `${base}（${resourceLabel}）`;
@@ -253,6 +259,7 @@ function defaultEventCreatedMessage(
     selection.allDay,
     ctx.timeZone,
     ctx.locale,
+    '〜',
   );
   const resourceLabel = resolveResourceLabel(selection.resourceId, ctx.resources);
   const base = `${event.title} を ${rangeLabel} に作成しました`;
@@ -294,8 +301,7 @@ function currentCtx(calendar: UseCalendarResult): AnnouncerFormatterContext {
  * ヘルパー（{@link UseCalendarAnnouncerResult.wrapCallbacks} /
  * {@link UseCalendarAnnouncerResult.wrapRangeChange}）を返す。予定の移動・リサイズ・
  * 既定即時作成・削除の確定後、および明示的に配線した場合はビュー変更後に、
- * 既定の日本語文言（`messages` で差し替え可、`enUsLabels.announcer` で英語化可）を
- * live region へ通知する。
+ * 既定の日本語文言（`messages` で差し替え可）を live region へ通知する。
  *
  * カスタムの `onSelectRange`（ダイアログ等）を使う経路では作成が確定したかどうかを
  * アプリ側しか把握できないため自動通知しない。作成確定時に

@@ -30,6 +30,7 @@ import type {
   TimeZoneId,
 } from '../../core/types';
 import { useCalendarContext } from '../context';
+import type { CommonMessages } from '../locales/types';
 import type { MonthOverflowButtonProps } from '../types';
 import { useDayDrag } from '../use-day-drag';
 import { formatMonthTitle } from './format';
@@ -74,19 +75,6 @@ export interface MultiMonthViewProps {
     day: MonthDay,
     hiddenOccurrences: readonly EventOccurrence[],
   ) => MonthOverflowButtonProps;
-  /**
-   * イベントボタンの aria-label をカスタマイズする関数。
-   * 第 2 引数に既定の aria-label 文字列（既定内容は `MonthView` と同じ）を渡すので、
-   * それを加工・置換して返せる。省略時は既定文字列をそのまま使う。
-   * @param occurrence - 対象のオカレンス
-   * @param defaultLabel - 既定の aria-label 文字列
-   */
-  eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string;
-}
-
-/** 「+N 件」の既定ラベル（`MonthView` と同じ）。 */
-function defaultOverflowLabel(count: number): ReactNode {
-  return `+${count} 件`;
 }
 
 /**
@@ -107,14 +95,8 @@ function defaultOverflowLabel(count: number): ReactNode {
  * ```
  */
 export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null {
-  const {
-    renderEvent,
-    overflowLabel = defaultOverflowLabel,
-    renderDayCell,
-    overflowButtonProps,
-    eventAriaLabel,
-  } = props;
-  const { api, state, viewModel, callbacks } = useCalendarContext();
+  const { renderEvent, renderDayCell, overflowButtonProps } = props;
+  const { api, state, viewModel, callbacks, messages } = useCalendarContext();
   const calendar = { api, state, viewModel };
   // コンポーネント全体で 1 インスタンス（モジュール冒頭の TSDoc を参照）。
   const dayDrag = useDayDrag({ calendar, callbacks });
@@ -185,9 +167,9 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
           previewInvalid={previewInvalid}
           dayDrag={stableDayDrag}
           renderEvent={renderEvent}
-          overflowLabel={overflowLabel}
+          overflowLabel={messages.multiMonth.overflow}
           renderDayCell={renderDayCell}
-          eventAriaLabel={eventAriaLabel}
+          commonMessages={messages.common}
           onDayNumberClick={handleDayNumberClick}
           onOverflowClick={handleOverflowClick}
           overflowButtonProps={overflowButtonProps}
@@ -225,8 +207,8 @@ function MultiMonthMonthSection(props: {
   overflowLabel: (count: number) => ReactNode;
   /** 日セルの内容のカスタマイズ関数。 */
   renderDayCell: ((day: MonthDay, defaultContent: ReactNode) => ReactNode) | undefined;
-  /** イベントボタンの aria-label のカスタマイズ関数。 */
-  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined;
+  /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
+  commonMessages: CommonMessages;
   /** 日番号クリック時のハンドラ。 */
   onDayNumberClick: (date: Date) => void;
   /**
@@ -258,7 +240,7 @@ function MultiMonthMonthSection(props: {
     renderEvent,
     overflowLabel,
     renderDayCell,
-    eventAriaLabel,
+    commonMessages,
     onDayNumberClick,
     onOverflowClick,
     overflowButtonProps,
@@ -306,7 +288,7 @@ function MultiMonthMonthSection(props: {
               renderEvent={renderEvent}
               overflowLabel={overflowLabel}
               renderDayCell={renderDayCell}
-              eventAriaLabel={eventAriaLabel}
+              commonMessages={commonMessages}
               onDayNumberClick={onDayNumberClick}
               onOverflowClick={onOverflowClick}
               overflowButtonProps={overflowButtonProps}

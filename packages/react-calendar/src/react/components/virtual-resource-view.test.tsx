@@ -15,6 +15,7 @@ import type {
   CalendarViewType,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
+import type { MessageCatalogOverrides } from '../locales/types';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
 import type { VirtualResourceViewHandle, VirtualResourceViewProps } from './virtual-resource-view';
@@ -58,6 +59,7 @@ interface HarnessProps {
   slotMinTime?: string;
   slotMaxTime?: string;
   viewProps?: VirtualResourceViewProps;
+  messages?: MessageCatalogOverrides;
   sink?: { current: UseCalendarResult | null };
   handleRef?: React.Ref<VirtualResourceViewHandle>;
 }
@@ -79,7 +81,11 @@ function Harness(props: HarnessProps): ReactElement {
     props.sink.current = calendar;
   }
   return (
-    <CalendarProvider value={calendar} {...(props.callbacks ? { callbacks: props.callbacks } : {})}>
+    <CalendarProvider
+      value={calendar}
+      {...(props.callbacks ? { callbacks: props.callbacks } : {})}
+      {...(props.messages !== undefined ? { messages: props.messages } : {})}
+    >
       <VirtualResourceView ref={props.handleRef} {...(props.viewProps ?? {})} />
     </CalendarProvider>
   );
@@ -147,7 +153,7 @@ describe('VirtualResourceView', () => {
     expect(alldayEvent).toHaveAttribute('aria-label', '休暇、7月15日、リソース0');
   });
 
-  it('eventAriaLabel は既定の aria-label 文字列（終日・時間指定の両方）を defaultLabel として受け取る', () => {
+  it('messages.common.eventAriaLabel は既定の rangeLabel（終日・時間指定の両方、リソース名は付記前）を受け取る', () => {
     const events: CalendarEvent[] = [
       {
         id: 'ad',
@@ -167,18 +173,19 @@ describe('VirtualResourceView', () => {
     ];
     const eventAriaLabel = (
       _occurrence: import('../../core/types').EventOccurrence,
-      defaultLabel: string,
-    ): string => `カスタム:${defaultLabel}`;
+      rangeLabel: string,
+    ): string => `カスタム:${rangeLabel}`;
     const { container } = render(
-      <Harness resources={makeResources(2)} events={events} viewProps={{ eventAriaLabel }} />,
+      <Harness
+        resources={makeResources(2)}
+        events={events}
+        messages={{ common: { eventAriaLabel } }}
+      />,
     );
     const alldayEvent = container.querySelector('[data-koyomi="allday-event"]');
-    expect(alldayEvent).toHaveAttribute('aria-label', 'カスタム:休暇、7月15日、リソース0');
+    expect(alldayEvent).toHaveAttribute('aria-label', 'カスタム:7月15日、リソース0');
     const timedEvent = container.querySelector('[data-koyomi="timegrid-event"]');
-    expect(timedEvent).toHaveAttribute(
-      'aria-label',
-      'カスタム:会議、7月15日 10:00〜11:00、リソース0',
-    );
+    expect(timedEvent).toHaveAttribute('aria-label', 'カスタム:7月15日 10:00〜11:00、リソース0');
   });
 
   it('renderAllDayItem で終日アイテムの内容をカスタマイズできる（renderEvent は影響しない）', () => {
