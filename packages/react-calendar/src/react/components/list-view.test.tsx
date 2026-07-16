@@ -364,8 +364,8 @@ describe('ListView', () => {
       { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
     ];
     const eventAriaLabel = vi.fn(
-      (occurrence: EventOccurrence, rangeLabel: string) =>
-        `カスタム:${occurrence.eventId}:${rangeLabel}`,
+      (occurrence: EventOccurrence, parts: { rangeLabel: string; resourceLabel?: string }) =>
+        `カスタム:${occurrence.eventId}:${parts.rangeLabel}`,
     );
     const { container } = render(
       <TestListView events={events} messages={{ common: { eventAriaLabel } }} />,

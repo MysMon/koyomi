@@ -1512,14 +1512,14 @@ type EventChangeVerb = 'moved' | 'resized' | 'convertedToAllDay' | 'convertedToT
 
 | グループ | 対応するコンポーネント/フック | 主なリーフ |
 | --- | --- | --- |
-| `common` | 全ビュー共通 | `untitledEvent`（既定即時作成のタイトル）、`rangeSeparator`（日時範囲の区切り、既定 `'〜'`）、`itemSeparator`（項目の区切り、既定 `'、'`）、`eventAriaLabel(occurrence, rangeLabel)`（イベントの aria-label 全文） |
+| `common` | 全ビュー共通 | `untitledEvent`（既定即時作成のタイトル）、`rangeSeparator`（日時範囲の区切り、既定 `'〜'`）、`eventAriaLabel(occurrence, parts)`（イベントの aria-label 全文。`parts.rangeLabel`・リソース名を含むビューのみ渡る `parts.resourceLabel`） |
 | `toolbar` | `Toolbar` | `month`/`week`/`day`/`list`/`year`/`multiMonth`/`resource`/`timeline`/`today`/`prev`/`next`（表示文字列・aria-label）、`viewsGroup`（ビュー切替グループの aria-label） |
 | `list` | `ListView` / `VirtualListView` | `allDay`（終日ラベル）、`empty`（空状態）、`dayAriaLabel(day, dateLabel)`（日セクションの aria-label） |
 | `month` | `MonthView` | `overflow(count)`（「+N 件」の表示内容） |
 | `multiMonth` | `MultiMonthView` | `overflow(count)`（「+N 件」の表示内容） |
 | `resource` | `ResourceView` / `VirtualResourceView` | `unassigned`（未割り当て列ラベル）、`empty`（空状態） |
 | `timeline` | `TimelineView` / `VirtualTimelineView` | `unassigned`（未割り当て行ラベル）、`empty`（空状態）、`corner`（角セルの aria-label）、`resourceToggleAriaLabel(resource, collapsed)`（折りたたみボタンの aria-label） |
-| `year` | `YearView` | `dayCount(count)`（件数文言「予定N件」部分）、`dayAriaLabel(day, dateLabel)`（日セルの aria-label 全体） |
+| `year` | `YearView` | `dayCount(count)`（件数文言「予定N件」部分）、`dayAriaLabel(day, parts)`（日セルの aria-label 全体。`parts.dateLabel`・`parts.countLabel`（`dayCount` の結果、0 件の日は `null`）） |
 | `announcer` | `useCalendarAnnouncer` | `unassignedResource`、`eventChanged(change, verb, rangeLabel, resourceLabel)`、`eventCreated(event, selection, rangeLabel, resourceLabel)`、`eventDeleted(deletion)`、`viewChanged(info, title)` |
 | `recurrenceEditor` | `useRecurrenceRuleEditor` | `describeRule(state, context?)`（説明文）、`validationMessage(issue)`（検証エラー文言）、`unsupportedReason(reason)`（非対応理由の文言） |
 

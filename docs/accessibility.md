@@ -112,8 +112,8 @@ undo/redo 操作自体の通知文言は `useCalendarAnnouncer` の対象外で�
 
 `aria-label`（例:「会議、7月16日 10:00〜11:00」）を含むすべての文言は `CalendarProvider` の中央メッセージカタログから組み立てられ、コンポーネントごとの `*AriaLabel` 系 props はありません。ロケールに応じて自動的に切り替わり、`messages` prop で部分的に上書きできます。
 
-- **イベントボタンを持つ全ビュー**（`MonthView` / `MultiMonthView` / `TimeGridView`（終日行含む） / `ListView` / `VirtualListView` / `ResourceView` / `VirtualResourceView` / `TimelineView` / `VirtualTimelineView`）の aria-label は `messages.common.eventAriaLabel(occurrence, rangeLabel)` で組み立てられます
-- **年ビュー（YearView）** は日セルの件数文言「予定N件」部分を `messages.year.dayCount(count)` で、aria-label 全体を `messages.year.dayAriaLabel(day, dateLabel)` で組み立てます
+- **イベントボタンを持つ全ビュー**（`MonthView` / `MultiMonthView` / `TimeGridView`（終日行含む） / `ListView` / `VirtualListView` / `ResourceView` / `VirtualResourceView` / `TimelineView` / `VirtualTimelineView`）の aria-label は `messages.common.eventAriaLabel(occurrence, parts)` で組み立てられます（`parts.rangeLabel` は日時範囲ラベル、`parts.resourceLabel` はリソース名を含むビューのみ渡ります）
+- **年ビュー（YearView）** は日セルの件数文言「予定N件」部分を `messages.year.dayCount(count)` で、aria-label 全体を `messages.year.dayAriaLabel(day, parts)`（`parts.dateLabel` と、`dayCount` の結果である `parts.countLabel`。予定が 0 件の日は `null`）で組み立てます
 - **リストビュー（ListView / VirtualListView）** は日セクションの aria-label（例:「7月16日(木) 予定2件」）を `messages.list.dayAriaLabel(day, dateLabel)` で組み立てます。両ビューの既定 aria-label は同じ形式なので、仮想化の有無で読み上げが変わることはありません
 - **`Toolbar`** はビュー切替ボタングループ（`toolbar-views`）の `aria-label` を `messages.toolbar.viewsGroup`（既定「表示切替」）で差し替えられます
 

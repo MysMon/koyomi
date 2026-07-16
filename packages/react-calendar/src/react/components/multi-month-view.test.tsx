@@ -303,15 +303,15 @@ describe('MultiMonthView - カスタム描画 props', () => {
     ).toBe('朝会、7月8日 9:00〜9:30');
 
     const eventAriaLabel = vi.fn(
-      (_occurrence: EventOccurrence, rangeLabel: string) => `カスタム:${rangeLabel}`,
+      (_occurrence: EventOccurrence, parts: { rangeLabel: string; resourceLabel?: string }) =>
+        `カスタム:${parts.rangeLabel}`,
     );
     const { container } = render(
       <Harness events={events} messages={{ common: { eventAriaLabel } }} />,
     );
-    expect(eventAriaLabel).toHaveBeenCalledWith(
-      expect.objectContaining({ eventId: 'e1' }),
-      '7月8日 9:00〜9:30',
-    );
+    expect(eventAriaLabel).toHaveBeenCalledWith(expect.objectContaining({ eventId: 'e1' }), {
+      rangeLabel: '7月8日 9:00〜9:30',
+    });
     expect(container.querySelector('[data-koyomi="month-event"]')).toHaveAttribute(
       'aria-label',
       'カスタム:7月8日 9:00〜9:30',

@@ -297,16 +297,24 @@ function makeYearDay(eventCount: number): YearDay {
 }
 
 describe('jaMessages.common', () => {
-  it('untitledEvent / rangeSeparator / itemSeparator が既定の日本語文言になる', () => {
+  it('untitledEvent / rangeSeparator が既定の日本語文言になる', () => {
     expect(jaMessages.common.untitledEvent).toBe('(タイトルなし)');
     expect(jaMessages.common.rangeSeparator).toBe('〜');
-    expect(jaMessages.common.itemSeparator).toBe('、');
   });
 
-  it('eventAriaLabel はタイトルと rangeLabel を「、」で連結する', () => {
-    expect(jaMessages.common.eventAriaLabel(makeOccurrence(), '7月16日 10:00〜11:00')).toBe(
-      '会議、7月16日 10:00〜11:00',
-    );
+  it('eventAriaLabel はタイトルと rangeLabel を「、」で連結する（resourceLabel 省略時）', () => {
+    expect(
+      jaMessages.common.eventAriaLabel(makeOccurrence(), { rangeLabel: '7月16日 10:00〜11:00' }),
+    ).toBe('会議、7月16日 10:00〜11:00');
+  });
+
+  it('eventAriaLabel は resourceLabel 指定時、末尾に同じ区切り記号で連結する（区切りの混在を防ぐ）', () => {
+    expect(
+      jaMessages.common.eventAriaLabel(makeOccurrence(), {
+        rangeLabel: '7月16日 10:00〜11:00',
+        resourceLabel: '会議室A',
+      }),
+    ).toBe('会議、7月16日 10:00〜11:00、会議室A');
   });
 });
 
@@ -376,9 +384,16 @@ describe('jaMessages.year', () => {
     expect(jaMessages.year.dayCount(3)).toBe('予定3件');
   });
 
-  it('dayAriaLabel は eventCount>0 のときのみ件数文言を付加する', () => {
-    expect(jaMessages.year.dayAriaLabel(makeYearDay(3), '7月10日')).toBe('7月10日 予定3件');
-    expect(jaMessages.year.dayAriaLabel(makeYearDay(0), '7月10日')).toBe('7月10日');
+  it('dayAriaLabel は countLabel が非 null のときのみ件数文言を付加する（自身では dayCount を呼ばず、渡された countLabel をそのまま使う）', () => {
+    expect(
+      jaMessages.year.dayAriaLabel(makeYearDay(3), {
+        dateLabel: '7月10日',
+        countLabel: jaMessages.year.dayCount(3),
+      }),
+    ).toBe('7月10日 予定3件');
+    expect(
+      jaMessages.year.dayAriaLabel(makeYearDay(0), { dateLabel: '7月10日', countLabel: null }),
+    ).toBe('7月10日');
   });
 });
 

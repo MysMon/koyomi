@@ -8,7 +8,7 @@
  * 両コンポーネントで完全に一致する。
  *
  * 非公開モジュール（`index.ts` から re-export しない）。
- * 一部のヘルパ（`withEventColorStyle` / `formatEventAriaLabel` / `formatTimeLabel`）は
+ * 一部のヘルパ（`withEventColorStyle` / `formatTimeLabel`）は
  * リソースビュー・タイムラインビューのコンポーネントとも共有する。
  */
 
@@ -193,49 +193,6 @@ export function formatOccurrenceRangeLabel(
   return startDateLabel === endDateLabel
     ? `${startDateLabel} ${startTime}${rangeSeparator}${endTime}`
     : `${startDateLabel} ${startTime}${rangeSeparator}${endDateLabel} ${endTime}`;
-}
-
-/**
- * イベントの aria-label を Intl（表示 TZ）で生成する。
- * 終日イベントは日付範囲（`'タイトル、M月d日〜M月d日'`、単日なら日付 1 つのみ）、
- * 時間指定イベントは `'タイトル、M月d日 H:mm〜H:mm'` の形式になる。
- *
- * @deprecated 全ビューの移行完了後に削除する。移行済みのビューは
- *   `messages.common.eventAriaLabel` と `messages.common.rangeSeparator` を
- *   直接使うこと（この関数は区切り記号が `〜` 固定のため、locale='en' でも
- *   日本語の区切り記号のままになる）。
- */
-export function formatEventAriaLabel(
-  occurrence: EventOccurrence,
-  timeZone: TimeZoneId,
-  locale: string,
-): string {
-  const title = occurrence.event.title;
-  const rangeLabel = formatOccurrenceRangeLabel(
-    occurrence,
-    occurrence.allDay,
-    timeZone,
-    locale,
-    '〜',
-  );
-  return `${title}、${rangeLabel}`;
-}
-
-/**
- * `eventAriaLabel` コールバックが指定されていればそれを適用し、なければ既定文字列を
- * そのまま返す。イベントボタンを持つ全ビュー（`MonthView` 等）で共通の適用ロジックとして使う。
- *
- * @param occurrence - 対象のオカレンス
- * @param defaultLabel - 各ビューの既定の aria-label 文字列（`formatEventAriaLabel` 等の結果）
- * @param eventAriaLabel - 既定文字列を受け取って加工・置換するコールバック（省略時は既定文字列をそのまま使う）
- * @returns 最終的に `aria-label` へ渡す文字列
- */
-export function resolveEventAriaLabel(
-  occurrence: EventOccurrence,
-  defaultLabel: string,
-  eventAriaLabel: ((occurrence: EventOccurrence, defaultLabel: string) => string) | undefined,
-): string {
-  return eventAriaLabel ? eventAriaLabel(occurrence, defaultLabel) : defaultLabel;
 }
 
 /**
@@ -726,16 +683,15 @@ const MonthEventButton = memo(function MonthEventButton(props: {
       {...(occurrence.allDay ? ALL_DAY_EVENT_ATTRS : {})}
       data-koyomi="month-event"
       style={style}
-      aria-label={commonMessages.eventAriaLabel(
-        occurrence,
-        formatOccurrenceRangeLabel(
+      aria-label={commonMessages.eventAriaLabel(occurrence, {
+        rangeLabel: formatOccurrenceRangeLabel(
           occurrence,
           occurrence.allDay,
           timeZone,
           locale,
           commonMessages.rangeSeparator,
         ),
-      )}
+      })}
     >
       {renderEvent ? renderEvent(segment) : defaultSegmentContent(segment, timeZone, locale)}
       {/* 左右端のリサイズハンドル。editable:false、またはこの週で継続表示中の端では出さない */}

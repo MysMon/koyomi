@@ -488,8 +488,10 @@ const frMessages: MessageCatalog = {
   common: {
     untitledEvent: 'Sans titre',
     rangeSeparator: '–',
-    itemSeparator: ', ',
-    eventAriaLabel: (occurrence, rangeLabel) => `${occurrence.event.title}, ${rangeLabel}`,
+    eventAriaLabel: (occurrence, { rangeLabel, resourceLabel }) =>
+      resourceLabel === undefined
+        ? `${occurrence.event.title}, ${rangeLabel}`
+        : `${occurrence.event.title}, ${rangeLabel}, ${resourceLabel}`,
   },
   toolbar: {
     month: 'Mois',

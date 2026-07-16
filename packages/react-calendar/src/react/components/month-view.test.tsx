@@ -198,11 +198,14 @@ describe('MonthView - イベントセグメント', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: '朝会', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
     ];
-    const eventAriaLabel = vi.fn((occurrence: EventOccurrence, rangeLabel: string) => {
-      expect(occurrence.eventId).toBe('e1');
-      expect(rangeLabel).toBe('7月8日 9:00〜9:30');
-      return `カスタム:${rangeLabel}`;
-    });
+    const eventAriaLabel = vi.fn(
+      (occurrence: EventOccurrence, parts: { rangeLabel: string; resourceLabel?: string }) => {
+        expect(occurrence.eventId).toBe('e1');
+        expect(parts.rangeLabel).toBe('7月8日 9:00〜9:30');
+        expect(parts.resourceLabel).toBeUndefined();
+        return `カスタム:${parts.rangeLabel}`;
+      },
+    );
     const { container } = render(
       <Harness events={events} messages={{ common: { eventAriaLabel } }} />,
     );

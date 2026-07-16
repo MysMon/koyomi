@@ -59,7 +59,12 @@ export function ariaLabelText(label: ReactNode): string | undefined {
 }
 
 /**
- * イベントの aria-label にリソース名を付け足す（例: `'会議、7月10日 10:00〜11:00、会議室A'`）。
+ * リソース名を含めてイベントの aria-label 全文を組み立てる（例: `'会議、7月10日 10:00〜11:00、会議室A'`）。
+ *
+ * 区切り記号を含む全文の組み立ては `commonMessages.eventAriaLabel` 自体に一任し、
+ * ここではリソース名を `resourceLabel` として渡すだけにする（呼び出し側で区切り記号を
+ * 後から付け足すと、区切り記号を上書きしたときに一部の区切りにしか反映されない
+ * 混在が起きるため）。
  *
  * @param occurrence - 対象のオカレンス
  * @param resourceTitle - リソース名（対象外・未割り当ての場合は `undefined`）
@@ -81,10 +86,10 @@ export function ariaLabelWithResource(
     locale,
     commonMessages.rangeSeparator,
   );
-  const base = commonMessages.eventAriaLabel(occurrence, rangeLabel);
-  return resourceTitle === undefined
-    ? base
-    : `${base}${commonMessages.itemSeparator}${resourceTitle}`;
+  return commonMessages.eventAriaLabel(
+    occurrence,
+    resourceTitle === undefined ? { rangeLabel } : { rangeLabel, resourceLabel: resourceTitle },
+  );
 }
 
 /** 時間指定イベントの既定の表示内容（開始時刻 + タイトル）。 */

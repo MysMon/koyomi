@@ -232,8 +232,9 @@ describe('YearView - 予定件数の表示', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: '朝会', start: '2026-07-10T09:00', end: '2026-07-10T09:30' },
     ];
-    const dayAriaLabelWithCustomCount = vi.fn((day: YearDay, dateLabel: string) =>
-      day.eventCount > 0 ? `${dateLabel} ${day.eventCount} events` : dateLabel,
+    const dayAriaLabelWithCustomCount = vi.fn(
+      (day: YearDay, parts: { dateLabel: string; countLabel: string | null }) =>
+        day.eventCount > 0 ? `${parts.dateLabel} ${day.eventCount} events` : parts.dateLabel,
     );
     const { container } = render(
       <Harness
@@ -247,20 +248,39 @@ describe('YearView - 予定件数の表示', () => {
     expect(dayButton(july, '2026-07-11')).toHaveAttribute('aria-label', '7月11日');
   });
 
-  it('messages.year.dayAriaLabel は整形済みの日付ラベル（dateLabel）を受け取り、返り値がそのまま aria-label になる', () => {
+  it('messages.year.dayAriaLabel は整形済みの日付ラベル・件数ラベルを parts で受け取り、返り値がそのまま aria-label になる（件数ラベルは 0 件の日には null）', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: '朝会', start: '2026-07-10T09:00', end: '2026-07-10T09:30' },
     ];
     const dayAriaLabel = vi.fn(
-      (day: YearDay, dateLabel: string) => `カスタム:${day.key}:${dateLabel}`,
+      (day: YearDay, parts: { dateLabel: string; countLabel: string | null }) =>
+        `カスタム:${day.key}:${parts.dateLabel}:${parts.countLabel ?? 'なし'}`,
     );
     const { container } = render(<Harness events={events} messages={{ year: { dayAriaLabel } }} />);
     const july = monthSection(container, '2026-07');
 
     expect(dayButton(july, '2026-07-10')).toHaveAttribute(
       'aria-label',
-      'カスタム:2026-07-10:7月10日',
+      'カスタム:2026-07-10:7月10日:予定1件',
     );
+    expect(dayButton(july, '2026-07-11')).toHaveAttribute(
+      'aria-label',
+      'カスタム:2026-07-11:7月11日:なし',
+    );
+  });
+
+  it('[回帰] messages.year.dayCount のみをオーバーライドしても（dayAriaLabel は既定のまま）、日セルの aria-label 全文に反映される', () => {
+    // dayAriaLabel の既定実装が dayCount の private な内部実装を直接参照していると、
+    // dayCount だけを部分上書きしても aria-label 全文には反映されない回帰を防ぐ
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '朝会', start: '2026-07-10T09:00', end: '2026-07-10T09:30' },
+    ];
+    const dayCount = (count: number): string => `EVENTS:${count}`;
+    const { container } = render(<Harness events={events} messages={{ year: { dayCount } }} />);
+    const july = monthSection(container, '2026-07');
+
+    expect(dayButton(july, '2026-07-10')).toHaveAttribute('aria-label', '7月10日 EVENTS:1');
+    expect(dayButton(july, '2026-07-11')).toHaveAttribute('aria-label', '7月11日');
   });
 
   it('前後月セル（data-outside）は実際の予定件数に関わらず件数マーカーを出さない', () => {

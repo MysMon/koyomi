@@ -370,7 +370,7 @@ describe('TimelineView - カスタム描画 props', () => {
     expect(custom?.textContent).toBe('CUSTOM:荷揚げ');
   });
 
-  it('messages.common.eventAriaLabel をオーバーライドすると、リソース名が付記される前の aria-label がカスタマイズされる', () => {
+  it('messages.common.eventAriaLabel をオーバーライドすると、resourceLabel を含む parts ごとカスタマイズできる（区切りの混在が起きない）', () => {
     const events: CalendarEvent[] = [
       {
         id: 'e1',
@@ -382,17 +382,18 @@ describe('TimelineView - カスタム描画 props', () => {
     ];
     const eventAriaLabel = (
       occurrence: import('../../core/types').EventOccurrence,
-      rangeLabel: string,
+      parts: { rangeLabel: string; resourceLabel?: string },
     ): string => {
       expect(occurrence.eventId).toBe('e1');
-      expect(rangeLabel).toBe('7月15日 9:00〜11:00');
-      return `カスタム:${rangeLabel}`;
+      expect(parts.rangeLabel).toBe('7月15日 9:00〜11:00');
+      expect(parts.resourceLabel).toBe('クレーン1号機');
+      return `カスタム:${parts.rangeLabel}:${parts.resourceLabel}`;
     };
     const { container } = render(
       <Harness resources={[CRANE_1]} events={events} messages={{ common: { eventAriaLabel } }} />,
     );
     const item = container.querySelector('[data-koyomi="timeline-item"]');
-    expect(item).toHaveAttribute('aria-label', 'カスタム:7月15日 9:00〜11:00、クレーン1号機');
+    expect(item).toHaveAttribute('aria-label', 'カスタム:7月15日 9:00〜11:00:クレーン1号機');
   });
 
   it('renderRowHeader で行見出しの内容を差し替えられ、defaultContent には既定の内容が渡る', () => {

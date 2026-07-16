@@ -135,13 +135,16 @@ describe('TimeGridView', () => {
     expect(label).toBe('合宿、7月15日〜7月16日');
   });
 
-  it('messages.common.eventAriaLabel をオーバーライドすると aria-label がカスタマイズされる（終日行・時間指定行の両方、rangeLabel のみを受け取る）', () => {
+  it('messages.common.eventAriaLabel をオーバーライドすると aria-label がカスタマイズされる（終日行・時間指定行の両方、resourceLabel は undefined）', () => {
     const events: CalendarEvent[] = [
       { id: 'allday', title: '合宿', start: '2026-07-15', end: '2026-07-17', allDay: true },
       { id: 'timed', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
     ];
     const eventAriaLabel = vi.fn(
-      (_occurrence: EventOccurrence, rangeLabel: string) => `カスタム:${rangeLabel}`,
+      (_occurrence: EventOccurrence, parts: { rangeLabel: string; resourceLabel?: string }) => {
+        expect(parts.resourceLabel).toBeUndefined();
+        return `カスタム:${parts.rangeLabel}`;
+      },
     );
     const { container } = render(
       <Harness initialView="week" events={events} messages={{ common: { eventAriaLabel } }} />,

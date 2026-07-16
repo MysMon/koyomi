@@ -336,7 +336,7 @@ describe('VirtualTimelineView', () => {
     expect(body.scrollTop).toBe(84);
   });
 
-  it('messages.common.eventAriaLabel をオーバーライドすると、リソース名が付記される前の aria-label がカスタマイズされる', () => {
+  it('messages.common.eventAriaLabel をオーバーライドすると、resourceLabel を含む parts ごとカスタマイズできる（区切りの混在が起きない）', () => {
     const events: CalendarEvent[] = [
       {
         id: 'e0',
@@ -348,8 +348,8 @@ describe('VirtualTimelineView', () => {
     ];
     const eventAriaLabel = (
       _occurrence: import('../../core/types').EventOccurrence,
-      rangeLabel: string,
-    ): string => `カスタム:${rangeLabel}`;
+      parts: { rangeLabel: string; resourceLabel?: string },
+    ): string => `カスタム:${parts.rangeLabel}:${parts.resourceLabel}`;
     const { container } = render(
       <Harness
         resources={makeResources(3)}
@@ -358,7 +358,7 @@ describe('VirtualTimelineView', () => {
       />,
     );
     const item = container.querySelector('[data-koyomi="timeline-item"]');
-    expect(item).toHaveAttribute('aria-label', 'カスタム:7月15日 9:00〜10:00、リソース0');
+    expect(item).toHaveAttribute('aria-label', 'カスタム:7月15日 9:00〜10:00:リソース0');
   });
 
   it('矢印キー（→）で帯を移動でき、onEventChange が呼ばれる（D&D 配線の確認）', () => {

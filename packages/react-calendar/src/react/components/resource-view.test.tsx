@@ -216,7 +216,7 @@ describe('ResourceView - イベントブロック', () => {
     expect(eventEl?.textContent).toContain('定例会議');
   });
 
-  it('messages.common.eventAriaLabel をオーバーライドすると、リソース名が付記される前の aria-label がカスタマイズされる', () => {
+  it('messages.common.eventAriaLabel をオーバーライドすると、resourceLabel を含む parts ごとカスタマイズできる（区切りの混在が起きない）', () => {
     const events: CalendarEvent[] = [
       {
         id: 'e1',
@@ -228,17 +228,18 @@ describe('ResourceView - イベントブロック', () => {
     ];
     const eventAriaLabel = (
       occurrence: import('../../core/types').EventOccurrence,
-      rangeLabel: string,
+      parts: { rangeLabel: string; resourceLabel?: string },
     ): string => {
       expect(occurrence.eventId).toBe('e1');
-      expect(rangeLabel).toBe('7月15日 10:00〜11:00');
-      return `カスタム:${rangeLabel}`;
+      expect(parts.rangeLabel).toBe('7月15日 10:00〜11:00');
+      expect(parts.resourceLabel).toBe('会議室A');
+      return `カスタム:${parts.rangeLabel}:${parts.resourceLabel}`;
     };
     const { container } = render(
       <Harness resources={[ROOM_A]} events={events} messages={{ common: { eventAriaLabel } }} />,
     );
     const eventEl = container.querySelector('[data-koyomi="timegrid-event"]');
-    expect(eventEl?.getAttribute('aria-label')).toBe('カスタム:7月15日 10:00〜11:00、会議室A');
+    expect(eventEl?.getAttribute('aria-label')).toBe('カスタム:7月15日 10:00〜11:00:会議室A');
   });
 
   it('参照先のない resourceId のイベントは未割り当て列に入り、aria-label にリソース名を付けない', () => {
@@ -457,7 +458,7 @@ describe('ResourceView - 終日アイテム', () => {
     expect(alldayEvent?.getAttribute('aria-label')).toBe('休暇、7月15日、会議室A');
   });
 
-  it('messages.common.eventAriaLabel は終日アイテムの区切り記号適用済み日付ラベルも rangeLabel として受け取る', () => {
+  it('messages.common.eventAriaLabel は終日アイテムの区切り記号適用済み日付ラベルを rangeLabel、リソース名を resourceLabel として受け取る', () => {
     const events: CalendarEvent[] = [
       {
         id: 'ad1',
@@ -470,13 +471,13 @@ describe('ResourceView - 終日アイテム', () => {
     ];
     const eventAriaLabel = (
       _occurrence: import('../../core/types').EventOccurrence,
-      rangeLabel: string,
-    ): string => `カスタム:${rangeLabel}`;
+      parts: { rangeLabel: string; resourceLabel?: string },
+    ): string => `カスタム:${parts.rangeLabel}:${parts.resourceLabel}`;
     const { container } = render(
       <Harness resources={[ROOM_A]} events={events} messages={{ common: { eventAriaLabel } }} />,
     );
     const alldayEvent = container.querySelector('[data-koyomi="allday-event"]');
-    expect(alldayEvent?.getAttribute('aria-label')).toBe('カスタム:7月15日、会議室A');
+    expect(alldayEvent?.getAttribute('aria-label')).toBe('カスタム:7月15日:会議室A');
   });
 
   it('renderAllDayItem で終日アイテムの内容をカスタマイズできる（renderEvent は影響しない）', () => {

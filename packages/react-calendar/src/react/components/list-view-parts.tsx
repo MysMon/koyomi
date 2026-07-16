@@ -167,16 +167,15 @@ export function ListDaySection(props: ListDaySectionProps): ReactElement {
           data-koyomi="list-event"
           onClick={(event) => onEventClick(occurrence, event)}
           onKeyDown={onEventKeyDown}
-          aria-label={commonMessages.eventAriaLabel(
-            occurrence,
-            formatOccurrenceRangeLabel(
+          aria-label={commonMessages.eventAriaLabel(occurrence, {
+            rangeLabel: formatOccurrenceRangeLabel(
               occurrence,
               occurrence.allDay,
               timeZone,
               locale,
               commonMessages.rangeSeparator,
             ),
-          )}
+          })}
           {...(eventTabbable === false ? { tabIndex: -1 } : {})}
           {...eventNotificationProps(callbacks, occurrence)}
         >

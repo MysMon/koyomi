@@ -760,10 +760,14 @@ function AllDaySegmentButton(props: {
       data-continues-before={segment.continuesBefore ? 'true' : undefined}
       data-continues-after={segment.continuesAfter ? 'true' : undefined}
       style={style}
-      aria-label={commonMessages.eventAriaLabel(
-        occurrence,
-        formatTimeGridRangeLabel(occurrence, timeZone, locale, commonMessages.rangeSeparator),
-      )}
+      aria-label={commonMessages.eventAriaLabel(occurrence, {
+        rangeLabel: formatTimeGridRangeLabel(
+          occurrence,
+          timeZone,
+          locale,
+          commonMessages.rangeSeparator,
+        ),
+      })}
     >
       {renderAllDayEvent ? renderAllDayEvent(segment) : occurrence.event.title}
       {isEditable && !segment.continuesBefore && (
@@ -968,10 +972,14 @@ function TimeGridEventButtonImpl(props: {
       data-continues-before={item.continuesBefore ? 'true' : undefined}
       data-continues-after={item.continuesAfter ? 'true' : undefined}
       style={style}
-      aria-label={commonMessages.eventAriaLabel(
-        occurrence,
-        formatTimeGridRangeLabel(occurrence, timeZone, locale, commonMessages.rangeSeparator),
-      )}
+      aria-label={commonMessages.eventAriaLabel(occurrence, {
+        rangeLabel: formatTimeGridRangeLabel(
+          occurrence,
+          timeZone,
+          locale,
+          commonMessages.rangeSeparator,
+        ),
+      })}
     >
       <div data-koyomi="timegrid-event-content">
         {renderEvent ? renderEvent(item) : defaultTimedEventContent(item, locale)}

@@ -240,7 +240,8 @@ const YearDayCell = memo(function YearDayCell(props: {
 }): ReactElement {
   const { day, timeZone, locale, renderDayCell, yearMessages, onDayClick } = props;
   const dateLabel = formatMonthDayLabel(day.date, timeZone, locale);
-  const ariaLabel = yearMessages.dayAriaLabel(day, dateLabel);
+  const countLabel = day.eventCount > 0 ? yearMessages.dayCount(day.eventCount) : null;
+  const ariaLabel = yearMessages.dayAriaLabel(day, { dateLabel, countLabel });
 
   const defaultButtonContent = (
     <>

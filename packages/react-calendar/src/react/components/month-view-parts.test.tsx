@@ -1,39 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import type { DateRange, EventOccurrence } from '../../core/types';
+import type { DateRange } from '../../core/types';
 import {
-  formatEventAriaLabel,
   formatOccurrenceRangeLabel,
   percentOfSlotRange,
-  resolveEventAriaLabel,
   withEventColorStyle,
   withMonthLanesStyle,
   withTimegridHoursStyle,
 } from './month-view-parts';
 
-function occurrence(allDay = false): EventOccurrence {
-  const start = new Date('2026-07-15T01:00:00Z');
-  return {
-    key: `e1@${start.toISOString()}`,
-    eventId: 'e1',
-    event: { id: 'e1', title: '会議', start },
-    start,
-    end: allDay ? new Date('2026-07-16T15:00:00Z') : new Date('2026-07-15T02:00:00Z'),
-    allDay,
-    isRecurring: false,
-    originalStart: start,
-  };
-}
-
 describe('month-view-parts', () => {
-  it('時間指定と複数日終日の aria-label を整形する', () => {
-    expect(formatEventAriaLabel(occurrence(), 'Asia/Tokyo', 'ja')).toBe(
-      '会議、7月15日 10:00〜11:00',
-    );
-    expect(formatEventAriaLabel(occurrence(true), 'Asia/Tokyo', 'ja')).toBe(
-      '会議、7月15日〜7月16日',
-    );
-  });
-
   it('formatOccurrenceRangeLabel: 終日・単日は日付 1 つ、終日・複数日は日付範囲になる', () => {
     const singleDay: DateRange = {
       start: new Date('2026-07-15T01:00:00Z'),
@@ -75,14 +50,6 @@ describe('month-view-parts', () => {
     };
     expect(formatOccurrenceRangeLabel(sameDay, false, 'Asia/Tokyo', 'ja', '–')).toBe(
       '7月15日 10:00–11:00',
-    );
-  });
-
-  it('aria-label カスタマイザーを省略時と指定時で切り替える', () => {
-    const target = occurrence();
-    expect(resolveEventAriaLabel(target, '既定', undefined)).toBe('既定');
-    expect(resolveEventAriaLabel(target, '既定', (_occurrence, label) => `変更:${label}`)).toBe(
-      '変更:既定',
     );
   });
 

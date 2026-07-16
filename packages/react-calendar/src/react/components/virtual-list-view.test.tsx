@@ -157,7 +157,8 @@ describe('VirtualListView', () => {
     ).toBe('朝会、7月16日 9:00〜9:30');
 
     const eventAriaLabel = vi.fn(
-      (_occurrence: EventOccurrence, rangeLabel: string) => `カスタム:${rangeLabel}`,
+      (_occurrence: EventOccurrence, parts: { rangeLabel: string; resourceLabel?: string }) =>
+        `カスタム:${parts.rangeLabel}`,
     );
     const { container } = render(
       <TestVirtualList events={events} listDays={40} messages={{ common: { eventAriaLabel } }} />,

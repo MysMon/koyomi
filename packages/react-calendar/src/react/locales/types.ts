@@ -49,15 +49,25 @@ export interface CommonMessages {
   untitledEvent: string;
   /** 日時範囲ラベル内で開始側・終了側を連結する区切り記号（例: `'〜'`）。 */
   rangeSeparator: string;
-  /** aria-label 等で複数の項目を連結する区切り記号（例: `'、'`）。 */
-  itemSeparator: string;
   /**
    * イベントの aria-label 全文を組み立てる。
    *
+   * リソース名を付記するビュー（`ResourceView` 等）・付記しないビュー（`MonthView` 等）の
+   * 両方がこの 1 つの関数を呼ぶ。項目間の区切り記号を含めた全文の組み立ては、
+   * この関数の既定実装が単独で担う（呼び出し側で区切り記号を後から付け足すことはしない。
+   * そうしないと、区切り記号だけを差し替えても一部の区切りにしか反映されない、
+   * 混在した aria-label になる）。
+   *
    * @param occurrence - 対象のオカレンス
-   * @param rangeLabel - 整形済みの日時範囲ラベル（`common.rangeSeparator` 適用済み）
+   * @param parts - 整形済みの部分文字列
+   * @param parts.rangeLabel - 日時範囲ラベル（`common.rangeSeparator` 適用済み）
+   * @param parts.resourceLabel - リソース名。リソースに対応しないビュー、または
+   *   未割り当て・参照先のないリソース ID の場合は省略される
    */
-  eventAriaLabel: (occurrence: EventOccurrence, rangeLabel: string) => string;
+  eventAriaLabel: (
+    occurrence: EventOccurrence,
+    parts: { rangeLabel: string; resourceLabel?: string },
+  ) => string;
 }
 
 /** {@link MessageCatalog.toolbar} — `Toolbar` の表示文字列・aria-label。 */
@@ -155,10 +165,18 @@ export interface YearMessages {
   /**
    * 日セルの aria-label 全文を組み立てる。
    *
+   * `parts.countLabel` は呼び出し側（`YearView`）が `year.dayCount` を使って
+   * 事前に整形した値（件数が 0 の日は `null`）であり、この関数自身は
+   * `year.dayCount` を呼ばない（`dayCount` だけを部分上書きしたときも
+   * その結果がここに渡ってくる）。
+   *
    * @param day - 対象の日
-   * @param dateLabel - 整形済みの日付ラベル
+   * @param parts - 整形済みの部分文字列
+   * @param parts.dateLabel - 整形済みの日付ラベル
+   * @param parts.countLabel - 整形済みの件数文言（`year.dayCount` の結果）。
+   *   予定が 0 件の日は `null`
    */
-  dayAriaLabel: (day: YearDay, dateLabel: string) => string;
+  dayAriaLabel: (day: YearDay, parts: { dateLabel: string; countLabel: string | null }) => string;
 }
 
 /** {@link MessageCatalog.announcer} — `useCalendarAnnouncer` の通知文言。 */

@@ -287,15 +287,18 @@ function unsupportedReasonEn(reason: RecurrenceUnsupportedReason): string {
   }
 }
 
-/** {@link MessageCatalog.common.itemSeparator} の値（イベント aria-label 組み立てで使う）。 */
-const ITEM_SEPARATOR = ', ';
+/** イベント aria-label 内で項目（タイトル・日時範囲・リソース名）を連結する区切り記号。 */
+const EVENT_ARIA_LABEL_SEPARATOR = ', ';
 
 const common: MessageCatalog['common'] = {
   untitledEvent: 'Untitled event',
   rangeSeparator: '–',
-  itemSeparator: ITEM_SEPARATOR,
-  eventAriaLabel: (occurrence, rangeLabel) =>
-    `${occurrence.event.title}${ITEM_SEPARATOR}${rangeLabel}`,
+  eventAriaLabel: (occurrence, parts) => {
+    const base = `${occurrence.event.title}${EVENT_ARIA_LABEL_SEPARATOR}${parts.rangeLabel}`;
+    return parts.resourceLabel === undefined
+      ? base
+      : `${base}${EVENT_ARIA_LABEL_SEPARATOR}${parts.resourceLabel}`;
+  },
 };
 
 const toolbar: MessageCatalog['toolbar'] = {
@@ -313,7 +316,7 @@ const toolbar: MessageCatalog['toolbar'] = {
   viewsGroup: 'View switcher',
 };
 
-/** {@link MessageCatalog.year.dayCount} の英語実装（単数形に対応、`list.dayAriaLabel` 相当と同じ判断軸）。 */
+/** 件数の単数/複数を切り替える英語表記（`list.dayAriaLabel` / `year.dayCount` で使う）。 */
 function eventCountTextEn(count: number): string {
   return count === 1 ? '1 event' : `${count} events`;
 }
@@ -347,8 +350,8 @@ const timeline: MessageCatalog['timeline'] = {
 
 const year: MessageCatalog['year'] = {
   dayCount: eventCountTextEn,
-  dayAriaLabel: (day, dateLabel) =>
-    day.eventCount > 0 ? `${dateLabel} ${eventCountTextEn(day.eventCount)}` : dateLabel,
+  dayAriaLabel: (_day, parts) =>
+    parts.countLabel === null ? parts.dateLabel : `${parts.dateLabel} ${parts.countLabel}`,
 };
 
 /** {@link EventChangeVerb} の英語表記（`eventChanged` の文中に埋め込む）。 */
