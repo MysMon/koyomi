@@ -6,6 +6,7 @@ import {
   formatMonthTitle,
   formatRangeTitle,
   formatTime,
+  formatTimeZoneLabel,
   formatViewTitle,
   formatWeekday,
 } from './format';
@@ -105,6 +106,31 @@ describe('formatWeekday', () => {
 
   it('ja 以外のロケールでも例外なく整形できる', () => {
     expect(() => formatWeekday(0, 'en-US')).not.toThrow();
+  });
+});
+
+describe('formatTimeZoneLabel', () => {
+  it('タイムゾーンを GMT オフセットの短縮ラベルにする', () => {
+    const instant = new Date('2026-07-15T01:00:00Z');
+    expect(formatTimeZoneLabel(instant, 'Asia/Tokyo', 'ja')).toBe('GMT+9');
+    // 夏時間中のニューヨークは GMT-4（DST を反映した時点依存の値になる）
+    expect(formatTimeZoneLabel(instant, 'America/New_York', 'ja')).toBe('GMT-4');
+  });
+
+  it('冬時間の時点では DST 前のオフセットになる（時点依存の確認）', () => {
+    const winter = new Date('2026-01-15T01:00:00Z');
+    expect(formatTimeZoneLabel(winter, 'America/New_York', 'ja')).toBe('GMT-5');
+  });
+
+  it('UTC は GMT ちょうどのラベルになる', () => {
+    const instant = new Date('2026-07-15T01:00:00Z');
+    expect(formatTimeZoneLabel(instant, 'UTC', 'ja')).toBe('GMT');
+  });
+
+  it('ja 以外のロケールでも例外なく整形できる', () => {
+    expect(() =>
+      formatTimeZoneLabel(new Date('2026-07-15T01:00:00Z'), 'Asia/Tokyo', 'en-US'),
+    ).not.toThrow();
   });
 });
 

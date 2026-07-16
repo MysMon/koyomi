@@ -97,6 +97,28 @@ export function formatTime(date: Date, timeZone: TimeZoneId, locale: string): st
 }
 
 /**
+ * タイムゾーンを GMT オフセットの短縮ラベル（`'GMT+9'` / `'GMT-4'` など）にする。
+ *
+ * 週/日ビューの時間軸の見出し（どのタイムゾーンの時刻かを示すラベル）に使う。
+ * オフセットは `date` 時点の値で算出するため、夏時間（DST）を正しく反映する。
+ *
+ * @param date - オフセット算出の基準になる絶対時刻
+ * @param timeZone - 対象のタイムゾーン
+ * @param locale - ロケール
+ * @returns 例: `'GMT+9'`（東京）、`'GMT-4'`（夏時間中のニューヨーク）、`'GMT'`（UTC）
+ * @example
+ * ```ts
+ * formatTimeZoneLabel(new Date('2026-07-15T01:00:00Z'), 'Asia/Tokyo', 'ja'); // => 'GMT+9'
+ * ```
+ */
+export function formatTimeZoneLabel(date: Date, timeZone: TimeZoneId, locale: string): string {
+  const parts = getCachedDateTimeFormat(locale, timeZone, 'timezone-label', {
+    timeZoneName: 'shortOffset',
+  }).formatToParts(date);
+  return parts.find((part) => part.type === 'timeZoneName')?.value ?? timeZone;
+}
+
+/**
  * 月ビューのタイトル（年+月）を整形する。
  *
  * @param date - 表示対象月に含まれる絶対時刻

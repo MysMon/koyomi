@@ -190,6 +190,7 @@ export {
   formatMonthTitle,
   formatRangeTitle,
   formatTime,
+  formatTimeZoneLabel,
   formatViewTitle,
   formatWeekday,
   formatYearTitle,

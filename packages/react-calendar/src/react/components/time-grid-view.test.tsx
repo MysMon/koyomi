@@ -330,6 +330,28 @@ describe('TimeGridView', () => {
     expect(nyAxisLabels).toHaveLength(24);
   });
 
+  it('ヘッダーのガター列に各軸のタイムゾーンラベル（GMT オフセット）が表示される', () => {
+    const { container } = render(
+      <Harness initialView="day" timeAxisZones={['America/New_York']} />,
+    );
+    const header = container.querySelector('[data-koyomi="timegrid-header"]');
+    const labels = header?.querySelectorAll('[data-koyomi="time-axis-label"]');
+    expect(labels).toHaveLength(2);
+    expect(labels?.[0]?.textContent).toBe('GMT+9');
+    // NOW（2026-07-15）は夏時間中のため NY は GMT-4
+    expect(labels?.[1]?.textContent).toBe('GMT-4');
+    // ラベルは視覚的な補助情報（列見出しの読み上げには含めない）
+    expect(labels?.[0]).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('タイムゾーンラベルはヘッダー行にのみ表示される（終日行のガターには出ない）', () => {
+    const { container } = render(<Harness initialView="day" />);
+    const alldayRow = container.querySelector('[data-koyomi="allday-row"]');
+    expect(alldayRow?.querySelector('[data-koyomi="time-axis-label"]')).toBeNull();
+    const header = container.querySelector('[data-koyomi="timegrid-header"]');
+    expect(header?.querySelectorAll('[data-koyomi="time-axis-label"]')).toHaveLength(1);
+  });
+
   it('現在時刻線が今日の列にのみ表示される', () => {
     const { container } = render(<Harness initialView="week" />);
     const todayColumn = container.querySelector(

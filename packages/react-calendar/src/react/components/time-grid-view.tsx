@@ -45,7 +45,7 @@ import type { DayDragHandlers } from '../use-day-drag';
 import { useDayDrag } from '../use-day-drag';
 import type { TimeGridDragHandlers, TimeGridPreviewSegment } from '../use-time-grid-drag';
 import { useTimeGridDrag } from '../use-time-grid-drag';
-import { formatWeekday } from './format';
+import { formatTimeZoneLabel, formatWeekday } from './format';
 import {
   percentOfSlotRange,
   withEventColorStyle,
@@ -568,7 +568,14 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
               data-koyomi="timegrid-axis-gutter"
               data-koyomi-timezone={axis.timeZone}
               role="presentation"
-            />
+            >
+              {/* 軸がどのタイムゾーンの時刻かを示す GMT オフセットラベル（視覚補助） */}
+              {days[0] !== undefined && (
+                <span data-koyomi="time-axis-label" aria-hidden="true">
+                  {formatTimeZoneLabel(days[0].date, axis.timeZone, locale)}
+                </span>
+              )}
+            </div>
           ))}
           {days.map((day) => {
             const defaultDayHeaderContent = (
