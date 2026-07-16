@@ -2876,4 +2876,29 @@ describe('applyEventChangeEntriesWithApplied', () => {
     expect(result.applied).toEqual([]);
     expect(result.events).toEqual(events);
   });
+
+  it('削除を適用したエントリの applied には、記録時の index ではなく削除直前の実際の位置が入る（部分ドリフト後の逆適用で並び順を復元するため）', () => {
+    const a = ev('a');
+    const b = ev('b');
+    // 記録時は [a, b, c] だったが、外部同期で a が消えて [b, c] になっている想定。
+    // b の記録時 index は 1 だが、削除直前の実際の位置は 0
+    const changes: EventChangeEntry[] = [
+      { after: a, index: 0 },
+      { after: b, index: 1 },
+    ];
+
+    const result = applyEventChangeEntriesWithApplied([b, ev('c')], changes, 'before');
+
+    expect(result.events).toEqual([ev('c')]);
+    expect(result.applied).toEqual([{ after: b, index: 0 }]);
+  });
+
+  it('挿入を適用したエントリの applied には、記録時の index ではなく挿入後の実際の位置が入る（クランプされた場合の往復を安定させるため）', () => {
+    const b = ev('b');
+    // 記録時 index 5 は現在の要素数を超えるため末尾（位置 1）へクランプされる
+    const result = applyEventChangeEntriesWithApplied([ev('c')], [{ after: b, index: 5 }], 'after');
+
+    expect(result.events).toEqual([ev('c'), b]);
+    expect(result.applied).toEqual([{ after: b, index: 1 }]);
+  });
 });

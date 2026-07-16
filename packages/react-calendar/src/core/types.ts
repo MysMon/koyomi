@@ -265,6 +265,8 @@ export interface EventChangeEntry {
    *
    * `applyEventChangeEntries`（undo/redo）が削除の取り消し・作成のやり直しで
    * 挿入位置を復元するために使う。省略時は末尾に挿入される。
+   * `applyEventChangeEntriesWithApplied` が返す `applied` のエントリでは、
+   * 適用時点の実際の位置へ更新される。
    */
   index?: number;
 }

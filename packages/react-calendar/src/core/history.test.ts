@@ -340,6 +340,34 @@ describe('createEventHistory: 適用追跡（0 件 / 部分適用）', () => {
     expect(history.canRedo()).toBe(false);
     expect(history.canUndo()).toBe(true);
   });
+
+  it('部分ドリフト後の作成エントリの undo→redo で、undo 直前の並び順が復元される（往復しても安定）', () => {
+    const a = ev('a');
+    const b = ev('b');
+    const c = ev('c');
+    // 作成操作後は [a, b, c]（a・b を作成、c は既存）
+    const api = makeApi([a, b, c]);
+    const history = createEventHistory({ api });
+    history.push([
+      { after: a, index: 0 },
+      { after: b, index: 1 },
+    ]);
+    // 外部要因（history を経由しない setEvents）で a が一覧から消える
+    api.setEvents([b, c]);
+
+    expect(history.undo()).toBe(true); // a はスキップされ b のみ削除される
+    expect(api.getEvents()).toEqual([c]);
+
+    expect(history.redo()).toBe(true);
+    // b は記録時の index 1 ではなく、undo 直前の位置（先頭）に復元される
+    expect(api.getEvents()).toEqual([b, c]);
+
+    // 以降の往復でも並び順が安定する
+    expect(history.undo()).toBe(true);
+    expect(api.getEvents()).toEqual([c]);
+    expect(history.redo()).toBe(true);
+    expect(api.getEvents()).toEqual([b, c]);
+  });
 });
 
 describe('createEventHistory: canUndo/canRedo', () => {

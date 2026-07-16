@@ -89,7 +89,8 @@ function normalizeLimit(limit: number | undefined): number {
  *   に渡す。対象イベントが想定と食い違うエントリ（presence-only のドリフト検出）は
  *   安全にスキップされる。1 件も適用できなかった場合はそのエントリを履歴から破棄し
  *   `setEvents` は呼ばない。一部のみ適用できた場合は、実際に適用できたエントリだけを
- *   反対のスタック（undo → redo、redo → undo）に積む
+ *   反対のスタック（undo → redo、redo → undo）に積む。積まれるエントリの `index` は
+ *   適用時点の実際の位置へ更新されているため、逆方向の再適用は適用直前の並び順を復元する
  * - `api.subscribe` は監視しない。`setEvents` 以外の要因による状態変化の
  *   自動的なドリフト検出は行わない
  *

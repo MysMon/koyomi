@@ -1354,6 +1354,11 @@ export interface EventChangeApplyResult {
   /**
    * 実際に適用された（ドリフトによりスキップされなかった）エントリの一覧。
    * `changes` と同じ順序の部分列になる。
+   *
+   * 各エントリの {@link EventChangeEntry.index} は適用時点の実際の位置
+   * （削除なら削除直前の一覧内での位置、挿入なら挿入後の一覧内での位置）へ
+   * 更新される。これにより、一部エントリがスキップされた場合でも、この一覧を
+   * 逆方向へ再適用すれば適用直前の並び順を復元できる。
    */
   applied: EventChangeEntry[];
 }
@@ -1378,6 +1383,10 @@ export interface EventChangeApplyResult {
  * 場合は `index` の昇順に処理して安定した順序にする。既存 id への書き込み（内容の
  * 更新）は元の位置を維持する。
  *
+ * `applied` の各エントリは、削除なら削除直前の一覧内での位置・挿入なら挿入後の
+ * 一覧内での位置へ {@link EventChangeEntry.index} を更新して返す（一部エントリが
+ * ドリフトによりスキップされた場合でも、逆方向の再適用で並び順を復元できる）。
+ *
  * 入力の `events` 配列・各イベントは変更しない（純粋関数）。
  */
 function applyEventChangeEntriesCore(
@@ -1386,10 +1395,14 @@ function applyEventChangeEntriesCore(
   direction: EventChangeDirection,
 ): EventChangeApplyResult {
   const byId = new Map(events.map((event) => [event.id, event]));
+  // 削除の逆適用（再挿入）が実際の位置へ戻せるよう、適用前の一覧内での位置を控える
+  const positionBefore = new Map(events.map((event, index) => [event.id, index]));
   const applied: EventChangeEntry[] = [];
   // 現在の一覧に存在しなかった id への書き込み（挿入）とその挿入位置。
   // 同じバッチ内で同じ id が「削除→挿入」を繰り返す場合は最後の状態を採用する
   const insertions = new Map<EventId, number | undefined>();
+  // 挿入エントリの applied 内での位置 → id。最終的な並びが確定してから index を差し替える
+  const pendingInsertPositions = new Map<number, EventId>();
 
   for (const change of changes) {
     const expected = direction === 'before' ? change.after : change.before;
@@ -1405,15 +1418,18 @@ function applyEventChangeEntriesCore(
       // ドリフト: 対象イベントが既に消えている、または想定外に存在しているためスキップ
       continue;
     }
-    applied.push(change);
     if (write === undefined) {
+      const position = positionBefore.get(id);
+      applied.push(position === undefined ? change : { ...change, index: position });
       byId.delete(id);
       insertions.delete(id);
     } else {
-      byId.set(id, write);
       if (!isPresent) {
         insertions.set(id, change.index);
+        pendingInsertPositions.set(applied.length, id);
       }
+      applied.push(change);
+      byId.set(id, write);
     }
   }
 
@@ -1438,6 +1454,18 @@ function applyEventChangeEntriesCore(
       continue;
     }
     base.splice(Math.min(index ?? base.length, base.length), 0, value);
+  }
+
+  // 挿入エントリの index を実際の挿入位置（クランプ・相互の押し出しを反映した最終位置）へ差し替える
+  if (pendingInsertPositions.size > 0) {
+    const finalPositions = new Map(base.map((event, index) => [event.id, index]));
+    for (const [appliedIndex, id] of pendingInsertPositions) {
+      const position = finalPositions.get(id);
+      const entry = applied[appliedIndex];
+      if (position !== undefined && entry !== undefined) {
+        applied[appliedIndex] = { ...entry, index: position };
+      }
+    }
   }
 
   return { events: base, applied };
@@ -1492,8 +1520,11 @@ export function applyEventChangeEntries(
  * {@link applyEventChangeEntries} の拡張版。適用後のイベント一覧に加えて、
  * 実際に適用された（ドリフトによりスキップされなかった）エントリの一覧も返す。
  *
- * 1 件も適用されなかったかどうか（`applied.length === 0`）を undo/redo 側が
- * 判定するために使う（{@link createEventHistory} の実装を参照）。
+ * 1 件も適用されなかったかどうか（`applied.length === 0`）の判定と、逆方向の
+ * 再適用（undo ↔ redo）に `applied` を使う（{@link createEventHistory} の実装を
+ * 参照）。`applied` の各エントリは {@link EventChangeEntry.index} が適用時点の
+ * 実際の位置へ更新されているため、そのまま逆方向へ適用すれば適用直前の並び順を
+ * 復元できる。
  *
  * @param events - 現在のイベント一覧
  * @param changes - 適用する変更（{@link EventChangeEntry} の一覧）

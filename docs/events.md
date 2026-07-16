@@ -388,6 +388,9 @@ function applyEventChangeEntries(
 何件のエントリが実際に適用されたかを知りたい場合は、`events` に加えて実際に適用
 されたエントリの一覧 `applied` も返す `applyEventChangeEntriesWithApplied` が
 使えます（`useCalendarHistory` / `createEventHistory` の内部実装が使っています）。
+`applied` の各エントリは `index` が適用時点の実際の位置（削除なら削除直前の位置、
+挿入なら挿入後の位置）へ更新されており、そのまま逆方向へ適用すれば適用直前の
+並び順を復元できます。
 
 ```ts
 import { applyEventChangeEntries } from '@koyomi-cal/react';
@@ -463,7 +466,8 @@ function App() {
   想定外に存在しているなどのドリフト）は `false` を返し、**そのエントリは履歴から
   破棄されます**（反対のスタックには積まれません）。一部のみ適用できた場合は `true`
   を返し、**実際に適用できたエントリだけ**が反対のスタック（undo → redo、
-  redo → undo）に積まれます
+  redo → undo）に積まれます。積まれるエントリの `index` は適用時点の実際の位置へ
+  更新されるため、一部がスキップされた場合でも undo→redo の往復で並び順が復元されます
 - **外部同期との整合**: `undo` / `redo` は履歴に記録した時点のイベントの
   スナップショットを丸ごと適用します。対象イベントが履歴の記録後に消えている・
   新たに現れている場合はそのエントリを安全に読み飛ばしますが、**同じ `id` の
