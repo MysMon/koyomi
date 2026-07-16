@@ -35,6 +35,7 @@ import type {
   MonthDay,
   MonthOverflowButtonProps,
   PositionedOccurrence,
+  SlotRenderContext,
   TimeGridDay,
   Weekday,
 } from '@koyomi-cal/react';
@@ -264,7 +265,7 @@ export function HeadlessPattern(): ReactElement {
    * 実現する（`position` を使わないため、月セルを positioned にせずに済む）。
    */
   const renderMonthDayCell = useCallback(
-    (day: MonthDay, defaultContent: ReactNode): ReactNode => {
+    (day: MonthDay, ctx: SlotRenderContext): ReactNode => {
       const weekday: Weekday = weekdayInZone(day.date, state.timeZone);
       const isOpen = overflow !== null && overflow.day.key === day.key;
       return (
@@ -277,7 +278,7 @@ export function HeadlessPattern(): ReactElement {
           >
             {day.isToday && <span className="headless-day-badge">本日</span>}
           </div>
-          {defaultContent}
+          {ctx.defaultContent}
         </>
       );
     },
@@ -286,9 +287,9 @@ export function HeadlessPattern(): ReactElement {
 
   /** 週ビューの日ヘッダーに曜日属性を付け、土日を色分けする（`renderDayHeader`）。 */
   const renderTimeGridDayHeader = useCallback(
-    (day: TimeGridDay, defaultContent: ReactNode): ReactNode => (
+    (day: TimeGridDay, ctx: SlotRenderContext): ReactNode => (
       <div className="headless-day-header" data-headless-weekday={day.weekday}>
-        {defaultContent}
+        {ctx.defaultContent}
       </div>
     ),
     [],

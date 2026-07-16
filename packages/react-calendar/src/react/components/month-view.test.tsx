@@ -19,7 +19,13 @@ import type {
 } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { MessageCatalogOverrides } from '../locales/types';
-import type { CalendarInteractionCallbacks, MonthOverflowButtonProps } from '../types';
+import type {
+  CalendarInteractionCallbacks,
+  EventContentContext,
+  EventContentRenderer,
+  MonthOverflowButtonProps,
+  SlotRenderContext,
+} from '../types';
 import { useCalendar } from '../use-calendar';
 import type { DayDragHandlers } from '../use-day-drag';
 import { MonthView } from './month-view';
@@ -41,8 +47,9 @@ function Harness(props: {
   dayMaxEvents?: number;
   hiddenWeekdays?: readonly Weekday[];
   showWeekNumbers?: boolean;
-  renderEvent?: (segment: EventSegment) => ReactElement;
-  renderDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
+  renderEvent?: (segment: EventSegment, ctx: EventContentContext) => ReactElement;
+  renderDayCell?: (day: MonthDay, ctx: SlotRenderContext) => ReactNode;
+  renderEventContent?: EventContentRenderer;
   overflowButtonProps?: (
     day: MonthDay,
     hiddenOccurrences: readonly EventOccurrence[],
@@ -71,6 +78,9 @@ function Harness(props: {
       value={calendar}
       {...(props.callbacks !== undefined ? { callbacks: props.callbacks } : {})}
       {...(props.messages !== undefined ? { messages: props.messages } : {})}
+      {...(props.renderEventContent !== undefined
+        ? { renderEventContent: props.renderEventContent }
+        : {})}
     >
       <MonthView
         {...(props.renderEvent !== undefined ? { renderEvent: props.renderEvent } : {})}
@@ -192,6 +202,83 @@ describe('MonthView - イベントセグメント', () => {
 
     const segment = container.querySelector('[data-koyomi="month-event"]');
     expect(segment?.textContent).toBe('CUSTOM:朝会');
+  });
+
+  it('renderEvent の第 2 引数 ctx から既定内容・スロット種別・分解済みパーツを参照できる', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '朝会', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+    ];
+    const { container } = render(
+      <Harness
+        events={events}
+        renderEvent={(_segment, ctx) => (
+          <span>
+            {ctx.slot}|{ctx.parts.timeText}|{ctx.parts.titleText}|{ctx.defaultContent}
+          </span>
+        )}
+      />,
+    );
+
+    const segment = container.querySelector('[data-koyomi="month-event"]');
+    expect(segment?.textContent).toBe('month-event|9:00|朝会|9:00 朝会');
+  });
+
+  it('終日セグメントでは ctx.parts.timeText / time が null になり、既定内容はタイトルのみになる', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '休暇', start: '2026-07-08', end: '2026-07-09', allDay: true },
+    ];
+    const captured: EventContentContext[] = [];
+    render(
+      <Harness
+        events={events}
+        renderEvent={(_segment, ctx) => {
+          captured.push(ctx);
+          return <span>x</span>;
+        }}
+      />,
+    );
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.parts.timeText).toBeNull();
+    expect(captured[0]?.parts.time).toBeNull();
+    expect(captured[0]?.defaultContent).toBe('休暇');
+  });
+
+  it('CalendarProvider の renderEventContent が月の帯に適用され、既定内容に追記できる', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '朝会', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+    ];
+    const { container } = render(
+      <Harness
+        events={events}
+        renderEventContent={(occurrence, ctx) => (
+          <>
+            {ctx.defaultContent}＠{occurrence.event.location ?? '未定'}
+          </>
+        )}
+      />,
+    );
+
+    const segment = container.querySelector('[data-koyomi="month-event"]');
+    expect(segment?.textContent).toBe('9:00 朝会＠未定');
+  });
+
+  it('ビュー個別の renderEvent があれば renderEventContent より優先される', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '朝会', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+    ];
+    const renderEventContent = vi.fn();
+    const { container } = render(
+      <Harness
+        events={events}
+        renderEvent={() => <span>個別</span>}
+        renderEventContent={renderEventContent}
+      />,
+    );
+
+    const segment = container.querySelector('[data-koyomi="month-event"]');
+    expect(segment?.textContent).toBe('個別');
+    expect(renderEventContent).not.toHaveBeenCalled();
   });
 
   it('messages.common.eventAriaLabel をオーバーライドするとイベントセグメントの aria-label が変わる', () => {
@@ -656,13 +743,13 @@ describe('MonthView - messages.month.overflow / renderDayCell', () => {
     expect(overflowButton?.textContent).toBe('他1件');
   });
 
-  it('renderDayCell で日セルの内容を拡張できる（既定内容はそのまま利用可能）', () => {
+  it('renderDayCell で日セルの内容を拡張できる（既定内容は ctx.defaultContent でそのまま利用可能）', () => {
     const { container } = render(
       <Harness
-        renderDayCell={(day, defaultContent) => (
+        renderDayCell={(day, ctx) => (
           <>
             <span data-testid="badge">{day.key}</span>
-            {defaultContent}
+            {ctx.defaultContent}
           </>
         )}
       />,
@@ -1086,9 +1173,9 @@ describe('useStableDayDrag - dayDrag の参照安定化', () => {
 describe('MonthView - dayDrag 参照安定化による再レンダー抑制', () => {
   it('drag プレビューが更新されても、交差しない週の MonthWeekRow は再レンダーされない', () => {
     const calls: string[] = [];
-    const renderDayCell = vi.fn((day: MonthDay, defaultContent: ReactNode) => {
+    const renderDayCell = vi.fn((day: MonthDay, ctx: SlotRenderContext) => {
       calls.push(day.key);
-      return defaultContent;
+      return ctx.defaultContent;
     });
     const apiRef: { current: CalendarApi | null } = { current: null };
     render(<Harness apiRef={apiRef} renderDayCell={renderDayCell} />);

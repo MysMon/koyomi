@@ -21,7 +21,13 @@ import { formatSlotLabel, minutesOfDayInZone } from '../../core/timezone';
 import type { EventOccurrence, ListDay, TimeZoneId } from '../../core/types';
 import { eventNotificationProps } from '../drag-common';
 import type { CommonMessages } from '../locales/types';
-import type { CalendarInteractionCallbacks } from '../types';
+import type {
+  CalendarInteractionCallbacks,
+  EventContentContext,
+  EventContentRenderer,
+  SlotRenderContext,
+} from '../types';
+import { listEventContentContext, resolveEventContent } from './event-content';
 import { formatOccurrenceRangeLabel } from './month-view-parts';
 
 /**
@@ -92,9 +98,11 @@ export interface ListDaySectionProps {
    */
   callbacks: CalendarInteractionCallbacks;
   /** イベント行の内容をカスタム描画する関数。 */
-  renderEvent?: (occurrence: EventOccurrence) => ReactNode;
-  /** 日付見出しの内容をカスタム描画する関数（第 2 引数に既定内容）。 */
-  renderDayHeader?: (day: ListDay, defaultContent: ReactNode) => ReactNode;
+  renderEvent?: (occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode;
+  /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
+  renderEventContent?: EventContentRenderer;
+  /** 日付見出しの内容をカスタム描画する関数（第 2 引数の ctx に既定内容）。 */
+  renderDayHeader?: (day: ListDay, ctx: SlotRenderContext) => ReactNode;
   /** 仮想化: 高さ実測用の ref コールバック。 */
   sectionRef?: Ref<HTMLElement>;
   /** 仮想化: `role="listitem"` を付与する。 */
@@ -136,6 +144,7 @@ export function ListDaySection(props: ListDaySectionProps): ReactElement {
     onEventKeyDown,
     callbacks,
     renderEvent,
+    renderEventContent,
     renderDayHeader,
     sectionRef,
     role,
@@ -158,50 +167,54 @@ export function ListDaySection(props: ListDaySectionProps): ReactElement {
       {...(style !== undefined ? { style } : {})}
     >
       <h3 data-koyomi="list-day-header">
-        {renderDayHeader !== undefined ? renderDayHeader(day, defaultDayHeader) : defaultDayHeader}
+        {renderDayHeader !== undefined
+          ? renderDayHeader(day, { defaultContent: defaultDayHeader })
+          : defaultDayHeader}
       </h3>
-      {day.occurrences.map((occurrence) => (
-        <button
-          key={occurrence.key}
-          type="button"
-          data-koyomi="list-event"
-          onClick={(event) => onEventClick(occurrence, event)}
-          onKeyDown={onEventKeyDown}
-          aria-label={commonMessages.eventAriaLabel(occurrence, {
-            rangeLabel: formatOccurrenceRangeLabel(
-              occurrence,
-              occurrence.allDay,
-              timeZone,
-              locale,
-              commonMessages.rangeSeparator,
-            ),
-          })}
-          {...(eventTabbable === false ? { tabIndex: -1 } : {})}
-          {...eventNotificationProps(callbacks, occurrence)}
-        >
-          {renderEvent !== undefined ? (
-            renderEvent(occurrence)
-          ) : (
-            <>
-              <span data-koyomi="list-event-time">
-                {occurrence.allDay
-                  ? allDayLabel
-                  : formatTimedEventTimeLabel(
-                      occurrence,
-                      timeZone,
-                      locale,
-                      commonMessages.rangeSeparator,
-                    )}
-              </span>
-              <span
-                data-koyomi="list-event-swatch"
-                style={eventSwatchStyle(occurrence.event.color)}
-              />
-              <span data-koyomi="list-event-title">{occurrence.event.title}</span>
-            </>
-          )}
-        </button>
-      ))}
+      {day.occurrences.map((occurrence) => {
+        // 既定内容の 3 部位（時刻・色見本・タイトル）。カスタム描画スロットへは
+        // ctx.parts としてこのノードをそのまま渡し、並べ替え・差し込みでも
+        // data-koyomi 部位（テーマ CSS のフック）が保たれるようにする
+        const timeText = occurrence.allDay
+          ? null
+          : formatTimedEventTimeLabel(occurrence, timeZone, locale, commonMessages.rangeSeparator);
+        const ctx = listEventContentContext({
+          timeText,
+          time: (
+            <span data-koyomi="list-event-time">{occurrence.allDay ? allDayLabel : timeText}</span>
+          ),
+          swatch: (
+            <span
+              data-koyomi="list-event-swatch"
+              style={eventSwatchStyle(occurrence.event.color)}
+            />
+          ),
+          titleText: occurrence.event.title,
+          title: <span data-koyomi="list-event-title">{occurrence.event.title}</span>,
+        });
+        return (
+          <button
+            key={occurrence.key}
+            type="button"
+            data-koyomi="list-event"
+            onClick={(event) => onEventClick(occurrence, event)}
+            onKeyDown={onEventKeyDown}
+            aria-label={commonMessages.eventAriaLabel(occurrence, {
+              rangeLabel: formatOccurrenceRangeLabel(
+                occurrence,
+                occurrence.allDay,
+                timeZone,
+                locale,
+                commonMessages.rangeSeparator,
+              ),
+            })}
+            {...(eventTabbable === false ? { tabIndex: -1 } : {})}
+            {...eventNotificationProps(callbacks, occurrence)}
+          >
+            {resolveEventContent(renderEvent, renderEventContent, occurrence, occurrence, ctx)}
+          </button>
+        );
+      })}
     </section>
   );
 }

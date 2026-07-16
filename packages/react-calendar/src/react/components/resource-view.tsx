@@ -33,8 +33,10 @@ import type {
 import { useCalendarContext } from '../context';
 import type { CommonMessages } from '../locales/types';
 import { scrollContainerToTime } from '../scroll-to-time';
+import type { EventContentContext, EventContentRenderer, SlotRenderContext } from '../types';
 import type { ResourceGridDragHandlers, ResourcePreviewSegment } from '../use-resource-grid-drag';
 import { useResourceGridDrag } from '../use-resource-grid-drag';
+import { resolveEventContent } from './event-content';
 import {
   percentOfSlotRange,
   withEventColorStyle,
@@ -43,9 +45,9 @@ import {
 import {
   ariaLabelText,
   ariaLabelWithResource,
-  defaultAllDayContent,
-  defaultTimedContent,
   MINUTES_PER_DAY,
+  resourceAllDayContentContext,
+  resourceTimedContentContext,
   sameBusinessHourSlots,
   sameEventOccurrence,
   samePositionedOccurrences,
@@ -64,21 +66,29 @@ import {
 export interface ResourceViewProps {
   /**
    * 時間指定イベントブロックの表示内容をカスタマイズする関数。
-   * 省略時は開始〜終了時刻とタイトルを表示する。終日アイテムには適用されない
+   * 省略時は開始時刻とタイトルを表示する。終日アイテムには適用されない
    * （終日アイテムの内容は {@link ResourceViewProps.renderAllDayItem} を使う）。
+   *
+   * `ctx.defaultContent` に省略時の内容、`ctx.parts` に分解済みパーツが渡される。
+   * 指定した場合は `CalendarProvider` の `renderEventContent` より優先される。
+   * @param item - 対象の配置済みオカレンス
+   * @param ctx - 既定内容・スロット種別・分解済みパーツ
    */
-  renderEvent?: (item: PositionedOccurrence) => ReactNode;
+  renderEvent?: (item: PositionedOccurrence, ctx: EventContentContext) => ReactNode;
   /**
    * 終日アイテムの表示内容をカスタマイズする関数。省略時はタイトルのみを表示する。
+   * 指定した場合は `CalendarProvider` の `renderEventContent` より優先される。
+   * @param occurrence - 対象のオカレンス
+   * @param ctx - 既定内容・スロット種別・分解済みパーツ
    */
-  renderAllDayItem?: (occurrence: EventOccurrence) => ReactNode;
+  renderAllDayItem?: (occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode;
   /**
    * 列見出しの内容をカスタマイズする関数。
-   * `defaultContent` は既定の内容（リソース名、未割り当て列は `messages.resource.unassigned`）。
+   * `ctx.defaultContent` は既定の内容（リソース名、未割り当て列は `messages.resource.unassigned`）。
    * @param column - 対象の列
-   * @param defaultContent - 既定の内容
+   * @param ctx - 既定内容
    */
-  renderColumnHeader?: (column: ResourceColumn, defaultContent: ReactNode) => ReactNode;
+  renderColumnHeader?: (column: ResourceColumn, ctx: SlotRenderContext) => ReactNode;
   /**
    * マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置（`'HH:mm'`）。
    * 表示時間帯制限（{@link CalendarOptions.slotMinTime}/{@link CalendarOptions.slotMaxTime}）とは
@@ -162,7 +172,7 @@ function useStableResourceDrag(drag: ResourceGridDragHandlers): ResourceColumnDr
  */
 export function ResourceView(props: ResourceViewProps): ReactElement | null {
   const { renderEvent, renderAllDayItem, renderColumnHeader, initialScrollTime, ref } = props;
-  const { api, state, viewModel, callbacks, messages } = useCalendarContext();
+  const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const resourceMessages = messages.resource;
   const commonMessages = messages.common;
   const calendar = { api, state, viewModel };
@@ -267,7 +277,9 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
                     : {})}
                   style={withEventColorStyle({}, column.resource?.color)}
                 >
-                  {renderColumnHeader ? renderColumnHeader(column, defaultContent) : defaultContent}
+                  {renderColumnHeader
+                    ? renderColumnHeader(column, { defaultContent })
+                    : defaultContent}
                 </div>
               );
             })}
@@ -310,6 +322,7 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
                       timeZone={timeZone}
                       locale={locale}
                       renderAllDayItem={renderAllDayItem}
+                      renderEventContent={renderEventContent}
                       drag={stableDrag}
                       isDragging={drag.isDragging}
                       commonMessages={commonMessages}
@@ -348,6 +361,7 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
               isToday={isToday}
               nowIndicatorMinutes={nowIndicatorMinutes}
               renderEvent={renderEvent}
+              renderEventContent={renderEventContent}
               drag={stableDrag}
               isDragging={drag.isDragging}
               preview={drag.previewFor(column)}
@@ -369,7 +383,11 @@ interface AllDayItemButtonProps {
   timeZone: TimeZoneId;
   locale: string;
   /** 終日アイテムの表示内容のカスタマイズ関数（省略時はタイトルのみ）。 */
-  renderAllDayItem: ((occurrence: EventOccurrence) => ReactNode) | undefined;
+  renderAllDayItem:
+    | ((occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode)
+    | undefined;
+  /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
+  renderEventContent: EventContentRenderer | undefined;
   drag: ResourceColumnDragHandlers;
   /** ドラッグ操作が進行中か（memo 判定に使う。詳細は {@link AllDayItemButton} 参照）。 */
   isDragging: boolean;
@@ -379,8 +397,17 @@ interface AllDayItemButtonProps {
 
 /** リソースビューの終日アイテム 1 件分のボタン（列間移動のみ）。 */
 function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
-  const { occurrence, column, lane, timeZone, locale, renderAllDayItem, drag, commonMessages } =
-    props;
+  const {
+    occurrence,
+    column,
+    lane,
+    timeZone,
+    locale,
+    renderAllDayItem,
+    renderEventContent,
+    drag,
+    commonMessages,
+  } = props;
   const style = withEventColorStyle(
     // 週/日ビューの終日セグメントと同じ位置決め。列 = 1 日のため水平スパンは
     // 常に列幅いっぱい（週/日ビューの startCol/span に相当する % は 0%/100% 固定）
@@ -405,7 +432,13 @@ function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
         commonMessages,
       )}
     >
-      {renderAllDayItem ? renderAllDayItem(occurrence) : defaultAllDayContent(occurrence)}
+      {resolveEventContent(
+        renderAllDayItem,
+        renderEventContent,
+        occurrence,
+        occurrence,
+        resourceAllDayContentContext(occurrence),
+      )}
     </button>
   );
 }
@@ -427,6 +460,7 @@ const AllDayItemButton = memo(AllDayItemButtonImpl, (prev, next) => {
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
     prev.renderAllDayItem === next.renderAllDayItem &&
+    prev.renderEventContent === next.renderEventContent &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&
     prev.commonMessages === next.commonMessages
@@ -447,7 +481,9 @@ interface ResourceColumnBodyProps {
   slotMaxTimeMinutes: number;
   isToday: boolean;
   nowIndicatorMinutes: number | null;
-  renderEvent: ((item: PositionedOccurrence) => ReactNode) | undefined;
+  renderEvent: ((item: PositionedOccurrence, ctx: EventContentContext) => ReactNode) | undefined;
+  /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
+  renderEventContent: EventContentRenderer | undefined;
   drag: ResourceColumnDragHandlers;
   /** ドラッグ操作が進行中か（memo 判定に使う。詳細は {@link ResourceColumnBody} 参照）。 */
   isDragging: boolean;
@@ -469,6 +505,7 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
     isToday,
     nowIndicatorMinutes,
     renderEvent,
+    renderEventContent,
     drag,
     preview,
     commonMessages,
@@ -537,7 +574,13 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
             )}
           >
             <div data-koyomi="timegrid-event-content">
-              {renderEvent ? renderEvent(item) : defaultTimedContent(item, timeZone, locale)}
+              {resolveEventContent(
+                renderEvent,
+                renderEventContent,
+                item,
+                item.occurrence,
+                resourceTimedContentContext(item, timeZone, locale),
+              )}
             </div>
             {isEditable && !item.continuesBefore && (
               <div
@@ -615,6 +658,7 @@ const ResourceColumnBody = memo(ResourceColumnBodyImpl, (prev, next) => {
     prev.isToday === next.isToday &&
     prev.nowIndicatorMinutes === next.nowIndicatorMinutes &&
     prev.renderEvent === next.renderEvent &&
+    prev.renderEventContent === next.renderEventContent &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&
     samePreviewSegment(prev.preview, next.preview) &&

@@ -13,6 +13,7 @@ import type { MessageCatalogOverrides } from './locales/types';
 import type {
   CalendarContextValue,
   CalendarInteractionCallbacks,
+  EventContentRenderer,
   UseCalendarResult,
 } from './types';
 
@@ -44,6 +45,22 @@ export interface CalendarProviderProps {
    * 配下コンポーネントの不要な再レンダーを招く）。
    */
   messages?: MessageCatalogOverrides;
+  /**
+   * ビュー横断のイベント内容レンダラー。
+   *
+   * すべてのビューのイベント内容（帯・ブロック・行の内側）を 1 箇所で定義する。
+   * `ctx.slot` で描画枠の種別（`'month-event'` / `'timegrid-event'` /
+   * `'allday-event'` / `'list-event'` / `'timeline-item'`）を判別でき、
+   * `ctx.defaultContent` / `ctx.parts` で既定の整形を再利用できる。
+   * ビュー個別の `renderEvent` 系 render prop が指定されているスロットでは
+   * そちらが優先される（個別 > 中央 > 既定）。
+   *
+   * `messages` と同じく、**毎レンダー新しい関数を渡さず、安定した参照
+   * （コンポーネント外の関数、または `useCallback` の結果）で渡すこと**
+   * （参照が変わるとコンテキスト値が変わり、配下コンポーネントの不要な
+   * 再レンダーを招く）。
+   */
+  renderEventContent?: EventContentRenderer;
   /** 子要素。 */
   children?: ReactNode;
 }
@@ -66,7 +83,7 @@ export interface CalendarProviderProps {
  * ```
  */
 export function CalendarProvider(props: CalendarProviderProps): ReactElement {
-  const { value, callbacks, messages, children } = props;
+  const { value, callbacks, messages, renderEventContent, children } = props;
   const resolvedCallbacks = callbacks ?? EMPTY_CALLBACKS;
   const { api, state, viewModel } = value;
 
@@ -83,8 +100,15 @@ export function CalendarProvider(props: CalendarProviderProps): ReactElement {
    * 再レンダーを避ける。
    */
   const contextValue = useMemo<CalendarContextValue>(
-    () => ({ api, state, viewModel, callbacks: resolvedCallbacks, messages: resolvedMessages }),
-    [api, state, viewModel, resolvedCallbacks, resolvedMessages],
+    () => ({
+      api,
+      state,
+      viewModel,
+      callbacks: resolvedCallbacks,
+      messages: resolvedMessages,
+      renderEventContent,
+    }),
+    [api, state, viewModel, resolvedCallbacks, resolvedMessages, renderEventContent],
   );
 
   return createElement(CalendarContext, { value: contextValue }, children);

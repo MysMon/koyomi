@@ -31,8 +31,18 @@ import type {
   TimeZoneId,
 } from '../../core/types';
 import type { CommonMessages } from '../locales/types';
-import type { MonthOverflowButtonProps } from '../types';
+import type {
+  EventContentContext,
+  EventContentRenderer,
+  MonthOverflowButtonProps,
+  SlotRenderContext,
+} from '../types';
 import type { DayCellProps, DayDragHandlers } from '../use-day-drag';
+import {
+  resolveEventContent,
+  timedTextEventContentContext,
+  titleOnlyEventContentContext,
+} from './event-content';
 
 /**
  * `MonthWeekRow` / `MonthEventButton` が実際に必要とするドラッグハンドラだけを
@@ -196,20 +206,24 @@ export function formatOccurrenceRangeLabel(
 }
 
 /**
- * イベントセグメントの既定の表示内容を組み立てる。
+ * 月ビューの帯（`month-event`）のイベント内容コンテキストを組み立てる。
  * 終日・複数日にまたがるセグメント（`span > 1`）はタイトルのみ、
- * 単日の時間指定セグメントは開始時刻＋タイトルにする。
+ * 単日の時間指定セグメントは開始時刻＋タイトルを既定内容とする。
  */
-function defaultSegmentContent(
+function monthSegmentContentContext(
   segment: EventSegment,
   timeZone: TimeZoneId,
   locale: string,
-): ReactNode {
+): EventContentContext {
   const occurrence = segment.occurrence;
   if (occurrence.allDay || segment.span > 1) {
-    return occurrence.event.title;
+    return titleOnlyEventContentContext('month-event', occurrence.event.title);
   }
-  return `${formatTimeLabel(occurrence.start, timeZone, locale)} ${occurrence.event.title}`;
+  return timedTextEventContentContext(
+    'month-event',
+    formatTimeLabel(occurrence.start, timeZone, locale),
+    occurrence.event.title,
+  );
 }
 
 /**
@@ -451,11 +465,13 @@ interface MonthWeekRowProps {
    */
   dayDrag: MonthDayDragHandlers;
   /** イベントセグメントの表示内容のカスタマイズ関数。 */
-  renderEvent: ((segment: EventSegment) => ReactNode) | undefined;
+  renderEvent: ((segment: EventSegment, ctx: EventContentContext) => ReactNode) | undefined;
+  /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
+  renderEventContent: EventContentRenderer | undefined;
   /** 「+N 件」ラベルのカスタマイズ関数。 */
   overflowLabel: (count: number) => ReactNode;
   /** 日セルの内容のカスタマイズ関数。 */
-  renderDayCell: ((day: MonthDay, defaultContent: ReactNode) => ReactNode) | undefined;
+  renderDayCell: ((day: MonthDay, ctx: SlotRenderContext) => ReactNode) | undefined;
   /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
   commonMessages: CommonMessages;
   /** 日番号クリック時のハンドラ。 */
@@ -503,6 +519,7 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
     selectionInvalid,
     dayDrag,
     renderEvent,
+    renderEventContent,
     overflowLabel,
     renderDayCell,
     commonMessages,
@@ -609,7 +626,7 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
               {...(day.isToday ? TODAY_CELL_ATTRS : {})}
               {...(!day.inCurrentMonth ? OUTSIDE_CELL_ATTRS : {})}
             >
-              {renderDayCell ? renderDayCell(day, defaultContent) : defaultContent}
+              {renderDayCell ? renderDayCell(day, { defaultContent }) : defaultContent}
               {/* イベントの帯は複数日にまたがり得るが、DOM 上は開始日の gridcell が
                   所有する（grid の子孫の focusable を row/gridcell の所有関係の外に
                   置かないため。週/日ビューの終日帯と同じ方針）。ボタンは絶対配置で、
@@ -627,6 +644,7 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
                     locale={locale}
                     columnCount={columnCount}
                     renderEvent={renderEvent}
+                    renderEventContent={renderEventContent}
                     commonMessages={commonMessages}
                     dayDrag={dayDrag}
                   />
@@ -657,12 +675,23 @@ const MonthEventButton = memo(function MonthEventButton(props: {
   locale: string;
   /** この週の可視列数（幅%計算の基準）。 */
   columnCount: number;
-  renderEvent: ((segment: EventSegment) => ReactNode) | undefined;
+  renderEvent: ((segment: EventSegment, ctx: EventContentContext) => ReactNode) | undefined;
+  /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
+  renderEventContent: EventContentRenderer | undefined;
   /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
   commonMessages: CommonMessages;
   dayDrag: MonthDayDragHandlers;
 }): ReactElement {
-  const { segment, timeZone, locale, columnCount, renderEvent, commonMessages, dayDrag } = props;
+  const {
+    segment,
+    timeZone,
+    locale,
+    columnCount,
+    renderEvent,
+    renderEventContent,
+    commonMessages,
+    dayDrag,
+  } = props;
   const occurrence = segment.occurrence;
   const segmentProps = dayDrag.getSegmentProps(segment);
   const isEditable = occurrence.event.editable !== false;
@@ -693,7 +722,13 @@ const MonthEventButton = memo(function MonthEventButton(props: {
         ),
       })}
     >
-      {renderEvent ? renderEvent(segment) : defaultSegmentContent(segment, timeZone, locale)}
+      {resolveEventContent(
+        renderEvent,
+        renderEventContent,
+        segment,
+        occurrence,
+        monthSegmentContentContext(segment, timeZone, locale),
+      )}
       {/* 左右端のリサイズハンドル。editable:false、またはこの週で継続表示中の端では出さない */}
       {isEditable && !segment.continuesBefore && (
         <span

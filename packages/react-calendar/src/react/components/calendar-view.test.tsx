@@ -7,6 +7,7 @@ import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CalendarEvent, CalendarResource, CalendarViewType } from '../../core/types';
 import { CalendarProvider } from '../context';
+import type { EventContentRenderer } from '../types';
 import { useCalendar } from '../use-calendar';
 import type { CalendarViewProps } from './calendar-view';
 import { CalendarView } from './calendar-view';
@@ -167,9 +168,9 @@ describe('CalendarView', () => {
 
     it('renderListDayHeader が ListView の renderDayHeader へ転送される', () => {
       const { container } = renderView('list', {
-        renderListDayHeader: (day, defaultContent) => (
+        renderListDayHeader: (day, ctx) => (
           <span data-testid="custom-header">
-            {day.key}:{defaultContent}
+            {day.key}:{ctx.defaultContent}
           </span>
         ),
       });
@@ -198,8 +199,8 @@ describe('CalendarView', () => {
 
     it('renderMonthDayCell が MonthView の renderDayCell へ転送される', () => {
       const { container } = renderView('month', {
-        renderMonthDayCell: (day, defaultContent) => (
-          <span data-testid={`custom-cell-${day.key}`}>{defaultContent}★</span>
+        renderMonthDayCell: (day, ctx) => (
+          <span data-testid={`custom-cell-${day.key}`}>{ctx.defaultContent}★</span>
         ),
       });
 
@@ -228,8 +229,8 @@ describe('CalendarView', () => {
 
     it('renderTimeGridDayHeader が TimeGridView の renderDayHeader へ転送される', () => {
       const { container } = renderView('week', {
-        renderTimeGridDayHeader: (day, defaultContent) => (
-          <span data-testid={`custom-day-header-${day.key}`}>{defaultContent}◎</span>
+        renderTimeGridDayHeader: (day, ctx) => (
+          <span data-testid={`custom-day-header-${day.key}`}>{ctx.defaultContent}◎</span>
         ),
       });
 
@@ -240,8 +241,8 @@ describe('CalendarView', () => {
 
     it('renderYearMonthHeader が YearView へ転送される', () => {
       const { container } = renderView('year', {
-        renderYearMonthHeader: (month, defaultContent) => (
-          <div data-testid={`custom-year-header-${month.key}`}>{defaultContent}★</div>
+        renderYearMonthHeader: (month, ctx) => (
+          <div data-testid={`custom-year-header-${month.key}`}>{ctx.defaultContent}★</div>
         ),
       });
 
@@ -252,8 +253,8 @@ describe('CalendarView', () => {
 
     it('renderYearDayCell が YearView へ転送される', () => {
       const { container } = renderView('year', {
-        renderYearDayCell: (day, defaultContent) => (
-          <span data-testid={`custom-year-day-${day.key}`}>{defaultContent}☆</span>
+        renderYearDayCell: (day, ctx) => (
+          <span data-testid={`custom-year-day-${day.key}`}>{ctx.defaultContent}☆</span>
         ),
       });
 
@@ -488,6 +489,75 @@ describe('CalendarView', () => {
       expect(container.querySelector('[data-koyomi-virtualized="true"]')).not.toBeNull();
       // timeline 系 props（renderTimelineEvent）が VirtualTimelineView へ転送される
       expect(container.querySelector('[data-testid="v"]')?.textContent).toBe('会議');
+    });
+  });
+
+  describe('CalendarProvider.renderEventContent（ビュー横断のイベント内容レンダラー）', () => {
+    /** 中央定義 1 箇所: 既定内容の後ろに場所を添える（docs のレシピと同じ形）。 */
+    const withLocation: EventContentRenderer = (occurrence, ctx) => (
+      <>
+        {ctx.defaultContent}
+        <span data-testid="loc">＠{occurrence.event.location}</span>
+      </>
+    );
+
+    /** 場所付きイベント（リソース/タイムラインでも表示されるよう resourceId を持つ）。 */
+    const EVENTS: readonly CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '会議',
+        start: '2026-07-15T10:00',
+        end: '2026-07-15T11:00',
+        location: '会議室A',
+        resourceId: 'room-a',
+      },
+    ];
+    const RESOURCES: readonly CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
+
+    /** `renderEventContent` 付きで `CalendarView` を描画する。 */
+    function renderWithCentral(initialView: CalendarViewType) {
+      function Harness(): ReactElement {
+        const calendar = useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          initialView,
+          events: EVENTS,
+          resources: RESOURCES,
+        });
+        return (
+          <CalendarProvider value={calendar} renderEventContent={withLocation}>
+            <CalendarView />
+          </CalendarProvider>
+        );
+      }
+      return render(<Harness />);
+    }
+
+    it.each([
+      ['month', 'month-event', '10:00 会議＠会議室A'],
+      ['week', 'timegrid-event', '10:00〜11:00 会議＠会議室A'],
+      ['list', 'list-event', '10:00〜11:00会議＠会議室A'],
+      ['multiMonth', 'month-event', '10:00 会議＠会議室A'],
+      ['resource', 'timegrid-event', '10:00 会議＠会議室A'],
+      ['timeline', 'timeline-item', '会議＠会議室A'],
+    ] as const)('中央定義 1 箇所が %s ビューのイベント内容に適用され、既定の時刻表示も保たれる', (view, part, expected) => {
+      const { container } = renderWithCentral(view);
+      const eventEl = container.querySelector(`[data-koyomi="${part}"]`);
+      expect(eventEl?.querySelector('[data-testid="loc"]')?.textContent).toBe('＠会議室A');
+      expect(eventEl?.textContent).toBe(expected);
+    });
+
+    it('renderEventContent を使っても aria-label とリサイズハンドル（ドラッグ配線）は保たれる', () => {
+      const { container: monthContainer } = renderWithCentral('month');
+      const monthEvent = monthContainer.querySelector('[data-koyomi="month-event"]');
+      expect(monthEvent).toHaveAttribute('aria-label', '会議、7月15日 10:00〜11:00');
+      expect(monthEvent?.querySelectorAll('[data-koyomi="month-event-resize"]')).toHaveLength(2);
+
+      const { container: weekContainer } = renderWithCentral('week');
+      const weekEvent = weekContainer.querySelector('[data-koyomi="timegrid-event"]');
+      expect(weekEvent).toHaveAttribute('aria-label', '会議、7月15日 10:00〜11:00');
+      expect(weekEvent?.querySelectorAll('[data-koyomi="timegrid-resize"]')).toHaveLength(2);
     });
   });
 });

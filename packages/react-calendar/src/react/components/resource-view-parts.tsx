@@ -27,7 +27,9 @@ import type {
   TimeZoneId,
 } from '../../core/types';
 import type { CommonMessages } from '../locales/types';
+import type { EventContentContext } from '../types';
 import type { ResourcePreviewSegment } from '../use-resource-grid-drag';
+import { timedTextEventContentContext, titleOnlyEventContentContext } from './event-content';
 import { formatOccurrenceRangeLabel, formatTimeLabel } from './month-view-parts';
 
 /** 1 日の分（24:00 = 1440 分）。 */
@@ -92,18 +94,28 @@ export function ariaLabelWithResource(
   );
 }
 
-/** 時間指定イベントの既定の表示内容（開始時刻 + タイトル）。 */
-export function defaultTimedContent(
+/**
+ * リソースビューの時間指定イベント（`timegrid-event`）のイベント内容コンテキストを
+ * 組み立てる。既定内容は開始時刻 + タイトル（`'H:mm タイトル'`）。
+ */
+export function resourceTimedContentContext(
   item: PositionedOccurrence,
   timeZone: TimeZoneId,
   locale: string,
-): ReactNode {
-  return `${formatTimeLabel(item.occurrence.start, timeZone, locale)} ${item.occurrence.event.title}`;
+): EventContentContext {
+  return timedTextEventContentContext(
+    'timegrid-event',
+    formatTimeLabel(item.occurrence.start, timeZone, locale),
+    item.occurrence.event.title,
+  );
 }
 
-/** 終日アイテムの既定の表示内容（タイトルのみ）。 */
-export function defaultAllDayContent(occurrence: EventOccurrence): ReactNode {
-  return occurrence.event.title;
+/**
+ * リソースビューの終日アイテム（`allday-event`）のイベント内容コンテキストを
+ * 組み立てる。既定内容はタイトルのみ。
+ */
+export function resourceAllDayContentContext(occurrence: EventOccurrence): EventContentContext {
+  return titleOnlyEventContentContext('allday-event', occurrence.event.title);
 }
 
 /** `CalendarResource | null` の、表示に影響する内容が等しいかどうかを比較する。 */

@@ -134,6 +134,27 @@ describe('CalendarProvider / useCalendarContext', () => {
     expect(result.current.messages.month).toEqual(jaMessages.month);
   });
 
+  it('renderEventContent を渡すとそのまま提供され、省略時は undefined になる', () => {
+    const value = makeCalendarResult();
+    const renderEventContent = vi.fn();
+
+    function wrapperWith({ children }: { children?: ReactNode }): ReactElement {
+      return (
+        <CalendarProvider value={value} renderEventContent={renderEventContent}>
+          {children}
+        </CalendarProvider>
+      );
+    }
+    const withRenderer = renderHook(() => useCalendarContext(), { wrapper: wrapperWith });
+    expect(withRenderer.result.current.renderEventContent).toBe(renderEventContent);
+
+    function wrapperWithout({ children }: { children?: ReactNode }): ReactElement {
+      return <CalendarProvider value={value}>{children}</CalendarProvider>;
+    }
+    const withoutRenderer = renderHook(() => useCalendarContext(), { wrapper: wrapperWithout });
+    expect(withoutRenderer.result.current.renderEventContent).toBeUndefined();
+  });
+
   it('state.options.locale が変わらず messages 参照も変わらなければコンテキスト値の参照が変わらない', () => {
     const value = makeCalendarResult();
     const messages = { toolbar: { today: 'Heute' } };

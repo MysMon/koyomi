@@ -41,10 +41,16 @@ import type {
 import { useCalendarContext } from '../context';
 import type { CommonMessages } from '../locales/types';
 import { scrollContainerToTime } from '../scroll-to-time';
+import type { EventContentContext, EventContentRenderer, SlotRenderContext } from '../types';
 import type { DayDragHandlers } from '../use-day-drag';
 import { useDayDrag } from '../use-day-drag';
 import type { TimeGridDragHandlers, TimeGridPreviewSegment } from '../use-time-grid-drag';
 import { useTimeGridDrag } from '../use-time-grid-drag';
+import {
+  resolveEventContent,
+  timedTextEventContentContext,
+  titleOnlyEventContentContext,
+} from './event-content';
 import { formatTimeZoneLabel, formatWeekday } from './format';
 import {
   percentOfSlotRange,
@@ -62,32 +68,41 @@ export interface TimeGridViewProps {
    * 省略時は `'H:mm〜H:mm タイトル'` を表示する。
    * 終日行（`allday-event`）の内容はこの prop では変更できない。終日行の内容を
    * カスタマイズしたい場合は {@link TimeGridViewProps.renderAllDayEvent} を使う。
+   *
+   * `ctx.defaultContent` に省略時の内容、`ctx.parts` に分解済みパーツ
+   * （整形済みの時刻範囲テキスト・タイトル）が渡される。指定した場合は
+   * `CalendarProvider` の `renderEventContent` より優先される。
+   * @param item - 対象の配置済みオカレンス
+   * @param ctx - 既定内容・スロット種別・分解済みパーツ
    */
-  renderEvent?: (item: PositionedOccurrence) => ReactNode;
+  renderEvent?: (item: PositionedOccurrence, ctx: EventContentContext) => ReactNode;
   /**
    * 終日行（`allday-event`）の帯の表示内容をカスタマイズする。
-   * 省略時はタイトルのみを表示する（既定のまま）。
+   * 省略時はタイトルのみを表示する（既定のまま）。指定した場合は
+   * `CalendarProvider` の `renderEventContent` より優先される。
+   * @param segment - 対象のセグメント
+   * @param ctx - 既定内容・スロット種別・分解済みパーツ
    */
-  renderAllDayEvent?: (segment: EventSegment) => ReactNode;
+  renderAllDayEvent?: (segment: EventSegment, ctx: EventContentContext) => ReactNode;
   /**
    * 日ヘッダー（曜日ラベル＋日番号ボタン）の表示内容をカスタマイズする。
-   * `defaultContent` には省略時の内容（曜日ラベルと日番号ボタン）が渡されるので、
+   * `ctx.defaultContent` には省略時の内容（曜日ラベルと日番号ボタン）が渡されるので、
    * それをラップしたり前後に要素を足したりする用途に使える。省略時は
-   * `defaultContent` をそのまま表示する。
+   * 既定内容をそのまま表示する。
    *
    * @example
    * ```tsx
    * <TimeGridView
-   *   renderDayHeader={(day, defaultContent) => (
+   *   renderDayHeader={(day, ctx) => (
    *     <>
-   *       {defaultContent}
+   *       {ctx.defaultContent}
    *       {day.isToday && <span data-koyomi="today-badge">今日</span>}
    *     </>
    *   )}
    * />
    * ```
    */
-  renderDayHeader?: (day: TimeGridDay, defaultContent: ReactNode) => ReactNode;
+  renderDayHeader?: (day: TimeGridDay, ctx: SlotRenderContext) => ReactNode;
   /**
    * マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置（`'HH:mm'`）。
    * 表示時間帯制限（{@link CalendarOptions.slotMinTime}/{@link CalendarOptions.slotMaxTime}）とは
@@ -143,9 +158,19 @@ function formatClockLabel(minutes: number, locale: string): string {
   return getClockLabelFormatter(locale).format(fakeUtcDate);
 }
 
-/** 時間指定イベントの既定の表示内容（`'H:mm〜H:mm タイトル'`）。 */
-function defaultTimedEventContent(item: PositionedOccurrence, locale: string): string {
-  return `${formatClockLabel(item.startMinutes, locale)}〜${formatClockLabel(item.endMinutes, locale)} ${item.occurrence.event.title}`;
+/**
+ * 時間指定イベント（`timegrid-event`）のイベント内容コンテキストを組み立てる。
+ * 既定内容は `'H:mm〜H:mm タイトル'`。
+ */
+function timegridEventContentContext(
+  item: PositionedOccurrence,
+  locale: string,
+): EventContentContext {
+  return timedTextEventContentContext(
+    'timegrid-event',
+    `${formatClockLabel(item.startMinutes, locale)}〜${formatClockLabel(item.endMinutes, locale)}`,
+    item.occurrence.event.title,
+  );
 }
 
 /** キャッシュする `Intl.DateTimeFormat` の種別。 */
@@ -457,7 +482,7 @@ function samePreviewSegment(
  */
 export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
   const { renderEvent, renderAllDayEvent, renderDayHeader, initialScrollTime, ref } = props;
-  const { api, state, viewModel, callbacks, messages } = useCalendarContext();
+  const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const commonMessages = messages.common;
   const calendar = { api, state, viewModel };
   const dayDrag = useDayDrag({
@@ -603,7 +628,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
                 aria-current={day.isToday ? 'date' : undefined}
               >
                 {renderDayHeader
-                  ? renderDayHeader(day, defaultDayHeaderContent)
+                  ? renderDayHeader(day, { defaultContent: defaultDayHeaderContent })
                   : defaultDayHeaderContent}
               </div>
             );
@@ -656,6 +681,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
                         locale={locale}
                         dayDrag={dayDrag}
                         renderAllDayEvent={renderAllDayEvent}
+                        renderEventContent={renderEventContent}
                         commonMessages={commonMessages}
                       />
                     ))}
@@ -704,6 +730,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
               nowIndicatorDayKey={nowIndicator?.dayKey ?? null}
               nowIndicatorMinutes={nowIndicator?.minutes ?? null}
               renderEvent={renderEvent}
+              renderEventContent={renderEventContent}
               commonMessages={commonMessages}
               drag={stableDrag}
               isDragging={timeGridDrag.isDragging}
@@ -741,12 +768,22 @@ function AllDaySegmentButton(props: {
   locale: string;
   dayDrag: DayDragHandlers;
   /** 終日行の帯の表示内容のカスタマイズ関数（省略時はタイトルのみ）。 */
-  renderAllDayEvent: ((segment: EventSegment) => ReactNode) | undefined;
+  renderAllDayEvent: ((segment: EventSegment, ctx: EventContentContext) => ReactNode) | undefined;
+  /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
+  renderEventContent: EventContentRenderer | undefined;
   /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
   commonMessages: CommonMessages;
 }): ReactElement {
-  const { segment, columnCount, timeZone, locale, dayDrag, renderAllDayEvent, commonMessages } =
-    props;
+  const {
+    segment,
+    columnCount,
+    timeZone,
+    locale,
+    dayDrag,
+    renderAllDayEvent,
+    renderEventContent,
+    commonMessages,
+  } = props;
   const occurrence = segment.occurrence;
   const segmentProps = dayDrag.getSegmentProps(segment);
   const isEditable = occurrence.event.editable !== false;
@@ -776,7 +813,13 @@ function AllDaySegmentButton(props: {
         ),
       })}
     >
-      {renderAllDayEvent ? renderAllDayEvent(segment) : occurrence.event.title}
+      {resolveEventContent(
+        renderAllDayEvent,
+        renderEventContent,
+        segment,
+        occurrence,
+        titleOnlyEventContentContext('allday-event', occurrence.event.title),
+      )}
       {isEditable && !segment.continuesBefore && (
         <span
           {...dayDrag.getSegmentResizeHandleProps(segment, 'start')}
@@ -807,7 +850,9 @@ function TimeGridDayColumnImpl(props: {
   slotMaxTimeMinutes: number;
   nowIndicatorDayKey: string | null;
   nowIndicatorMinutes: number | null;
-  renderEvent: ((item: PositionedOccurrence) => ReactNode) | undefined;
+  renderEvent: ((item: PositionedOccurrence, ctx: EventContentContext) => ReactNode) | undefined;
+  /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
+  renderEventContent: EventContentRenderer | undefined;
   /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
   commonMessages: CommonMessages;
   drag: TimeGridColumnDragHandlers;
@@ -826,6 +871,7 @@ function TimeGridDayColumnImpl(props: {
     nowIndicatorDayKey,
     nowIndicatorMinutes,
     renderEvent,
+    renderEventContent,
     commonMessages,
     drag,
     isDragging,
@@ -875,6 +921,7 @@ function TimeGridDayColumnImpl(props: {
           slotMinTimeMinutes={slotMinTimeMinutes}
           slotMaxTimeMinutes={slotMaxTimeMinutes}
           renderEvent={renderEvent}
+          renderEventContent={renderEventContent}
           commonMessages={commonMessages}
           drag={drag}
           isDragging={isDragging}
@@ -925,6 +972,7 @@ const TimeGridDayColumn = memo(TimeGridDayColumnImpl, (prev, next) => {
     prev.nowIndicatorDayKey === next.nowIndicatorDayKey &&
     prev.nowIndicatorMinutes === next.nowIndicatorMinutes &&
     prev.renderEvent === next.renderEvent &&
+    prev.renderEventContent === next.renderEventContent &&
     prev.commonMessages === next.commonMessages &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&
@@ -941,7 +989,9 @@ function TimeGridEventButtonImpl(props: {
   slotMinTimeMinutes: number;
   /** 表示時間帯の終了（分）。既定（`slotMaxTime` 未指定）は `1440`。 */
   slotMaxTimeMinutes: number;
-  renderEvent: ((item: PositionedOccurrence) => ReactNode) | undefined;
+  renderEvent: ((item: PositionedOccurrence, ctx: EventContentContext) => ReactNode) | undefined;
+  /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
+  renderEventContent: EventContentRenderer | undefined;
   /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
   commonMessages: CommonMessages;
   drag: TimeGridColumnDragHandlers;
@@ -955,6 +1005,7 @@ function TimeGridEventButtonImpl(props: {
     slotMinTimeMinutes,
     slotMaxTimeMinutes,
     renderEvent,
+    renderEventContent,
     commonMessages,
     drag,
   } = props;
@@ -989,7 +1040,13 @@ function TimeGridEventButtonImpl(props: {
       })}
     >
       <div data-koyomi="timegrid-event-content">
-        {renderEvent ? renderEvent(item) : defaultTimedEventContent(item, locale)}
+        {resolveEventContent(
+          renderEvent,
+          renderEventContent,
+          item,
+          occurrence,
+          timegridEventContentContext(item, locale),
+        )}
       </div>
       {isEditable && !item.continuesBefore && (
         <div
@@ -1024,6 +1081,7 @@ const TimeGridEventButton = memo(TimeGridEventButtonImpl, (prev, next) => {
     prev.slotMinTimeMinutes === next.slotMinTimeMinutes &&
     prev.slotMaxTimeMinutes === next.slotMaxTimeMinutes &&
     prev.renderEvent === next.renderEvent &&
+    prev.renderEventContent === next.renderEventContent &&
     prev.commonMessages === next.commonMessages &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging

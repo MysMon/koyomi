@@ -17,7 +17,7 @@ import type {
 } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { MessageCatalogOverrides } from '../locales/types';
-import type { CalendarInteractionCallbacks } from '../types';
+import type { CalendarInteractionCallbacks, SlotRenderContext } from '../types';
 import { useCalendar } from '../use-calendar';
 import { YearView } from './year-view';
 
@@ -33,8 +33,8 @@ function Harness(props: {
   events?: readonly CalendarEvent[];
   initialView?: CalendarViewType;
   callbacks?: CalendarInteractionCallbacks;
-  renderMonthHeader?: (month: YearMonth, defaultContent: ReactNode) => ReactNode;
-  renderDayCell?: (day: YearDay, defaultContent: ReactNode) => ReactNode;
+  renderMonthHeader?: (month: YearMonth, ctx: SlotRenderContext) => ReactNode;
+  renderDayCell?: (day: YearDay, ctx: SlotRenderContext) => ReactNode;
   messages?: MessageCatalogOverrides;
   apiRef?: { current: CalendarApi | null };
 }): ReactElement {
@@ -355,10 +355,10 @@ describe('YearView - カスタム描画 props', () => {
   it('renderMonthHeader で月見出しの内容を差し替えられる', () => {
     const { container } = render(
       <Harness
-        renderMonthHeader={(month, defaultContent) => (
+        renderMonthHeader={(month, ctx) => (
           <div data-koyomi="custom-month-header">
             CUSTOM:{month.key}
-            {defaultContent}
+            {ctx.defaultContent}
           </div>
         )}
       />,
@@ -372,10 +372,10 @@ describe('YearView - カスタム描画 props', () => {
   it('renderDayCell で日セルボタンの内容を差し替えられる', () => {
     const { container } = render(
       <Harness
-        renderDayCell={(day, defaultContent) => (
+        renderDayCell={(day, ctx) => (
           <span data-koyomi="custom-day-cell">
             CUSTOM:{day.key}
-            {defaultContent}
+            {ctx.defaultContent}
           </span>
         )}
       />,
