@@ -1,15 +1,24 @@
 /**
- * drag-common.ts の {@link eventNotificationProps} のテスト。
+ * drag-common.ts の {@link eventNotificationProps} / {@link collectOverlapBlockersInRange} の
+ * テスト。
  *
- * ドラッグ操作を経由しない純粋なプロップゲッターのため、DOM 描画を介さず
- * 直接呼び出して検証する（DOM 経由の統合テストは各ビューのフック・
- * コンポーネントのテストファイル側で行う）。
+ * ドラッグ操作を経由しない純粋なプロップゲッター・ヘルパーのため、DOM 描画を介さず
+ * 直接呼び出して検証する（DOM 経由の統合テスト・pointermove 起点でのキャッシュ効果の
+ * 検証は各ビューのフック・コンポーネントのテストファイル側で行う。例:
+ * `use-time-grid-drag.test.tsx` の「pointermove を繰り返しても getOccurrences は
+ * 1 回だけ」テスト）。
  */
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { createCalendar } from '../core/calendar';
-import type { CalendarEvent, EventOccurrence } from '../core/types';
-import { createDefaultEvent, eventNotificationProps } from './drag-common';
+import { parseDateValue } from '../core/timezone';
+import type { CalendarApi, CalendarEvent, CalendarResource, EventOccurrence } from '../core/types';
+import {
+  collectOverlapBlockersInRange,
+  createDefaultEvent,
+  createOverlapBlockerCache,
+  eventNotificationProps,
+} from './drag-common';
 import type { CalendarInteractionCallbacks, RangeSelection } from './types';
 
 /** テスト用の最小限のオカレンス。 */
@@ -163,5 +172,190 @@ describe('createDefaultEvent', () => {
 
     const notApplicable = createDefaultEvent(api, { range, allDay: false });
     expect(notApplicable.resourceId).toBeUndefined();
+  });
+});
+
+describe('collectOverlapBlockersInRange', () => {
+  const TOKYO = 'Asia/Tokyo';
+  // 2026-07-15T10:00 JST（水）。
+  const NOW = new Date('2026-07-15T01:00:00Z');
+
+  /** 東京タイムゾーンの現地時刻 `'YYYY-MM-DDTHH:mm'` から絶対時刻を作るテストヘルパ。 */
+  function at(isoLocal: string): Date {
+    return parseDateValue(isoLocal, TOKYO, false);
+  }
+
+  /**
+   * テスト用カレンダーを作る（週ビュー、表示週は 2026-07-12（日）〜 2026-07-18（土））。
+   * 対象範囲の合成（`getVisibleRange()` との union）の挙動を検証しやすくするため、
+   * 全テストで週ビュー・同じ基準日に固定する。
+   */
+  function makeWeekCalendar(options: {
+    events?: readonly CalendarEvent[];
+    resources?: readonly CalendarResource[];
+  }): CalendarApi {
+    return createCalendar({
+      timeZone: TOKYO,
+      initialView: 'week',
+      weekStartsOn: 0,
+      initialDate: NOW,
+      now: () => NOW,
+      events: options.events ?? [],
+      resources: options.resources ?? [],
+    });
+  }
+
+  it('同一イベント状態で候補範囲を変えて連続 2 回呼んでも展開は 1 回だけ走り、2 回目もフィルタ結果が正しい', () => {
+    const existing: CalendarEvent = {
+      id: 'existing',
+      title: '既存',
+      start: '2026-07-13T10:00',
+      end: '2026-07-13T11:00',
+    };
+    const api = makeWeekCalendar({ events: [existing] });
+    const getOccurrencesSpy = vi.spyOn(api, 'getOccurrences');
+    const cache = createOverlapBlockerCache();
+
+    const overlapping = collectOverlapBlockersInRange(
+      api,
+      cache,
+      { start: at('2026-07-13T10:30'), end: at('2026-07-13T11:30') },
+      true,
+    );
+    const notOverlapping = collectOverlapBlockersInRange(
+      api,
+      cache,
+      { start: at('2026-07-13T13:00'), end: at('2026-07-13T14:00') },
+      true,
+    );
+
+    expect(getOccurrencesSpy).toHaveBeenCalledTimes(1);
+    expect(overlapping).toHaveLength(1);
+    expect(overlapping[0]?.key).toContain('existing@');
+    expect(notOverlapping).toEqual([]);
+  });
+
+  it('api.setEvents でイベント配列が置き換わると再展開され、新しいイベントが blocker に反映される', () => {
+    const api = makeWeekCalendar({});
+    const getOccurrencesSpy = vi.spyOn(api, 'getOccurrences');
+    const cache = createOverlapBlockerCache();
+    const range = { start: at('2026-07-13T10:00'), end: at('2026-07-13T11:00') };
+
+    const before = collectOverlapBlockersInRange(api, cache, range, true);
+    expect(before).toEqual([]);
+
+    const added: CalendarEvent = {
+      id: 'added',
+      title: '追加',
+      start: '2026-07-13T10:00',
+      end: '2026-07-13T11:00',
+    };
+    api.setEvents([added]);
+    const after = collectOverlapBlockersInRange(api, cache, range, true);
+
+    expect(getOccurrencesSpy).toHaveBeenCalledTimes(2);
+    expect(after).toHaveLength(1);
+    expect(after[0]?.key).toContain('added@');
+  });
+
+  it('表示範囲外の候補（前日の範囲など）では対象日を含めて再展開され、そこにある非表示イベントとの重なりを検出できる', () => {
+    // 表示週は 2026-07-12（日）〜 2026-07-18（土）。前日の 7/11（表示範囲外）にある
+    // 既存イベントは getVisibleRange の展開結果には含まれない。
+    const hidden: CalendarEvent = {
+      id: 'hidden',
+      title: '前週の既存イベント',
+      start: '2026-07-11T10:00',
+      end: '2026-07-11T11:00',
+    };
+    const api = makeWeekCalendar({ events: [hidden] });
+    const getOccurrencesSpy = vi.spyOn(api, 'getOccurrences');
+    const cache = createOverlapBlockerCache();
+
+    // まず表示範囲内の候補で 1 回展開させ、対象範囲を「表示範囲」に固定する
+    collectOverlapBlockersInRange(
+      api,
+      cache,
+      { start: at('2026-07-13T10:00'), end: at('2026-07-13T11:00') },
+      true,
+    );
+    expect(getOccurrencesSpy).toHaveBeenCalledTimes(1);
+
+    const blockers = collectOverlapBlockersInRange(
+      api,
+      cache,
+      { start: at('2026-07-11T10:00'), end: at('2026-07-11T11:00') },
+      true,
+    );
+
+    expect(getOccurrencesSpy).toHaveBeenCalledTimes(2);
+    expect(blockers).toHaveLength(1);
+    expect(blockers[0]?.key).toContain('hidden@');
+  });
+
+  it('対象範囲に複数の既存オカレンスが展開されても、実際の候補範囲に重ならないものは blocker に含まれない', () => {
+    const morning: CalendarEvent = {
+      id: 'morning',
+      title: '午前',
+      start: '2026-07-13T10:00',
+      end: '2026-07-13T11:00',
+    };
+    const afternoon: CalendarEvent = {
+      id: 'afternoon',
+      title: '午後',
+      start: '2026-07-13T15:00',
+      end: '2026-07-13T16:00',
+    };
+    const api = makeWeekCalendar({ events: [morning, afternoon] });
+    const cache = createOverlapBlockerCache();
+
+    const blockers = collectOverlapBlockersInRange(
+      api,
+      cache,
+      { start: at('2026-07-13T10:30'), end: at('2026-07-13T10:45') },
+      true,
+    );
+
+    expect(blockers).toHaveLength(1);
+    expect(blockers[0]?.key).toContain('morning@');
+  });
+
+  it('lane 指定はキャッシュヒット時にも呼び出しごとに正しく適用される（同一キャッシュで laneId を変えて 2 回呼ぶ）', () => {
+    const resources: readonly CalendarResource[] = [
+      { id: 'r1', title: '会議室 A' },
+      { id: 'r2', title: '会議室 B' },
+    ];
+    const inRoomA: CalendarEvent = {
+      id: 'in-room-a',
+      title: 'A の予定',
+      start: '2026-07-13T10:00',
+      end: '2026-07-13T11:00',
+      resourceId: 'r1',
+    };
+    const inRoomB: CalendarEvent = {
+      id: 'in-room-b',
+      title: 'B の予定',
+      start: '2026-07-13T10:00',
+      end: '2026-07-13T11:00',
+      resourceId: 'r2',
+    };
+    const api = makeWeekCalendar({ events: [inRoomA, inRoomB], resources });
+    const getOccurrencesSpy = vi.spyOn(api, 'getOccurrences');
+    const cache = createOverlapBlockerCache();
+    const range = { start: at('2026-07-13T10:00'), end: at('2026-07-13T11:00') };
+
+    const roomA = collectOverlapBlockersInRange(api, cache, range, true, {
+      resources,
+      laneId: 'r1',
+    });
+    const roomB = collectOverlapBlockersInRange(api, cache, range, true, {
+      resources,
+      laneId: 'r2',
+    });
+
+    expect(getOccurrencesSpy).toHaveBeenCalledTimes(1);
+    expect(roomA).toHaveLength(1);
+    expect(roomA[0]?.key).toContain('in-room-a@');
+    expect(roomB).toHaveLength(1);
+    expect(roomB[0]?.key).toContain('in-room-b@');
   });
 });

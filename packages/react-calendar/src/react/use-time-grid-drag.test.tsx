@@ -2181,3 +2181,49 @@ describe('useTimeGridDrag - 宣言的な重なり・配置制約', () => {
     expect(onEventChange).not.toHaveBeenCalled();
   });
 });
+
+describe('useTimeGridDrag - 重なり判定の展開キャッシュ', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('ポインタドラッグ中に pointermove を複数回発生させても getOccurrences の呼び出しは 1 回に抑えられる', () => {
+    // 前の describe（宣言的な重なり・配置制約）内のテストが
+    // `document.elementFromPoint` を終日セル固定でモックしたまま復元していないため、
+    // ここで明示的に「領域外（null）」へ戻す（終日行への変換プレビューに
+    // 誤って切り替わり、意図しない allDay 変換で確定してしまうのを防ぐ）。
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(null);
+
+    const moving: CalendarEvent = {
+      id: 'moving',
+      title: '対象',
+      start: `${MON}T10:00`,
+      end: `${MON}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [moving] });
+    const api = sink.current?.calendar.api;
+    if (api === undefined) {
+      throw new Error('api を取得できない');
+    }
+    const getOccurrencesSpy = vi.spyOn(api, 'getOccurrences');
+
+    const occurrenceKey = `moving@${at(`${MON}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(MON);
+
+    // 同じ日（表示範囲内）にとどまる pointermove を 3 回発生させたのち確定する。
+    // 対象範囲（表示範囲）はドラッグ中ずっと変わらないため、展開（getOccurrences）は
+    // 最初の 1 回だけで済むはず（以後はキャッシュヒット）。
+    firePointerDown(eventEl, x, 600); // 10:00
+    movePointer(x, 615); // 10:15
+    movePointer(x, 630); // 10:30
+    movePointer(x, 645); // 10:45
+    releasePointer(x, 645);
+
+    expect(getOccurrencesSpy).toHaveBeenCalledTimes(1);
+    expect(api.getEvents()[0]).toMatchObject({
+      start: at(`${MON}T10:45`),
+      end: at(`${MON}T11:45`),
+    });
+  });
+});

@@ -18,7 +18,7 @@
 - **[重要]** rrule（CJS-only）を dist にバンドルし、バンドラなしの Node ESM から import すると読み込み時に失敗する問題を修正
 - **[重要]** `useCalendar` に `getServerSnapshot` を追加し、SSR（`renderToString` / Next.js）で例外になる問題を修正
 - Escape キャンセル直後のネイティブ click による `onEventClick` 誤発火を抑制
-- **[重要]** `eventOverlap` の重なり判定が画面に描画されていないオカレンス（`slotMinTime`/`slotMaxTime` の表示時間帯外・表示範囲外）を見逃す問題を修正。ブロッカーをビューモデルからの事前収集ではなく判定時に `api.getOccurrences(候補範囲)` から収集するように変更し、終日イベントの移動や矢印キーによる表示外への移動でも二重予約を防止する
+- **[重要]** `eventOverlap` の重なり判定が画面に描画されていないオカレンス（`slotMinTime`/`slotMaxTime` の表示時間帯外・表示範囲外）を見逃す問題を修正。ブロッカーをビューモデルからの事前収集ではなく `api.getOccurrences` による正規のオカレンス展開から収集するように変更し、終日イベントの移動や矢印キーによる表示外への移動でも二重予約を防止する。展開結果はイベント集合・表示タイムゾーン・対象範囲（表示範囲∪候補の日単位範囲）が変わらない限りキャッシュされ、ドラッグ中の毎 pointermove ではメモリ上の絞り込みだけを行う（文字列日付＋イベント個別 `timeZone` の 10,000 件で実測: キャッシュなし約 213ms/回 → ヒット時約 0.14ms/回）
 - 週・リスト・複数日タイムライン・複数月の期間タイトルの区切り記号が `〜` 固定だった問題を修正。`messages.common.rangeSeparator` に従うようになり、`locale: 'en-US'` では `July 12–July 18` 形式になる。`formatRangeTitle` / `formatViewTitle` は第 4 / 第 6 引数に `rangeSeparator: string` が必須（破壊的変更）
 - `resolveRecurringScope` が reject した場合にドラッグプレビューが残留する問題を修正（try/finally + `onError` 通知）
 - `pointercancel` 未処理によりタッチ中断後にドラッグが復帰しない問題を修正

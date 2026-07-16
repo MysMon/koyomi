@@ -53,6 +53,7 @@ import {
   checkBeforeSelectRange,
   collectOverlapBlockersInRange,
   createDefaultEvent,
+  createOverlapBlockerCache,
   type EventNotificationProps,
   eventNotificationProps,
 } from './drag-common';
@@ -249,6 +250,8 @@ export function useDayDrag(params: {
 
   /** ポインタ座標 → 日の判定に使う、登録済みセルのレジストリ。 */
   const registryRef = useRef<Map<string, RegisteredDayCell>>(new Map());
+  /** {@link collectOverlapBlockersInRange} の展開結果キャッシュ（本フック内で使い回す）。 */
+  const overlapCacheRef = useRef(createOverlapBlockerCache());
   /** 進行中のドラッグセッション（非ドラッグ中は `null`）。 */
   const sessionRef = useRef<DragSession | null>(null);
   /**
@@ -358,7 +361,12 @@ export function useDayDrag(params: {
       allDay: true,
       excludeKey: null,
       moverBlocksOverlap: resolveMoverBlocksOverlap(null, options.eventOverlap),
-      blockers: collectOverlapBlockersInRange(apiRef.current, range, options.eventOverlap),
+      blockers: collectOverlapBlockersInRange(
+        apiRef.current,
+        overlapCacheRef.current,
+        range,
+        options.eventOverlap,
+      ),
       constraintRules: resolveConstraintRulesForOccurrence(
         null,
         options.eventConstraint,
@@ -401,7 +409,12 @@ export function useDayDrag(params: {
         allDay: occurrence.allDay,
         excludeKey: occurrence.key,
         moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, options.eventOverlap),
-        blockers: collectOverlapBlockersInRange(apiRef.current, range, options.eventOverlap),
+        blockers: collectOverlapBlockersInRange(
+          apiRef.current,
+          overlapCacheRef.current,
+          range,
+          options.eventOverlap,
+        ),
         constraintRules: resolveConstraintRulesForOccurrence(
           occurrence,
           options.eventConstraint,
@@ -473,7 +486,12 @@ export function useDayDrag(params: {
         allDay: false,
         excludeKey: occurrence.key,
         moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, options.eventOverlap),
-        blockers: collectOverlapBlockersInRange(apiRef.current, range, options.eventOverlap),
+        blockers: collectOverlapBlockersInRange(
+          apiRef.current,
+          overlapCacheRef.current,
+          range,
+          options.eventOverlap,
+        ),
         constraintRules: resolveConstraintRulesForOccurrence(
           occurrence,
           options.eventConstraint,
@@ -617,7 +635,12 @@ export function useDayDrag(params: {
             allDay: false,
             excludeKey: occurrence.key,
             moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, options.eventOverlap),
-            blockers: collectOverlapBlockersInRange(apiRef.current, range, options.eventOverlap),
+            blockers: collectOverlapBlockersInRange(
+              apiRef.current,
+              overlapCacheRef.current,
+              range,
+              options.eventOverlap,
+            ),
             constraintRules: resolveConstraintRulesForOccurrence(
               occurrence,
               options.eventConstraint,
@@ -655,7 +678,12 @@ export function useDayDrag(params: {
         allDay: finalAllDay,
         excludeKey: occurrence?.key ?? null,
         moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, options.eventOverlap),
-        blockers: collectOverlapBlockersInRange(apiRef.current, range, options.eventOverlap),
+        blockers: collectOverlapBlockersInRange(
+          apiRef.current,
+          overlapCacheRef.current,
+          range,
+          options.eventOverlap,
+        ),
         constraintRules: resolveConstraintRulesForOccurrence(
           occurrence,
           options.eventConstraint,

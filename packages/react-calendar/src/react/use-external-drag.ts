@@ -39,7 +39,11 @@ import { timeAtGridPosition, timeAtTimelineOffset } from '../core/interaction';
 import { addDaysInZone, addMinutesInZone, dateFromKey } from '../core/timezone';
 import type { DateRange, TimeZoneId } from '../core/types';
 import { resourceIdFromLaneKey } from '../core/views/lane-key';
-import { attachDragSessionListeners, collectOverlapBlockersInRange } from './drag-common';
+import {
+  attachDragSessionListeners,
+  collectOverlapBlockersInRange,
+  createOverlapBlockerCache,
+} from './drag-common';
 import type { UseCalendarResult } from './types';
 
 /** 1 日の分（24:00 = 1440 分）。 */
@@ -451,6 +455,8 @@ export function useExternalDrag<TPayload>(
 
   /** 進行中のドラッグセッションの後始末関数（非ドラッグ中は `null`）。 */
   const cleanupRef = useRef<(() => void) | null>(null);
+  /** {@link collectOverlapBlockersInRange} の展開結果キャッシュ（本フック内で使い回す）。 */
+  const overlapCacheRef = useRef(createOverlapBlockerCache());
   const [isDragging, setIsDragging] = useState(false);
 
   // アンマウント時に進行中のセッションがあれば document リスナーを確実に解除する。
@@ -481,6 +487,7 @@ export function useExternalDrag<TPayload>(
     const { state, api } = paramsRef.current.calendar;
     const blockers = collectOverlapBlockersInRange(
       api,
+      overlapCacheRef.current,
       resolution.range,
       state.options.eventOverlap,
       resolution.resourceId !== undefined

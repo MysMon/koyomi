@@ -61,6 +61,7 @@ import {
   collectOverlapBlockersInRange,
   createAutoScrollLoop,
   createDefaultEvent,
+  createOverlapBlockerCache,
   type EventNotificationProps,
   eventNotificationProps,
   resolveScopeForRecurring,
@@ -408,6 +409,8 @@ export function useTimeGridDrag(params: {
 
   /** 日付キー → 列要素の登録レジストリ。 */
   const registryRef = useRef(new Map<string, ColumnEntry>());
+  /** {@link collectOverlapBlockersInRange} の展開結果キャッシュ（本フック内で使い回す）。 */
+  const overlapCacheRef = useRef(createOverlapBlockerCache());
   /** 進行中のドラッグセッション（非ドラッグ中は `null`）。 */
   const dragSessionRef = useRef<DragSession | null>(null);
   /** 直後の click イベントを 1 回だけ抑制するフラグ（ドラッグ確定・Escape キャンセル直後用）。 */
@@ -515,7 +518,12 @@ export function useTimeGridDrag(params: {
       allDay: false,
       excludeKey: null,
       moverBlocksOverlap: resolveMoverBlocksOverlap(null, state.options.eventOverlap),
-      blockers: collectOverlapBlockersInRange(api, range, state.options.eventOverlap),
+      blockers: collectOverlapBlockersInRange(
+        api,
+        overlapCacheRef.current,
+        range,
+        state.options.eventOverlap,
+      ),
       constraintRules: resolveConstraintRulesForOccurrence(
         null,
         state.options.eventConstraint,
@@ -540,7 +548,12 @@ export function useTimeGridDrag(params: {
       allDay,
       excludeKey: occurrence.key,
       moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, state.options.eventOverlap),
-      blockers: collectOverlapBlockersInRange(api, range, state.options.eventOverlap),
+      blockers: collectOverlapBlockersInRange(
+        api,
+        overlapCacheRef.current,
+        range,
+        state.options.eventOverlap,
+      ),
       constraintRules: resolveConstraintRulesForOccurrence(
         occurrence,
         state.options.eventConstraint,

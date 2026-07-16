@@ -59,6 +59,7 @@ import {
   collectOverlapBlockersInRange,
   createAutoScrollLoop,
   createDefaultEvent,
+  createOverlapBlockerCache,
   type EventNotificationProps,
   eventNotificationProps,
   laneResourceIdOf,
@@ -264,6 +265,8 @@ export function useResourceGridDrag(params: {
 
   /** 列キー → 列要素の登録レジストリ。 */
   const registryRef = useRef(new Map<string, ColumnEntry>());
+  /** {@link collectOverlapBlockersInRange} の展開結果キャッシュ（本フック内で使い回す）。 */
+  const overlapCacheRef = useRef(createOverlapBlockerCache());
   /** 進行中のドラッグセッション（非ドラッグ中は `null`）。 */
   const dragSessionRef = useRef<DragSession | null>(null);
   /** 直後の click イベントを 1 回だけ抑制するフラグ。 */
@@ -380,10 +383,13 @@ export function useResourceGridDrag(params: {
       allDay,
       excludeKey: occurrence?.key ?? null,
       moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, state.options.eventOverlap),
-      blockers: collectOverlapBlockersInRange(api, range, state.options.eventOverlap, {
-        resources: state.resources,
-        laneId,
-      }),
+      blockers: collectOverlapBlockersInRange(
+        api,
+        overlapCacheRef.current,
+        range,
+        state.options.eventOverlap,
+        { resources: state.resources, laneId },
+      ),
       constraintRules: resolveConstraintRulesForOccurrence(
         occurrence,
         state.options.eventConstraint,

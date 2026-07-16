@@ -14,7 +14,10 @@
  * - {@link collectOverlapBlockersInRange} — 重なり判定用ブロッカーの収集
  *   （時間グリッド・日単位（帯）・リソース・タイムライン・外部ドラッグの 5 フック共通。
  *   `api.getOccurrences` から収集することで、表示中のビューモデルに現れない
- *   オカレンスとの重なりも判定対象にする）
+ *   オカレンスとの重なりも判定対象にする）。展開結果は {@link OverlapBlockerCache}
+ *   （{@link createOverlapBlockerCache} で作成し、各フックが `useRef` で 1 つ保持する）
+ *   によりイベント集合・表示 TZ・対象範囲が変わらない限りドラッグ 1 回につき 1 回に
+ *   抑える
  * - {@link resolveScopeForRecurring} — 繰り返しオカレンスのスコープ解決（3フック共通）
  * - {@link checkBeforeEventChange} / {@link checkBeforeSelectRange} /
  *   {@link checkBeforeEventDelete} — 適用前フック（`onBeforeEventChange` 等）の
@@ -41,12 +44,15 @@
 
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { type OverlapBlocker, occurrenceBlocksOverlap } from '../core/constraints';
+import { rangesOverlap } from '../core/date-utils';
+import { addDaysInZone, startOfDayInZone } from '../core/timezone';
 import type {
   CalendarApi,
   CalendarEvent,
   DateRange,
   EventOccurrence,
   RecurringEditScope,
+  TimeZoneId,
 } from '../core/types';
 import type { CalendarInteractionCallbacks, EventChangeProposal, RangeSelection } from './types';
 
@@ -77,9 +83,81 @@ export function laneResourceIdOf(
 }
 
 /**
+ * {@link collectOverlapBlockersInRange} の展開結果キャッシュの内部エントリ。
+ * null 許容の 1 件のみを保持する（Map や LRU にはしない。ドラッグ中に有効な
+ * イベント集合・表示 TZ・対象範囲の組は常に高々 1 つのため）。
+ */
+interface OverlapBlockerCacheEntry {
+  /** 展開時の `api.getEvents()`（参照同一性で無効化判定に使う）。 */
+  events: readonly CalendarEvent[];
+  /** 展開時の表示タイムゾーン。 */
+  timeZone: TimeZoneId;
+  /** 展開時の `defaultEventMinutes`（`state.options.defaultEventMinutes`）。 */
+  defaultEventMinutes: number;
+  /** 展開した対象範囲の開始（ミリ秒）。 */
+  rangeStartMs: number;
+  /** 展開した対象範囲の終了（ミリ秒、排他）。 */
+  rangeEndMs: number;
+  /** 展開結果（blocker へマップする前のオカレンス。lane による絞り込み前）。 */
+  occurrences: readonly EventOccurrence[];
+}
+
+/**
+ * {@link collectOverlapBlockersInRange} の展開結果キャッシュ。
+ *
+ * ドラッグ系フックが {@link createOverlapBlockerCache} で 1 つ作り、`useRef` で
+ * セッションを跨いで（アンマウントまで）保持し、そのフック内のすべての
+ * {@link collectOverlapBlockersInRange} 呼び出しに渡す。
+ */
+export interface OverlapBlockerCache {
+  /** 直近の展開結果。未展開、または無効化された直後は `null`。 */
+  entry: OverlapBlockerCacheEntry | null;
+}
+
+/**
+ * {@link OverlapBlockerCache} を新規作成する（未展開の空の状態）。
+ *
+ * 各ドラッグ系フック（時間グリッド・日単位（帯）・リソース・タイムライン・
+ * 外部ドラッグ）が `useRef(createOverlapBlockerCache())` で 1 つ保持し、
+ * そのフック内の {@link collectOverlapBlockersInRange} 呼び出しすべてに
+ * 同じインスタンスを渡す（呼び出し箇所ごとに新規作成しない）。
+ *
+ * @returns 空の {@link OverlapBlockerCache}
+ */
+export function createOverlapBlockerCache(): OverlapBlockerCache {
+  return { entry: null };
+}
+
+/**
+ * 候補範囲を表示タイムゾーンの日境界に量子化する。
+ *
+ * 開始は当日の 0:00、終了は「当日の 0:00 が `range.end` より前なら翌日 0:00
+ * へ切り上げ、`range.end` がすでに日境界ならそのまま」。これにより、候補範囲を
+ * 含む最小の「日単位の範囲」が得られる（{@link collectOverlapBlockersInRange}
+ * の対象範囲の合成に使う）。
+ */
+function quantizeToDayBoundaries(range: DateRange, timeZone: TimeZoneId): DateRange {
+  const start = startOfDayInZone(range.start, timeZone);
+  const startOfEndDay = startOfDayInZone(range.end, timeZone);
+  const end =
+    startOfEndDay.getTime() < range.end.getTime()
+      ? addDaysInZone(startOfEndDay, 1, timeZone)
+      : startOfEndDay;
+  return { start, end };
+}
+
+/** 2 つの範囲の和集合（両方を包含する最小の範囲）を返す。 */
+function unionRanges(a: DateRange, b: DateRange): DateRange {
+  return {
+    start: a.start.getTime() <= b.start.getTime() ? a.start : b.start,
+    end: a.end.getTime() >= b.end.getTime() ? a.end : b.end,
+  };
+}
+
+/**
  * 判定対象の候補範囲に重なる既存オカレンスを {@link OverlapBlocker} として収集する。
  *
- * ビューモデル（`CalendarViewModel`）由来の収集ではなく `api.getOccurrences(range)`
+ * ビューモデル（`CalendarViewModel`）由来の収集ではなく `api.getOccurrences`
  * （{@link CalendarApi.getOccurrences}。`expandEvents` による正規のオカレンス展開）
  * から収集する。ビューモデルは表示時間帯（`slotMinTime`/`slotMaxTime`）や表示範囲
  * （週・タイムラインの表示日数等）でさらにフィルタ済みのため、それを元にすると
@@ -88,12 +166,35 @@ export function laneResourceIdOf(
  * `getOccurrences` は表示フィルタ前の全オカレンスを返すため、これを直接使うことで
  * 非表示のオカレンスとの重なりも判定対象に含められる。
  *
- * `range` には判定対象の候補範囲（ドラッグ先・矢印キー移動後の範囲など）だけを
- * 渡せばよい。`getOccurrences` はその範囲に重なるオカレンスだけを返すため、
- * 毎 pointermove・矢印キー操作・コミット確定のたびに呼んでもコストは小さい
- * （広い範囲の事前取得やキャッシュは不要）。
+ * ## 展開キャッシュ
+ *
+ * `cache`（{@link OverlapBlockerCache}）が非 `null` のエントリを持ち、かつ
+ * イベント集合（`api.getEvents()` の参照同一性）・表示タイムゾーン・
+ * `defaultEventMinutes`・対象範囲がすべて直近の呼び出しと一致する場合は
+ * `api.getOccurrences` を呼ばず、キャッシュ済みのオカレンスを再利用する。
+ * 一致しない場合のみ再展開してエントリを差し替える。
+ *
+ * 対象範囲は「`api.getVisibleRange()` ∪ `range` を表示タイムゾーンの日境界に
+ * 量子化した範囲」（{@link quantizeToDayBoundaries}・{@link unionRanges}）。
+ * 通常のポインタドラッグでは候補範囲が表示範囲に収まるため対象範囲は表示範囲と
+ * 一致し、ドラッグ中ずっと不変になる（＝展開はイベント状態が変わらない限り
+ * ドラッグ 1 回につき 1 回で済む）。矢印キー操作で候補が表示範囲外へ出た場合のみ
+ * 対象範囲が広がり、そのキー押下時に 1 回再展開する。
+ *
+ * この「対象範囲で展開し、実際の候補範囲でフィルタする」方式は候補範囲での
+ * 直接展開と厳密に等価である。対象範囲は候補範囲を包含するため、候補範囲に
+ * 重なるオカレンスは（重なりの定義上）対象範囲にも重なり、対象範囲での展開結果に
+ * 必ず含まれる。これを候補範囲との実際の重なりでフィルタすれば、候補範囲を
+ * 直接渡して展開した場合と同じ集合になる。
+ *
+ * キャッシュはオカレンス（lane や `eventOverlap` を適用する前の展開結果）のみを
+ * 保持する。`range` によるフィルタ・lane 指定による絞り込み・blocker への
+ * マッピングはキャッシュのヒット・ミスに関わらず呼び出しのたびに行うため、
+ * 同じキャッシュ内容に対して異なる候補範囲・異なる lane で呼んでも正しい結果になる。
  *
  * @param api - 対象カレンダーの `CalendarApi`
+ * @param cache - 展開結果キャッシュ（{@link createOverlapBlockerCache} で作成し、
+ *   呼び出し元フック内で `useRef` により 1 つを使い回す）
  * @param range - 判定対象の候補範囲
  * @param eventOverlap - {@link CalendarOptions.eventOverlap} の実効値
  * @param lane - レーンを持つビュー（リソース・タイムライン・それらへの外部ドラッグ）
@@ -104,15 +205,46 @@ export function laneResourceIdOf(
  */
 export function collectOverlapBlockersInRange(
   api: CalendarApi,
+  cache: OverlapBlockerCache,
   range: DateRange,
   eventOverlap: boolean,
   lane?: { resources: readonly { id: string }[]; laneId: string | null },
 ): readonly OverlapBlocker[] {
-  const occurrences = api.getOccurrences(range);
+  const { timeZone, options } = api.getState();
+  const events = api.getEvents();
+  const defaultEventMinutes = options.defaultEventMinutes;
+
+  const targetRange = unionRanges(api.getVisibleRange(), quantizeToDayBoundaries(range, timeZone));
+  const rangeStartMs = targetRange.start.getTime();
+  const rangeEndMs = targetRange.end.getTime();
+
+  let entry = cache.entry;
+  if (
+    entry === null ||
+    entry.events !== events ||
+    entry.timeZone !== timeZone ||
+    entry.defaultEventMinutes !== defaultEventMinutes ||
+    entry.rangeStartMs !== rangeStartMs ||
+    entry.rangeEndMs !== rangeEndMs
+  ) {
+    entry = {
+      events,
+      timeZone,
+      defaultEventMinutes,
+      rangeStartMs,
+      rangeEndMs,
+      occurrences: api.getOccurrences(targetRange),
+    };
+    cache.entry = entry;
+  }
+
+  const overlapping = entry.occurrences.filter((occurrence) =>
+    rangesOverlap({ start: occurrence.start, end: occurrence.end }, range),
+  );
   const scoped =
     lane === undefined
-      ? occurrences
-      : occurrences.filter(
+      ? overlapping
+      : overlapping.filter(
           (occurrence) => laneResourceIdOf(occurrence, lane.resources) === lane.laneId,
         );
   return scoped.map((occurrence) => ({
