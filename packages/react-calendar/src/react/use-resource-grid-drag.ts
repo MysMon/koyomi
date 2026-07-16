@@ -295,6 +295,8 @@ function resolveConstraintRulesForOccurrence(
  *
  * @param params.calendar - `useCalendar` の戻り値
  * @param params.callbacks - インタラクションコールバック
+ * @param params.defaultEventTitle - 既定即時作成（空きレーンのドラッグ）で使うイベントタイトル。
+ *   省略時は {@link createDefaultEvent} の既定値
  * @example
  * ```tsx
  * const drag = useResourceGridDrag({ calendar, callbacks });
@@ -303,6 +305,7 @@ function resolveConstraintRulesForOccurrence(
  */
 export function useResourceGridDrag(params: {
   calendar: UseCalendarResult;
+  defaultEventTitle?: string;
   callbacks?: CalendarInteractionCallbacks;
 }): ResourceGridDragHandlers {
   const paramsRef = useRef(params);
@@ -475,12 +478,12 @@ export function useResourceGridDrag(params: {
       if (!allowed) {
         return;
       }
-      const { calendar, callbacks } = paramsRef.current;
+      const { calendar, callbacks, defaultEventTitle } = paramsRef.current;
       if (callbacks?.onSelectRange) {
         callbacks.onSelectRange({ range, allDay, resourceId });
         return;
       }
-      createDefaultEvent(calendar.api, { range, allDay, resourceId });
+      createDefaultEvent(calendar.api, { range, allDay, resourceId }, defaultEventTitle);
     } catch (error) {
       reportError(error);
     } finally {

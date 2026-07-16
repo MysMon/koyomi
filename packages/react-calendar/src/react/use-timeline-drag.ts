@@ -269,6 +269,8 @@ function resolveConstraintRulesForOccurrence(
  *
  * @param params.calendar - `useCalendar` の戻り値
  * @param params.callbacks - インタラクションコールバック
+ * @param params.defaultEventTitle - 既定即時作成（空きレーンのドラッグ）で使うイベントタイトル。
+ *   省略時は {@link createDefaultEvent} の既定値
  * @example
  * ```tsx
  * const drag = useTimelineDrag({ calendar, callbacks });
@@ -278,6 +280,7 @@ function resolveConstraintRulesForOccurrence(
 export function useTimelineDrag(params: {
   calendar: UseCalendarResult;
   callbacks?: CalendarInteractionCallbacks;
+  defaultEventTitle?: string;
 }): TimelineDragHandlers {
   const paramsRef = useRef(params);
   paramsRef.current = params;
@@ -497,12 +500,12 @@ export function useTimelineDrag(params: {
       if (!allowed) {
         return;
       }
-      const { calendar, callbacks } = paramsRef.current;
+      const { calendar, callbacks, defaultEventTitle } = paramsRef.current;
       if (callbacks?.onSelectRange) {
         callbacks.onSelectRange({ range, allDay: false, resourceId });
         return;
       }
-      createDefaultEvent(calendar.api, { range, allDay: false, resourceId });
+      createDefaultEvent(calendar.api, { range, allDay: false, resourceId }, defaultEventTitle);
     } catch (error) {
       reportError(error);
     } finally {

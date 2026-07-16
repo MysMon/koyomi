@@ -58,7 +58,6 @@ const DEFAULT_OPTIONS: Omit<ResolvedCalendarOptions, 'now'> = {
   slotMinutes: 60,
   timeAxisZones: [],
   defaultEventMinutes: 60,
-  defaultEventTitle: '(タイトルなし)',
   listDays: 30,
   multiMonthCount: 3,
   timelineDays: 1,
@@ -141,7 +140,6 @@ function resolveOptions(
       options?.defaultEventMinutes ?? current.defaultEventMinutes,
       1,
     ),
-    defaultEventTitle: options?.defaultEventTitle ?? current.defaultEventTitle,
     listDays: normalizePositiveInt(options?.listDays ?? current.listDays, 1),
     multiMonthCount: normalizePositiveInt(options?.multiMonthCount ?? current.multiMonthCount, 1),
     timelineDays: normalizePositiveInt(options?.timelineDays ?? current.timelineDays, 1),
@@ -212,7 +210,6 @@ function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOpt
     a.timeAxisZones.length === b.timeAxisZones.length &&
     a.timeAxisZones.every((zone, index) => zone === b.timeAxisZones[index]) &&
     a.defaultEventMinutes === b.defaultEventMinutes &&
-    a.defaultEventTitle === b.defaultEventTitle &&
     a.listDays === b.listDays &&
     a.multiMonthCount === b.multiMonthCount &&
     a.timelineDays === b.timelineDays &&

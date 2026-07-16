@@ -158,8 +158,8 @@ export interface MonthOverflowButtonProps {
  * インタラクションのコールバック集。
  *
  * すべて省略可能で、省略時は次の既定動作になる:
- * - `onSelectRange` — {@link CalendarOptions.defaultEventTitle}
- *   （既定 `'(タイトルなし)'`）のタイトルでイベントを即時作成する
+ * - `onSelectRange` — 既定タイトル（既定 `'(タイトルなし)'`。各ビューは
+ *   `messages.common.untitledEvent` を渡す）でイベントを即時作成する
  * - `onEventClick` — 何もしない
  * - `resolveRecurringScope` — `'this'`（この予定のみ）を返す
  * - `onEventChange` — 通知のみの用途（変更の適用はライブラリが行う）

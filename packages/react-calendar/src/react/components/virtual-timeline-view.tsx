@@ -342,7 +342,11 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
   const timelineMessages = messages.timeline;
   const commonMessages = messages.common;
   const calendar = { api, state, viewModel };
-  const drag = useTimelineDrag({ calendar, callbacks });
+  const drag = useTimelineDrag({
+    calendar,
+    callbacks,
+    defaultEventTitle: commonMessages.untitledEvent,
+  });
   const stableDrag = useStableTimelineDrag(drag);
   // api の参照は再レンダリングを跨いで安定するため、onToggleCollapse も安定する
   // （`TimelineView` と同じ狙い）。

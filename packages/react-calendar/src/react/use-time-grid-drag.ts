@@ -431,10 +431,13 @@ function resolveConstraintRulesForOccurrence(
  *
  * @param params.calendar - `useCalendar` の戻り値
  * @param params.callbacks - インタラクションコールバック
+ * @param params.defaultEventTitle - 既定即時作成（空きセルのドラッグ）で使うイベントタイトル。
+ *   省略時は {@link createDefaultEvent} の既定値
  */
 export function useTimeGridDrag(params: {
   calendar: UseCalendarResult;
   callbacks?: CalendarInteractionCallbacks;
+  defaultEventTitle?: string;
 }): TimeGridDragHandlers {
   // document レベルのリスナーはクロージャで最新の params を参照する必要があるため、
   // 常に最新値を保持する ref を経由してアクセスする（レンダーの度に同期する）。
@@ -619,11 +622,11 @@ export function useTimeGridDrag(params: {
         });
         const allowed = typeof gate === 'boolean' ? gate : await gate;
         if (allowed) {
-          const { calendar, callbacks } = paramsRef.current;
+          const { calendar, callbacks, defaultEventTitle } = paramsRef.current;
           if (callbacks?.onSelectRange) {
             callbacks.onSelectRange({ range, allDay: false });
           } else {
-            createDefaultEvent(calendar.api, { range, allDay: false });
+            createDefaultEvent(calendar.api, { range, allDay: false }, defaultEventTitle);
           }
         }
       }

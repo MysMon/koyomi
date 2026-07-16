@@ -20,12 +20,9 @@ import type {
   EventOccurrence,
 } from '../core/types';
 import { formatViewTitle } from './components/format';
+import type { MessageCatalogOverrides } from './locales/types';
 import type { RangeSelection } from './types';
-import type {
-  AnnouncerFormatterContext,
-  AnnouncerMessages,
-  UseCalendarAnnouncerOptions,
-} from './use-calendar-announcer';
+import type { UseCalendarAnnouncerOptions } from './use-calendar-announcer';
 import { useCalendarAnnouncer } from './use-calendar-announcer';
 
 /** announce の連続通知対策が付与する不可視トークン（U+2060 WORD JOINER）。 */
@@ -415,7 +412,7 @@ describe('useCalendarAnnouncer', () => {
     });
 
     it('callbacks.onSelectRange が未指定の場合、既定即時作成を代行し「作成しました」で announce する', () => {
-      const calendar = makeCalendar({ defaultEventTitle: '(タイトルなし)' });
+      const calendar = makeCalendar();
       const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
       const wrapped = result.current.wrapCallbacks({});
 
@@ -726,12 +723,12 @@ describe('useCalendarAnnouncer', () => {
     });
   });
 
-  describe('messages によるカスタマイズ', () => {
-    it('messages.eventChanged を指定すると、payload・既定文言・ctx が渡り、戻り値が announce される', () => {
+  describe('messages によるカスタマイズ（中央メッセージカタログの announcer グループ）', () => {
+    it('messages.announcer.eventChanged を指定すると、change・verb・rangeLabel・resourceLabel が渡り、戻り値が announce される', () => {
       const resources: CalendarResource[] = [{ id: 'r1', title: '会議室A' }];
       const calendar = makeCalendar({ resources, locale: 'ja' });
       const eventChanged = vi.fn(() => 'カスタム文言');
-      const messages: AnnouncerMessages = { eventChanged };
+      const messages: MessageCatalogOverrides = { announcer: { eventChanged } };
       const { result } = renderHook(() => useCalendarAnnouncer({ calendar, messages }));
       const wrapped = result.current.wrapCallbacks({});
       const change = {
@@ -742,6 +739,7 @@ describe('useCalendarAnnouncer', () => {
         },
         allDay: false,
         scope: null,
+        resourceId: 'r1',
         changes: [],
       };
 
@@ -749,27 +747,22 @@ describe('useCalendarAnnouncer', () => {
         wrapped.onEventChange?.(change);
       });
 
-      expect(eventChanged).toHaveBeenCalledWith(
-        change,
-        '会議 を 7月16日 10:00〜11:00 に移動しました',
-        { timeZone: 'Asia/Tokyo', locale: 'ja', resources },
-      );
+      expect(eventChanged).toHaveBeenCalledWith(change, 'moved', '7月16日 10:00〜11:00', '会議室A');
       expect(result.current.message).toBe('カスタム文言');
     });
 
-    it('messages.eventCreated を指定すると、event・selection・既定文言・ctx が渡る', () => {
+    it('messages.announcer.eventCreated を指定すると、event・selection・rangeLabel・resourceLabel が渡る', () => {
       const calendar = makeCalendar();
       const eventCreated = vi.fn(
         (
           _event: CalendarEvent,
           _selection: RangeSelection,
-          _defaultMessage: string,
-          _ctx: AnnouncerFormatterContext,
+          _rangeLabel: string,
+          _resourceLabel: string | null,
         ) => 'カスタム作成文言',
       );
-      const { result } = renderHook(() =>
-        useCalendarAnnouncer({ calendar, messages: { eventCreated } }),
-      );
+      const messages: MessageCatalogOverrides = { announcer: { eventCreated } };
+      const { result } = renderHook(() => useCalendarAnnouncer({ calendar, messages }));
       const wrapped = result.current.wrapCallbacks({});
       const selection = {
         range: {
@@ -788,20 +781,19 @@ describe('useCalendarAnnouncer', () => {
       if (call === undefined) {
         throw new Error('eventCreated が呼ばれていません');
       }
-      const [createdArg, selectionArg, defaultMessageArg, ctxArg] = call;
+      const [createdArg, selectionArg, rangeLabelArg, resourceLabelArg] = call;
       expect(createdArg.title).toBe('(タイトルなし)');
       expect(selectionArg).toBe(selection);
-      expect(defaultMessageArg).toBe('(タイトルなし) を 7月16日 10:00〜11:00 に作成しました');
-      expect(ctxArg).toEqual({ timeZone: 'Asia/Tokyo', locale: 'ja', resources: [] });
+      expect(rangeLabelArg).toBe('7月16日 10:00〜11:00');
+      expect(resourceLabelArg).toBeNull();
       expect(result.current.message).toBe('カスタム作成文言');
     });
 
-    it('messages.eventDeleted を指定すると、deletion・既定文言・ctx が渡る', () => {
+    it('messages.announcer.eventDeleted を指定すると、deletion が渡る', () => {
       const calendar = makeCalendar();
       const eventDeleted = vi.fn(() => 'カスタム削除文言');
-      const { result } = renderHook(() =>
-        useCalendarAnnouncer({ calendar, messages: { eventDeleted } }),
-      );
+      const messages: MessageCatalogOverrides = { announcer: { eventDeleted } };
+      const { result } = renderHook(() => useCalendarAnnouncer({ calendar, messages }));
       const wrapped = result.current.wrapCallbacks({});
       const deletion = { occurrence: makeOccurrence(), scope: 'this' as const, changes: [] };
 
@@ -809,20 +801,15 @@ describe('useCalendarAnnouncer', () => {
         wrapped.onEventDelete?.(deletion);
       });
 
-      expect(eventDeleted).toHaveBeenCalledWith(deletion, '会議 を削除しました（この予定のみ）', {
-        timeZone: 'Asia/Tokyo',
-        locale: 'ja',
-        resources: [],
-      });
+      expect(eventDeleted).toHaveBeenCalledWith(deletion);
       expect(result.current.message).toBe('カスタム削除文言');
     });
 
-    it('messages.viewChanged を指定すると、info・既定文言・ctx が渡る', () => {
+    it('messages.announcer.viewChanged を指定すると、info・整形済みタイトルが渡る', () => {
       const calendar = makeCalendar();
       const viewChanged = vi.fn(() => 'カスタム表示切替文言');
-      const { result } = renderHook(() =>
-        useCalendarAnnouncer({ calendar, messages: { viewChanged } }),
-      );
+      const messages: MessageCatalogOverrides = { announcer: { viewChanged } };
+      const { result } = renderHook(() => useCalendarAnnouncer({ calendar, messages }));
       const handler = result.current.wrapRangeChange();
       const info: CalendarRangeChangeInfo = {
         view: 'month',
@@ -835,12 +822,29 @@ describe('useCalendarAnnouncer', () => {
         handler(info);
       });
 
-      expect(viewChanged).toHaveBeenCalledWith(info, '表示を2026年7月に切り替えました', {
-        timeZone: 'Asia/Tokyo',
-        locale: 'ja',
-        resources: [],
-      });
+      expect(viewChanged).toHaveBeenCalledWith(info, '2026年7月');
       expect(result.current.message).toBe('カスタム表示切替文言');
+    });
+
+    it('messages.common.untitledEvent を指定すると、既定即時作成のタイトルにも announcer の通知にも反映される', () => {
+      const calendar = makeCalendar();
+      const messages: MessageCatalogOverrides = { common: { untitledEvent: '（無題）' } };
+      const { result } = renderHook(() => useCalendarAnnouncer({ calendar, messages }));
+      const wrapped = result.current.wrapCallbacks({});
+
+      act(() => {
+        wrapped.onSelectRange?.({
+          range: {
+            start: new Date('2026-07-16T01:00:00Z'),
+            end: new Date('2026-07-16T02:00:00Z'),
+          },
+          allDay: false,
+        });
+      });
+
+      const events = calendar.api.getEvents();
+      expect(events[0]?.title).toBe('（無題）');
+      expect(result.current.message).toBe('（無題） を 7月16日 10:00〜11:00 に作成しました');
     });
   });
 

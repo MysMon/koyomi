@@ -676,7 +676,11 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
   const resourceMessages = messages.resource;
   const commonMessages = messages.common;
   const calendar = { api, state, viewModel };
-  const drag = useResourceGridDrag({ calendar, callbacks });
+  const drag = useResourceGridDrag({
+    calendar,
+    callbacks,
+    defaultEventTitle: commonMessages.untitledEvent,
+  });
   const stableDrag = useStableResourceDrag(drag);
 
   const columns: readonly ResourceColumn[] = viewModel.type === 'resource' ? viewModel.columns : [];

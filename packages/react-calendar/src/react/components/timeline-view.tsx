@@ -89,7 +89,11 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
   const timelineMessages = messages.timeline;
   const commonMessages = messages.common;
   const calendar = { api, state, viewModel };
-  const drag = useTimelineDrag({ calendar, callbacks });
+  const drag = useTimelineDrag({
+    calendar,
+    callbacks,
+    defaultEventTitle: commonMessages.untitledEvent,
+  });
   // `drag` は毎レンダー新しいオブジェクトになるため、行の memo 化が効くよう、
   // 参照が変わらないラッパー経由で渡す（詳細は関数コメント参照）。
   const stableDrag = useStableTimelineDrag(drag);

@@ -253,9 +253,8 @@ export type {
 // React: フック
 export { type UseCalendarOptions, useCalendar } from './react/use-calendar';
 export {
-  type AnnouncerFormatterContext,
-  type AnnouncerMessages,
   type AnnouncerTargets,
+  classifyEventChangeVerb,
   type LiveRegionProps,
   type UseCalendarAnnouncerOptions,
   type UseCalendarAnnouncerResult,

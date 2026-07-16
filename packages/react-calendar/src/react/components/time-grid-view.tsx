@@ -460,8 +460,16 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
   const { api, state, viewModel, callbacks, messages } = useCalendarContext();
   const commonMessages = messages.common;
   const calendar = { api, state, viewModel };
-  const dayDrag = useDayDrag({ calendar, callbacks });
-  const timeGridDrag = useTimeGridDrag({ calendar, callbacks });
+  const dayDrag = useDayDrag({
+    calendar,
+    callbacks,
+    defaultEventTitle: commonMessages.untitledEvent,
+  });
+  const timeGridDrag = useTimeGridDrag({
+    calendar,
+    callbacks,
+    defaultEventTitle: commonMessages.untitledEvent,
+  });
   // `timeGridDrag` は毎レンダー新しいオブジェクトになるため、日列・イベントボタンの
   // memo 化が効くよう、参照が変わらないラッパー経由で渡す（詳細は関数コメント参照）。
   const stableDrag = useStableColumnDrag(timeGridDrag);

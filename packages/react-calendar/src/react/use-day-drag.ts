@@ -294,10 +294,13 @@ function resolveConstraintRulesForOccurrence(
  *
  * @param params.calendar - `useCalendar` の戻り値
  * @param params.callbacks - インタラクションコールバック
+ * @param params.defaultEventTitle - 既定即時作成（空きセルのクリック/ドラッグ）で使うイベントタイトル。
+ *   省略時は {@link createDefaultEvent} の既定値
  */
 export function useDayDrag(params: {
   calendar: UseCalendarResult;
   callbacks?: CalendarInteractionCallbacks;
+  defaultEventTitle?: string;
 }): DayDragHandlers {
   const { calendar, callbacks } = params;
 
@@ -324,6 +327,8 @@ export function useDayDrag(params: {
   /** 時間グリッドへの変換ドラッグ（`snapMinutes` / `defaultEventMinutes`）で参照する。 */
   const optionsRef = useRef<ResolvedCalendarOptions>(calendar.state.options);
   optionsRef.current = calendar.state.options;
+  const defaultEventTitleRef = useRef(params.defaultEventTitle);
+  defaultEventTitleRef.current = params.defaultEventTitle;
 
   /**
    * 重なり判定用のブロッカー一覧。`calendar.viewModel` が変わらない限り
@@ -443,7 +448,7 @@ export function useDayDrag(params: {
       onSelectRange({ range, allDay: true });
       return;
     }
-    createDefaultEvent(apiRef.current, { range, allDay: true });
+    createDefaultEvent(apiRef.current, { range, allDay: true }, defaultEventTitleRef.current);
   }
 
   /**

@@ -191,11 +191,6 @@ describe('createCalendar', () => {
       expect(calendar.getState().options.slotMaxTime).toBe('24:00');
     });
 
-    it("defaultEventTitle 省略時の既定値は '(タイトルなし)' になる", () => {
-      const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
-      expect(calendar.getState().options.defaultEventTitle).toBe('(タイトルなし)');
-    });
-
     it('now 省略時の既定値は呼び出すと現在時刻に近い Date を返す関数になる', () => {
       const before = Date.now();
       const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });

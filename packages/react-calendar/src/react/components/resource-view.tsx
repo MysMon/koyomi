@@ -166,7 +166,11 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
   const resourceMessages = messages.resource;
   const commonMessages = messages.common;
   const calendar = { api, state, viewModel };
-  const drag = useResourceGridDrag({ calendar, callbacks });
+  const drag = useResourceGridDrag({
+    calendar,
+    callbacks,
+    defaultEventTitle: commonMessages.untitledEvent,
+  });
   // `drag` は毎レンダー新しいオブジェクトになるため、列・終日アイテムの
   // memo 化が効くよう、参照が変わらないラッパー経由で渡す（詳細は関数コメント参照）。
   const stableDrag = useStableResourceDrag(drag);

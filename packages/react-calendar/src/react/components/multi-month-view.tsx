@@ -99,7 +99,11 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
   const { api, state, viewModel, callbacks, messages } = useCalendarContext();
   const calendar = { api, state, viewModel };
   // コンポーネント全体で 1 インスタンス（モジュール冒頭の TSDoc を参照）。
-  const dayDrag = useDayDrag({ calendar, callbacks });
+  const dayDrag = useDayDrag({
+    calendar,
+    callbacks,
+    defaultEventTitle: messages.common.untitledEvent,
+  });
   // dayDrag は毎レンダー新しいオブジェクトになるため、MonthWeekRow（memo化済み）への
   // 再レンダー抑制が効くよう、参照が変わらないラッパー経由で渡す（詳細は
   // `month-view-parts.tsx` の useStableDayDrag のコメントを参照。全月で共有する

@@ -42,8 +42,11 @@ export type EventChangeVerb = 'moved' | 'resized' | 'convertedToAllDay' | 'conve
 
 /** {@link MessageCatalog.common} — 複数のビューで共通に使う文言。 */
 export interface CommonMessages {
-  /** `defaultEventTitle` 省略時のイベント既定タイトル。 */
-  untitledEvent: ReactNode;
+  /**
+   * 既定即時作成（`onSelectRange` 未指定時の即時作成）で使うイベントの既定タイトル。
+   * イベントデータ（`CalendarEvent.title`）にそのまま入る値のため `ReactNode` ではなく `string`。
+   */
+  untitledEvent: string;
   /** 日時範囲ラベル内で開始側・終了側を連結する区切り記号（例: `'〜'`）。 */
   rangeSeparator: string;
   /** aria-label 等で複数の項目を連結する区切り記号（例: `'、'`）。 */

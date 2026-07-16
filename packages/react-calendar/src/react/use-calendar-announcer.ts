@@ -5,31 +5,27 @@
  * `CalendarProvider` の `callbacks`（{@link CalendarInteractionCallbacks}）と
  * `useCalendar` の `onRangeChange` をラップするヘルパーを返す。予定の移動・
  * リサイズ・既定即時作成・削除の確定後、およびビュー・基準日・表示範囲の変更後に、
- * 既定の日本語文言（差し替え可）を aria-live リージョンへ通知する。
+ * 中央メッセージカタログ（`messages.announcer`、`messages` オプションで部分上書き可）の
+ * 文言を aria-live リージョンへ通知する。
  *
  * 完全に opt-in なモジュールで、既存のコンポーネント・フックの挙動・DOM は
- * 一切変更しない。
+ * 一切変更しない。`CalendarProvider` に依存せず自前でカタログを解決するため、
+ * Provider の配下に置く必要はない。
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type {
-  CalendarEvent,
   CalendarRangeChangeInfo,
   CalendarResource,
   EventOccurrence,
-  RecurringEditScope,
   TimeZoneId,
 } from '../core/types';
 import { formatViewTitle } from './components/format';
 import { formatOccurrenceRangeLabel } from './components/month-view-parts';
 import { createDefaultEvent } from './drag-common';
-import type {
-  CalendarInteractionCallbacks,
-  EventChange,
-  EventDelete,
-  RangeSelection,
-  UseCalendarResult,
-} from './types';
+import { resolveMessageCatalog } from './locales/resolve';
+import type { EventChangeVerb, MessageCatalogOverrides } from './locales/types';
+import type { CalendarInteractionCallbacks, EventChange, UseCalendarResult } from './types';
 
 /**
  * live region 要素に spread する props。`politeness` に応じて `role` / `aria-live` が切り替わる。
@@ -47,51 +43,15 @@ export interface LiveRegionProps {
 }
 
 /**
- * 既定文言のフォーマッタに渡される整形コンテキスト。
+ * 通知文言を組み立てる際に参照する現在の整形コンテキスト（`calendar` から都度求める）。
  */
-export interface AnnouncerFormatterContext {
+interface AnnouncerContext {
   /** 表示タイムゾーン。 */
   timeZone: TimeZoneId;
   /** ロケール。 */
   locale: string;
   /** `resourceId` からリソース名を解決するための現在のリソース一覧。 */
   resources: readonly CalendarResource[];
-}
-
-/**
- * 既定文言のオーバーライド。省略したキーは既定（日本語）のフォーマッタを使う。
- *
- * 各関数は「(対象データ, 既定文言, ctx)」を受け取り、`aria-label` 系 props と同じ
- * 「既定文字列を受け取って加工・置換する」規約に従う。`ctx` には日時整形に使う
- * `timeZone` / `locale` / `resources` を渡す（英語プリセット等、既定文言の語順自体を
- * 変える場合は `defaultMessage` を使わず `ctx` と対象データから組み直せる）。
- */
-export interface AnnouncerMessages {
-  /** `onEventChange`（ドラッグ・キーボードでの移動/リサイズ/終日変換の確定）。 */
-  eventChanged?: (
-    change: EventChange,
-    defaultMessage: string,
-    ctx: AnnouncerFormatterContext,
-  ) => string;
-  /** `onSelectRange` の既定即時作成が確定した直後（カスタム `onSelectRange` 経路では発火しない）。 */
-  eventCreated?: (
-    event: CalendarEvent,
-    selection: RangeSelection,
-    defaultMessage: string,
-    ctx: AnnouncerFormatterContext,
-  ) => string;
-  /** `onEventDelete`（キーボード削除の確定）。 */
-  eventDeleted?: (
-    deletion: EventDelete,
-    defaultMessage: string,
-    ctx: AnnouncerFormatterContext,
-  ) => string;
-  /** `onRangeChange`（ビュー・基準日・表示範囲の変更）。`wrapRangeChange` 経由でのみ発火。 */
-  viewChanged?: (
-    info: CalendarRangeChangeInfo,
-    defaultMessage: string,
-    ctx: AnnouncerFormatterContext,
-  ) => string;
 }
 
 /**
@@ -110,7 +70,7 @@ export interface AnnouncerTargets {
 /** {@link useCalendarAnnouncer} のオプション。 */
 export interface UseCalendarAnnouncerOptions {
   /**
-   * `useCalendar` の戻り値。既定文言の生成（`timeZone` / `locale` / `resources` の解決、
+   * `useCalendar` の戻り値。通知文言の生成（`timeZone` / `locale` / `resources` の解決、
    * 既定即時作成の代行実行）に使う。
    */
   calendar: UseCalendarResult;
@@ -118,8 +78,11 @@ export interface UseCalendarAnnouncerOptions {
   politeness?: 'polite' | 'assertive';
   /** 自動通知の対象。省略キーは既定 `true`。 */
   announce?: AnnouncerTargets;
-  /** 既定文言のオーバーライド。省略キーは既定（日本語）。 */
-  messages?: AnnouncerMessages;
+  /**
+   * 中央メッセージカタログの部分上書き。省略時は `calendar` の `locale` に対応する
+   * 既定カタログ（`messages.announcer` グループ）をそのまま使う。
+   */
+  messages?: MessageCatalogOverrides;
 }
 
 /** {@link useCalendarAnnouncer} の戻り値。 */
@@ -186,110 +149,52 @@ function buildLiveRegionProps(politeness: 'polite' | 'assertive'): LiveRegionPro
       };
 }
 
-/** `resourceId` からリソース名を解決する（未割り当て・参照先のない ID は「未割り当て」）。 */
-function resolveResourceLabel(
+/**
+ * `resourceId` からリソース名を解決する（未割り当て・参照先のない ID は
+ * `unassignedLabel`。呼び出し元は `catalog.announcer.unassignedResource` を渡す）。
+ */
+function resolveAnnouncerResourceLabel(
   resourceId: string | null | undefined,
   resources: readonly CalendarResource[],
+  unassignedLabel: string,
 ): string | null {
   if (resourceId === undefined) {
     return null;
   }
   if (resourceId === null) {
-    return '未割り当て';
+    return unassignedLabel;
   }
   const resource = resources.find((candidate) => candidate.id === resourceId);
-  return resource?.title ?? '未割り当て';
-}
-
-/** {@link RecurringEditScope} の既定の付記文言（`null` は付記なし）。 */
-function describeScope(scope: RecurringEditScope | null): string | null {
-  switch (scope) {
-    case 'this':
-      return 'この予定のみ';
-    case 'thisAndFollowing':
-      return 'これ以降のすべての予定';
-    case 'all':
-      return 'すべての予定';
-    case null:
-      return null;
-  }
+  return resource?.title ?? unassignedLabel;
 }
 
 /**
- * `EventChange` から移動・サイズ変更・終日⇔時間指定変換のいずれかを判定する。
+ * `EventChange` から移動・サイズ変更・終日⇔時間指定変換のいずれかを判定する、
+ * ロケールに依存しない分類関数。
  *
  * `occurrence.allDay` と `change.allDay` が異なる場合は変換を優先する。それ以外は
  * 区間の長さ（`duration`）が変わっていなければ移動、変わっていればサイズ変更とみなす
  * （リサイズと同時にリソース間移動が起きるような稀なケースでは判定が完全に正確では
  * ないが、常に「移動」「サイズ変更」のいずれかに倒れるため意味は破綻しない）。
+ *
+ * @param occurrence - 変更前のオカレンス
+ * @param change - 変更内容
+ * @returns イベント変更の種別
  */
-function describeChangeVerb(occurrence: EventOccurrence, change: EventChange): string {
+export function classifyEventChangeVerb(
+  occurrence: EventOccurrence,
+  change: EventChange,
+): EventChangeVerb {
   if (occurrence.allDay !== change.allDay) {
-    return change.allDay ? '終日予定に変更' : '時間指定予定に変更';
+    return change.allDay ? 'convertedToAllDay' : 'convertedToTimed';
   }
   const before = occurrence.end.getTime() - occurrence.start.getTime();
   const after = change.newRange.end.getTime() - change.newRange.start.getTime();
-  return before === after ? '移動' : 'サイズ変更';
-}
-
-/** `EventChange` の既定（日本語）文言。 */
-function defaultEventChangedMessage(change: EventChange, ctx: AnnouncerFormatterContext): string {
-  const { occurrence, newRange, resourceId } = change;
-  const verb = describeChangeVerb(occurrence, change);
-  const rangeLabel = formatOccurrenceRangeLabel(
-    newRange,
-    change.allDay,
-    ctx.timeZone,
-    ctx.locale,
-    '〜',
-  );
-  const resourceLabel = resolveResourceLabel(resourceId, ctx.resources);
-  const base = `${occurrence.event.title} を ${rangeLabel} に${verb}しました`;
-  return resourceLabel === null ? base : `${base}（${resourceLabel}）`;
-}
-
-/** 既定即時作成で作られたイベントの既定（日本語）文言。 */
-function defaultEventCreatedMessage(
-  event: CalendarEvent,
-  selection: RangeSelection,
-  ctx: AnnouncerFormatterContext,
-): string {
-  const rangeLabel = formatOccurrenceRangeLabel(
-    selection.range,
-    selection.allDay,
-    ctx.timeZone,
-    ctx.locale,
-    '〜',
-  );
-  const resourceLabel = resolveResourceLabel(selection.resourceId, ctx.resources);
-  const base = `${event.title} を ${rangeLabel} に作成しました`;
-  return resourceLabel === null ? base : `${base}（${resourceLabel}）`;
-}
-
-/** `EventDelete` の既定（日本語）文言。 */
-function defaultEventDeletedMessage(deletion: EventDelete): string {
-  const scopeLabel = describeScope(deletion.scope);
-  const base = `${deletion.occurrence.event.title} を削除しました`;
-  return scopeLabel === null ? base : `${base}（${scopeLabel}）`;
-}
-
-/** `CalendarRangeChangeInfo` の既定（日本語）文言。 */
-function defaultViewChangedMessage(
-  info: CalendarRangeChangeInfo,
-  ctx: AnnouncerFormatterContext,
-): string {
-  const title = formatViewTitle(
-    info.view,
-    info.currentDate,
-    { start: info.rangeStart, end: info.rangeEnd },
-    ctx.timeZone,
-    ctx.locale,
-  );
-  return `表示を${title}に切り替えました`;
+  return before === after ? 'moved' : 'resized';
 }
 
 /** `calendar` から現在の整形コンテキストを求める（`api.getState()` の最新値を使う）。 */
-function currentCtx(calendar: UseCalendarResult): AnnouncerFormatterContext {
+function currentCtx(calendar: UseCalendarResult): AnnouncerContext {
   const state = calendar.api.getState();
   return { timeZone: state.timeZone, locale: state.options.locale, resources: state.resources };
 }
@@ -301,7 +206,8 @@ function currentCtx(calendar: UseCalendarResult): AnnouncerFormatterContext {
  * ヘルパー（{@link UseCalendarAnnouncerResult.wrapCallbacks} /
  * {@link UseCalendarAnnouncerResult.wrapRangeChange}）を返す。予定の移動・リサイズ・
  * 既定即時作成・削除の確定後、および明示的に配線した場合はビュー変更後に、
- * 既定の日本語文言（`messages` で差し替え可）を live region へ通知する。
+ * 中央メッセージカタログ（`messages.announcer`、`messages` オプションで部分上書き可）の
+ * 文言を live region へ通知する。
  *
  * カスタムの `onSelectRange`（ダイアログ等）を使う経路では作成が確定したかどうかを
  * アプリ側しか把握できないため自動通知しない。作成確定時に
@@ -373,9 +279,21 @@ export function useCalendarAnnouncer(
           original?.(change);
           if (targetsRef.current?.eventChange ?? true) {
             const ctx = currentCtx(calendarRef.current);
-            const defaultMessage = defaultEventChangedMessage(change, ctx);
-            const custom = messagesRef.current?.eventChanged;
-            announce(custom ? custom(change, defaultMessage, ctx) : defaultMessage);
+            const catalog = resolveMessageCatalog(ctx.locale, messagesRef.current);
+            const verb = classifyEventChangeVerb(change.occurrence, change);
+            const rangeLabel = formatOccurrenceRangeLabel(
+              change.newRange,
+              change.allDay,
+              ctx.timeZone,
+              ctx.locale,
+              catalog.common.rangeSeparator,
+            );
+            const resourceLabel = resolveAnnouncerResourceLabel(
+              change.resourceId,
+              ctx.resources,
+              catalog.announcer.unassignedResource,
+            );
+            announce(catalog.announcer.eventChanged(change, verb, rangeLabel, resourceLabel));
           }
         };
       }
@@ -386,9 +304,8 @@ export function useCalendarAnnouncer(
           original?.(deletion);
           if (targetsRef.current?.eventDelete ?? true) {
             const ctx = currentCtx(calendarRef.current);
-            const defaultMessage = defaultEventDeletedMessage(deletion);
-            const custom = messagesRef.current?.eventDeleted;
-            announce(custom ? custom(deletion, defaultMessage, ctx) : defaultMessage);
+            const catalog = resolveMessageCatalog(ctx.locale, messagesRef.current);
+            announce(catalog.announcer.eventDeleted(deletion));
           }
         };
       }
@@ -399,12 +316,27 @@ export function useCalendarAnnouncer(
           originalOnSelectRange(selection);
           return;
         }
-        const created = createDefaultEvent(calendarRef.current.api, selection);
+        const ctx = currentCtx(calendarRef.current);
+        const catalog = resolveMessageCatalog(ctx.locale, messagesRef.current);
+        const created = createDefaultEvent(
+          calendarRef.current.api,
+          selection,
+          catalog.common.untitledEvent,
+        );
         if (targetsRef.current?.eventCreate ?? true) {
-          const ctx = currentCtx(calendarRef.current);
-          const defaultMessage = defaultEventCreatedMessage(created, selection, ctx);
-          const custom = messagesRef.current?.eventCreated;
-          announce(custom ? custom(created, selection, defaultMessage, ctx) : defaultMessage);
+          const rangeLabel = formatOccurrenceRangeLabel(
+            selection.range,
+            selection.allDay,
+            ctx.timeZone,
+            ctx.locale,
+            catalog.common.rangeSeparator,
+          );
+          const resourceLabel = resolveAnnouncerResourceLabel(
+            selection.resourceId,
+            ctx.resources,
+            catalog.announcer.unassignedResource,
+          );
+          announce(catalog.announcer.eventCreated(created, selection, rangeLabel, resourceLabel));
         }
       };
 
@@ -418,9 +350,15 @@ export function useCalendarAnnouncer(
       return (info: CalendarRangeChangeInfo) => {
         onRangeChange?.(info);
         const ctx = currentCtx(calendarRef.current);
-        const defaultMessage = defaultViewChangedMessage(info, ctx);
-        const custom = messagesRef.current?.viewChanged;
-        announce(custom ? custom(info, defaultMessage, ctx) : defaultMessage);
+        const catalog = resolveMessageCatalog(ctx.locale, messagesRef.current);
+        const title = formatViewTitle(
+          info.view,
+          info.currentDate,
+          { start: info.rangeStart, end: info.rangeEnd },
+          ctx.timeZone,
+          ctx.locale,
+        );
+        announce(catalog.announcer.viewChanged(info, title));
       };
     },
     [announce],

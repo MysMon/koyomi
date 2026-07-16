@@ -25,8 +25,7 @@
  *   （3フックに加え `use-day-drag.ts` と `list-view-parts.tsx` も含む 5 箇所共通）
  * - {@link createDefaultEvent} — `onSelectRange` 未指定時の既定即時作成
  *   （3フックに加え `use-day-drag.ts` と `use-calendar-announcer.ts` も含む 5 箇所共通。
- *   `defaultEventTitle` / `allDay` / `resourceId` の付与規則をここに集約し、
- *   複製を禁止する）
+ *   タイトル・`allDay` / `resourceId` の付与規則をここに集約し、複製を禁止する）
  *
  * 逆に、`startSession` 本体（`DragSession` の構造・pointermove 時の座標→日時変換や
  * レーン追従ロジック・`cancelSession`/`commitSession` の中身）は意図的に共通化して
@@ -392,13 +391,16 @@ export function eventNotificationProps(
   return props;
 }
 
+/** {@link createDefaultEvent} の `defaultEventTitle` 省略時に使う既定タイトル。 */
+const FALLBACK_DEFAULT_EVENT_TITLE = '(タイトルなし)';
+
 /**
  * `onSelectRange` 未指定時の既定即時作成を実行する（{@link CalendarInteractionCallbacks.onSelectRange}
  * の既定動作）。
  *
  * 4 つのドラッグ系フック（`use-day-drag` / `use-time-grid-drag` / `use-resource-grid-drag` /
  * `use-timeline-drag`）と `useCalendarAnnouncer` の `wrapCallbacks` が同一実装として呼ぶ。
- * `defaultEventTitle` / `allDay` / `resourceId` の付与規則をここに集約し、複製を禁止する
+ * タイトル・`allDay` / `resourceId` の付与規則をここに集約し、複製を禁止する
  * （呼び出し元ごとに個別実装すると、将来これらの扱いが変わったときに乖離するため）。
  *
  * @param api - 対象カレンダーの `CalendarApi`
@@ -406,12 +408,18 @@ export function eventNotificationProps(
  *   リソース ID。`resourceId` を省略（`undefined`）した場合はリソース対象外ビュー、
  *   `null` は未割り当てレーンを表し、いずれも作成イベントに `resourceId` を含めない
  *   （文字列の場合のみ含める）
+ * @param defaultEventTitle - 作成するイベントのタイトル。省略時は `'(タイトルなし)'`
+ *   （呼び出し元は中央メッセージカタログの `common.untitledEvent` を渡す）
  * @returns 作成されたイベント
  */
-export function createDefaultEvent(api: CalendarApi, selection: RangeSelection): CalendarEvent {
+export function createDefaultEvent(
+  api: CalendarApi,
+  selection: RangeSelection,
+  defaultEventTitle: string = FALLBACK_DEFAULT_EVENT_TITLE,
+): CalendarEvent {
   const { range, allDay, resourceId } = selection;
   return api.createEvent({
-    title: api.getState().options.defaultEventTitle,
+    title: defaultEventTitle,
     start: range.start,
     end: range.end,
     ...(allDay ? { allDay: true } : {}),

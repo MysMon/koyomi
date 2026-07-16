@@ -75,7 +75,11 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
   const { renderEvent, renderDayCell, overflowButtonProps } = props;
   const { api, state, viewModel, callbacks, messages } = useCalendarContext();
   const calendar = { api, state, viewModel };
-  const dayDrag = useDayDrag({ calendar, callbacks });
+  const dayDrag = useDayDrag({
+    calendar,
+    callbacks,
+    defaultEventTitle: messages.common.untitledEvent,
+  });
   // dayDrag は毎レンダー新しいオブジェクトになるため、MonthWeekRow（memo化済み）への
   // 再レンダー抑制が効くよう、参照が変わらないラッパー経由で渡す（詳細は
   // useStableDayDrag のコメントを参照）。

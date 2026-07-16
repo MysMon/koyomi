@@ -122,16 +122,25 @@ describe('createDefaultEvent', () => {
     end: new Date('2026-07-16T02:00:00Z'),
   };
 
-  it('defaultEventTitle・range.start/end で作成し、allDay と resourceId は既定では省略する', () => {
-    const api = createCalendar({ defaultEventTitle: '（無題）' });
+  it('第3引数（defaultEventTitle）・range.start/end で作成し、allDay と resourceId は既定では省略する', () => {
+    const api = createCalendar();
     const selection: RangeSelection = { range, allDay: false };
 
-    const created = createDefaultEvent(api, selection);
+    const created = createDefaultEvent(api, selection, '（無題）');
 
     expect(created).toMatchObject({ title: '（無題）', start: range.start, end: range.end });
     expect(created.allDay).toBeUndefined();
     expect(created.resourceId).toBeUndefined();
     expect(api.getEvents()).toEqual([created]);
+  });
+
+  it('defaultEventTitle 省略時は既定値 "(タイトルなし)" になる', () => {
+    const api = createCalendar();
+    const selection: RangeSelection = { range, allDay: false };
+
+    const created = createDefaultEvent(api, selection);
+
+    expect(created.title).toBe('(タイトルなし)');
   });
 
   it('allDay: true の選択では作成イベントにも allDay: true を付与する', () => {
@@ -154,14 +163,5 @@ describe('createDefaultEvent', () => {
 
     const notApplicable = createDefaultEvent(api, { range, allDay: false });
     expect(notApplicable.resourceId).toBeUndefined();
-  });
-
-  it('作成時点の api.getState().options.defaultEventTitle を都度読む', () => {
-    const api = createCalendar({ defaultEventTitle: '最初のタイトル' });
-    api.updateOptions({ defaultEventTitle: '更新後のタイトル' });
-
-    const created = createDefaultEvent(api, { range, allDay: false });
-
-    expect(created.title).toBe('更新後のタイトル');
   });
 });
