@@ -84,11 +84,13 @@ function untilAt(offsetDays: number, hours: number, minutes: number): string {
 export const sampleEvents: CalendarEvent[] = [
   {
     // 毎日 9:00〜9:15 に繰り返される朝会。「毎日」の繰り返しの例。
+    // 3 週間前から始まっている想定にして、今日より前の期間（月表示の前半など）にも
+    // オカレンスが並ぶようにする。
     id: 'sample-daily-standup',
     title: '朝会',
     resourceId: 'room-a',
-    start: `${dayKey(0)}T09:00:00`,
-    end: `${dayKey(0)}T09:15:00`,
+    start: `${dayKey(-21)}T09:00:00`,
+    end: `${dayKey(-21)}T09:15:00`,
     rrule: 'FREQ=DAILY',
     color: '#8e24aa',
     location: 'オンライン (Meet)',
@@ -112,23 +114,26 @@ export const sampleEvents: CalendarEvent[] = [
   },
   {
     // 今日の曜日に毎週繰り返される定例。「BYDAY」の繰り返しの例。
+    // 3 週間前開始で過去のオカレンスも表示される。さらに 3 日後に RDATE
+    // （パターン外の臨時開催）を 1 回追加した例を兼ねる。
     id: 'sample-weekly-sync',
     title: 'チーム定例',
     resourceId: 'room-a',
-    start: `${dayKey(0)}T14:00:00`,
-    end: `${dayKey(0)}T15:00:00`,
+    start: `${dayKey(-21)}T14:00:00`,
+    end: `${dayKey(-21)}T15:00:00`,
     rrule: `FREQ=WEEKLY;BYDAY=${todayByDayCode()}`,
+    rdates: [`${dayKey(3)}T14:00:00`],
     color: '#006b75',
     location: '会議室 A',
-    description: '週次の進捗確認とふりかえり。',
+    description: '週次の進捗確認とふりかえり。3 日後の回は RDATE による臨時開催。',
   },
   {
     // 毎週の企画会議。ただし 2 週間後の回だけを EXDATE で欠席（休会）にした例。
     id: 'sample-weekly-with-exdate',
     title: '企画会議',
     resourceId: 'room-b',
-    start: `${dayKey(1)}T13:00:00`,
-    end: `${dayKey(1)}T14:00:00`,
+    start: `${dayKey(-13)}T13:00:00`,
+    end: `${dayKey(-13)}T14:00:00`,
     rrule: `FREQ=WEEKLY;BYDAY=${byDayCodeForOffset(1)}`,
     exdates: [`${dayKey(15)}T13:00:00`],
     color: '#2e7d32',
@@ -148,11 +153,11 @@ export const sampleEvents: CalendarEvent[] = [
     description: '全 5 回のシリーズ（COUNT=5）。',
   },
   {
-    // 10 日後の同時刻で打ち切られる（UNTIL 付き）キャンペーン監視。
+    // 10 日後の同時刻で打ち切られる（UNTIL 付き）キャンペーン監視。5 日前開始。
     id: 'sample-until-limited',
     title: '施策モニタリング',
-    start: `${dayKey(0)}T08:00:00`,
-    end: `${dayKey(0)}T08:30:00`,
+    start: `${dayKey(-5)}T08:00:00`,
+    end: `${dayKey(-5)}T08:30:00`,
     rrule: `FREQ=DAILY;UNTIL=${untilAt(10, 8, 30)}`,
     color: '#006978',
     description: '施策終了予定日まで毎日実施（UNTIL 付き）。',
@@ -250,6 +255,35 @@ export const sampleEvents: CalendarEvent[] = [
     start: `${dayKey(1)}T15:00:00`,
     end: `${dayKey(1)}T15:30:00`,
     color: '#3f51b5',
+  },
+  {
+    // 過去の単発予定（1 週間前）。過去方向へ移動したときにも予定が見えるようにする。
+    id: 'sample-past-review',
+    title: '四半期レビュー',
+    resourceId: 'room-a',
+    start: `${dayKey(-7)}T13:00:00`,
+    end: `${dayKey(-7)}T15:00:00`,
+    color: '#5e35b1',
+    location: '会議室 A',
+  },
+  {
+    // 過去の終日予定（10 日前から 2 日間）。
+    id: 'sample-past-all-day',
+    title: '全社研修',
+    start: dayKey(-10),
+    end: dayKey(-8),
+    allDay: true,
+    color: '#00695c',
+  },
+  {
+    // 過去の単発予定（12 日前）。
+    id: 'sample-past-visit',
+    title: '顧客訪問: B社様',
+    resourceId: 'car-1',
+    start: `${dayKey(-12)}T10:00:00`,
+    end: `${dayKey(-12)}T12:00:00`,
+    color: '#ef6c00',
+    location: 'B社本社',
   },
   {
     // 毎月の最終営業日（BYSETPOS）に実施する月末締め処理。BYSETPOS は
