@@ -41,4 +41,5 @@ TypeScript/React 製のヘッドレスカレンダーライブラリのモノレ
 - **TSDoc 必須**: `export` するすべての型・関数・コンポーネントに日本語 TSDoc（`@param` / `@returns` / `@example` を適切に）
 - **型の厳しさ**: `any` 禁止（Biome でエラー）。`as` キャストは原則禁止、必要なら理由をコメントで併記。`noUncheckedIndexedAccess` / `exactOptionalPropertyTypes` 有効
 - **日付の扱い**: タイムゾーン依存の計算は必ず `src/core/timezone.ts` のユーティリティ経由で行う。素の `new Date()` の暗黙ローカル TZ に依存したロジックを core に書かない。テストは `TZ=Asia/Tokyo` 固定（`vitest.config.ts`）＋ `TZDate` で他 TZ を明示検証
+- **コミットメッセージ**: 形式は `type: 説明`（type は feat / fix / docs / test / refactor / perf / chore / ci / deps、破壊的変更は `feat!:` 等）。件名は**変更内容そのもの**（何がどう変わるか）を書く。「レビュー指摘 N 件を修正」「監査対応」「◯◯で確定した欠陥を修正」のような、経緯・指摘元・件数だけで内容が分からない件名は禁止（docs と同じ「現在の仕様を書く」原則をコミットにも適用する）。経緯・指摘元・検証結果は本文に書く
 - コミット前に `pnpm check` を通すこと
