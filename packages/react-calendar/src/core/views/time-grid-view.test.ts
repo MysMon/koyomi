@@ -62,6 +62,7 @@ function build(
     occurrences: [],
     weekStartsOn: 0,
     slotMinutes: 60,
+    locale: 'ja',
     now: at('2026-07-01T10:30', TOKYO),
     ...overrides,
   });
@@ -506,6 +507,12 @@ describe('buildTimeGridViewModel', () => {
       expect(build({ slotMinutes: -15 }).slots).toEqual([]);
       expect(build({ slotMinutes: Number.NaN }).slots).toEqual([]);
       expect(build({ slotMinutes: Number.POSITIVE_INFINITY }).slots).toEqual([]);
+    });
+
+    it("locale: 'en-US' を指定すると 12h/AM-PM 表記のラベルになる", () => {
+      const model = build({ slotMinutes: 60, locale: 'en-US' });
+      expect(model.slots[0]).toEqual({ minutes: 0, label: '12:00 AM' });
+      expect(model.slots[9]).toEqual({ minutes: 540, label: '09:00 AM' });
     });
   });
 
@@ -1036,11 +1043,11 @@ describe('buildTimeGridViewModel', () => {
 
 describe('buildSlots', () => {
   it('startMinutes/endMinutes 省略時は既定 0/1440 として全日分のスロットを生成する（回帰ペア）', () => {
-    expect(buildSlots(60)).toEqual(buildSlots(60, 0, 1440));
+    expect(buildSlots(60, 'ja')).toEqual(buildSlots(60, 'ja', 0, 1440));
   });
 
   it('(60, 480, 1200) では 8:00〜19:00 の 12 スロットになり、20:00（終了、排他境界）は含まれない', () => {
-    const slots = buildSlots(60, 480, 1200);
+    const slots = buildSlots(60, 'ja', 480, 1200);
     expect(slots).toHaveLength(12);
     expect(slots[0]).toEqual({ minutes: 480, label: '08:00' });
     expect(slots[11]).toEqual({ minutes: 1140, label: '19:00' });
@@ -1048,14 +1055,20 @@ describe('buildSlots', () => {
   });
 
   it('startMinutes が slotMinutes の倍数に整列していなくても、その値からそのまま開始する（次スロットへスナップしない）', () => {
-    const slots = buildSlots(60, 490, 1200);
+    const slots = buildSlots(60, 'ja', 490, 1200);
     expect(slots[0]).toEqual({ minutes: 490, label: '08:10' });
     expect(slots[1]).toEqual({ minutes: 550, label: '09:10' });
   });
 
   it('slotMinutes が 0 以下・非有限の場合は範囲を指定しても空配列になる（無限ループ防止ガード）', () => {
-    expect(buildSlots(0, 480, 1200)).toEqual([]);
-    expect(buildSlots(-15, 480, 1200)).toEqual([]);
+    expect(buildSlots(0, 'ja', 480, 1200)).toEqual([]);
+    expect(buildSlots(-15, 'ja', 480, 1200)).toEqual([]);
+  });
+
+  it("locale='en-US' を指定すると 12h/AM-PM 表記のラベルになる", () => {
+    const slots = buildSlots(60, 'en-US', 480, 660);
+    expect(slots[0]).toEqual({ minutes: 480, label: '08:00 AM' });
+    expect(slots[2]).toEqual({ minutes: 600, label: '10:00 AM' });
   });
 });
 

@@ -67,6 +67,7 @@ function build(params: {
   now?: Date;
   timeZone?: TimeZoneId;
   slotMinutes?: number;
+  locale?: string;
   businessHours?: readonly BusinessHoursRule[];
   slotMinTime?: string;
   slotMaxTime?: string;
@@ -78,6 +79,7 @@ function build(params: {
     resources: params.resources ?? [],
     unassignedLane: params.unassignedLane ?? 'auto',
     slotMinutes: params.slotMinutes ?? 60,
+    locale: params.locale ?? 'ja',
     now: params.now ?? at('2026-07-10T10:30'),
     ...(params.businessHours !== undefined ? { businessHours: params.businessHours } : {}),
     ...(params.slotMinTime !== undefined ? { slotMinTime: params.slotMinTime } : {}),
@@ -330,6 +332,11 @@ describe('buildResourceViewModel', () => {
       const vm = build({ slotMinutes: 360 });
       expect(vm.slots.map((slot) => slot.minutes)).toEqual([0, 360, 720, 1080]);
       expect(vm.slots[1]?.label).toBe('06:00');
+    });
+
+    it("locale: 'en-US' を指定すると slots のラベルが 12h/AM-PM 表記になる", () => {
+      const vm = build({ slotMinutes: 360, locale: 'en-US' });
+      expect(vm.slots[1]?.label).toBe('06:00 AM');
     });
   });
 

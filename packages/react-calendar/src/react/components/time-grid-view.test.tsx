@@ -49,6 +49,8 @@ interface HarnessProps {
   slotMinTime?: string;
   /** 表示時間帯の終了（{@link CalendarOptions.slotMaxTime}）。 */
   slotMaxTime?: string;
+  /** 書式ロケール（{@link CalendarOptions.locale}）。 */
+  locale?: string;
 }
 
 /** `TimeGridView` を `CalendarProvider` 配下で描画するテスト用ハーネス。 */
@@ -64,6 +66,7 @@ function Harness(props: HarnessProps): ReactElement {
     ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
     ...(props.slotMinTime !== undefined ? { slotMinTime: props.slotMinTime } : {}),
     ...(props.slotMaxTime !== undefined ? { slotMaxTime: props.slotMaxTime } : {}),
+    ...(props.locale !== undefined ? { locale: props.locale } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -159,6 +162,16 @@ describe('TimeGridView', () => {
     expect(style).toContain('4.16');
     expect(eventEl?.textContent).toContain('10:00〜11:00');
     expect(eventEl?.textContent).toContain('会議');
+  });
+
+  it("locale='en-US' では時間指定イベントの既定表示が 12h/AM-PM 表記になる", () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'Meeting', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+    ];
+    const { container } = render(<Harness initialView="day" events={events} locale="en-US" />);
+    const eventEl = container.querySelector('[data-koyomi="timegrid-event"]');
+    expect(eventEl?.textContent).toContain('10:00 AM〜11:00 AM');
+    expect(eventEl?.textContent).toContain('Meeting');
   });
 
   it('event.color を指定していない場合、timegrid-event の inline style は背景色・文字色・枠線・イベント色変数を含まない', () => {

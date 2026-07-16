@@ -120,21 +120,40 @@ export interface TimeGridViewHandle {
   scrollToTime(time: string): void;
 }
 
-/** 2 桁ゼロ埋め。 */
-function pad2(value: number): string {
-  return String(value).padStart(2, '0');
+/**
+ * {@link formatClockLabel} が使う `Intl.DateTimeFormat` インスタンスのキャッシュ。
+ * ロケールごとに 1 つだけ生成して使い回す。
+ */
+const clockLabelFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * `formatClockLabel` 用の `Intl.DateTimeFormat` をロケールごとにキャッシュして返す。
+ */
+function getClockLabelFormatter(locale: string): Intl.DateTimeFormat {
+  const cached = clockLabelFormatterCache.get(locale);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const formatter = new Intl.DateTimeFormat(locale, {
+    hour: 'numeric',
+    minute: '2-digit',
+    // 実行環境のローカル TZ の影響を受けないよう、日付部分を固定した「架空の UTC 時刻」
+    // として整形する（時刻の大小関係のみが意味を持つ値のため、実際の年月日は無関係）。
+    timeZone: 'UTC',
+  });
+  clockLabelFormatterCache.set(locale, formatter);
+  return formatter;
 }
 
-/** 分（0〜1440）を `'H:mm'` 形式（時は非ゼロ埋め）のラベルにする。 */
-function formatClockLabel(minutes: number): string {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return `${hours}:${pad2(mins)}`;
+/** 分（0〜1440）を、ロケールに応じた時刻ラベル（時は非ゼロ埋め）にする。 */
+function formatClockLabel(minutes: number, locale: string): string {
+  const fakeUtcDate = new Date(Date.UTC(2000, 0, 1, 0, 0) + minutes * 60_000);
+  return getClockLabelFormatter(locale).format(fakeUtcDate);
 }
 
 /** 時間指定イベントの既定の表示内容（`'H:mm〜H:mm タイトル'`）。 */
-function defaultTimedEventContent(item: PositionedOccurrence): string {
-  return `${formatClockLabel(item.startMinutes)}〜${formatClockLabel(item.endMinutes)} ${item.occurrence.event.title}`;
+function defaultTimedEventContent(item: PositionedOccurrence, locale: string): string {
+  return `${formatClockLabel(item.startMinutes, locale)}〜${formatClockLabel(item.endMinutes, locale)} ${item.occurrence.event.title}`;
 }
 
 /** キャッシュする `Intl.DateTimeFormat` の種別。 */
@@ -955,7 +974,7 @@ function TimeGridEventButtonImpl(props: {
       )}
     >
       <div data-koyomi="timegrid-event-content">
-        {renderEvent ? renderEvent(item) : defaultTimedEventContent(item)}
+        {renderEvent ? renderEvent(item) : defaultTimedEventContent(item, locale)}
       </div>
       {isEditable && !item.continuesBefore && (
         <div

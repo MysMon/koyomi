@@ -43,15 +43,16 @@ export function defaultListDayAriaLabel(defaultDayHeader: string, occurrenceCoun
 }
 
 /**
- * 時間指定イベントの時刻ラベルを作る（表示タイムゾーンにおける `'HH:mm〜HH:mm'`）。
+ * 時間指定イベントの時刻ラベルを作る（表示タイムゾーンにおける、ロケールに応じた時刻表記の範囲）。
  * 終日イベントのラベルは呼び出し側で `allDayLabel` を直接使うため、ここでは扱わない。
  */
 export function formatTimedEventTimeLabel(
   occurrence: EventOccurrence,
   timeZone: TimeZoneId,
+  locale: string,
 ): string {
-  const startLabel = formatSlotLabel(minutesOfDayInZone(occurrence.start, timeZone));
-  const endLabel = formatSlotLabel(minutesOfDayInZone(occurrence.end, timeZone));
+  const startLabel = formatSlotLabel(minutesOfDayInZone(occurrence.start, timeZone), locale);
+  const endLabel = formatSlotLabel(minutesOfDayInZone(occurrence.end, timeZone), locale);
   return `${startLabel}〜${endLabel}`;
 }
 
@@ -194,7 +195,9 @@ export function ListDaySection(props: ListDaySectionProps): ReactElement {
           ) : (
             <>
               <span data-koyomi="list-event-time">
-                {occurrence.allDay ? allDayLabel : formatTimedEventTimeLabel(occurrence, timeZone)}
+                {occurrence.allDay
+                  ? allDayLabel
+                  : formatTimedEventTimeLabel(occurrence, timeZone, locale)}
               </span>
               <span
                 data-koyomi="list-event-swatch"

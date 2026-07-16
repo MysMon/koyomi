@@ -767,16 +767,33 @@ describe('parseSlotBoundaryTime', () => {
 });
 
 describe('formatSlotLabel', () => {
-  it("540 分は '09:00' になる（TSDoc の @example）", () => {
-    expect(formatSlotLabel(540)).toBe('09:00');
+  describe("locale='ja'（既存の pad2 実装と完全一致する）", () => {
+    it("540 分は '09:00' になる（TSDoc の @example）", () => {
+      expect(formatSlotLabel(540, 'ja')).toBe('09:00');
+    });
+
+    it('境界値: 0 分と 1439 分', () => {
+      expect(formatSlotLabel(0, 'ja')).toBe('00:00');
+      expect(formatSlotLabel(1439, 'ja')).toBe('23:59');
+    });
+
+    it('1 桁の時・分はゼロ埋めされる', () => {
+      expect(formatSlotLabel(65, 'ja')).toBe('01:05');
+    });
   });
 
-  it('境界値: 0 分と 1439 分', () => {
-    expect(formatSlotLabel(0)).toBe('00:00');
-    expect(formatSlotLabel(1439)).toBe('23:59');
-  });
+  describe("locale='en-US'（12h/AM-PM 表記になる）", () => {
+    it("540 分は '09:00 AM' になる（TSDoc の @example）", () => {
+      expect(formatSlotLabel(540, 'en-US')).toBe('09:00 AM');
+    });
 
-  it('1 桁の時・分はゼロ埋めされる', () => {
-    expect(formatSlotLabel(65)).toBe('01:05');
+    it('境界値: 0 分は正午 12 時始まりの表記、1439 分は午後 11:59 になる', () => {
+      expect(formatSlotLabel(0, 'en-US')).toBe('12:00 AM');
+      expect(formatSlotLabel(1439, 'en-US')).toBe('11:59 PM');
+    });
+
+    it('1 桁の時・分はゼロ埋めされる', () => {
+      expect(formatSlotLabel(65, 'en-US')).toBe('01:05 AM');
+    });
   });
 });

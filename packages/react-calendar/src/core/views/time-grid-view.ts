@@ -370,11 +370,12 @@ export function buildDayItems(
  * 時間軸の目盛りを生成する。
  *
  * `startMinutes` から `endMinutes` 分未満まで `slotMinutes` 刻みで生成し、
- * ラベルは {@link formatSlotLabel}（`'HH:mm'` 形式）で付ける。`startMinutes` が
+ * ラベルは {@link formatSlotLabel}（ロケールに応じた時刻表記）で付ける。`startMinutes` が
  * `slotMinutes` の倍数に整列していない場合でも、次のスロット境界へスナップせず
  * `startMinutes` ちょうどから素直に開始する。
  *
  * @param slotMinutes - 目盛り間隔（分）。0 以下・非有限の場合は空配列を返す
+ * @param locale - ラベルの整形に使うロケール
  * @param startMinutes - 生成開始（分）。省略時は `0`
  * @param endMinutes - 生成終了（分、排他的）。省略時は `1440`
  *
@@ -383,6 +384,7 @@ export function buildDayItems(
  */
 export function buildSlots(
   slotMinutes: number,
+  locale: string,
   startMinutes: number = 0,
   endMinutes: number = MINUTES_PER_DAY,
 ): TimeSlot[] {
@@ -392,7 +394,7 @@ export function buildSlots(
     return slots;
   }
   for (let minutes = startMinutes; minutes < endMinutes; minutes += slotMinutes) {
-    slots.push({ minutes, label: formatSlotLabel(minutes) });
+    slots.push({ minutes, label: formatSlotLabel(minutes, locale) });
   }
   return slots;
 }
@@ -445,6 +447,7 @@ export function buildBusinessHourSlots(
  * @param params.timeZone - 表示タイムゾーン（主軸）
  * @param params.slots - 主軸の目盛り（{@link buildSlots} の結果）
  * @param params.timeAxisZones - 追加軸のタイムゾーン一覧。省略時は `[]`
+ * @param params.locale - ラベルの整形に使うロケール
  * @returns 主軸を先頭とする時間軸配列（`timeAxisZones` 未指定時は主軸のみの 1 要素配列）
  */
 export function buildTimeAxes(params: {
@@ -452,8 +455,9 @@ export function buildTimeAxes(params: {
   timeZone: TimeZoneId;
   slots: readonly TimeSlot[];
   timeAxisZones: readonly TimeZoneId[];
+  locale: string;
 }): readonly TimeAxis[] {
-  const { rangeStart, timeZone, slots, timeAxisZones } = params;
+  const { rangeStart, timeZone, slots, timeAxisZones, locale } = params;
 
   // 主軸は slots と同内容なので参照をそのまま共有する（readonly のため複製不要。
   // ビューモデル再構築のたびに全スロットを複製する無駄を避ける）
@@ -464,7 +468,7 @@ export function buildTimeAxes(params: {
     slots: slots.map((slot) => {
       const instant = addMinutesInZone(rangeStart, slot.minutes, timeZone);
       const zonedMinutes = minutesOfDayInZone(instant, zone);
-      return { minutes: slot.minutes, label: formatSlotLabel(zonedMinutes) };
+      return { minutes: slot.minutes, label: formatSlotLabel(zonedMinutes, locale) };
     }),
   }));
 
@@ -525,6 +529,7 @@ function lowerBoundGreaterThan(sorted: readonly number[], value: number): number
  * @param params.occurrences - 表示範囲で展開済みのオカレンス一覧
  * @param params.weekStartsOn - 週の開始曜日（`'week'` のときのみ使用）
  * @param params.slotMinutes - 時間軸の目盛り間隔（分）
+ * @param params.locale - 時間軸ラベルの整形に使うロケール
  * @param params.now - 現在時刻（`isToday` 判定と現在時刻線に使用）
  * @param params.hiddenWeekdays - 非表示にする曜日（`'week'` のときのみ有効）。省略時は `[]`
  * @param params.timeAxisZones - 時間軸に並べる追加のタイムゾーン（{@link buildTimeAxes} 参照）。省略時は `[]`
@@ -544,6 +549,7 @@ export function buildTimeGridViewModel(params: {
   occurrences: readonly EventOccurrence[];
   weekStartsOn: Weekday;
   slotMinutes: number;
+  locale: string;
   now: Date;
   hiddenWeekdays?: readonly Weekday[];
   timeAxisZones?: readonly TimeZoneId[];
@@ -559,6 +565,7 @@ export function buildTimeGridViewModel(params: {
     occurrences,
     weekStartsOn,
     slotMinutes,
+    locale,
     now,
     hiddenWeekdays = [],
     timeAxisZones = [],
@@ -666,12 +673,12 @@ export function buildTimeGridViewModel(params: {
   }
 
   // days（timeAxes を含む）より前に計算する必要がある
-  const slots = buildSlots(slotMinutes, slotMinTimeMinutes, slotMaxTimeMinutes);
+  const slots = buildSlots(slotMinutes, locale, slotMinTimeMinutes, slotMaxTimeMinutes);
 
   // 週で共有する時間軸（rangeStart 基準）。追加軸がなければ日別の差
   // （DST 対応の日別算出）は生じないため、全日でこの配列を共有し、
   // 日ごとの無駄なアロケーションを避ける
-  const sharedTimeAxes = buildTimeAxes({ rangeStart, timeZone, slots, timeAxisZones });
+  const sharedTimeAxes = buildTimeAxes({ rangeStart, timeZone, slots, timeAxisZones, locale });
   // businessHours 未指定時は曜日によらず全スロット false になるため、
   // 1 本だけ生成して全日で共有する
   const sharedBusinessHourSlots =
@@ -704,7 +711,7 @@ export function buildTimeGridViewModel(params: {
       timeAxes:
         timeAxisZones.length === 0
           ? sharedTimeAxes
-          : buildTimeAxes({ rangeStart: dayStart, timeZone, slots, timeAxisZones }),
+          : buildTimeAxes({ rangeStart: dayStart, timeZone, slots, timeAxisZones, locale }),
       // この日の曜日を基準に営業時間内フラグを付与する。businessHours 未指定時は
       // 全スロット false の共有配列を使う
       businessHourSlots:

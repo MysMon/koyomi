@@ -67,6 +67,7 @@ function build(params: {
   unassignedLane?: 'auto' | 'always';
   timelineDays?: number;
   slotMinutes?: number;
+  locale?: string;
   timelineScale?: TimelineScale;
   weekStartsOn?: Weekday;
   currentDate?: Date;
@@ -83,6 +84,7 @@ function build(params: {
     unassignedLane: params.unassignedLane ?? 'auto',
     timelineDays: params.timelineDays ?? 3,
     slotMinutes: params.slotMinutes ?? 60,
+    locale: params.locale ?? 'ja',
     timelineScale: params.timelineScale ?? 'hour',
     weekStartsOn: params.weekStartsOn ?? 0,
     now: params.now ?? at('2026-07-10T10:30'),
@@ -126,6 +128,11 @@ describe('buildTimelineViewModel', () => {
       const vm = build({ timelineDays: 2, slotMinutes: 550 });
       expect(vm.slots).toHaveLength(6);
       expect(vm.slots.map((slot) => slot.minutes)).toEqual([0, 550, 1100, 1440, 1990, 2540]);
+    });
+
+    it("locale: 'en-US' を指定すると 'hour' スケールのラベルが 12h/AM-PM 表記になる", () => {
+      const vm = build({ timelineDays: 1, slotMinutes: 720, locale: 'en-US' });
+      expect(vm.slots.map((slot) => slot.label)).toEqual(['12:00 AM', '12:00 PM']);
     });
   });
 

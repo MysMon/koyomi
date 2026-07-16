@@ -25,8 +25,14 @@ describe('list-view-parts', () => {
     expect(defaultListDayAriaLabel('7月15日(水)', 2)).toBe('7月15日(水) 予定2件');
   });
 
-  it('時間指定イベントを表示タイムゾーンの時刻範囲へ整形する', () => {
-    expect(formatTimedEventTimeLabel(occurrence(), 'Asia/Tokyo')).toBe('10:05〜11:35');
+  it('時間指定イベントを表示タイムゾーンの時刻範囲へ整形する（locale=ja）', () => {
+    expect(formatTimedEventTimeLabel(occurrence(), 'Asia/Tokyo', 'ja')).toBe('10:05〜11:35');
+  });
+
+  it('locale=en-US では 12h/AM-PM 表記の時刻範囲になる', () => {
+    expect(formatTimedEventTimeLabel(occurrence(), 'Asia/Tokyo', 'en-US')).toBe(
+      '10:05 AM〜11:35 AM',
+    );
   });
 
   it('色指定時だけイベント色 CSS 変数を返す', () => {

@@ -372,16 +372,45 @@ export function parseDateValue(value: Date | string, timeZone: TimeZoneId, allDa
 }
 
 /**
- * その日の 0:00 からの分数を `'HH:mm'` 形式のラベルにする。
+ * {@link formatSlotLabel} が使う `Intl.DateTimeFormat` インスタンスのキャッシュ。
+ * ロケールごとに 1 つだけ生成して使い回す（生成コストのある `Intl.DateTimeFormat` を
+ * スロットの数だけ毎回 `new` しないため）。
+ */
+const slotLabelFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * `formatSlotLabel` 用の `Intl.DateTimeFormat` をロケールごとにキャッシュして返す。
+ */
+function getSlotLabelFormatter(locale: string): Intl.DateTimeFormat {
+  const cached = slotLabelFormatterCache.get(locale);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const formatter = new Intl.DateTimeFormat(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+    // 実行環境のローカル TZ の影響を受けないよう、日付部分を固定した「架空の UTC 時刻」
+    // として整形する（時刻の大小関係のみが意味を持つ値のため、実際の年月日は無関係）。
+    timeZone: 'UTC',
+  });
+  slotLabelFormatterCache.set(locale, formatter);
+  return formatter;
+}
+
+/**
+ * その日の 0:00 からの分数を、ロケールに応じた時刻ラベルにする。
  *
  * @param minutes - 0〜1439 の分数
+ * @param locale - 整形に使うロケール（例: `'ja'`、`'en-US'`）
  * @example
  * ```ts
- * formatSlotLabel(540); // => '09:00'
+ * formatSlotLabel(540, 'ja'); // => '09:00'
+ * formatSlotLabel(540, 'en-US'); // => '09:00 AM'
  * ```
  */
-export function formatSlotLabel(minutes: number): string {
-  return `${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`;
+export function formatSlotLabel(minutes: number, locale: string): string {
+  const fakeUtcDate = new Date(Date.UTC(2000, 0, 1, 0, 0) + minutes * 60_000);
+  return getSlotLabelFormatter(locale).format(fakeUtcDate);
 }
 
 /**

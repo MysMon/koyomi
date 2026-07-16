@@ -253,6 +253,7 @@ function buildHeaderGroups(
  * @param params.unassignedLane - 未割り当てレーンの生成規則
  * @param params.timelineDays - 表示日数
  * @param params.slotMinutes - 時間軸の目盛り間隔（分）。`timelineScale` が `'hour'` のときのみ使用
+ * @param params.locale - 時間軸ラベルの整形に使うロケール（`timelineScale` が `'hour'` のときのみ使用）
  * @param params.timelineScale - ズーム粒度。`'hour'` 以外では目盛り・ヘッダーの構成が変わる
  * @param params.weekStartsOn - 週の開始曜日（`timelineScale: 'week'` のグループ境界に使用）
  * @param params.now - 現在時刻（`isToday` 判定・現在時刻線に使用）
@@ -272,6 +273,7 @@ function buildHeaderGroups(
  *   unassignedLane: 'auto',
  *   timelineDays: 7,
  *   slotMinutes: 60,
+ *   locale: 'ja',
  *   timelineScale: 'hour',
  *   weekStartsOn: 0,
  *   now: new Date(),
@@ -287,6 +289,7 @@ export function buildTimelineViewModel(params: {
   unassignedLane: 'auto' | 'always';
   timelineDays: number;
   slotMinutes: number;
+  locale: string;
   timelineScale: TimelineScale;
   weekStartsOn: Weekday;
   now: Date;
@@ -301,6 +304,7 @@ export function buildTimelineViewModel(params: {
     unassignedLane,
     timelineDays,
     slotMinutes,
+    locale,
     timelineScale,
     weekStartsOn,
     now,
@@ -345,7 +349,7 @@ export function buildTimelineViewModel(params: {
           slots.push({
             minutes: dayIndex * MINUTES_PER_DAY + minutes,
             dayKey: day.key,
-            label: formatSlotLabel(minutes),
+            label: formatSlotLabel(minutes, locale),
           });
         }
       });

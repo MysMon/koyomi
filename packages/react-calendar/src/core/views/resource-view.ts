@@ -86,6 +86,7 @@ function compareAllDayItems(a: EventOccurrence, b: EventOccurrence): number {
  * @param params.resources - リソース一覧（表示順）
  * @param params.unassignedLane - 未割り当てレーンの生成規則
  * @param params.slotMinutes - 時間軸の目盛り間隔（分）
+ * @param params.locale - 時間軸ラベルの整形に使うロケール
  * @param params.now - 現在時刻（`isToday` 判定・現在時刻線に使用）
  * @param params.businessHours - 営業時間の指定一覧（{@link ResourceViewModel.businessHourSlots}
  *   を算出する）。リソースビューは表示日が単日のため、表示日の曜日を基準に 1 本だけ生成し
@@ -103,6 +104,7 @@ function compareAllDayItems(a: EventOccurrence, b: EventOccurrence): number {
  *   resources: [{ id: 'room-a', title: '会議室A' }],
  *   unassignedLane: 'auto',
  *   slotMinutes: 60,
+ *   locale: 'ja',
  *   now: new Date(),
  * });
  * viewModel.columns[0]?.key; // => 'r:room-a'
@@ -115,6 +117,7 @@ export function buildResourceViewModel(params: {
   resources: readonly CalendarResource[];
   unassignedLane: 'auto' | 'always';
   slotMinutes: number;
+  locale: string;
   now: Date;
   businessHours?: readonly BusinessHoursRule[];
   slotMinTime?: string;
@@ -127,6 +130,7 @@ export function buildResourceViewModel(params: {
     resources,
     unassignedLane,
     slotMinutes,
+    locale,
     now,
     businessHours = [],
     slotMinTime = '00:00',
@@ -206,7 +210,7 @@ export function buildResourceViewModel(params: {
     });
   }
 
-  const slots = buildSlots(slotMinutes, slotMinTimeMinutes, slotMaxTimeMinutes);
+  const slots = buildSlots(slotMinutes, locale, slotMinTimeMinutes, slotMaxTimeMinutes);
   // リソースビューは表示日が単日のため、その日の曜日を基準に 1 本だけ生成し全列で共有する
   // （列ごとの再計算はしない。businessHours 未指定時は buildBusinessHourSlots がすべて
   // isBusinessHours: false の配列を返すため、追加の分岐なしで従来の出力と一致する）
