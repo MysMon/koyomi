@@ -72,6 +72,8 @@ interface HarnessProps {
   unassignedLane?: 'auto' | 'always';
   snapMinutes?: number;
   defaultEventMinutes?: number;
+  slotMinTime?: string;
+  slotMaxTime?: string;
   eventOverlap?: boolean;
   eventConstraint?: 'businessHours' | readonly BusinessHoursRule[];
   businessHours?: readonly BusinessHoursRule[];
@@ -95,6 +97,8 @@ function Harness(props: HarnessProps): ReactElement {
     ...(props.defaultEventMinutes !== undefined
       ? { defaultEventMinutes: props.defaultEventMinutes }
       : {}),
+    ...(props.slotMinTime !== undefined ? { slotMinTime: props.slotMinTime } : {}),
+    ...(props.slotMaxTime !== undefined ? { slotMaxTime: props.slotMaxTime } : {}),
     ...(props.eventOverlap !== undefined ? { eventOverlap: props.eventOverlap } : {}),
     ...(props.eventConstraint !== undefined ? { eventConstraint: props.eventConstraint } : {}),
     ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
@@ -1114,5 +1118,48 @@ describe('useExternalDrag - 宣言的な重なり・配置制約', () => {
     movePointer(50, 660);
     releasePointer(50, 660);
     expect(onExternalDrop).toHaveBeenCalledTimes(1);
+  });
+
+  it('週ビューで slotMinTime/slotMaxTime の表示時間帯外にある既存イベントとの重なりも eventOverlap: false のもとで拒否される（ビューモデルに描画されない予定が対象）', () => {
+    // 外部ドラッグのドロップ位置計算（resolveTimeGridDrop）は slotMinTime/slotMaxTime で
+    // クランプされないため、表示時間帯外（20:00）へもドロップし得る。その位置にある
+    // 既存イベントは day.items から除外され、ビューモデル由来のブロッカー収集では見えない。
+    const onExternalDrop = vi.fn();
+    const existingHidden: CalendarEvent = {
+      id: 'existing-hidden',
+      title: '既存（表示時間帯外）',
+      start: '2026-07-15T20:00',
+      end: '2026-07-15T20:30',
+    };
+    const calendarSink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(
+      <Harness
+        view="week"
+        events={[existingHidden]}
+        onExternalDrop={onExternalDrop}
+        calendarSink={calendarSink}
+        eventOverlap={false}
+        slotMinTime="08:00"
+        slotMaxTime="18:00"
+        snapMinutes={15}
+        defaultEventMinutes={30}
+      />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const column = container.querySelector(
+      '[data-koyomi="timegrid-day"][data-koyomi-date="2026-07-15"]',
+    );
+    if (!(source instanceof HTMLElement) || !(column instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockRect(column, { left: 0, top: 0, width: 100, height: 1440 });
+    mockElementsFromPoint([column]);
+
+    firePointerDown(source);
+    movePointer(50, 1200); // 20:00（表示時間帯外だがドロップ位置はクランプされない）
+    expect(calendarSink.current?.state.dragPreview?.invalid).toBe(true);
+
+    releasePointer(50, 1200);
+    expect(onExternalDrop).not.toHaveBeenCalled();
   });
 });

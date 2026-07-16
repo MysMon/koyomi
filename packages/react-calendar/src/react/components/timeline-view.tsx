@@ -176,6 +176,7 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
             totalMinutes={totalMinutes}
             timeZone={timeZone}
             locale={locale}
+            rangeSeparator={commonMessages.rangeSeparator}
           />
         </div>
         {rows.map((row) => (

@@ -1698,4 +1698,40 @@ describe('useTimelineDrag - 宣言的な重なり・配置制約', () => {
 
     expect(onEventChange).not.toHaveBeenCalled();
   });
+
+  it('矢印キーによる移動は表示範囲（タイムラインの表示日数）外の日にある既存イベントとの重なりも拒否される（ビューモデルに含まれない日が対象）', () => {
+    // timelineDays: 1 の表示範囲は DAY0 のみ。前日（PREV_DAY）に終始する既存の
+    // 終日イベントは row.items に現れず、ビューモデル由来のブロッカー収集では見えない。
+    const existingHidden: CalendarEvent = {
+      id: 'existing-hidden',
+      title: '既存（表示範囲外）',
+      start: PREV_DAY,
+      end: DAY0,
+      allDay: true,
+      resourceId: 'crane-1',
+    };
+    const moving: CalendarEvent = {
+      id: 'moving',
+      title: '対象',
+      start: DAY0,
+      end: '2026-07-16',
+      allDay: true,
+      resourceId: 'crane-1',
+    };
+    const onEventChange = vi.fn();
+    const { container } = renderHarness({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [existingHidden, moving],
+      callbacks: { onEventChange },
+      eventOverlap: false,
+    });
+    const itemEl = getItemElement(container, 'moving', DAY0);
+
+    // ArrowLeft で前日（表示範囲外）へ移動。終日の帯は daySnap のため 1 日単位で
+    // 移動し、前日には重なる既存の終日イベントがあるため拒否される
+    fireEvent.keyDown(itemEl, { key: 'ArrowLeft' });
+
+    expect(onEventChange).not.toHaveBeenCalled();
+  });
 });

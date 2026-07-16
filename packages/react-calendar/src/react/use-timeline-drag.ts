@@ -29,10 +29,9 @@ import type {
   PointerEvent as ReactPointerEvent,
   Ref,
 } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   isDragCandidateValid,
-  type OverlapBlocker,
   occurrenceBlocksOverlap,
   resolveConstraintRules,
 } from '../core/constraints';
@@ -52,7 +51,6 @@ import {
 import type {
   BusinessHoursRule,
   CalendarEventPatch,
-  CalendarViewModel,
   DateRange,
   EventOccurrence,
   RecurringEditScope,
@@ -66,6 +64,7 @@ import {
   checkBeforeEventChange,
   checkBeforeEventDelete,
   checkBeforeSelectRange,
+  collectOverlapBlockersInRange,
   createAutoScrollLoop,
   createDefaultEvent,
   type EventNotificationProps,
@@ -193,48 +192,6 @@ function fractionXFromClientX(rect: DOMRect, clientX: number): number {
 }
 
 /**
- * 現在のビューモデルから、行（レーン）ごとの重なり判定用ブロッカー一覧を構築する。
- *
- * レーン（リソース ID。未割り当ては `null`）ごとに、その行の帯（`row.items`、
- * 終日・時間指定の区別なく同じレーン空間に配置済み）を対象にする。
- */
-function collectTimelineBlockersByLane(
-  viewModel: CalendarViewModel,
-  eventOverlap: boolean,
-): Map<string | null, readonly OverlapBlocker[]> {
-  const result = new Map<string | null, readonly OverlapBlocker[]>();
-  if (viewModel.type !== 'timeline') {
-    return result;
-  }
-  for (const row of viewModel.rows) {
-    const laneId = row.resource?.id ?? null;
-    const lane = new Map<string, OverlapBlocker>();
-    for (const item of row.items) {
-      const occurrence = item.occurrence;
-      if (lane.has(occurrence.key)) {
-        continue;
-      }
-      lane.set(occurrence.key, {
-        key: occurrence.key,
-        start: occurrence.start,
-        end: occurrence.end,
-        blocksOverlap: occurrenceBlocksOverlap(occurrence.event, eventOverlap),
-      });
-    }
-    result.set(laneId, [...lane.values()]);
-  }
-  return result;
-}
-
-/** 指定レーン（リソース ID。未割り当ては `null`）のブロッカー一覧を返す（未知のレーンは空配列）。 */
-function blockersForLane(
-  byLane: Map<string | null, readonly OverlapBlocker[]>,
-  laneId: string | null,
-): readonly OverlapBlocker[] {
-  return byLane.get(laneId) ?? [];
-}
-
-/**
  * 動かしている側の overlap 実効値（重なりを拒否するか）を求める。
  * 新規作成（`occurrence` が `null`）では動かしている側の個別設定が存在しないため、
  * グローバル `eventOverlap` をそのまま動かしている側の値として使う。
@@ -292,22 +249,6 @@ export function useTimelineDrag(params: {
   /** 直後の click イベントを 1 回だけ抑制するフラグ。 */
   const suppressNextClickRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
-
-  /**
-   * レーンごとの重なり判定用ブロッカー一覧。`calendar.viewModel` が変わらない限り
-   * （= ビューモデルに影響する状態が変わらない限り）再計算しない
-   * （毎 pointermove の再計算を避けるための memo 化）。
-   */
-  const blockersByLane = useMemo(
-    () =>
-      collectTimelineBlockersByLane(
-        params.calendar.viewModel,
-        params.calendar.state.options.eventOverlap,
-      ),
-    [params.calendar.viewModel, params.calendar.state.options.eventOverlap],
-  );
-  const blockersByLaneRef = useRef(blockersByLane);
-  blockersByLaneRef.current = blockersByLane;
 
   useEffect(() => {
     return () => {
@@ -466,13 +407,16 @@ export function useTimelineDrag(params: {
     allDay: boolean,
     laneId: string | null,
   ): boolean {
-    const { state } = paramsRef.current.calendar;
+    const { state, api } = paramsRef.current.calendar;
     return isDragCandidateValid({
       range,
       allDay,
       excludeKey: occurrence?.key ?? null,
       moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, state.options.eventOverlap),
-      blockers: blockersForLane(blockersByLaneRef.current, laneId),
+      blockers: collectOverlapBlockersInRange(api, range, state.options.eventOverlap, {
+        resources: state.resources,
+        laneId,
+      }),
       constraintRules: resolveConstraintRulesForOccurrence(
         occurrence,
         state.options.eventConstraint,

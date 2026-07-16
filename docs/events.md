@@ -445,8 +445,10 @@ function App() {
 ```
 
 - **`push(changes)`** — 1 操作分の変更を履歴に積む。`onEventChange` / `onEventDelete`
-  内、または `api.createEvent` / `updateEvent` / `deleteEvent` の戻り値を得た直後に
-  呼びます。`changes` が空配列なら何もしません。`onSelectRange` を省略した場合の
+  内、または `api.updateEvent` / `deleteEvent` の戻り値（`EventChangeEntry[]`）を得た
+  直後に呼びます。`api.createEvent` の戻り値は作成された `CalendarEvent` 単体なので、
+  `history.push([{ after: created }])` のように 1 件のエントリに包んで積みます。
+  `changes` が空配列なら何もしません。`onSelectRange` を省略した場合の
   既定即時作成は `changes` を取得する手段がないため、履歴に積めません（既定即時作成の
   通知を扱いたい場合は [アクセシビリティ: 変更の読み上げ通知](./accessibility.md#変更の読み上げ通知usecalendarannouncer) の `useCalendarAnnouncer` を参照してください）
 - **`undo()` / `redo()`** — 直前の操作を取り消す・やり直す。`push` を呼んだ直後に

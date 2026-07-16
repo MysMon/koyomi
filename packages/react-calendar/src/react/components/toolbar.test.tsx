@@ -138,7 +138,7 @@ describe('Toolbar', () => {
     expect(capture.current?.api.getVisibleRange()).toEqual(range);
 
     const title = container.querySelector('[data-koyomi="title"]');
-    expect(title?.textContent).toBe(formatRangeTitle(range, 'Asia/Tokyo', 'ja'));
+    expect(title?.textContent).toBe(formatRangeTitle(range, 'Asia/Tokyo', 'ja', '〜'));
   });
 
   it('リストビューのタイトルは getVisibleRange を formatRangeTitle した文字列になる', () => {
@@ -151,7 +151,7 @@ describe('Toolbar', () => {
     });
 
     const title = container.querySelector('[data-koyomi="title"]');
-    expect(title?.textContent).toBe(formatRangeTitle(range, 'Asia/Tokyo', 'ja'));
+    expect(title?.textContent).toBe(formatRangeTitle(range, 'Asia/Tokyo', 'ja', '〜'));
   });
 
   it('next / prev クリックで currentDate が移動し、title も追従する', () => {
@@ -452,7 +452,31 @@ describe('Toolbar', () => {
     const range = capture.current?.api.getVisibleRange();
     expect(range).toBeDefined();
     if (range === undefined) throw new Error('unreachable');
-    expect(title?.textContent).toBe(formatRangeTitle(range, 'Asia/Tokyo', 'ja'));
+    expect(title?.textContent).toBe(formatRangeTitle(range, 'Asia/Tokyo', 'ja', '〜'));
     expect(title?.textContent).not.toBe(formatDayTitle(NOW, 'Asia/Tokyo', 'ja'));
+  });
+
+  it("locale='en-US' の週ビュータイトルは中央カタログの rangeSeparator（'–'）を使う「July 12–July 18」形式になる（〜のハードコードを使わない）", () => {
+    const { container, capture } = renderToolbar(
+      'week',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'en-US',
+    );
+    const range = capture.current?.api.getVisibleRange();
+    expect(range).toBeDefined();
+    if (range === undefined) throw new Error('unreachable');
+
+    const title = container.querySelector('[data-koyomi="title"]');
+    expect(title?.textContent).toBe(formatRangeTitle(range, 'Asia/Tokyo', 'en-US', '–'));
+    expect(title?.textContent).toBe('July 12–July 18');
+  });
+
+  it('messages.common.rangeSeparator を部分上書きすると週ビュータイトルの区切り記号が反映される', () => {
+    const { container } = renderToolbar('week', { common: { rangeSeparator: ' – ' } });
+    const title = container.querySelector('[data-koyomi="title"]');
+    expect(title?.textContent).toBe('7月12日 – 7月18日');
   });
 });

@@ -2115,4 +2115,69 @@ describe('useTimeGridDrag - 宣言的な重なり・配置制約', () => {
 
     expect(onEventChange).not.toHaveBeenCalled();
   });
+
+  it('矢印キーによる移動は表示時間帯（slotMinTime/slotMaxTime）外にある既存イベントとの重なりも拒否される（ビューモデルに描画されない予定が対象）', () => {
+    // slotMaxTime: '18:00' の表示時間帯外（19:00〜20:00）にある既存イベントは
+    // day.items に含まれず、ビューモデル由来のブロッカー収集では見えない。
+    const existing: CalendarEvent = {
+      id: 'existing-hidden',
+      title: '既存（表示時間帯外）',
+      start: `${MON}T19:00`,
+      end: `${MON}T20:00`,
+    };
+    const moving: CalendarEvent = {
+      id: 'moving',
+      title: '対象',
+      start: `${MON}T17:00`,
+      end: `${MON}T18:00`,
+    };
+    const onEventChange = vi.fn();
+    renderHarness({
+      events: [existing, moving],
+      callbacks: { onEventChange },
+      eventOverlap: false,
+      slotMinTime: '08:00',
+      slotMaxTime: '18:00',
+      snapMinutes: 120,
+    });
+    const occurrenceKey = `moving@${at(`${MON}T17:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    // ArrowDown で +120 分（17:00〜18:00 → 19:00〜20:00）。矢印キーはクランプされない
+    // ため表示時間帯外まで移動でき、既存イベントと完全に重なるため拒否される
+    fireEvent.keyDown(eventEl, { key: 'ArrowDown' });
+
+    expect(onEventChange).not.toHaveBeenCalled();
+  });
+
+  it('矢印キーによる移動は表示範囲（週）外の日にある既存イベントとの重なりも拒否される（ビューモデルに含まれない日が対象）', () => {
+    // 表示週は SUN（7/12）〜SAT（7/18）。SUN の前日（7/11、表示週の外）にある
+    // 既存イベントは viewModel.days に現れないため、ビューモデル由来のブロッカー
+    // 収集では見えない。
+    const existing: CalendarEvent = {
+      id: 'existing-outside-week',
+      title: '前週の既存イベント',
+      start: '2026-07-11T10:00',
+      end: '2026-07-11T11:00',
+    };
+    const moving: CalendarEvent = {
+      id: 'moving',
+      title: '対象',
+      start: `${SUN}T10:00`,
+      end: `${SUN}T11:00`,
+    };
+    const onEventChange = vi.fn();
+    renderHarness({
+      events: [existing, moving],
+      callbacks: { onEventChange },
+      eventOverlap: false,
+    });
+    const occurrenceKey = `moving@${at(`${SUN}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    // ArrowLeft で前日（表示週の外）へ移動。その日に重なる既存イベントがあるため拒否される
+    fireEvent.keyDown(eventEl, { key: 'ArrowLeft' });
+
+    expect(onEventChange).not.toHaveBeenCalled();
+  });
 });

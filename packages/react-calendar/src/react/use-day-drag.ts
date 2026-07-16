@@ -23,10 +23,9 @@ import type {
   PointerEvent as ReactPointerEvent,
   Ref,
 } from 'react';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   isDragCandidateValid,
-  type OverlapBlocker,
   occurrenceBlocksOverlap,
   resolveConstraintRules,
 } from '../core/constraints';
@@ -41,7 +40,6 @@ import {
 } from '../core/timezone';
 import type {
   BusinessHoursRule,
-  CalendarViewModel,
   DateRange,
   EventChangeEntry,
   EventOccurrence,
@@ -53,6 +51,7 @@ import {
   checkBeforeEventChange,
   checkBeforeEventDelete,
   checkBeforeSelectRange,
+  collectOverlapBlockersInRange,
   createDefaultEvent,
   type EventNotificationProps,
   eventNotificationProps,
@@ -205,62 +204,6 @@ function fractionYFromClientY(rect: DOMRect, clientY: number): number {
 }
 
 /**
- * 現在のビューモデルから、日単位ドラッグ（帯）の重なり判定用ブロッカー一覧を構築する。
- *
- * 月/複数月ビューは各週のセグメント、時間グリッドは終日行のセグメントを対象にする
- * （レーンの区別はなく、表示中の全オカレンスが対象）。同じオカレンスが複数週に
- * わたって現れる場合はオカレンスキーで重複排除する。
- */
-function collectBandBlockers(
-  viewModel: CalendarViewModel,
-  eventOverlap: boolean,
-): readonly OverlapBlocker[] {
-  const blockers = new Map<string, OverlapBlocker>();
-  const addOccurrence = (occurrence: EventOccurrence): void => {
-    if (blockers.has(occurrence.key)) {
-      return;
-    }
-    blockers.set(occurrence.key, {
-      key: occurrence.key,
-      start: occurrence.start,
-      end: occurrence.end,
-      blocksOverlap: occurrenceBlocksOverlap(occurrence.event, eventOverlap),
-    });
-  };
-  const addSegment = (segment: EventSegment): void => {
-    addOccurrence(segment.occurrence);
-  };
-  if (viewModel.type === 'month') {
-    for (const week of viewModel.weeks) {
-      for (const segment of week.segments) {
-        addSegment(segment);
-      }
-    }
-  } else if (viewModel.type === 'multiMonth') {
-    for (const month of viewModel.months) {
-      for (const week of month.weeks) {
-        for (const segment of week.segments) {
-          addSegment(segment);
-        }
-      }
-    }
-  } else if (viewModel.type === 'timeGrid') {
-    for (const segment of viewModel.allDaySegments) {
-      addSegment(segment);
-    }
-    // 終日行のドラッグでも時間指定イベントとの重なりを検出する必要がある
-    // （終日・時間指定は絶対時刻の区間で統一比較する仕様。use-time-grid-drag.ts の
-    // collectTimeGridBlockers が両方を対象にするのと対称）
-    for (const day of viewModel.days) {
-      for (const item of day.items) {
-        addOccurrence(item.occurrence);
-      }
-    }
-  }
-  return [...blockers.values()];
-}
-
-/**
  * 動かしている側の overlap 実効値（重なりを拒否するか）を求める。
  * 新規作成（`occurrence` が `null`）では動かしている側の個別設定が存在しないため、
  * グローバル `eventOverlap` をそのまま動かしている側の値として使う。
@@ -329,18 +272,6 @@ export function useDayDrag(params: {
   optionsRef.current = calendar.state.options;
   const defaultEventTitleRef = useRef(params.defaultEventTitle);
   defaultEventTitleRef.current = params.defaultEventTitle;
-
-  /**
-   * 重なり判定用のブロッカー一覧。`calendar.viewModel` が変わらない限り
-   * （= ビューモデルに影響する状態が変わらない限り）再計算しない
-   * （毎 pointermove の再計算を避けるための memo 化）。
-   */
-  const blockers = useMemo(
-    () => collectBandBlockers(calendar.viewModel, calendar.state.options.eventOverlap),
-    [calendar.viewModel, calendar.state.options.eventOverlap],
-  );
-  const blockersRef = useRef<readonly OverlapBlocker[]>(blockers);
-  blockersRef.current = blockers;
 
   // アンマウント時、ドラッグ中であれば document リスナーを解除する
   useEffect(() => {
@@ -427,7 +358,7 @@ export function useDayDrag(params: {
       allDay: true,
       excludeKey: null,
       moverBlocksOverlap: resolveMoverBlocksOverlap(null, options.eventOverlap),
-      blockers: blockersRef.current,
+      blockers: collectOverlapBlockersInRange(apiRef.current, range, options.eventOverlap),
       constraintRules: resolveConstraintRulesForOccurrence(
         null,
         options.eventConstraint,
@@ -470,7 +401,7 @@ export function useDayDrag(params: {
         allDay: occurrence.allDay,
         excludeKey: occurrence.key,
         moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, options.eventOverlap),
-        blockers: blockersRef.current,
+        blockers: collectOverlapBlockersInRange(apiRef.current, range, options.eventOverlap),
         constraintRules: resolveConstraintRulesForOccurrence(
           occurrence,
           options.eventConstraint,
@@ -542,7 +473,7 @@ export function useDayDrag(params: {
         allDay: false,
         excludeKey: occurrence.key,
         moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, options.eventOverlap),
-        blockers: blockersRef.current,
+        blockers: collectOverlapBlockersInRange(apiRef.current, range, options.eventOverlap),
         constraintRules: resolveConstraintRulesForOccurrence(
           occurrence,
           options.eventConstraint,
@@ -686,7 +617,7 @@ export function useDayDrag(params: {
             allDay: false,
             excludeKey: occurrence.key,
             moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, options.eventOverlap),
-            blockers: blockersRef.current,
+            blockers: collectOverlapBlockersInRange(apiRef.current, range, options.eventOverlap),
             constraintRules: resolveConstraintRulesForOccurrence(
               occurrence,
               options.eventConstraint,
@@ -724,7 +655,7 @@ export function useDayDrag(params: {
         allDay: finalAllDay,
         excludeKey: occurrence?.key ?? null,
         moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, options.eventOverlap),
-        blockers: blockersRef.current,
+        blockers: collectOverlapBlockersInRange(apiRef.current, range, options.eventOverlap),
         constraintRules: resolveConstraintRulesForOccurrence(
           occurrence,
           options.eventConstraint,

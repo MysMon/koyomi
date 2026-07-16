@@ -299,6 +299,11 @@ interface TimelineAxisHeaderProps {
   totalMinutes: number;
   timeZone: TimeZoneId;
   locale: string;
+  /**
+   * 週グループ見出しの開始側・終了側を連結する区切り記号
+   *（{@link MessageCatalog.common.rangeSeparator}）。
+   */
+  rangeSeparator: string;
 }
 
 /**
@@ -311,7 +316,8 @@ interface TimelineAxisHeaderProps {
  * 目盛り（`timeline-slots`）は常に描画し、内容のみ `slots` に従う。
  */
 function TimelineAxisHeaderImpl(props: TimelineAxisHeaderProps): ReactElement {
-  const { days, slots, headerGroups, scale, totalMinutes, timeZone, locale } = props;
+  const { days, slots, headerGroups, scale, totalMinutes, timeZone, locale, rangeSeparator } =
+    props;
   return (
     // biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA columnheader（TimelineView と同じ方針。日ヘッダー・時刻目盛りをまとめた1セル）
     // biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない（ネイティブ <th> も単体ではタブ移動対象にならない）
@@ -345,7 +351,12 @@ function TimelineAxisHeaderImpl(props: TimelineAxisHeaderProps): ReactElement {
             >
               {scale === 'month'
                 ? formatMonthTitle(group.start, timeZone, locale)
-                : formatRangeTitle({ start: group.start, end: group.end }, timeZone, locale)}
+                : formatRangeTitle(
+                    { start: group.start, end: group.end },
+                    timeZone,
+                    locale,
+                    rangeSeparator,
+                  )}
             </div>
           ))}
         </div>
@@ -380,6 +391,7 @@ export const TimelineAxisHeader = memo(TimelineAxisHeaderImpl, (prev, next) => {
     prev.scale === next.scale &&
     prev.totalMinutes === next.totalMinutes &&
     prev.timeZone === next.timeZone &&
-    prev.locale === next.locale
+    prev.locale === next.locale &&
+    prev.rangeSeparator === next.rangeSeparator
   );
 });

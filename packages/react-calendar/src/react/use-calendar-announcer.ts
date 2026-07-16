@@ -396,6 +396,7 @@ export function useCalendarAnnouncer(
         { start: info.rangeStart, end: info.rangeEnd },
         ctx.timeZone,
         ctx.locale,
+        catalog.common.rangeSeparator,
       );
       announce(catalog.announcer.viewChanged(info, title));
     });

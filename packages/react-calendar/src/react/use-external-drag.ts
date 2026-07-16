@@ -33,18 +33,13 @@
  */
 
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  isDragCandidateValid,
-  type OverlapBlocker,
-  occurrenceBlocksOverlap,
-  resolveConstraintRules,
-} from '../core/constraints';
+import { useEffect, useRef, useState } from 'react';
+import { isDragCandidateValid, resolveConstraintRules } from '../core/constraints';
 import { timeAtGridPosition, timeAtTimelineOffset } from '../core/interaction';
 import { addDaysInZone, addMinutesInZone, dateFromKey } from '../core/timezone';
-import type { CalendarViewModel, DateRange, EventOccurrence, TimeZoneId } from '../core/types';
+import type { DateRange, TimeZoneId } from '../core/types';
 import { resourceIdFromLaneKey } from '../core/views/lane-key';
-import { attachDragSessionListeners } from './drag-common';
+import { attachDragSessionListeners, collectOverlapBlockersInRange } from './drag-common';
 import type { UseCalendarResult } from './types';
 
 /** 1 日の分（24:00 = 1440 分）。 */
@@ -410,107 +405,6 @@ function resolveExternalDrop(
 }
 
 /**
- * レーンの区別がないビュー（月・週/日・複数月）の重なり判定用ブロッカー一覧
- * （表示中の全オカレンス）を構築する。時間指定・終日の両方を対象にする。
- */
-function collectFlatBlockers(
-  viewModel: CalendarViewModel,
-  eventOverlap: boolean,
-): readonly OverlapBlocker[] {
-  const blockers = new Map<string, OverlapBlocker>();
-  const addOccurrence = (occurrence: EventOccurrence): void => {
-    if (blockers.has(occurrence.key)) {
-      return;
-    }
-    blockers.set(occurrence.key, {
-      key: occurrence.key,
-      start: occurrence.start,
-      end: occurrence.end,
-      blocksOverlap: occurrenceBlocksOverlap(occurrence.event, eventOverlap),
-    });
-  };
-  if (viewModel.type === 'month') {
-    for (const week of viewModel.weeks) {
-      for (const segment of week.segments) {
-        addOccurrence(segment.occurrence);
-      }
-    }
-  } else if (viewModel.type === 'multiMonth') {
-    for (const month of viewModel.months) {
-      for (const week of month.weeks) {
-        for (const segment of week.segments) {
-          addOccurrence(segment.occurrence);
-        }
-      }
-    }
-  } else if (viewModel.type === 'timeGrid') {
-    for (const day of viewModel.days) {
-      for (const item of day.items) {
-        addOccurrence(item.occurrence);
-      }
-    }
-    for (const segment of viewModel.allDaySegments) {
-      addOccurrence(segment.occurrence);
-    }
-  }
-  return [...blockers.values()];
-}
-
-/**
- * レーン（リソース ID。未割り当ては `null`）ごとの重なり判定用ブロッカー一覧を構築する
- * （リソース/タイムラインビュー専用）。
- */
-function collectBlockersByLane(
-  viewModel: CalendarViewModel,
-  eventOverlap: boolean,
-): Map<string | null, readonly OverlapBlocker[]> {
-  const result = new Map<string | null, readonly OverlapBlocker[]>();
-  const buildLane = (
-    laneId: string | null,
-    occurrences: readonly EventOccurrence[],
-    existing: readonly EventOccurrence[],
-  ): void => {
-    const lane = new Map<string, OverlapBlocker>();
-    const addOccurrence = (occurrence: EventOccurrence): void => {
-      if (lane.has(occurrence.key)) {
-        return;
-      }
-      lane.set(occurrence.key, {
-        key: occurrence.key,
-        start: occurrence.start,
-        end: occurrence.end,
-        blocksOverlap: occurrenceBlocksOverlap(occurrence.event, eventOverlap),
-      });
-    };
-    for (const occurrence of occurrences) {
-      addOccurrence(occurrence);
-    }
-    for (const occurrence of existing) {
-      addOccurrence(occurrence);
-    }
-    result.set(laneId, [...lane.values()]);
-  };
-  if (viewModel.type === 'resource') {
-    for (const column of viewModel.columns) {
-      buildLane(
-        column.resource?.id ?? null,
-        column.items.map((item) => item.occurrence),
-        column.allDayItems,
-      );
-    }
-  } else if (viewModel.type === 'timeline') {
-    for (const row of viewModel.rows) {
-      buildLane(
-        row.resource?.id ?? null,
-        row.items.map((item) => item.occurrence),
-        [],
-      );
-    }
-  }
-  return result;
-}
-
-/**
  * カレンダー外部の DOM 要素からのドラッグを受け入れるフック。
  *
  * `getDraggableProps(payload)` が返す props を外部要素（サイドバーの予定
@@ -559,26 +453,6 @@ export function useExternalDrag<TPayload>(
   const cleanupRef = useRef<(() => void) | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  /**
-   * 重なり判定用のブロッカー一覧。レーンの区別がないビュー（月・週/日・複数月）用の
-   * 平坦な一覧と、リソース/タイムラインビュー用のレーン別一覧の両方を用意する。
-   * `calendar.viewModel` が変わらない限り再計算しない（毎 pointermove の再計算を避ける）。
-   */
-  const flatBlockers = useMemo(
-    () =>
-      collectFlatBlockers(params.calendar.viewModel, params.calendar.state.options.eventOverlap),
-    [params.calendar.viewModel, params.calendar.state.options.eventOverlap],
-  );
-  const flatBlockersRef = useRef(flatBlockers);
-  flatBlockersRef.current = flatBlockers;
-  const blockersByLane = useMemo(
-    () =>
-      collectBlockersByLane(params.calendar.viewModel, params.calendar.state.options.eventOverlap),
-    [params.calendar.viewModel, params.calendar.state.options.eventOverlap],
-  );
-  const blockersByLaneRef = useRef(blockersByLane);
-  blockersByLaneRef.current = blockersByLane;
-
   // アンマウント時に進行中のセッションがあれば document リスナーを確実に解除する。
   useEffect(() => {
     return () => {
@@ -604,11 +478,15 @@ export function useExternalDrag<TPayload>(
    * `options.eventOverlap` / `options.eventConstraint` のみを使う（`excludeKey` も常に `null`）。
    */
   function isResolutionValid(resolution: ExternalDropResolution): boolean {
-    const { state } = paramsRef.current.calendar;
-    const blockers =
+    const { state, api } = paramsRef.current.calendar;
+    const blockers = collectOverlapBlockersInRange(
+      api,
+      resolution.range,
+      state.options.eventOverlap,
       resolution.resourceId !== undefined
-        ? (blockersByLaneRef.current.get(resolution.resourceId) ?? [])
-        : flatBlockersRef.current;
+        ? { resources: state.resources, laneId: resolution.resourceId }
+        : undefined,
+    );
     return isDragCandidateValid({
       range: resolution.range,
       allDay: resolution.allDay,

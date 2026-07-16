@@ -18,6 +18,8 @@
 - **[重要]** rrule（CJS-only）を dist にバンドルし、バンドラなしの Node ESM から import すると読み込み時に失敗する問題を修正
 - **[重要]** `useCalendar` に `getServerSnapshot` を追加し、SSR（`renderToString` / Next.js）で例外になる問題を修正
 - Escape キャンセル直後のネイティブ click による `onEventClick` 誤発火を抑制
+- **[重要]** `eventOverlap` の重なり判定が画面に描画されていないオカレンス（`slotMinTime`/`slotMaxTime` の表示時間帯外・表示範囲外）を見逃す問題を修正。ブロッカーをビューモデルからの事前収集ではなく判定時に `api.getOccurrences(候補範囲)` から収集するように変更し、終日イベントの移動や矢印キーによる表示外への移動でも二重予約を防止する
+- 週・リスト・複数日タイムライン・複数月の期間タイトルの区切り記号が `〜` 固定だった問題を修正。`messages.common.rangeSeparator` に従うようになり、`locale: 'en-US'` では `July 12–July 18` 形式になる。`formatRangeTitle` / `formatViewTitle` は第 4 / 第 6 引数に `rangeSeparator: string` が必須（破壊的変更）
 - `resolveRecurringScope` が reject した場合にドラッグプレビューが残留する問題を修正（try/finally + `onError` 通知）
 - `pointercancel` 未処理によりタッチ中断後にドラッグが復帰しない問題を修正
 - リストビューで長さ 0 のオカレンス（リマインダー等）が表示されない問題を修正

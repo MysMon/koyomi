@@ -11,6 +11,10 @@
  *
  * - {@link laneResourceIdOf} — オカレンスの現在のレーンのリソース ID を求める
  *   （リソースビュー・タイムラインの2フックで共有）
+ * - {@link collectOverlapBlockersInRange} — 重なり判定用ブロッカーの収集
+ *   （時間グリッド・日単位（帯）・リソース・タイムライン・外部ドラッグの 5 フック共通。
+ *   `api.getOccurrences` から収集することで、表示中のビューモデルに現れない
+ *   オカレンスとの重なりも判定対象にする）
  * - {@link resolveScopeForRecurring} — 繰り返しオカレンスのスコープ解決（3フック共通）
  * - {@link checkBeforeEventChange} / {@link checkBeforeSelectRange} /
  *   {@link checkBeforeEventDelete} — 適用前フック（`onBeforeEventChange` 等）の
@@ -36,9 +40,11 @@
  */
 
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
+import { type OverlapBlocker, occurrenceBlocksOverlap } from '../core/constraints';
 import type {
   CalendarApi,
   CalendarEvent,
+  DateRange,
   EventOccurrence,
   RecurringEditScope,
 } from '../core/types';
@@ -68,6 +74,53 @@ export function laneResourceIdOf(
     return null;
   }
   return resources.some((resource) => resource.id === resourceId) ? resourceId : null;
+}
+
+/**
+ * 判定対象の候補範囲に重なる既存オカレンスを {@link OverlapBlocker} として収集する。
+ *
+ * ビューモデル（`CalendarViewModel`）由来の収集ではなく `api.getOccurrences(range)`
+ * （{@link CalendarApi.getOccurrences}。`expandEvents` による正規のオカレンス展開）
+ * から収集する。ビューモデルは表示時間帯（`slotMinTime`/`slotMaxTime`）や表示範囲
+ * （週・タイムラインの表示日数等）でさらにフィルタ済みのため、それを元にすると
+ * 表示から除外されたオカレンスとの重なりを見逃してしまう
+ * （例: `slotMaxTime` より後の時間指定イベント、表示範囲外の日にあるイベント）。
+ * `getOccurrences` は表示フィルタ前の全オカレンスを返すため、これを直接使うことで
+ * 非表示のオカレンスとの重なりも判定対象に含められる。
+ *
+ * `range` には判定対象の候補範囲（ドラッグ先・矢印キー移動後の範囲など）だけを
+ * 渡せばよい。`getOccurrences` はその範囲に重なるオカレンスだけを返すため、
+ * 毎 pointermove・矢印キー操作・コミット確定のたびに呼んでもコストは小さい
+ * （広い範囲の事前取得やキャッシュは不要）。
+ *
+ * @param api - 対象カレンダーの `CalendarApi`
+ * @param range - 判定対象の候補範囲
+ * @param eventOverlap - {@link CalendarOptions.eventOverlap} の実効値
+ * @param lane - レーンを持つビュー（リソース・タイムライン・それらへの外部ドラッグ）
+ *   でのみ指定する。指定すると、{@link laneResourceIdOf} で正規化した結果が
+ *   `lane.laneId` と一致するオカレンスだけに絞り込む（レーンの概念がないビュー
+ *   （時間グリッド・日単位（帯）等）では省略する）
+ * @returns 収集された {@link OverlapBlocker} の一覧
+ */
+export function collectOverlapBlockersInRange(
+  api: CalendarApi,
+  range: DateRange,
+  eventOverlap: boolean,
+  lane?: { resources: readonly { id: string }[]; laneId: string | null },
+): readonly OverlapBlocker[] {
+  const occurrences = api.getOccurrences(range);
+  const scoped =
+    lane === undefined
+      ? occurrences
+      : occurrences.filter(
+          (occurrence) => laneResourceIdOf(occurrence, lane.resources) === lane.laneId,
+        );
+  return scoped.map((occurrence) => ({
+    key: occurrence.key,
+    start: occurrence.start,
+    end: occurrence.end,
+    blocksOverlap: occurrenceBlocksOverlap(occurrence.event, eventOverlap),
+  }));
 }
 
 /**

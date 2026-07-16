@@ -164,6 +164,8 @@ export function formatDayTitle(date: Date, timeZone: TimeZoneId, locale: string)
  * @param range - 表示対象範囲（`end` 排他）
  * @param timeZone - 表示に使うタイムゾーン
  * @param locale - ロケール
+ * @param rangeSeparator - 開始側・終了側を連結する区切り記号
+ *   （{@link MessageCatalog.common.rangeSeparator}）
  * @returns 例: `'7月5日〜7月11日'`、年をまたぐ場合は `'2025年12月29日〜2026年1月4日'`（`ja`）
  * @example
  * ```ts
@@ -171,10 +173,16 @@ export function formatDayTitle(date: Date, timeZone: TimeZoneId, locale: string)
  *   { start: new Date('2026-07-04T15:00:00Z'), end: new Date('2026-07-11T15:00:00Z') },
  *   'Asia/Tokyo',
  *   'ja',
+ *   '〜',
  * ); // => '7月5日〜7月11日'
  * ```
  */
-export function formatRangeTitle(range: DateRange, timeZone: TimeZoneId, locale: string): string {
+export function formatRangeTitle(
+  range: DateRange,
+  timeZone: TimeZoneId,
+  locale: string,
+  rangeSeparator: string,
+): string {
   const startDate = range.start;
   // end は排他的なので、範囲に含まれる最後の瞬間（1ms 前）が属する日を終了日とする
   const endDate = new Date(range.end.getTime() - 1);
@@ -194,7 +202,7 @@ export function formatRangeTitle(range: DateRange, timeZone: TimeZoneId, locale:
         month: 'long',
         day: 'numeric',
       });
-  return `${formatter.format(startDate)}〜${formatter.format(endDate)}`;
+  return `${formatter.format(startDate)}${rangeSeparator}${formatter.format(endDate)}`;
 }
 
 /**
@@ -229,6 +237,9 @@ export function formatWeekday(weekday: Weekday, locale: string): string {
  * @param range - 表示範囲（`end` 排他）
  * @param timeZone - 表示に使うタイムゾーン
  * @param locale - ロケール
+ * @param rangeSeparator - 開始側・終了側を連結する区切り記号
+ *   （{@link MessageCatalog.common.rangeSeparator}。週・リスト・複数日タイムライン・
+ *   複数月ビューでのみ使う）
  * @returns 例: `'2026年7月'`（月）、`'2026年7月15日(水)'`（日・リソース）、
  *   `'7月12日〜7月18日'`（週・リスト）、`'2026年'`（年）（`ja`）
  * @example
@@ -239,6 +250,7 @@ export function formatWeekday(weekday: Weekday, locale: string): string {
  *   { start: new Date('2026-07-01T00:00:00+09:00'), end: new Date('2026-08-01T00:00:00+09:00') },
  *   'Asia/Tokyo',
  *   'ja',
+ *   '〜',
  * ); // => '2026年7月'
  * ```
  */
@@ -248,6 +260,7 @@ export function formatViewTitle(
   range: DateRange,
   timeZone: TimeZoneId,
   locale: string,
+  rangeSeparator: string,
 ): string {
   switch (view) {
     case 'month':
@@ -257,14 +270,14 @@ export function formatViewTitle(
       return formatDayTitle(currentDate, timeZone, locale);
     case 'week':
     case 'list':
-      return formatRangeTitle(range, timeZone, locale);
+      return formatRangeTitle(range, timeZone, locale, rangeSeparator);
     case 'timeline': {
       // 1 日表示なら日ビューと同じ形式、複数日なら範囲形式
       const lastInstant = new Date(range.end.getTime() - 1);
       return formatDayTitle(range.start, timeZone, locale) ===
         formatDayTitle(lastInstant, timeZone, locale)
         ? formatDayTitle(currentDate, timeZone, locale)
-        : formatRangeTitle(range, timeZone, locale);
+        : formatRangeTitle(range, timeZone, locale, rangeSeparator);
     }
     case 'year':
       return formatYearTitle(currentDate, timeZone, locale);
@@ -274,7 +287,7 @@ export function formatViewTitle(
       const lastMonthInstant = new Date(range.end.getTime() - 1);
       const startTitle = formatMonthTitle(range.start, timeZone, locale);
       const endTitle = formatMonthTitle(lastMonthInstant, timeZone, locale);
-      return startTitle === endTitle ? startTitle : `${startTitle}〜${endTitle}`;
+      return startTitle === endTitle ? startTitle : `${startTitle}${rangeSeparator}${endTitle}`;
     }
   }
 }

@@ -577,6 +577,7 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
             totalMinutes={totalMinutes}
             timeZone={timeZone}
             locale={locale}
+            rangeSeparator={commonMessages.rangeSeparator}
           />
         </div>
         <div data-koyomi="timeline-rows" role="presentation">

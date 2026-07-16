@@ -878,7 +878,7 @@ interface ToolbarProps {
 }
 ```
 
-「今日」「前へ」「次へ」のナビゲーション、期間タイトル、ビュー切替（既定は月・週・日・リスト。`views` prop で年・複数月・リソース・タイムラインビュー等を追加できる opt-in）を提供します。タイトルは現在のビューに応じて `formatMonthTitle` / `formatDayTitle` / `formatRangeTitle` / `formatYearTitle` のいずれかで整形されます（複数月ビューは表示範囲の開始月・終了月をそれぞれ `formatMonthTitle` で整形し、「2026年7月〜2026年9月」のように連結します。同一月なら単一表記。リソースビューは日ビューと同じ `formatDayTitle`。タイムラインビューは `timelineDays: 1` なら日ビューと同じ形式、複数日なら `formatRangeTitle` による範囲形式「2026年7月15日〜7月21日」）。ボタンの表示文字列は `CalendarProvider` の `messages` prop（`messages.toolbar`）で差し替えられます（i18n 対応）。ビュー切替ボタングループ（`toolbar-views`）の `aria-label` は `messages.toolbar.viewsGroup` で差し替えられます（既定「表示切替」）。
+「今日」「前へ」「次へ」のナビゲーション、期間タイトル、ビュー切替（既定は月・週・日・リスト。`views` prop で年・複数月・リソース・タイムラインビュー等を追加できる opt-in）を提供します。タイトルは現在のビューに応じて `formatMonthTitle` / `formatDayTitle` / `formatRangeTitle` / `formatYearTitle` のいずれかで整形されます（複数月ビューは表示範囲の開始月・終了月をそれぞれ `formatMonthTitle` で整形し、「2026年7月〜2026年9月」のように連結します。同一月なら単一表記。リソースビューは日ビューと同じ `formatDayTitle`。タイムラインビューは `timelineDays: 1` なら日ビューと同じ形式、複数日なら `formatRangeTitle` による範囲形式「2026年7月15日〜7月21日」）。範囲タイトルの区切り記号（既定 ja は `'〜'`、en は `'–'`）は `messages.common.rangeSeparator` に従います。ボタンの表示文字列は `CalendarProvider` の `messages` prop（`messages.toolbar`）で差し替えられます（i18n 対応）。ビュー切替ボタングループ（`toolbar-views`）の `aria-label` は `messages.toolbar.viewsGroup` で差し替えられます（既定「表示切替」）。
 
 各コンポーネントの文言をまとめて差し替えたい場合は、`CalendarProvider` の `messages` prop に中央メッセージカタログの部分上書きを渡します（詳細は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照）。
 
@@ -1460,7 +1460,8 @@ console.log(tree.map((entry) => entry.depth)); // => [0, 1]
 | `formatTime(date, timeZone, locale): string` | `'H:mm'` 形式の時刻ラベル（例: `'9:05'`） |
 | `formatMonthTitle(date, timeZone, locale): string` | 月ビューのタイトル（例: `'2026年7月'`） |
 | `formatDayTitle(date, timeZone, locale): string` | 日ビューのタイトル（例: `'2026年7月15日(水)'`） |
-| `formatRangeTitle(range, timeZone, locale): string` | 週/リストビューのタイトル（例: `'7月5日〜7月11日'`） |
+| `formatRangeTitle(range, timeZone, locale, rangeSeparator): string` | 週/リストビューのタイトル（例: `'7月5日〜7月11日'`）。`rangeSeparator` は開始側・終了側を連結する区切り記号（ビルトインコンポーネントは `messages.common.rangeSeparator` を渡す） |
+| `formatViewTitle(view, currentDate, range, timeZone, locale, rangeSeparator): string` | 現在のビューに応じたタイトル。月/日/年は `formatMonthTitle` / `formatDayTitle` / `formatYearTitle` に、週/リスト/複数日タイムラインは `formatRangeTitle` に委譲し、複数月は開始月・終了月を `rangeSeparator` で連結する（`Toolbar` のタイトルと同じ整形） |
 | `formatYearTitle(date, timeZone, locale): string` | 年ビューのタイトル（例: `'2026年'`） |
 | `formatWeekday(weekday, locale): string` | 曜日の短縮ラベル（例: `'日'`） |
 | `formatDayHeader(date, timeZone, locale): string` | 時間グリッドの日ヘッダー用ラベル（例: `'15 (水)'`） |

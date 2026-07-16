@@ -245,6 +245,34 @@ describe('TimelineView - timelineScale（ズーム粒度）', () => {
     ]);
   });
 
+  it('week スケールの週グループ見出しは中央カタログの rangeSeparator（既定 ja の「〜」）で開始日〜終了日を連結する', () => {
+    const { container } = render(
+      <Harness resources={[CRANE_1]} timelineDays={10} timelineScale="week" weekStartsOn={0} />,
+    );
+    const groupHeaders = container.querySelectorAll('[data-koyomi="timeline-group-header"]');
+    expect(Array.from(groupHeaders).map((el) => el.textContent)).toEqual([
+      '7月15日〜7月18日',
+      '7月19日〜7月24日',
+    ]);
+  });
+
+  it('messages.common.rangeSeparator を部分上書きすると週グループ見出しの区切り記号が反映される（〜のハードコードを使わない）', () => {
+    const { container } = render(
+      <Harness
+        resources={[CRANE_1]}
+        timelineDays={10}
+        timelineScale="week"
+        weekStartsOn={0}
+        messages={{ common: { rangeSeparator: ' – ' } }}
+      />,
+    );
+    const groupHeaders = container.querySelectorAll('[data-koyomi="timeline-group-header"]');
+    expect(Array.from(groupHeaders).map((el) => el.textContent)).toEqual([
+      '7月15日 – 7月18日',
+      '7月19日 – 7月24日',
+    ]);
+  });
+
   it('month スケールでは月グループ見出しが出て、containsToday を含むグループに data-today/aria-current が付く', () => {
     // 2026-07-15(水) から 20 日間 = 7/15〜8/3。今日(2026-07-15)は 7 月グループ内
     const { container } = render(

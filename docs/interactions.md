@@ -301,7 +301,7 @@ function App() {
 // - 営業時間外（9:00〜18:00 の外）へのドラッグも同様に無効表示・拒否される
 ```
 
-- **eventOverlap** — `false` にすると、移動・リサイズ・作成の結果が既存イベントと重なる操作を拒否します。判定対象は同一レーン（リソース/タイムラインビューは同一 `resourceId`、それ以外のビューはレーン区分なしで表示中の全オカレンス）で、時間指定・終日を絶対時刻の区間 `[start, end)` として統一的に比較します。判定は「動かしている側」と「重ねられる側」双方の実効値（イベント個別の `overlap` が優先、省略時は `eventOverlap`）を見て、どちらかが `false` なら拒否します
+- **eventOverlap** — `false` にすると、移動・リサイズ・作成の結果が既存イベントと重なる操作を拒否します。判定対象は同一レーンの全オカレンス（リソース/タイムラインビューは同一 `resourceId`、それ以外のビューはレーン区分なし）で、`slotMinTime`/`slotMaxTime` の表示時間帯外や表示範囲外にあって画面に描画されていないオカレンスも含みます（矢印キーによる表示外への移動もすり抜けられません）。時間指定・終日は絶対時刻の区間 `[start, end)` として統一的に比較します。判定は「動かしている側」と「重ねられる側」双方の実効値（イベント個別の `overlap` が優先、省略時は `eventOverlap`）を見て、どちらかが `false` なら拒否します
 - **eventConstraint** — `'businessHours'` を指定すると `businessHours` の範囲内にのみドロップを許可します。`BusinessHoursRule` の配列を渡すと独自の範囲を指定できます（`businessHours` と同形式）。**終日イベントには適用されません**（時間帯の制約は時間指定イベントのみが対象）。`eventConstraint: 'businessHours'` を指定したのに `businessHours` が未設定（既定 `[]`）だと常に無効になる点に注意してください
 - **判定順序** — 宣言的制約（`eventOverlap`/`eventConstraint`） → `onBeforeEventChange`/`onBeforeSelectRange`/`onBeforeEventDelete` → `resolveRecurringScope` の順に判定されます。宣言的制約で拒否された場合は適用前フックを呼ばずに即座に中断します
 - **拒否時の挙動** — 適用前フックが `false` を返した場合と同じくサイレントです（`onEventChange`/`onSelectRange` は呼ばれず、ドラッグはその場で終了します）

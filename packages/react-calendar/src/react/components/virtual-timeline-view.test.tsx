@@ -413,6 +413,23 @@ describe('VirtualTimelineView - timelineScale（ズーム粒度）', () => {
     ).toBeGreaterThan(0);
   });
 
+  it('messages.common.rangeSeparator を部分上書きすると週グループ見出しの区切り記号が反映される（〜のハードコードを使わない）', () => {
+    // NOW=2026-07-15(水) から 10 日間、weekStartsOn 既定（0=日曜始まり）
+    const { container } = render(
+      <Harness
+        resources={makeResources(2)}
+        timelineDays={10}
+        timelineScale="week"
+        messages={{ common: { rangeSeparator: ' – ' } }}
+      />,
+    );
+    const groupHeaders = container.querySelectorAll('[data-koyomi="timeline-group-header"]');
+    expect(Array.from(groupHeaders).map((el) => el.textContent)).toEqual([
+      '7月15日 – 7月18日',
+      '7月19日 – 7月24日',
+    ]);
+  });
+
   it('空状態でも data-koyomi-scale は常に出力される', () => {
     const { container } = render(<Harness resources={[]} timelineScale="month" />);
     const root = container.querySelector('[data-koyomi="timeline"]');

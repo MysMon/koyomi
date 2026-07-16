@@ -626,7 +626,56 @@ describe('useCalendarAnnouncer', () => {
 
       const state = calendar.api.getState();
       const range = calendar.api.getVisibleRange();
-      const title = formatViewTitle(state.view, state.currentDate, range, 'Asia/Tokyo', 'ja');
+      const title = formatViewTitle(state.view, state.currentDate, range, 'Asia/Tokyo', 'ja', '〜');
+      expect(result.current.message).toBe(`表示を${title}に切り替えました`);
+    });
+
+    it('locale が en-US のとき、viewChange 通知のタイトルは中央カタログの rangeSeparator（"–"）を使う（〜のハードコードを使わない）', () => {
+      const calendar = makeCalendar({ locale: 'en-US', initialView: 'month' });
+      const { result } = renderHook(() =>
+        useCalendarAnnouncer({ calendar, announce: { viewChange: true } }),
+      );
+
+      act(() => {
+        calendar.api.setView('week');
+      });
+
+      const state = calendar.api.getState();
+      const range = calendar.api.getVisibleRange();
+      const title = formatViewTitle(
+        state.view,
+        state.currentDate,
+        range,
+        'Asia/Tokyo',
+        'en-US',
+        '–',
+      );
+      expect(title).toContain('–');
+      expect(title).not.toContain('〜');
+      expect(result.current.message).toBe(`Switched view to ${title}`);
+    });
+
+    it('messages.common.rangeSeparator を部分上書きすると viewChange 通知のタイトルへ反映される', () => {
+      const calendar = makeCalendar({ initialView: 'month' });
+      const messages: MessageCatalogOverrides = { common: { rangeSeparator: ' – ' } };
+      const { result } = renderHook(() =>
+        useCalendarAnnouncer({ calendar, announce: { viewChange: true }, messages }),
+      );
+
+      act(() => {
+        calendar.api.setView('week');
+      });
+
+      const state = calendar.api.getState();
+      const range = calendar.api.getVisibleRange();
+      const title = formatViewTitle(
+        state.view,
+        state.currentDate,
+        range,
+        'Asia/Tokyo',
+        'ja',
+        ' – ',
+      );
       expect(result.current.message).toBe(`表示を${title}に切り替えました`);
     });
 
@@ -642,7 +691,7 @@ describe('useCalendarAnnouncer', () => {
 
       const state = calendar.api.getState();
       const range = calendar.api.getVisibleRange();
-      const title = formatViewTitle(state.view, state.currentDate, range, 'Asia/Tokyo', 'ja');
+      const title = formatViewTitle(state.view, state.currentDate, range, 'Asia/Tokyo', 'ja', '〜');
       expect(result.current.message).toBe(`表示を${title}に切り替えました`);
     });
 

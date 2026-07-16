@@ -3334,6 +3334,74 @@ describe('useDayDrag - 宣言的な重なり・配置制約', () => {
     expect(updated?.start).toBe('2026-07-06');
   });
 
+  it('週ビューの終日行では、slotMinTime/slotMaxTime の表示時間帯外にある時間指定イベントとの重なりも拒否される（ビューモデルに描画されない予定が対象）', () => {
+    const api = makeCalendarApi({
+      timeZone: TOKYO,
+      now: () => NOW,
+      initialDate: NOW,
+      initialView: 'week',
+      eventOverlap: false,
+      slotMinTime: '08:00',
+      slotMaxTime: '18:00',
+    });
+    // 表示時間帯（08:00〜18:00）外なので time-grid-view.ts の buildDayItems で
+    // day.items から除外されるが、絶対時刻としては終日イベントの移動先（7/12）と重なる。
+    api.createEvent({
+      title: '既存夜イベント',
+      start: '2026-07-12T20:00',
+      end: '2026-07-12T21:00',
+    });
+    const moving = api.createEvent({
+      title: '移動対象',
+      start: '2026-07-06',
+      end: '2026-07-07',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === moving.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+
+    const onEventChange = vi.fn();
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrence)]}
+        callbacks={{ onEventChange }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(0),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(6)); // 7/12 相当（表示時間帯外の既存イベントと絶対時刻で重なる）
+    });
+    expect(resultRef.current?.previewInvalid).toBe(true);
+    act(() => {
+      dispatchPointerUp(cellCenterX(6));
+    });
+
+    expect(onEventChange).not.toHaveBeenCalled();
+    const updated = api.getEvents().find((event) => event.id === moving.id);
+    expect(updated?.start).toBe('2026-07-06');
+  });
+
   it('動かす側のみ overlap: true でも、重ねられる側が既定（拒否）なら eventOverlap: false のもとで拒否される', () => {
     const api = makeCalendarApi({
       timeZone: TOKYO,

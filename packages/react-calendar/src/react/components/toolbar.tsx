@@ -72,7 +72,14 @@ export function Toolbar(props: ToolbarProps): ReactElement {
   const { view, currentDate, timeZone } = state;
   const locale = state.options.locale;
   const toolbarMessages: ToolbarMessages = messages.toolbar;
-  const title = formatViewTitle(view, currentDate, api.getVisibleRange(), timeZone, locale);
+  const title = formatViewTitle(
+    view,
+    currentDate,
+    api.getVisibleRange(),
+    timeZone,
+    locale,
+    messages.common.rangeSeparator,
+  );
 
   return (
     <div data-koyomi="toolbar">

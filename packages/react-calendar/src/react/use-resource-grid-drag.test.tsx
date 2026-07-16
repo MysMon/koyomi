@@ -1614,4 +1614,51 @@ describe('useResourceGridDrag - 宣言的な重なり・配置制約', () => {
 
     expect(onEventChange).not.toHaveBeenCalled();
   });
+
+  it('矢印キーによる移動は表示時間帯（slotMinTime/slotMaxTime）外にある同一列の既存イベントとの重なりも拒否され、別列なら許可される（ビューモデルに描画されない予定が対象）', () => {
+    // slotMaxTime: '18:00' の表示時間帯外（19:00〜20:00）にある既存イベントは
+    // room-a 列の column.items に含まれず、ビューモデル由来のブロッカー収集では見えない。
+    const existingHidden: CalendarEvent = {
+      id: 'existing-hidden',
+      title: '既存（表示時間帯外）',
+      start: `${DAY}T19:00`,
+      end: `${DAY}T20:00`,
+      resourceId: 'room-a',
+    };
+    const movingSameRoom: CalendarEvent = {
+      id: 'moving-same-room',
+      title: '対象（同列）',
+      start: `${DAY}T17:00`,
+      end: `${DAY}T18:00`,
+      resourceId: 'room-a',
+    };
+    const movingOtherRoom: CalendarEvent = {
+      id: 'moving-other-room',
+      title: '対象（別列）',
+      start: `${DAY}T17:00`,
+      end: `${DAY}T18:00`,
+      resourceId: 'room-b',
+    };
+    const onEventChange = vi.fn();
+    const { container } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [existingHidden, movingSameRoom, movingOtherRoom],
+      callbacks: { onEventChange },
+      eventOverlap: false,
+      slotMinTime: '08:00',
+      slotMaxTime: '18:00',
+      snapMinutes: 120,
+    });
+
+    // 同一列（room-a）: ArrowDown で 17:00〜18:00 → 19:00〜20:00。表示時間帯外の
+    // 既存イベントと完全に重なるため拒否される
+    const sameRoomEl = getEventElement(container, 'moving-same-room', `${DAY}T17:00`);
+    fireEvent.keyDown(sameRoomEl, { key: 'ArrowDown' });
+    expect(onEventChange).not.toHaveBeenCalled();
+
+    // 別列（room-b）: 同じ移動でも room-a のブロッカーは対象外なので許可される
+    const otherRoomEl = getEventElement(container, 'moving-other-room', `${DAY}T17:00`);
+    fireEvent.keyDown(otherRoomEl, { key: 'ArrowDown' });
+    expect(onEventChange).toHaveBeenCalledTimes(1);
+  });
 });

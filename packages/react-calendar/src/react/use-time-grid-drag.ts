@@ -26,10 +26,9 @@ import type {
   PointerEvent as ReactPointerEvent,
   Ref,
 } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   isDragCandidateValid,
-  type OverlapBlocker,
   occurrenceBlocksOverlap,
   resolveConstraintRules,
 } from '../core/constraints';
@@ -45,7 +44,6 @@ import {
 } from '../core/timezone';
 import type {
   BusinessHoursRule,
-  CalendarViewModel,
   DateRange,
   EventOccurrence,
   PositionedOccurrence,
@@ -60,6 +58,7 @@ import {
   checkBeforeEventChange,
   checkBeforeEventDelete,
   checkBeforeSelectRange,
+  collectOverlapBlockersInRange,
   createAutoScrollLoop,
   createDefaultEvent,
   type EventNotificationProps,
@@ -360,43 +359,6 @@ function arrowKeyChange(
 }
 
 /**
- * 現在のビューモデルから、時間グリッドの重なり判定用ブロッカー一覧を構築する。
- *
- * 各日の時間指定アイテム（`day.items`）と終日行のセグメント（`allDaySegments`）の
- * 両方を対象にする（レーンの区別はない。終日イベントも絶対時刻の区間として時間指定の
- * ドラッグと統一的に比較するため）。複数日にまたがるアイテムが複数の日に現れる場合は
- * オカレンスキーで重複排除する。
- */
-function collectTimeGridBlockers(
-  viewModel: CalendarViewModel,
-  eventOverlap: boolean,
-): readonly OverlapBlocker[] {
-  const blockers = new Map<string, OverlapBlocker>();
-  const addOccurrence = (occurrence: EventOccurrence): void => {
-    if (blockers.has(occurrence.key)) {
-      return;
-    }
-    blockers.set(occurrence.key, {
-      key: occurrence.key,
-      start: occurrence.start,
-      end: occurrence.end,
-      blocksOverlap: occurrenceBlocksOverlap(occurrence.event, eventOverlap),
-    });
-  };
-  if (viewModel.type === 'timeGrid') {
-    for (const day of viewModel.days) {
-      for (const item of day.items) {
-        addOccurrence(item.occurrence);
-      }
-    }
-    for (const segment of viewModel.allDaySegments) {
-      addOccurrence(segment.occurrence);
-    }
-  }
-  return [...blockers.values()];
-}
-
-/**
  * 動かしている側の overlap 実効値（重なりを拒否するか）を求める。
  * 新規作成（`occurrence` が `null`）では動かしている側の個別設定が存在しないため、
  * グローバル `eventOverlap` をそのまま動かしている側の値として使う。
@@ -451,22 +413,6 @@ export function useTimeGridDrag(params: {
   /** 直後の click イベントを 1 回だけ抑制するフラグ（ドラッグ確定・Escape キャンセル直後用）。 */
   const suppressNextClickRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
-
-  /**
-   * 重なり判定用のブロッカー一覧。`calendar.viewModel` が変わらない限り
-   * （= ビューモデルに影響する状態が変わらない限り）再計算しない
-   * （毎 pointermove の再計算を避けるための memo 化）。
-   */
-  const blockers = useMemo(
-    () =>
-      collectTimeGridBlockers(
-        params.calendar.viewModel,
-        params.calendar.state.options.eventOverlap,
-      ),
-    [params.calendar.viewModel, params.calendar.state.options.eventOverlap],
-  );
-  const blockersRef = useRef<readonly OverlapBlocker[]>(blockers);
-  blockersRef.current = blockers;
 
   // アンマウント時に進行中のセッションがあれば document リスナーを確実に解除する。
   useEffect(() => {
@@ -563,13 +509,13 @@ export function useTimeGridDrag(params: {
    * 常に `allDay: false`（時間グリッドの作成は時間指定）で判定する。
    */
   function isCreateCandidateValid(range: DateRange): boolean {
-    const { state } = paramsRef.current.calendar;
+    const { state, api } = paramsRef.current.calendar;
     return isDragCandidateValid({
       range,
       allDay: false,
       excludeKey: null,
       moverBlocksOverlap: resolveMoverBlocksOverlap(null, state.options.eventOverlap),
-      blockers: blockersRef.current,
+      blockers: collectOverlapBlockersInRange(api, range, state.options.eventOverlap),
       constraintRules: resolveConstraintRulesForOccurrence(
         null,
         state.options.eventConstraint,
@@ -588,13 +534,13 @@ export function useTimeGridDrag(params: {
     range: DateRange,
     allDay: boolean,
   ): boolean {
-    const { state } = paramsRef.current.calendar;
+    const { state, api } = paramsRef.current.calendar;
     return isDragCandidateValid({
       range,
       allDay,
       excludeKey: occurrence.key,
       moverBlocksOverlap: resolveMoverBlocksOverlap(occurrence, state.options.eventOverlap),
-      blockers: blockersRef.current,
+      blockers: collectOverlapBlockersInRange(api, range, state.options.eventOverlap),
       constraintRules: resolveConstraintRulesForOccurrence(
         occurrence,
         state.options.eventConstraint,
