@@ -3,18 +3,23 @@
  * `InternationalPattern` — 「国際化」パターン。
  *
  * 東京拠点のチームが NY・ロンドン拠点と協業する想定のデモ。週ビューを中心に、
- * 次の 4 点を確認できる。
+ * 次の 5 点を確認できる。
  *
  * 1. **複数タイムゾーン軸**（`timeAxisZones`） — 「なし / NY / NY+ロンドン」を
  *    切り替え、週/日ビューの時間軸に追加のタイムゾーン列を出し分ける
  * 2. **言語切替**（`locale`） — 日本語 / English をワンスイッチで切替え、
  *    `locale` の更新（`api.updateOptions`）を行う。`Toolbar` / `CalendarView`
- *    はいずれも `locale` に連動して中央メッセージカタログから自動で文言が
+ *    はいずれも `locale` に連動して中央メッセージカタログから自動で文言・
+ *    aria-label・時間軸の時刻表記（24 時間制 / 12 時間制 AM・PM）まで一括で
  *    切り替わる（追加の文言 props は不要）
- * 3. **週番号**（`showWeekNumbers`） — 常時有効化し、月・週ビューの左端に
+ * 3. **文言の部分上書き**（`messages`） — 「社内呼称」トグルで、`CalendarProvider`
+ *    の `messages` prop により「今日」ボタンと空状態メッセージだけを社内独自の
+ *    呼称に差し替える例を示す。上書きは言語ごとに用意しており、言語切替と
+ *    独立に組み合わせられる（他の文言は選択中の言語の既定カタログのまま）
+ * 4. **週番号**（`showWeekNumbers`） — 常時有効化し、月・週ビューの左端に
  *    パターン専用 CSS（`./international.css`）で `data-koyomi-week-number`
  *    属性をバッジとして可視化する
- * 4. **RTL 切替** — このパターンのルート要素に `dir="rtl"` を付け外しし、
+ * 5. **RTL 切替** — このパターンのルート要素に `dir="rtl"` を付け外しし、
  *    論理プロパティ（`insetInlineStart` 等）によるレイアウト反転を確認する
  *
  * ビュー切替は `Toolbar` + `CalendarView`（月・週・日・リストの 4 ビュー）。
@@ -23,7 +28,12 @@
  * （`docs/interactions.md` 参照）。
  */
 
-import type { CalendarEvent, CalendarViewType, TimeZoneId } from '@koyomi-cal/react';
+import type {
+  CalendarEvent,
+  CalendarViewType,
+  MessageCatalogOverrides,
+  TimeZoneId,
+} from '@koyomi-cal/react';
 import {
   addDaysInZone,
   CalendarProvider,
@@ -53,6 +63,25 @@ type LanguageId = 'ja' | 'en';
 const LANGUAGE_OPTIONS: Readonly<Record<LanguageId, { locale: string; switchLabel: string }>> = {
   ja: { locale: 'ja', switchLabel: '🌐 Switch to English' },
   en: { locale: 'en-US', switchLabel: '🌐 日本語に切替' },
+};
+
+/**
+ * 「社内呼称」トグル ON 時に使う `messages` の部分上書き（言語ごと）。
+ *
+ * `toolbar.today` と `list.empty` の 2 か所だけを社内独自の呼称に差し替える例。
+ * 他の文言（ビュー切替ボタン・aria-label 等）は選択中の言語の既定カタログの
+ * ままになる（グループ単位の浅いマージ）。`language`（{@link LanguageId}）の
+ * 切替と独立に、このトグル自体も on/off できる。
+ */
+const CUSTOM_MESSAGES: Readonly<Record<LanguageId, MessageCatalogOverrides>> = {
+  ja: {
+    toolbar: { today: '🏠 本社基準日' },
+    list: { empty: '🌏 選択中の拠点に予定はありません' },
+  },
+  en: {
+    toolbar: { today: '🏠 HQ Today' },
+    list: { empty: '🌏 No events for the selected offices' },
+  },
 };
 
 /** 複数タイムゾーン軸（`timeAxisZones`）切替の選択肢識別子。 */
@@ -154,6 +183,7 @@ export function InternationalPattern(): ReactElement {
   const [language, setLanguage] = useState<LanguageId>('ja');
   const [timeAxisMode, setTimeAxisMode] = useState<TimeAxisModeId>(INITIAL_TIME_AXIS_MODE);
   const [rtl, setRtl] = useState(false);
+  const [customMessages, setCustomMessages] = useState(false);
 
   /** 言語切替（ワンスイッチ）。`locale` の更新（`api.updateOptions`）のみで文言も追従する。 */
   function handleLanguageToggle(): void {
@@ -210,11 +240,27 @@ export function InternationalPattern(): ReactElement {
             />
             <span>RTL（右から左）</span>
           </label>
+
+          <label className="demo-control" htmlFor="intl-custom-messages-toggle">
+            <input
+              id="intl-custom-messages-toggle"
+              type="checkbox"
+              name="customMessages"
+              checked={customMessages}
+              onChange={(event) => setCustomMessages(event.target.checked)}
+            />
+            <span>社内呼称（messages 部分上書き）</span>
+          </label>
         </div>
       </header>
 
       <main className="demo-main">
-        <CalendarProvider value={calendar}>
+        <CalendarProvider
+          value={calendar}
+          // exactOptionalPropertyTypes: true の下では messages: undefined を明示できないため、
+          // OFF 時は prop 自体を渡さない。
+          {...(customMessages ? { messages: CUSTOM_MESSAGES[language] } : {})}
+        >
           <Toolbar views={VIEWS} />
           <CalendarView />
         </CalendarProvider>
@@ -223,7 +269,9 @@ export function InternationalPattern(): ReactElement {
       <p className="international-hint">
         週番号（<code>showWeekNumbers</code>）は常に有効です。月・週ビューの左端のバッジで
         <code>data-koyomi-week-number</code> 属性を確認できます（詳細は docs/views.md
-        の「週番号（showWeekNumbers）」を参照）。
+        の「週番号（showWeekNumbers）」を参照）。「社内呼称」を有効にすると、
+        <code>messages</code> prop で「今日」ボタンと空状態メッセージだけが社内独自の
+        呼称に差し替わります（他の文言は選択中の言語の既定のまま）。
       </p>
     </div>
   );

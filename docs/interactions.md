@@ -4,7 +4,7 @@
 
 ## クリック・ドラッグでの予定作成
 
-空き領域のクリック・ドラッグで範囲が選択されると `onSelectRange` が呼ばれます。**省略した場合**は既定動作として、`defaultEventTitle` オプション（既定 `'(タイトルなし)'`）のタイトルの予定がその場で即時作成されます（`createEvent` 相当）。
+空き領域のクリック・ドラッグで範囲が選択されると `onSelectRange` が呼ばれます。**省略した場合**は既定動作として、`messages.common.untitledEvent`（既定 `'(タイトルなし)'`）のタイトルの予定がその場で即時作成されます（`createEvent` 相当）。
 
 コールバックには `RangeSelection` が渡されます。
 
@@ -357,7 +357,7 @@ function App() {
 
 | コールバック | 呼ばれるタイミング | 省略時の既定動作 |
 | --- | --- | --- |
-| `onSelectRange` | 空き領域のクリック・ドラッグで範囲選択が確定したとき | `defaultEventTitle`（既定 `'(タイトルなし)'`）で即時作成する |
+| `onSelectRange` | 空き領域のクリック・ドラッグで範囲選択が確定したとき | `messages.common.untitledEvent`（既定 `'(タイトルなし)'`）で即時作成する |
 | `onBeforeSelectRange` | 範囲選択の確定前（`onSelectRange` より前） | 常に許可する（`true`） |
 | `onEventClick` | 予定がクリック、または Enter・Space で選択されたとき | 何もしない |
 | `onEventChange` | ドラッグ・キーボードによる移動・リサイズが確定し、変更が適用された後 | （通知のみ。変更の適用自体は常にライブラリが行う。`changes` に影響を受けた各イベントの before/after が入り undo に使える） |

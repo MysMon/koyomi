@@ -120,7 +120,7 @@ function App() {
 // - selection.allDay は終日枠（月ビューのセル・終日行）での選択なら true
 ```
 
-`onSelectRange` を**省略した場合**は、既定動作として `defaultEventTitle` オプション（既定 `'(タイトルなし)'`）のタイトルの予定がその場で即時作成されます。作成ダイアログを出したい場合など、既定動作を止めたいときは `onSelectRange` を指定してください。
+`onSelectRange` を**省略した場合**は、既定動作として `messages.common.untitledEvent`（既定 `'(タイトルなし)'`）のタイトルの予定がその場で即時作成されます。タイトルを差し替えたい場合は `CalendarProvider` の `messages` prop（詳細は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ)）を使います。作成ダイアログを出したい場合など、既定動作を止めたいときは `onSelectRange` を指定してください。
 
 ## 予定クリックで詳細を出す
 

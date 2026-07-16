@@ -64,7 +64,7 @@ normalizeRRuleString('freq=daily;count=3'); // => 'FREQ=DAILY;COUNT=3'
 
 ## 繰り返しルールエディタ（構造化状態での編集）
 
-RRULE 文字列を直接組み立てる代わりに、フォーム入力向けの構造化された状態として繰り返しルールを編集したい場合は、`parseRecurrenceRule` / `validateRecurrenceRuleState` / `buildRecurrenceRuleString` / `describeRecurrenceRule`（`core/recurrence-editor`）と、それらを React の状態管理に接続した `useRecurrenceRuleEditor` フックが使えます。
+RRULE 文字列を直接組み立てる代わりに、フォーム入力向けの構造化された状態として繰り返しルールを編集したい場合は、`parseRecurrenceRule` / `validateRecurrenceRuleState` / `buildRecurrenceRuleString`（`core/recurrence-editor`）と、それらを React の状態管理に接続した `useRecurrenceRuleEditor` フックが使えます。検証エラー・非対応理由は `core/recurrence-editor` 側では機械可読なコード（`RecurrenceValidationIssue` の `field`/`code`、`RecurrenceUnsupportedReason`）として返り、文言化（説明文・検証エラー・非対応理由のメッセージ）は `@koyomi-cal/react` の中央メッセージカタログ（`resolveMessageCatalog`）が担います。
 
 対応範囲は `FREQ=DAILY/WEEKLY/MONTHLY/YEARLY`・`INTERVAL`・`BYDAY`（週の曜日集合、または月の第 n 曜日）・`BYMONTHDAY`（単一値）・`COUNT`/`UNTIL` のみです。
 
@@ -90,7 +90,7 @@ type RecurrenceEnd =
 `parseRecurrenceRule` は RRULE 文字列をこの構造化状態に変換します。対応範囲外の指定（`BYSETPOS` や複数の `BYMONTHDAY` など）、不正な RRULE は `kind: 'unsupported'` として元の文字列（`rawRRule`）をそのまま保持します（書き換えません）。
 
 ```ts
-import { buildRecurrenceRuleString, describeRecurrenceRule, parseRecurrenceRule } from '@koyomi-cal/react';
+import { buildRecurrenceRuleString, parseRecurrenceRule, resolveMessageCatalog } from '@koyomi-cal/react';
 
 const dtstart = new Date('2026-07-01T00:00:00Z'); // 東京 7/1 9:00（水曜日）
 const parsed = parseRecurrenceRule({
@@ -104,7 +104,7 @@ const parsed = parseRecurrenceRule({
 if (parsed.kind === 'editable') {
   buildRecurrenceRuleString({ state: parsed.state, dtstart, timeZone: 'Asia/Tokyo' });
   // => 'FREQ=WEEKLY;BYDAY=MO,WE'
-  describeRecurrenceRule(parsed.state, { dtstart, timeZone: 'Asia/Tokyo' });
+  resolveMessageCatalog('ja').recurrenceEditor.describeRule(parsed.state, { dtstart, timeZone: 'Asia/Tokyo' });
   // => '毎週月・水'
 }
 
@@ -115,13 +115,16 @@ const unsupported = parseRecurrenceRule({
 });
 // unsupported.kind === 'unsupported'
 // unsupported.rawRRule === 'FREQ=DAILY;BYSETPOS=1;BYMONTH=1'（元の文字列そのまま）
+// unsupported.reason === { code: 'unsupportedField', field: 'BYSETPOS' }（機械可読なコード）
+resolveMessageCatalog('ja').recurrenceEditor.unsupportedReason(unsupported.reason);
+// => '対応していない RRULE の指定です（BYSETPOS）'
 
 // 期待される動作:
 // - buildRecurrenceRuleString は state に検証エラー（validateRecurrenceRuleState の結果が
 //   非空）があると Error を投げる
-// - describeRecurrenceRule は検証を要求しない best-effort な整形で、context（dtstart/timeZone）を
-//   渡さない場合、byWeekday/monthlyPattern が未指定の説明文は曜日・日にちを欠いた
-//   曖昧な文言（「毎週」「毎月」等）になる
+// - catalog.recurrenceEditor.describeRule は検証を要求しない best-effort な整形で、
+//   context（dtstart/timeZone）を渡さない場合、byWeekday/monthlyPattern が未指定の
+//   説明文は曜日・日にちを欠いた曖昧な文言（「毎週」「毎月」等）になる
 ```
 
 `until` の解釈は [タイムゾーンとの関係](#タイムゾーンとの関係) の `UNTIL` と同じ「イベント TZ の現地時刻」の規則に従います。
@@ -175,7 +178,14 @@ function RecurrenceForm({ start, timeZone }: { start: Date; timeZone: string }) 
 
 `start` / `timeZone` / `rrule` は **作成時のみ有効**です（`useCalendar` の `events` と同じ規約）。編集対象（新規作成 / 既存オカレンス編集）を切り替える場合は、このフックを使うコンポーネントに一意な `key` を指定して再マウントしてください（マウント後に異なる値を渡すと、開発ビルドでは一度だけ警告が表示されます）。
 
-`describeRule` オプションを渡すと `description` の生成方法を差し替えられます（省略時は `describeRecurrenceRule` の日本語文言）。英語化したい場合は `enUsLabels.recurrenceEditor.describeRule` を渡してください（詳細は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照）。
+`locale` オプション（既定 `'ja'`）で `description` / `errors[].message` / `unsupported.message` の言語を切り替えられます。同梱にない言語は `'ja'` にフォールバックします。`start`/`timeZone`/`rrule` と異なり作成時限定ではなく、変更のたびに再解決されます。`messages` オプション（`MessageCatalogOverrides`）を渡すと `recurrenceEditor` グループの文言を部分的に上書きできます。
+
+```tsx
+useRecurrenceRuleEditor({ start, timeZone, locale: 'en-US' });
+// => description が "Weekly on Mon, Wed" のような英語文言になる
+```
+
+`locale` は `CalendarProvider` や `useCalendar` の `locale` オプションとは連動しません（このフックは `Provider` に依存しないため）。カレンダー本体と表示言語を揃えたい場合は、`calendar.state.options.locale` を明示的に渡してください。詳細は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照してください。
 
 ## 対応する主なパターン例
 

@@ -81,7 +81,8 @@ div[data-koyomi="month"] (role="grid", style: --koyomi-month-lanes=dayMaxEvents)
           … 内容は renderDayCell で差し替え可能（既定は以下。イベントの帯は差し替え対象外）
           button[data-koyomi="month-day-number"]     … クリックでその日の day ビューへ
           button[data-koyomi="month-overflow"]?      … 「+N 件」（overflowCount > 0 のとき、
-                                                        文言は overflowLabel で差し替え可。
+                                                        文言は messages.month.overflow（CalendarProvider
+                                                        の messages prop）で差し替え可。
                                                         Enter/Space でも onClick 相当が発火。
                                                         overflowButtonProps で
                                                         aria-haspopup/aria-expanded 等を追加可）
@@ -193,13 +194,13 @@ div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"] (style: --koyomi-
 ```
 div[data-koyomi="list"]
   section[data-koyomi="list-day"][data-koyomi-date][data-today?][aria-label] (aria-current="date"?) × n
-                                                      … aria-label は「M月d日(曜) 予定N件」形式（dayAriaLabel で差し替え可）
+                                                      … aria-label は「M月d日(曜) 予定N件」形式（messages.list.dayAriaLabel で差し替え可）
     h3[data-koyomi="list-day-header"]                … 日付ラベル（Intl、renderDayHeader で差し替え可）
-    button[data-koyomi="list-event"][aria-label] × n … aria-label は formatEventAriaLabel と同形式（eventAriaLabel で差し替え可）
-      span[data-koyomi="list-event-time"]            … allDayLabel（既定「終日」）または「HH:mm〜HH:mm」
+    button[data-koyomi="list-event"][aria-label] × n … aria-label は messages.common.eventAriaLabel と同形式（messages prop で差し替え可）
+      span[data-koyomi="list-event-time"]            … messages.list.allDay（既定「終日」）または「HH:mm〜HH:mm」
       span[data-koyomi="list-event-swatch"]          … 色見本（--koyomi-event-color）
       span[data-koyomi="list-event-title"]
-  div[data-koyomi="list-empty"]?                     … isEmpty のとき emptyLabel（既定「予定はありません」）
+  div[data-koyomi="list-empty"]?                     … isEmpty のとき messages.list.empty（既定「予定はありません」）
 ```
 
 - リストのイベントはクリックで `onEventClick`（ドラッグなし）。Enter/Space も同様
@@ -351,7 +352,7 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"] (style: --koyomi-tim
            … previewFor(column) のその列に該当する区間。style: top/height %。
              data-koyomi-invalid は宣言的制約違反時のみ 'true'
         div[data-koyomi="now-indicator"]? (aria-hidden)    … style: top %（表示日が今日の列のみ）
-  div[data-koyomi="resource-empty"]?                        … isEmpty のとき emptyLabel（既定「リソースがありません」）
+  div[data-koyomi="resource-empty"]?                        … isEmpty のとき messages.resource.empty（既定「リソースがありません」）
 ```
 
 - `isEmpty` の場合は `div[data-koyomi="resource"]` の直下に `resource-empty` のみを描画する（上記の内部構造は出力しない。`resource-grid` も生成しない）。この場合ルート自身の `data-koyomi-columns` 属性も出力されない（`"0"` にはならず、属性自体が付かない）
@@ -438,7 +439,7 @@ div[data-koyomi="resource"][data-koyomi-virtualized="true"][data-koyomi-columns=
 div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"][data-koyomi-scale="hour|day|week|month"] (role="grid")
   div[data-koyomi="timeline-body"] (role="presentation")    … 横スクロールコンテナ（grid→row 間の透過ラッパ）
     div[data-koyomi="timeline-header-row"] (role="row")
-      div[data-koyomi="timeline-corner"] (role="columnheader", aria-label=cornerLabel)
+      div[data-koyomi="timeline-corner"] (role="columnheader", aria-label=messages.timeline.corner)
                                                                   … 左上の角セル（行見出し列の列見出し。視覚上は空。
                                                                     presentation で隠すと本文行と列数がずれるため公開する）
       div[data-koyomi="timeline-axis"] (role="columnheader")     … 日/グループヘッダー＋時刻目盛りをまとめた1セル
@@ -481,7 +482,7 @@ div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"][data-koyomi-scale
              data-koyomi-invalid は宣言的制約（eventOverlap/eventConstraint）違反時のみ 'true'
         div[data-koyomi="now-indicator"][data-orientation="vertical"]? (aria-hidden)
            … style: insetInlineStart %（表示範囲内に「今」がある場合のみ）
-  div[data-koyomi="timeline-empty"]?                         … isEmpty のとき emptyLabel（既定「リソースがありません」）
+  div[data-koyomi="timeline-empty"]?                         … isEmpty のとき messages.timeline.empty（既定「リソースがありません」）
 ```
 
 - `isEmpty` の場合は `div[data-koyomi="timeline"]` の直下に `timeline-empty` のみを描画する
@@ -497,7 +498,7 @@ div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"][data-koyomi-scale
   異なり、タイムラインは % 幅の帯そのものとして表現する
 - `timeline-row-toggle` の既定コンテンツは固定グリフ（▸）＋ `aria-expanded="true"` 時の CSS 回転
   （ツールバー prev/next と同じ方式）。既定 aria-label は「〈リソース名〉を折りたたむ」/
-  「〈リソース名〉を展開する」で、`resourceToggleAriaLabel` prop で差し替え可能
+  「〈リソース名〉を展開する」で、`messages.timeline.resourceToggleAriaLabel`（CalendarProvider の messages prop）で差し替え可能
 - 折りたたみで非表示になった子孫行は `TimelineViewModel.rows` 自体から除外されるため、
   D&D の行レジストリ・`↑`/`↓` の隣接行検索・`VirtualTimelineView` の `useVirtualizer`（`count: rows.length`）・
   `scrollToResource` は追加のコード変更なしに「存在しない行」として振る舞う
@@ -550,18 +551,21 @@ div[data-koyomi="timeline"][data-koyomi-virtualized="true"][data-koyomi-days="<�
 
 `state.view` に応じて `MonthView` / `TimeGridView` / `ListView` / `YearView` / `MultiMonthView` /
 `ResourceView` / `TimelineView` を出し分けるだけのスイッチ。props はビュー名を接頭辞にした名前で
-各ビューへ転送する（`renderMonthEvent` / `renderMonthDayCell` / `monthOverflowLabel` /
-`renderTimeGridEvent` / `renderTimeGridDayHeader` / `renderListEvent` / `listAllDayLabel` /
-`listEmptyLabel` / `renderListDayHeader` / `renderYearMonthHeader` / `renderYearDayCell` /
-`renderMultiMonthEvent` / `renderMultiMonthDayCell` / `multiMonthOverflowLabel` /
-`renderResourceEvent` / `renderResourceColumnHeader` / `resourceUnassignedLabel` /
-`resourceEmptyLabel` / `renderTimelineEvent` / `renderTimelineRowHeader` /
-`timelineUnassignedLabel` / `timelineEmptyLabel`）。`virtualizeList` を渡すと list ビューは
-`ListView` の代わりに `VirtualListView` で描画され、`listEstimateDayHeight` / `listOverscan` が
-そちらへ転送される。
+各ビューへ転送する（`renderMonthEvent` / `renderMonthDayCell` / `monthOverflowButtonProps` /
+`renderTimeGridEvent` / `renderTimeGridAllDayEvent` / `renderTimeGridDayHeader` /
+`timeGridInitialScrollTime` / `renderListEvent` / `renderListDayHeader` /
+`renderYearMonthHeader` / `renderYearDayCell` / `renderMultiMonthEvent` /
+`renderMultiMonthDayCell` / `multiMonthOverflowButtonProps` / `renderResourceEvent` /
+`renderResourceAllDayItem` / `renderResourceColumnHeader` / `resourceInitialScrollTime` /
+`renderTimelineEvent` / `renderTimelineRowHeader`）。文言・aria-label 系の props は存在せず、
+すべて `CalendarProvider` の中央メッセージカタログ（`messages` prop）から解決される。
+`virtualizeList`/`virtualizeResource`/`virtualizeTimeline` を渡すと対応するビューは
+`VirtualListView`/`VirtualResourceView`/`VirtualTimelineView` で描画され、
+`listEstimateDayHeight` / `listOverscan` が list 系の仮想化へ転送される。
 
 ## Toolbar の文言
 
-`ToolbarProps.labels`（`ToolbarLabels`）で「今日 / ‹ / › / 月 / 週 / 日 / リスト / 年 / 複数月 /
-リソース / タイムライン」の全文言を差し替えられる。prev/next の表示アイコン（‹/›）は固定で、
-`labels` の値が文字列の場合のみ aria-label に反映する。
+`ToolbarProps` は `views`（表示するビューの一覧・並び順）のみを持つ。「今日 / ‹ / › / 月 / 週 / 日 /
+リスト / 年 / 複数月 / リソース / タイムライン」の全文言は `CalendarProvider` の `messages` prop
+（`messages.toolbar`）から解決される。prev/next の表示アイコン（‹/›）は固定で、
+`messages.toolbar.prev`/`next` の値は aria-label にのみ反映する。

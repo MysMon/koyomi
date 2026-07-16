@@ -40,10 +40,8 @@
 - **キーボードのみでの予定操作**: 矢印キーでの移動（±snap 分 / ±1 日 / ±7 日）、Shift+矢印でのリサイズ、日セルの Enter/Space 作成
 - **RDATE 対応**: `CalendarEvent.rdates` によるパターン外オカレンスの追加（シリーズ分割時の振り分けも対応）
 - **hiddenWeekdays オプション**: 月・週ビューの列から任意の曜日を除外（週末非表示等）
-- **defaultEventTitle オプション**: 既定作成のタイトルを差し替え可能に
 - **現在時刻線の追従**: `CalendarApi.refresh()` と `useCalendar` の `refreshSeconds`
 - **新コールバック**: `onEventDelete`（削除通知）、`onError`（エラー通知）。`onOverflowClick` に非表示オカレンス一覧（第 2 引数）を追加
-- **UI 文言の差し替え**: `Toolbar.labels`、`ListView.allDayLabel/emptyLabel`、`MonthView.overflowLabel` 等（i18n 対応）
 - **スロット**: `MonthView.renderDayCell`、`TimeGridView.renderDayHeader`、`ListView.renderDayHeader`（`CalendarView` からも転送可能）
 - **ドラッグ中のオートスクロール**（時間グリッド）、ドラッグ起点への `touch-action: none`（デフォルトテーマ）
 - **アクセシビリティ**: 月ビューに WAI-ARIA grid ロール、日セルに完全な日付の `aria-label` と `aria-current="date"`、フォーカスリング
@@ -57,18 +55,18 @@
 - **リソース/タイムラインの仮想化**: `VirtualResourceView` / `VirtualTimelineView` を追加（可視レーンのみ描画、フォーカス保持、`scrollToResource` / `scrollToRow`）。`useVirtualizer` を水平軸・`viewportPadding` 対応に拡張
 - **ISO 週番号**: `showWeekNumbers` オプションで月・週ビューに `data-koyomi-week-number` 属性を出力（`isoWeekNumberInZone` / `isoWeekNumberOfWeek` / `parseTimeOfDay` を公開）
 - **営業時間**: `businessHours` オプションで週/日・リソースビューのスロットに `data-koyomi-business-hours` 属性、タイムラインに `timeline-business-hours` 帯を出力
-- **英語文言プリセット**: `enUsLabels`（Toolbar / 各ビューの `*Label` props をコンポーネント単位でまとめた en-US プリセット）
+- **中央メッセージカタログ**: ビルトインコンポーネント・フックの全文言（ボタンの表示文字列・「+N 件」・空状態・イベントや日セクションの aria-label・繰り返しルールの説明文/検証エラー・読み上げ通知の文面）を単一の `MessageCatalog`（`react/locales`）に集約。`CalendarOptions.locale` の言語サブタグで `jaMessages`/`enMessages`（同梱）を自動選択し（未対応言語は `ja` にフォールバック）、`CalendarProvider` の `messages` prop（`MessageCatalogOverrides`）でグループ単位に部分上書きできる。`resolveMessageCatalog` / `jaMessages` / `enMessages` / `MessageCatalog` / `MessageCatalogOverrides` / `EventChangeVerb` / `classifyEventChangeVerb` を公開。既定即時作成のタイトルは `messages.common.untitledEvent` で差し替え可能。時間グリッドの時刻軸目盛り（`formatSlotLabel`）はロケールの慣習（12/24 時間制）に追従する
 - **undo 基盤**: `onEventChange` / `onEventDelete` に影響イベントの before/after 一覧（`changes: EventChangeEntry[]`）を追加。`updateEventInWithChanges` 等の core 関数と `CalendarApi.updateEvent/deleteEvent` の戻り値でも取得可能
 - **適用前フック**: `onBeforeEventChange` / `onBeforeSelectRange` / `onBeforeEventDelete`（`boolean | Promise<boolean>`、false で不適用・通知なし。FullCalendar の eventAllow/selectAllow 相当＋キーボード削除の確認用途）。`EventChangeProposal` 型を公開
 - **既定挙動の差し替え**: `onDayNumberClick`（日番号クリックの day ビュー遷移を置き換え。省略時は従来どおり）
-- **読み上げ文言のカスタマイズ**: 全イベントビューに `eventAriaLabel`、`YearView.dayCountLabel/dayAriaLabel`、`ListView`/`VirtualListView.dayAriaLabel`、`ToolbarLabels.viewsGroup` を追加（固定日本語文言を解消し enUsLabels で網羅）
+- **読み上げ文言のカスタマイズ**: イベントの aria-label（`messages.common.eventAriaLabel`）、年ビューの日セルの件数文言・aria-label（`messages.year.dayCount`/`dayAriaLabel`）、リストビューの日セクションの aria-label（`messages.list.dayAriaLabel`）、`Toolbar` のビュー切替グループの aria-label（`messages.toolbar.viewsGroup`）を中央メッセージカタログから解決するように変更（固定日本語文言を解消）
 - **通知の拡充**: `onEventDoubleClick` / `onEventContextMenu` / `onEventHover` / `onEventHoverEnd`（未指定時はリスナー自体を付けない）、core の `onRangeChange`（表示範囲変更通知。FullCalendar の datesSet 相当）
 - **React 非依存エントリ**: `@koyomi-cal/react/core`（`createCalendar`・ビューモデルビルダー・タイムゾーン/繰り返しユーティリティを React なしで利用可能）
-- **ビュー利便性**: `CalendarView` に `virtualizeResource` / `virtualizeTimeline`、`TimeGridView.renderAllDayEvent`、`ResourceView`/`VirtualResourceView.renderAllDayItem`、`TimelineView.cornerLabel` を追加
+- **ビュー利便性**: `CalendarView` に `virtualizeResource` / `virtualizeTimeline`、`TimeGridView.renderAllDayEvent`、`ResourceView`/`VirtualResourceView.renderAllDayItem` を追加
 - **月ビューの修正**: 「+N 件」ボタンを帯と重ならない最下部の予約領域へ配置（クリック不能バグの解消）、週行の高さが `dayMaxEvents` に追従（`--koyomi-month-lanes`）
-- **繰り返しルールエディタ**: RRULE 文字列を構造化状態（`RecurrenceRuleState`）として編集する `useRecurrenceRuleEditor` フックと、基盤となる `core/recurrence-editor`（`parseRecurrenceRule` / `validateRecurrenceRuleState` / `buildRecurrenceRuleString` / `describeRecurrenceRule`）を追加。対応範囲は `FREQ=DAILY/WEEKLY/MONTHLY/YEARLY`・`INTERVAL`・`BYDAY`（週の曜日集合／月の第 n 曜日）・`BYMONTHDAY`（単一値）・`COUNT`/`UNTIL` のみで、範囲外の指定は unsupported として元の RRULE 文字列を保持する。`enUsLabels.recurrenceEditor.describeRule` で英語化可能
+- **繰り返しルールエディタ**: RRULE 文字列を構造化状態（`RecurrenceRuleState`）として編集する `useRecurrenceRuleEditor` フックと、基盤となる `core/recurrence-editor`（`parseRecurrenceRule` / `validateRecurrenceRuleState` / `buildRecurrenceRuleString`）を追加。対応範囲は `FREQ=DAILY/WEEKLY/MONTHLY/YEARLY`・`INTERVAL`・`BYDAY`（週の曜日集合／月の第 n 曜日）・`BYMONTHDAY`（単一値）・`COUNT`/`UNTIL` のみで、範囲外の指定は unsupported として元の RRULE 文字列を保持する。検証エラー・非対応理由は機械可読なコード（`RecurrenceValidationIssue`/`RecurrenceUnsupportedReason`）で返り、`useRecurrenceRuleEditor` の `locale`/`messages` オプションで文言・言語を切り替え可能
 - **undo/redo 履歴マネージャ**: `createEventHistory` / `useCalendarHistory` を追加。`EventChangeEntry[]` を「1 操作 = 1 履歴単位」で管理し、`applyEventChangeEntries`（`core/mutations`）で undo/redo を適用する（適用は `setEvents` 経由のため `onEventsChange` を発火させない）。`useCalendarHistory` は Ctrl/Cmd+Z 等のキーボードショートカットに opt-in で対応
-- **aria-live 通知フック**: `useCalendarAnnouncer` を追加。予定の移動・リサイズ・既定即時作成・削除の確定後、および明示的に配線した場合はビュー変更後に、既定の日本語文言を aria-live リージョンへ通知する（`messages` で差し替え可、`enUsLabels.announcer` で英語化可）
+- **aria-live 通知フック**: `useCalendarAnnouncer` を追加。予定の移動・リサイズ・既定即時作成・削除の確定後、および明示的に配線した場合はビュー変更後に、`calendar` の `locale` に連動した中央メッセージカタログの文言を aria-live リージョンへ通知する（`messages` オプションで部分上書き可、`classifyEventChangeVerb` でイベント変更種別をロケール非依存に判定）
 - **時間グリッドの表示時間帯制限と初期スクロール位置**: `slotMinTime`/`slotMaxTime` オプションで週/日ビュー・リソースビューの表示時間帯を制限できるように。`TimeGridView`/`ResourceView`/`VirtualResourceView` に初期スクロール位置の `initialScrollTime` prop と、`ref` 経由の命令的 API `scrollToTime` を追加
 - **宣言的な重なり・配置制約**: `eventOverlap`/`eventConstraint` オプション（イベント個別には `CalendarEvent.overlap`/`constraint`）で、予定の重なり・ドロップ先を宣言的に制限できるように。違反するドラッグプレビューは `data-koyomi-invalid` 属性と `--koyomi-invalid-color` で示される
 - **タイムラインのズーム粒度**: `timelineScale`（`'hour' | 'day' | 'week' | 'month'`）でタイムラインビューの横軸の目盛り粒度を切り替え可能に。`'hour'` 以外では週/月単位のヘッダーグループ（`TimelineHeaderGroup`）に切り替わり、ドラッグ・キーボード操作も日単位スナップになる
@@ -78,6 +76,21 @@
 
 - **[破壊的]** 対応 React を 19 系のみに変更（`peerDependencies` を `react` / `react-dom` `^19.0.0` へ。React 18 では利用できない）
 - **[破壊的]** `VirtualResourceView` / `VirtualTimelineView` の `forwardRef` を廃止し、`ref` を通常の props として受け取るように変更（`<VirtualResourceView ref={handleRef} />` という利用側の書き方は不変。型は `ForwardRefExoticComponent` から素の関数コンポーネント＋ `ref` prop になる）
+- **[破壊的]** コンポーネントごとの文言・aria-label 系 props を全廃し、`CalendarProvider` の `messages` prop（中央メッセージカタログ）に一本化。以下を削除:
+  - `Toolbar` の `labels` prop・`ToolbarLabels` 型（文言は `messages.toolbar` へ）
+  - `MonthView` / `MultiMonthView` の `overflowLabel`・`eventAriaLabel`（`messages.month.overflow`/`messages.multiMonth.overflow`・`messages.common.eventAriaLabel` へ）
+  - `ListView` / `VirtualListView` の `allDayLabel`・`emptyLabel`・`eventAriaLabel`・`dayAriaLabel`（`messages.list.allDay`/`empty`/`dayAriaLabel`・`messages.common.eventAriaLabel` へ）
+  - `YearView` の `dayCountLabel`・`dayAriaLabel`（`messages.year.dayCount`/`dayAriaLabel` へ）
+  - `ResourceView` / `VirtualResourceView` の `unassignedLabel`・`emptyLabel`・`eventAriaLabel`（`messages.resource.unassigned`/`empty`・`messages.common.eventAriaLabel` へ）
+  - `TimelineView` / `VirtualTimelineView` の `unassignedLabel`・`emptyLabel`・`cornerLabel`・`eventAriaLabel`・`resourceToggleAriaLabel`（`messages.timeline.unassigned`/`empty`/`corner`/`resourceToggleAriaLabel`・`messages.common.eventAriaLabel` へ）
+  - `TimeGridView` の `eventAriaLabel`（`messages.common.eventAriaLabel` へ）
+  - `CalendarView` の文言転送 props 19 個（`monthOverflowLabel`・`monthEventAriaLabel`・`listAllDayLabel`・`listEmptyLabel`・`listEventAriaLabel`・`listDayAriaLabel`・`yearDayCountLabel`・`yearDayAriaLabel`・`multiMonthOverflowLabel`・`multiMonthEventAriaLabel`・`resourceUnassignedLabel`・`resourceEmptyLabel`・`resourceEventAriaLabel`・`timelineUnassignedLabel`・`timelineEmptyLabel`・`timelineCornerLabel`・`timelineEventAriaLabel`・`timelineResourceToggleAriaLabel` 等）
+  - 英語文言プリセット `enUsLabels` / `EnUsLabels` 型（言語切り替えは `CalendarOptions.locale` に `'en'` 系タグを指定する方式へ）
+  - `CalendarOptions.defaultEventTitle`（`messages.common.untitledEvent` へ移設。`ResolvedCalendarOptions` からも削除）
+  - `core/recurrence-editor` の `describeRecurrenceRule`（文言化は `@koyomi-cal/react` のメッセージカタログ `catalog.recurrenceEditor.describeRule` へ移設。`RecurrenceValidationIssue` は `{ field; message: string }` から `{ field; code }` の判別ユニオンへ、`ParsedRecurrenceRule` の `unsupported.reason` は `string` から `RecurrenceUnsupportedReason` へ型を変更）
+  - `useRecurrenceRuleEditor` の `describeRule` オプション（`locale`/`messages` オプションへ置き換え。`unsupported.reason` の型変更に伴い `unsupported` に `message: string` を追加、`errors` の要素も `RecurrenceValidationIssue & { message: string }` に変更）
+  - `useCalendarAnnouncer` の `messages` オプションの型を `AnnouncerMessages` から `MessageCatalogOverrides` に変更（`AnnouncerMessages` / `AnnouncerFormatterContext` 型は削除。文言関数のシグネチャが `(データ, 既定文言, ctx)` から、整形済みの日時範囲ラベル・リソース名・変更種別（`EventChangeVerb`）を直接受け取る形に変更）
+- **[破壊的]** `core/timezone.ts` の `formatSlotLabel` に `locale` 引数を追加（必須）。`ja` の出力（ゼロ埋め 24 時間表記）は不変
 - `updateOptions` の引数型を `CalendarOptionsPatch` に変更。`initialView` / `initialDate` は作成時専用のため型レベルで除外され（0.1.0 では実行時に黙って無視されていた）、`onEventsChange` / `onRangeChange` に `null` を渡すと登録済みコールバックを解除できる
 - `CalendarApi.notifyRangeChange()` を追加（現在のビュー・基準日・表示範囲を差分に関わらず即時通知。React 層の初期通知にも使用）
 - `useCalendar` の `events` がマウント後に変更された場合、開発ビルドで一度だけ警告を表示

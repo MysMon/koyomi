@@ -255,7 +255,7 @@ if (vm.type === 'month') {
 | `minutesOfDayInZone(date, timeZone)` | その日の 0:00 からの経過分（0〜1439）を返す |
 | `isSameDayInZone(a, b, timeZone)` | 2 つの絶対時刻が指定タイムゾーンの現地時刻基準で同じ日か判定する |
 | `weekdayInZone(date, timeZone)` | 指定タイムゾーンにおける曜日（0=日曜日〜6=土曜日）を返す |
-| `formatSlotLabel(minutes)` | その日の 0:00 からの分数を `'HH:mm'` 形式のラベルにする |
+| `formatSlotLabel(minutes, locale)` | その日の 0:00 からの分数を、ロケールに応じた時刻ラベル（`ja` は `'HH:mm'`、`en-US` は 12 時間制の AM/PM 表記等）にする |
 | `parseDateValue(value, timeZone, allDay)` | `CalendarEvent.start` / `end` と同じ解釈規則で日時の値を絶対時刻に変換する |
 | `isoWeekNumberInZone(date, timeZone)` | 指定タイムゾーンにおける ISO 8601 週番号を返す（詳細は [ビュー: 週番号](./views.md#週番号showweeknumbers) を参照） |
 | `parseTimeOfDay(time)` | `'HH:mm'` 形式の時刻文字列を、その日の 0:00 からの分（0〜1439）に変換する。`formatSlotLabel` の逆変換。形式が不正なら `Error` |
@@ -293,7 +293,7 @@ console.log(getWallClock(nextDay, 'America/New_York').hours); // => 9（DST で�
 // その他のユーティリティ
 console.log(isValidTimeZone('Invalid/Zone')); // => false
 console.log(minutesOfDayInZone(instant, 'Asia/Tokyo')); // => 600
-console.log(formatSlotLabel(600)); // => '10:00'
+console.log(formatSlotLabel(600, 'ja')); // => '10:00'
 console.log(weekdayInZone(instant, 'Asia/Tokyo')); // => 3（2026-07-01 は水曜日）
 console.log(isSameDayInZone(instant, new Date('2026-07-01T10:00:00Z'), 'Asia/Tokyo')); // => true
 

@@ -59,12 +59,6 @@ export interface MultiMonthViewProps {
    */
   renderDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
   /**
-   * 「+N 件」（あふれ集約）ラベルのカスタマイズ関数。i18n 用途。
-   * 省略時は `'+N 件'` 形式になる。
-   * @param count - 「+N 件」に集約された非表示イベント数
-   */
-  overflowLabel?: (count: number) => ReactNode;
-  /**
    * 「+N 件」ボタンに追加する props を返す関数。`aria-haspopup` / `aria-expanded` など、
    * 自前のポップオーバー UI と連携するための ARIA 属性を付与する用途に使う。
    * 省略時は追加の props を付与しない。

@@ -155,7 +155,7 @@ const calendar = useCalendar({
 **注意**:
 
 - 「未割り当てへ戻す」D&D（リソース列/行から `resourceId` を外す操作）を運用したい場合は `unassignedLane: 'always'` を指定してください。既定の `'auto'` では、未割り当ての予定が 1 件もない間は未割り当てレーン（＝ドロップ先）自体が存在せず、この操作ができません。
-- `resources` が空かつ未割り当てレーンも生成されない場合（`unassignedLane: 'auto'` で未割り当ての予定も無い場合）、リソース/タイムラインビューは列/行が 1 つもない空状態になります（`emptyLabel` のメッセージを表示）。この状態ではドロップ先のレーンが存在しないため D&D による作成もできません。回避するには `resources` を渡すか `unassignedLane: 'always'` を指定してください。
+- `resources` が空かつ未割り当てレーンも生成されない場合（`unassignedLane: 'auto'` で未割り当ての予定も無い場合）、リソース/タイムラインビューは列/行が 1 つもない空状態になります（`messages.resource.empty` / `messages.timeline.empty` のメッセージを表示）。この状態ではドロップ先のレーンが存在しないため D&D による作成もできません。回避するには `resources` を渡すか `unassignedLane: 'always'` を指定してください。
 
 ## ナビゲーション
 
@@ -331,66 +331,36 @@ calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
 
 ## ビューコンポーネントのカスタマイズ props
 
-各ビューには、UI 文字列の差し替えや日単位のコンテンツの差し込みのための props があります（すべて省略可能）。`CalendarView` 経由で使う場合はビュー名を接頭辞にした名前で転送されます（括弧内）。
+各ビューには、日単位のコンテンツの差し込みのための props があります（すべて省略可能）。`CalendarView` 経由で使う場合はビュー名を接頭辞にした名前で転送されます（括弧内）。
 
 | コンポーネント | prop | 用途 |
 | --- | --- | --- |
 | `MonthView` | `renderEvent`（`renderMonthEvent`） | セグメントの表示内容 |
 | `MonthView` | `renderDayCell`（`renderMonthDayCell`） | 日セルに祝日ラベルやバッジ等を差し込み（第 2 引数で既定内容を受け取る） |
-| `MonthView` | `overflowLabel`（`monthOverflowLabel`） | 「+N 件」の文言（`(count) => ReactNode`） |
 | `MonthView` | `overflowButtonProps`（`monthOverflowButtonProps`） | 「+N 件」ボタンに追加する props（`aria-haspopup` / `aria-expanded` 等）。自前のポップオーバーと連携する用途（詳細は[インタラクション](./interactions.md)） |
-| `MonthView` | `eventAriaLabel`（`monthEventAriaLabel`） | イベントボタンの aria-label（`(occurrence, defaultLabel) => string`）。省略時は既定文字列 |
 | `TimeGridView` | `renderEvent`（`renderTimeGridEvent`） | 時間指定イベントブロックの表示内容（終日行は対象外。終日行は `renderAllDayEvent` を使う） |
 | `TimeGridView` | `renderAllDayEvent`（`renderTimeGridAllDayEvent`） | 終日行の帯の表示内容（既定はタイトルのみ） |
 | `TimeGridView` | `renderDayHeader`（`renderTimeGridDayHeader`） | 日ヘッダーの内容 |
-| `TimeGridView` | `eventAriaLabel`（`timeGridEventAriaLabel`） | イベントブロック（終日行含む）の aria-label（`(occurrence, defaultLabel) => string`） |
 | `ListView` | `renderEvent`（`renderListEvent`） | 予定行の表示内容 |
-| `ListView` | `allDayLabel`（`listAllDayLabel`） | 終日予定の時刻ラベル（既定「終日」） |
-| `ListView` | `emptyLabel`（`listEmptyLabel`） | 空状態のメッセージ |
 | `ListView` | `renderDayHeader`（`renderListDayHeader`） | 日付見出しの内容 |
-| `ListView` | `eventAriaLabel`（`listEventAriaLabel`） | イベント行の aria-label（`(occurrence, defaultLabel) => string`）。`VirtualListView` にも同じ prop がある |
-| `ListView` | `dayAriaLabel`（`listDayAriaLabel`） | 日セクションの aria-label（`(day, defaultLabel) => string`、例:「7月16日(木) 予定2件」）。`VirtualListView` と既定文字列は同じ |
 | `YearView` | `renderMonthHeader`（`renderYearMonthHeader`） | ミニ月グリッドの見出しの内容（第 2 引数で既定内容を受け取る） |
 | `YearView` | `renderDayCell`（`renderYearDayCell`） | 日セルの内容（日番号＋件数マーカー）をラップ・置換（第 2 引数で既定内容を受け取る） |
-| `YearView` | `dayCountLabel`（`yearDayCountLabel`） | 日セルの aria-label に含める件数文言「予定N件」部分（`(count) => string`） |
-| `YearView` | `dayAriaLabel`（`yearDayAriaLabel`） | 日セルの aria-label 全体（`(day, defaultLabel) => string`。`defaultLabel` は `dayCountLabel` 適用後） |
 | `MultiMonthView` | `renderEvent`（`renderMultiMonthEvent`） | セグメントの表示内容（既定は `MonthView` と同じ） |
 | `MultiMonthView` | `renderDayCell`（`renderMultiMonthDayCell`） | 日セルに祝日ラベルやバッジ等を差し込み（第 2 引数で既定内容を受け取る。前後月の日付セルはインタラクティブでないため適用されない） |
-| `MultiMonthView` | `overflowLabel`（`multiMonthOverflowLabel`） | 「+N 件」の文言（`(count) => ReactNode`） |
 | `MultiMonthView` | `overflowButtonProps`（`multiMonthOverflowButtonProps`） | 「+N 件」ボタンに追加する props（`MonthView` と同じ） |
-| `MultiMonthView` | `eventAriaLabel`（`multiMonthEventAriaLabel`） | イベントボタンの aria-label（`(occurrence, defaultLabel) => string`）。`MonthView` と同じ |
 | `ResourceView` | `renderEvent`（`renderResourceEvent`） | 時間指定イベントブロックの表示内容（時間指定は `renderEvent`・終日は `renderAllDayItem`） |
 | `ResourceView` | `renderAllDayItem`（`renderResourceAllDayItem`） | 終日アイテムの表示内容（既定はタイトルのみ）。`VirtualResourceView` にも同じ prop がある |
-| `ResourceView` | `renderColumnHeader`（`renderResourceColumnHeader`） | 列見出しの内容（リソース名、または未割り当て列は `unassignedLabel`）をラップ・置換（第 2 引数で既定内容を受け取る） |
-| `ResourceView` | `unassignedLabel`（`resourceUnassignedLabel`） | 未割り当て列の見出しラベル（既定「未割り当て」） |
-| `ResourceView` | `emptyLabel`（`resourceEmptyLabel`） | 空状態（列が 1 つもない）のメッセージ（既定「リソースがありません」） |
-| `ResourceView` | `eventAriaLabel`（`resourceEventAriaLabel`） | イベントブロックの aria-label（`(occurrence, defaultLabel) => string`。`defaultLabel` は日時＋リソース名） |
+| `ResourceView` | `renderColumnHeader`（`renderResourceColumnHeader`） | 列見出しの内容（リソース名、または未割り当て列は `messages.resource.unassigned`）をラップ・置換（第 2 引数で既定内容を受け取る） |
 | `TimelineView` | `renderEvent`（`renderTimelineEvent`） | 帯（タイムラインアイテム）の表示内容 |
-| `TimelineView` | `renderRowHeader`（`renderTimelineRowHeader`） | 行見出しの内容（リソース名、または未割り当て行は `unassignedLabel`）をラップ・置換（第 2 引数で既定内容を受け取る） |
-| `TimelineView` | `unassignedLabel`（`timelineUnassignedLabel`） | 未割り当て行の見出しラベル（既定「未割り当て」） |
-| `TimelineView` | `emptyLabel`（`timelineEmptyLabel`） | 空状態（行が 1 つもない）のメッセージ（既定「リソースがありません」） |
-| `TimelineView` | `eventAriaLabel`（`timelineEventAriaLabel`） | 帯の aria-label（`(occurrence, defaultLabel) => string`。`defaultLabel` は日時＋リソース名） |
-| `Toolbar` | `labels`（`ToolbarLabels`） | 「月/週/日/リスト/年/複数月/リソース/タイムライン/今日」等の全文言 |
-| `Toolbar` | `labels.viewsGroup` | ビュー切替ボタングループ（`toolbar-views`）の `aria-label`（既定「表示切替」） |
+| `TimelineView` | `renderRowHeader`（`renderTimelineRowHeader`） | 行見出しの内容（リソース名、または未割り当て行は `messages.timeline.unassigned`）をラップ・置換（第 2 引数で既定内容を受け取る） |
 | `Toolbar` | `views`（`readonly CalendarViewType[]`） | ビュー切替ボタンとして表示するビューの一覧・並び順（既定 `['month', 'week', 'day', 'list']`。年・複数月・リソース・タイムラインビューは opt-in） |
 
+「+N 件」の文言・空状態のメッセージ・未割り当てラベル・イベントや日セクションの aria-label・`Toolbar` のボタン表示文字列は、上記の props ではなく `CalendarProvider` の中央メッセージカタログ（`messages` prop）から解決されます。ロケール連動・部分上書き・自前ロケールの作り方は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照してください。
+
 ```tsx
-<Toolbar
-  labels={{
-    month: 'Month', week: 'Week', day: 'Day', list: 'List',
-    year: 'Year', multiMonth: 'Multi-month',
-    resource: 'Resources', timeline: 'Timeline',
-    today: 'Today',
-  }}
-  views={['month', 'week', 'day', 'list', 'year', 'multiMonth', 'resource', 'timeline']}
-/>
+<Toolbar views={['month', 'week', 'day', 'list', 'year', 'multiMonth', 'resource', 'timeline']} />
 <CalendarView
-  monthOverflowLabel={(count) => `+${count} more`}
-  listAllDayLabel="All day"
-  listEmptyLabel="No events"
   renderYearDayCell={(day, defaultContent) => (day.isToday ? <strong>{defaultContent}</strong> : defaultContent)}
-  resourceEmptyLabel="No resources"
-  timelineEmptyLabel="No resources"
 />
 ```
 
@@ -742,7 +712,7 @@ calendar.api.toggleResourceCollapsed('site-a'); // 再度呼ぶと展開に戻�
 
 祖父母を折りたたむと、その子・孫の行が一括で非表示になります（各行自身の折りたたみ状態は保持されるため、祖父母を再展開すると、以前個別に折りたたんでいた子の行は非表示のまま復元されます）。折りたたみで非表示になった行は、`↑`/`↓` でのリソース間移動・仮想化（`VirtualTimelineView`）・`scrollToResource` からも「存在しない行」として扱われます（詳細は [インタラクション](./interactions.md) を参照）。
 
-折りたたみボタンの `aria-label`（既定は「〈リソース名〉を折りたたむ」/「〈リソース名〉を展開する」）は `TimelineView`/`VirtualTimelineView` の `resourceToggleAriaLabel` prop でカスタマイズできます。DOM 上は `button[data-koyomi="timeline-row-toggle"][aria-expanded]` が子を持つ行にのみ描画され、行見出しには階層の深さを示す `data-koyomi-depth` 属性が付きます（詳細は [テーマとスタイリング](./theming.md) を参照）。
+折りたたみボタンの `aria-label`（既定は「〈リソース名〉を折りたたむ」/「〈リソース名〉を展開する」）は `CalendarProvider` の `messages` prop（`messages.timeline.resourceToggleAriaLabel`）でカスタマイズできます。DOM 上は `button[data-koyomi="timeline-row-toggle"][aria-expanded]` が子を持つ行にのみ描画され、行見出しには階層の深さを示す `data-koyomi-depth` 属性が付きます（詳細は [テーマとスタイリング](./theming.md) を参照）。
 
 ## 関連ページ
 

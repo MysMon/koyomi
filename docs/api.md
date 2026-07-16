@@ -222,7 +222,7 @@ interface UseCalendarAnnouncerOptions {
   calendar: UseCalendarResult;
   politeness?: 'polite' | 'assertive'; // 既定 'polite'
   announce?: AnnouncerTargets;
-  messages?: AnnouncerMessages;
+  messages?: MessageCatalogOverrides;
 }
 
 interface UseCalendarAnnouncerResult {
@@ -234,9 +234,11 @@ interface UseCalendarAnnouncerResult {
     onRangeChange?: (info: CalendarRangeChangeInfo) => void,
   ) => (info: CalendarRangeChangeInfo) => void;
 }
+
+function classifyEventChangeVerb(occurrence: EventOccurrence, change: EventChange): EventChangeVerb
 ```
 
-予定の変更・作成・削除、およびビュー・基準日・表示範囲の変更を `aria-live` リージョンへ通知するヘッドレスなフックです。`CalendarProvider` の `callbacks` を `wrapCallbacks` で、`useCalendar` の `onRangeChange` を `wrapRangeChange` でラップします。詳細・カスタマイズ方法（`AnnouncerMessages` / `AnnouncerTargets` / `AnnouncerFormatterContext` の各フィールド、既定文言、英語化）は [アクセシビリティ: 変更の読み上げ通知](./accessibility.md#変更の読み上げ通知usecalendarannouncer) を参照してください。
+予定の変更・作成・削除、およびビュー・基準日・表示範囲の変更を `aria-live` リージョンへ通知するヘッドレスなフックです。`CalendarProvider` の `callbacks` を `wrapCallbacks` で、`useCalendar` の `onRangeChange` を `wrapRangeChange` でラップします。通知文言は `calendar` の `state.options.locale` から自動的に解決され、`messages`（`MessageCatalogOverrides`）でカタログの `announcer` グループを部分上書きできます（`CalendarProvider` の `messages` prop とは独立に解決されるため、揃えたい場合は同じ値を両方に渡してください）。`classifyEventChangeVerb` は移動・サイズ変更・終日⇔時間指定変換のいずれかをロケールに依存せず判定するヘルパー関数で、`messages.announcer.eventChanged` のようなカスタム文言関数の内部で種別を再利用したい場合に使えます。詳細・カスタマイズ方法は [アクセシビリティ: 変更の読み上げ通知](./accessibility.md#変更の読み上げ通知usecalendarannouncer) を参照してください。
 
 ```tsx
 import { CalendarProvider, CalendarView, useCalendar, useCalendarAnnouncer } from '@koyomi-cal/react';
@@ -309,12 +311,13 @@ interface UseRecurrenceRuleEditorOptions {
   start: Date; // 作成時のみ有効
   timeZone: TimeZoneId; // 作成時のみ有効
   rrule?: string; // 作成時のみ有効。省略時は「繰り返しなし」
-  describeRule?: (state: RecurrenceRuleState, defaultDescription: string) => string;
+  locale?: string; // 文言を解決するロケール。既定 'ja'。変更のたびに再解決される
+  messages?: MessageCatalogOverrides; // recurrenceEditor グループの部分上書き
 }
 
 interface UseRecurrenceRuleEditorResult {
   state: RecurrenceRuleState | null; // null は「繰り返しなし」
-  unsupported: { rawRRule: string; reason: string } | null;
+  unsupported: { rawRRule: string; reason: RecurrenceUnsupportedReason; message: string } | null;
   setFrequency(freq: RecurrenceFrequency): void;
   setInterval(interval: number): void;
   setByWeekday(weekdays: readonly Weekday[]): void;
@@ -322,13 +325,13 @@ interface UseRecurrenceRuleEditorResult {
   setEnd(end: RecurrenceEnd): void;
   enable(): void;
   clear(): void;
-  errors: readonly RecurrenceValidationIssue[];
+  errors: readonly (RecurrenceValidationIssue & { message: string })[];
   rruleString: string | null;
   description: string | null;
 }
 ```
 
-繰り返しルールをフォーム入力向けの構造化状態として編集するヘッドレスなフックです。RRULE 文字列の相互変換・検証・説明文生成は `core/recurrence-editor` の純関数（`parseRecurrenceRule` 等）に委譲し、React の状態管理のみを担います。`start`/`timeZone`/`rrule` は作成時のみ有効（`useCalendar` の `events` と同じ規約）で、編集対象を切り替える場合はこのフックを使うコンポーネントに一意な `key` を指定して再マウントします。対応範囲・使用例の詳細は [繰り返し予定: 繰り返しルールエディタ](./recurrence.md#繰り返しルールエディタ構造化状態での編集) を参照してください。
+繰り返しルールをフォーム入力向けの構造化状態として編集するヘッドレスなフックです。RRULE 文字列の相互変換・検証は `core/recurrence-editor` の純関数（`parseRecurrenceRule` 等）に委譲し、このフックは React の状態管理（`state` の保持・setter の安定化）に加えて、`locale` / `messages` から解決した中央メッセージカタログで `errors[].message` / `unsupported.message` / `description` を組み立てます。`start`/`timeZone`/`rrule` は作成時のみ有効（`useCalendar` の `events` と同じ規約）で、編集対象を切り替える場合はこのフックを使うコンポーネントに一意な `key` を指定して再マウントします。`locale` は `Provider` に依存せず、渡さない場合は既定 `'ja'` になります（`useCalendar` の `locale` オプションとは連動しません）。対応範囲・使用例の詳細は [繰り返し予定: 繰り返しルールエディタ](./recurrence.md#繰り返しルールエディタ構造化状態での編集) を参照してください。
 
 ### `useCalendarShortcuts`
 
@@ -618,8 +621,10 @@ function useCalendarContext(): CalendarContextValue
 
 | 型 / 関数 | シグネチャ |
 | --- | --- |
-| `CalendarProviderProps` | `{ value: UseCalendarResult; callbacks?: CalendarInteractionCallbacks; children?: ReactNode }` |
+| `CalendarProviderProps` | `{ value: UseCalendarResult; callbacks?: CalendarInteractionCallbacks; messages?: MessageCatalogOverrides; children?: ReactNode }` |
 | `useCalendarContext` | `(): CalendarContextValue` |
+
+`messages`（`MessageCatalogOverrides`）は、`value.state.options.locale` の言語サブタグで選ばれる同梱カタログ（`ja` / `en`、未対応言語は `ja` にフォールバック）へグループ単位で浅くマージされ、配下の全ビューコンポーネントの文言・aria-label に反映されます。呼び出しのたびに新しいオブジェクトを渡さず、安定した参照（コンポーネント外の定数、または `useMemo` の結果）で渡してください。詳細は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を、全リーフの一覧は [中央メッセージカタログ](#中央メッセージカタログreactlocales) を参照してください。
 
 ```tsx
 import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi-cal/react';
@@ -654,48 +659,31 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | --- | --- | --- |
 | `renderMonthEvent` | `(segment: EventSegment) => ReactNode` | 月ビューのセグメントのカスタム描画 |
 | `renderMonthDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 月ビューの日セルのカスタム描画（`MonthView.renderDayCell` へ転送） |
-| `monthOverflowLabel` | `(count: number) => ReactNode` | 月ビューの「+N 件」の文言（`MonthView.overflowLabel` へ転送） |
 | `monthOverflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 月ビューの「+N 件」ボタンに追加する props（`MonthView.overflowButtonProps` へ転送） |
-| `monthEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | 月ビューのイベントボタンの aria-label（`MonthView.eventAriaLabel` へ転送） |
 | `renderTimeGridEvent` | `(item: PositionedOccurrence) => ReactNode` | 週/日ビューのイベントブロックのカスタム描画（時間指定のみ。終日行は `renderTimeGridAllDayEvent` へ） |
 | `renderTimeGridAllDayEvent` | `(segment: EventSegment) => ReactNode` | 週/日ビューの終日行の帯のカスタム描画（`TimeGridView.renderAllDayEvent` へ転送）。省略時はタイトルのみ |
 | `renderTimeGridDayHeader` | `(day: TimeGridDay, defaultContent: ReactNode) => ReactNode` | 週/日ビューの日ヘッダーのカスタム描画（`TimeGridView.renderDayHeader` へ転送） |
-| `timeGridEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | 週/日ビューのイベントブロック（終日行含む）の aria-label（`TimeGridView.eventAriaLabel` へ転送） |
 | `timeGridInitialScrollTime` | `string`（`'HH:mm'`） | 週/日ビューの初期スクロール位置（`TimeGridView.initialScrollTime` へ転送）。`ref` は転送されない |
 | `renderListEvent` | `(occurrence: EventOccurrence) => ReactNode` | リストビューのイベント行のカスタム描画 |
-| `listAllDayLabel` | `ReactNode` | リストビューの終日ラベル（既定「終日」） |
-| `listEmptyLabel` | `ReactNode` | リストビューの空状態メッセージ（既定「予定はありません」） |
 | `renderListDayHeader` | `(day: ListDay, defaultContent: ReactNode) => ReactNode` | リストビューの日付見出しのカスタム描画 |
-| `listEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | リストビューのイベント行の aria-label（`ListView` / `VirtualListView` の `eventAriaLabel` へ転送） |
-| `listDayAriaLabel` | `(day: ListDay, defaultLabel: string) => string` | リストビューの日セクションの aria-label（`ListView` / `VirtualListView` の `dayAriaLabel` へ転送） |
 | `virtualizeList` | `boolean` | リストビューを仮想化する（`ListView` の代わりに `VirtualListView`）。既定 `false` |
 | `listEstimateDayHeight` | `number \| ((day: ListDay, index: number) => number)` | 仮想化時の日セクション推定高（`VirtualListView.estimateDayHeight` へ転送） |
 | `listOverscan` | `number` | 仮想化時の前後 overscan 日数（`VirtualListView.overscan` へ転送） |
 | `renderYearMonthHeader` | `(month: YearMonth, defaultContent: ReactNode) => ReactNode` | 年ビューのミニ月グリッドの見出しのカスタム描画（`YearView.renderMonthHeader` へ転送） |
 | `renderYearDayCell` | `(day: YearDay, defaultContent: ReactNode) => ReactNode` | 年ビューの日セルのカスタム描画（`YearView.renderDayCell` へ転送） |
-| `yearDayCountLabel` | `(count: number) => string` | 年ビューの日セルの件数文言「予定N件」部分（`YearView.dayCountLabel` へ転送） |
-| `yearDayAriaLabel` | `(day: YearDay, defaultLabel: string) => string` | 年ビューの日セルの aria-label 全体（`YearView.dayAriaLabel` へ転送） |
 | `renderMultiMonthEvent` | `(segment: EventSegment) => ReactNode` | 複数月ビューのセグメントのカスタム描画（`MultiMonthView.renderEvent` へ転送） |
 | `renderMultiMonthDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 複数月ビューの日セルのカスタム描画（`MultiMonthView.renderDayCell` へ転送） |
-| `multiMonthOverflowLabel` | `(count: number) => ReactNode` | 複数月ビューの「+N 件」の文言（`MultiMonthView.overflowLabel` へ転送） |
 | `multiMonthOverflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 複数月ビューの「+N 件」ボタンに追加する props（`MultiMonthView.overflowButtonProps` へ転送） |
-| `multiMonthEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | 複数月ビューのイベントボタンの aria-label（`MultiMonthView.eventAriaLabel` へ転送） |
 | `renderResourceEvent` | `(item: PositionedOccurrence) => ReactNode` | リソースビューの時間指定イベントブロックのカスタム描画（`ResourceView` / `VirtualResourceView` の `renderEvent` へ転送。終日アイテムは `renderResourceAllDayItem` へ） |
 | `renderResourceAllDayItem` | `(occurrence: EventOccurrence) => ReactNode` | リソースビューの終日アイテムのカスタム描画（`ResourceView` / `VirtualResourceView` の `renderAllDayItem` へ転送）。省略時はタイトルのみ |
 | `renderResourceColumnHeader` | `(column: ResourceColumn, defaultContent: ReactNode) => ReactNode` | リソースビューの列見出しのカスタム描画（`ResourceView` / `VirtualResourceView` の `renderColumnHeader` へ転送） |
-| `resourceUnassignedLabel` | `ReactNode` | リソースビューの未割り当て列ラベル（既定「未割り当て」。`ResourceView` / `VirtualResourceView` の `unassignedLabel` へ転送） |
-| `resourceEmptyLabel` | `ReactNode` | リソースビューの空状態メッセージ（既定「リソースがありません」。`ResourceView` / `VirtualResourceView` の `emptyLabel` へ転送） |
-| `resourceEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | リソースビューのイベントブロックの aria-label（`ResourceView` / `VirtualResourceView` の `eventAriaLabel` へ転送） |
 | `resourceInitialScrollTime` | `string`（`'HH:mm'`） | リソースビューの初期スクロール位置（`ResourceView` / `VirtualResourceView` の `initialScrollTime` へ転送）。`ref` は転送されない |
 | `virtualizeResource` | `boolean` | リソースビューを仮想化する（`ResourceView` の代わりに `VirtualResourceView`）。既定 `false` |
 | `renderTimelineEvent` | `(item: TimelineItem) => ReactNode` | タイムラインの帯のカスタム描画（`TimelineView` / `VirtualTimelineView` の `renderEvent` へ転送） |
 | `renderTimelineRowHeader` | `(row: TimelineRow, defaultContent: ReactNode) => ReactNode` | タイムラインの行見出しのカスタム描画（`TimelineView` / `VirtualTimelineView` の `renderRowHeader` へ転送） |
-| `timelineUnassignedLabel` | `ReactNode` | タイムラインの未割り当て行ラベル（既定「未割り当て」。`TimelineView` / `VirtualTimelineView` の `unassignedLabel` へ転送） |
-| `timelineEmptyLabel` | `ReactNode` | タイムラインの空状態メッセージ（既定「リソースがありません」。`TimelineView` / `VirtualTimelineView` の `emptyLabel` へ転送） |
-| `timelineCornerLabel` | `string` | タイムラインのヘッダー行の角セルの `aria-label`（既定「リソース」。`TimelineView` / `VirtualTimelineView` の `cornerLabel` へ転送） |
-| `timelineEventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | タイムラインの帯の aria-label（`TimelineView` / `VirtualTimelineView` の `eventAriaLabel` へ転送） |
-| `timelineResourceToggleAriaLabel` | `(resource: CalendarResource, collapsed: boolean, defaultLabel: string) => string` | タイムラインの折りたたみトグルボタンの aria-label（`TimelineView` / `VirtualTimelineView` の `resourceToggleAriaLabel` へ転送） |
 | `virtualizeTimeline` | `boolean` | タイムラインを仮想化する（`TimelineView` の代わりに `VirtualTimelineView`）。既定 `false` |
+
+各ビューの「+N 件」の文言・空状態のメッセージ・未割り当てラベル・イベントや日セクションの aria-label は、`CalendarView` の props ではなく `CalendarProvider` の中央メッセージカタログ（`messages` prop）から解決されます。詳細は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照してください。
 
 ### `MonthView`
 
@@ -709,11 +697,9 @@ function MonthView(props: MonthViewProps): ReactElement | null
 | --- | --- | --- |
 | `renderEvent` | `(segment: EventSegment) => ReactNode` | セグメントの表示内容。省略時は終日・複数日セグメントはタイトルのみ、単日の時間指定セグメントは `'H:mm タイトル'` |
 | `renderDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 日セルの内容（日番号ボタン＋「+N 件」ボタン）をラップ・置換する。祝日ラベルやバッジの注入用 |
-| `overflowLabel` | `(count: number) => ReactNode` | 「+N 件」ボタンの文言（既定 `+N 件`） |
 | `overflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 「+N 件」ボタンに追加する props（`aria-haspopup` / `aria-expanded` 等）。省略時は追加の props を付与しない |
-| `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | イベントボタンの aria-label。`defaultLabel` に既定文字列（`formatEventAriaLabel` の結果）を渡すので加工・置換できる。省略時は既定文字列のまま |
 
-ルート要素には WAI-ARIA の grid ロール（`grid` / `row` / `columnheader` / `gridcell`）と、各日セルへの完全な日付の `aria-label`・今日への `aria-current="date"` が付与されます。
+「+N 件」の文言（既定 `messages.month.overflow`）とイベントボタンの aria-label（`messages.common.eventAriaLabel`）は `CalendarProvider` の `messages` prop で差し替えます（[テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) 参照）。ルート要素には WAI-ARIA の grid ロール（`grid` / `row` / `columnheader` / `gridcell`）と、各日セルへの完全な日付の `aria-label`・今日への `aria-current="date"` が付与されます。
 
 ### `TimeGridView`
 
@@ -728,9 +714,10 @@ function TimeGridView(props: TimeGridViewProps): ReactElement | null
 | `renderEvent` | `(item: PositionedOccurrence) => ReactNode` | 時間指定イベントの表示内容。省略時は `'H:mm〜H:mm タイトル'`。終日行の内容はこの prop では変更できない（`renderAllDayEvent` を使う） |
 | `renderAllDayEvent` | `(segment: EventSegment) => ReactNode` | 終日行（`allday-event`）の帯の表示内容。省略時はタイトルのみ |
 | `renderDayHeader` | `(day: TimeGridDay, defaultContent: ReactNode) => ReactNode` | 日ヘッダー（曜日・日番号）の内容 |
-| `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | イベントボタン（時間指定・終日行の両方）の aria-label。`defaultLabel` に既定文字列を渡すので加工・置換できる。省略時は既定文字列のまま |
 | `initialScrollTime` | `string`（`'HH:mm'`） | マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置。事後の変更は再適用されない |
 | `ref` | `Ref<TimeGridViewHandle>` | `scrollToTime(time: string): void` を公開する命令的 API（`[data-koyomi="timegrid-body"]` を対象にスクロール） |
+
+イベントボタン（時間指定・終日行の両方）の aria-label は `messages.common.eventAriaLabel`（`CalendarProvider` の `messages` prop）で差し替えます。
 
 ### `ListView`
 
@@ -743,11 +730,9 @@ function ListView(props: ListViewProps): ReactElement | null
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
 | `renderEvent` | `(occurrence: EventOccurrence) => ReactNode` | イベント行の内容。省略時は時刻ラベル・色見本・タイトル |
-| `allDayLabel` | `ReactNode` | 終日予定の時刻ラベル（既定「終日」） |
-| `emptyLabel` | `ReactNode` | 空状態のメッセージ（既定「予定はありません」） |
 | `renderDayHeader` | `(day: ListDay, defaultContent: ReactNode) => ReactNode` | 日付見出しの内容 |
-| `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | イベント行（`list-event`）の aria-label。`defaultLabel` に既定文字列（`formatEventAriaLabel` の結果）を渡すので加工・置換できる。省略時は既定文字列のまま |
-| `dayAriaLabel` | `(day: ListDay, defaultLabel: string) => string` | 日セクション（`list-day`）の aria-label。`defaultLabel` に既定文字列（例:「7月16日(木) 予定2件」、`VirtualListView` と同じ形式）を渡すので加工・置換できる。省略時は既定文字列のまま |
+
+終日予定の時刻ラベル（既定 `messages.list.allDay`）、空状態のメッセージ（既定 `messages.list.empty`）、イベント行の aria-label（`messages.common.eventAriaLabel`）、日セクションの aria-label（`messages.list.dayAriaLabel`）は `CalendarProvider` の `messages` prop で差し替えます。
 
 ### `VirtualListView`
 
@@ -757,7 +742,7 @@ function VirtualListView(props: VirtualListViewProps): ReactElement | null
 
 `ListView` を縦方向に仮想化した opt-in コンポーネントです。可視範囲の日セクションだけを描画し、大量の予定・長期間表示での DOM 肥大を抑えます。日セクションの内容（`data-koyomi-*` 構造）は共有レンダラを通じて `ListView` と完全に一致します（日セクションの既定 aria-label も同じ形式で、仮想化の有無で読み上げは変わりません）。内部で `useVirtualizer` を使用します。
 
-`ListView` の props（`renderEvent` / `allDayLabel` / `emptyLabel` / `renderDayHeader` / `eventAriaLabel` / `dayAriaLabel`）に加えて次を受け付けます。
+`ListView` の props（`renderEvent` / `renderDayHeader`）に加えて次を受け付けます。
 
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
@@ -780,10 +765,8 @@ function YearView(props: YearViewProps): ReactElement | null
 | --- | --- | --- |
 | `renderMonthHeader` | `(month: YearMonth, defaultContent: ReactNode) => ReactNode` | ミニ月グリッドの見出しの内容 |
 | `renderDayCell` | `(day: YearDay, defaultContent: ReactNode) => ReactNode` | 日セルの内容（日番号＋件数マーカー）をラップ・置換する |
-| `dayCountLabel` | `(count: number) => string` | 日セルの aria-label に含める件数文言「予定N件」部分（既定 `'予定N件'`）。予定が 0 件の日には呼ばれない |
-| `dayAriaLabel` | `(day: YearDay, defaultLabel: string) => string` | 日セルの aria-label 全体。`defaultLabel` に `dayCountLabel` 適用後の既定文字列（例:「7月10日 予定3件」）を渡すので加工・置換できる。省略時は既定文字列のまま |
 
-ルート要素には月ビューと同じ WAI-ARIA grid ロール（ミニ月単位で `grid` / `row` / `columnheader` / `gridcell`）と、各日セルへの完全な日付＋件数の `aria-label`（例:「7月10日 予定3件」）・今日への `aria-current="date"` が付与されます。`hiddenWeekdays` は無視されます（常に 7 列。日ビューと同じ扱い）。
+日セルの aria-label に含める件数文言「予定N件」部分（既定 `messages.year.dayCount`、予定が 0 件の日には呼ばれない）と aria-label 全体（`messages.year.dayAriaLabel`）は `CalendarProvider` の `messages` prop で差し替えます。ルート要素には月ビューと同じ WAI-ARIA grid ロール（ミニ月単位で `grid` / `row` / `columnheader` / `gridcell`）と、各日セルへの完全な日付＋件数の `aria-label`（例:「7月10日 予定3件」）・今日への `aria-current="date"` が付与されます。`hiddenWeekdays` は無視されます（常に 7 列。日ビューと同じ扱い）。
 
 ### `MultiMonthView`
 
@@ -797,11 +780,9 @@ function MultiMonthView(props: MultiMonthViewProps): ReactElement | null
 | --- | --- | --- |
 | `renderEvent` | `(segment: EventSegment) => ReactNode` | セグメントの表示内容。既定内容は `MonthView` と同じ |
 | `renderDayCell` | `(day: MonthDay, defaultContent: ReactNode) => ReactNode` | 日セルの内容をラップ・置換する。前後月の日付セル（`data-outside`）はインタラクティブでないため適用されない |
-| `overflowLabel` | `(count: number) => ReactNode` | 「+N 件」ボタンの文言（既定 `+N 件`） |
 | `overflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 「+N 件」ボタンに追加する props（`MonthView` と同じ） |
-| `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | イベントボタンの aria-label（`MonthView` と同じ）。`defaultLabel` に既定文字列を渡すので加工・置換できる |
 
-`MonthView` との違いは、前後月の日付セルに予定を表示しない点だけです。月境界をまたぐ帯は月ごとにクランプされ、`continuesBefore` / `continuesAfter` で「←続く／続く→」を示します（月ビューの複数週セグメントと同じセマンティクス）。前後月の日付セルはクリック・キーボード操作の対象になりません（`tabIndex` なし）。
+「+N 件」の文言（既定 `messages.multiMonth.overflow`）とイベントボタンの aria-label（`messages.common.eventAriaLabel`、`MonthView` と同じ）は `CalendarProvider` の `messages` prop で差し替えます。`MonthView` との違いは、前後月の日付セルに予定を表示しない点だけです。月境界をまたぐ帯は月ごとにクランプされ、`continuesBefore` / `continuesAfter` で「←続く／続く→」を示します（月ビューの複数週セグメントと同じセマンティクス）。前後月の日付セルはクリック・キーボード操作の対象になりません（`tabIndex` なし）。
 
 ### `ResourceView`
 
@@ -815,14 +796,11 @@ function ResourceView(props: ResourceViewProps): ReactElement | null
 | --- | --- | --- |
 | `renderEvent` | `(item: PositionedOccurrence) => ReactNode` | 時間指定イベントブロックの表示内容。省略時は開始時刻＋タイトル。終日アイテムには適用されない（`renderAllDayItem` を使う） |
 | `renderAllDayItem` | `(occurrence: EventOccurrence) => ReactNode` | 終日アイテムの表示内容。省略時はタイトルのみ |
-| `renderColumnHeader` | `(column: ResourceColumn, defaultContent: ReactNode) => ReactNode` | 列見出しの内容（`defaultContent` はリソース名、または未割り当て列は `unassignedLabel`）をラップ・置換する |
-| `unassignedLabel` | `ReactNode` | 未割り当て列の見出しラベル（既定「未割り当て」） |
-| `emptyLabel` | `ReactNode` | 空状態（列が 1 つもない）のメッセージ（既定「リソースがありません」） |
-| `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | イベントブロックの aria-label。`defaultLabel` に既定文字列（日時＋リソース名、`ariaLabelWithResource` の結果）を渡すので加工・置換できる。省略時は既定文字列のまま |
+| `renderColumnHeader` | `(column: ResourceColumn, defaultContent: ReactNode) => ReactNode` | 列見出しの内容（`defaultContent` はリソース名、または未割り当て列は `messages.resource.unassigned`）をラップ・置換する |
 | `initialScrollTime` | `string`（`'HH:mm'`） | マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置。事後の変更は再適用されない |
 | `ref` | `Ref<ResourceViewHandle>` | `scrollToTime(time: string): void` を公開する命令的 API（`[data-koyomi="resource-body"]` を対象にスクロール） |
 
-イベントブロック・リサイズハンドル・現在時刻線・プレビューは週/日ビューと同じ部位名（`timegrid-event` 等）を使い、デフォルトテーマのスタイルを共有します。列見出し行と終日行は `resource-grid` の `role="grid"` 内で `row` / `columnheader` / `gridcell` を構成し、連続時間軸の本文は grid の外に置きます。操作要素は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
+未割り当て列の見出しラベル（既定 `messages.resource.unassigned`）、空状態（列が 1 つもない）のメッセージ（既定 `messages.resource.empty`）、イベントブロックの aria-label（`messages.common.eventAriaLabel`。日時＋リソース名）は `CalendarProvider` の `messages` prop で差し替えます。イベントブロック・リサイズハンドル・現在時刻線・プレビューは週/日ビューと同じ部位名（`timegrid-event` 等）を使い、デフォルトテーマのスタイルを共有します。列見出し行と終日行は `resource-grid` の `role="grid"` 内で `row` / `columnheader` / `gridcell` を構成し、連続時間軸の本文は grid の外に置きます。操作要素は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
 
 ### `TimelineView`
 
@@ -835,12 +813,9 @@ function TimelineView(props: TimelineViewProps): ReactElement | null
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
 | `renderEvent` | `(item: TimelineItem) => ReactNode` | 帯（タイムラインアイテム）の表示内容。省略時はタイトルのみ |
-| `renderRowHeader` | `(row: TimelineRow, defaultContent: ReactNode) => ReactNode` | 行見出しの内容（`defaultContent` はリソース名、または未割り当て行は `unassignedLabel`）をラップ・置換する |
-| `unassignedLabel` | `ReactNode` | 未割り当て行の見出しラベル（既定「未割り当て」） |
-| `emptyLabel` | `ReactNode` | 空状態（行が 1 つもない）のメッセージ（既定「リソースがありません」） |
-| `cornerLabel` | `string` | ヘッダー行の角セル（行見出し列の列見出し）の `aria-label`（既定「リソース」） |
-| `eventAriaLabel` | `(occurrence: EventOccurrence, defaultLabel: string) => string` | 帯の aria-label。`defaultLabel` に既定文字列（日時＋リソース名）を渡すので加工・置換できる。省略時は既定文字列のまま |
-| `resourceToggleAriaLabel` | `(resource: CalendarResource, collapsed: boolean, defaultLabel: string) => string` | 折りたたみトグルボタン（`TimelineRow.hasChildren` が `true` の行のみ）の aria-label。`defaultLabel` に既定文字列（「〈リソース名〉を折りたたむ」/「〈リソース名〉を展開する」）を渡すので加工・置換できる |
+| `renderRowHeader` | `(row: TimelineRow, defaultContent: ReactNode) => ReactNode` | 行見出しの内容（`defaultContent` はリソース名、または未割り当て行は `messages.timeline.unassigned`）をラップ・置換する |
+
+未割り当て行の見出しラベル（既定 `messages.timeline.unassigned`）、空状態（行が 1 つもない）のメッセージ（既定 `messages.timeline.empty`）、ヘッダー行の角セル（行見出し列の列見出し）の `aria-label`（既定 `messages.timeline.corner`）、帯の aria-label（`messages.common.eventAriaLabel`。日時＋リソース名）、折りたたみトグルボタン（`TimelineRow.hasChildren` が `true` の行のみ）の aria-label（`messages.timeline.resourceToggleAriaLabel`）は `CalendarProvider` の `messages` prop で差し替えます。
 
 水平位置は `表示分 / totalMinutes` の % を inline で出力します（位置決めの数値のみ）。スクロールは単一の横スクロールコンテナ（`timeline-body`）で行い、行見出しはテーマ CSS の `position: sticky` で固定します（スクロール同期の JS は持ちません）。目盛りが 1,000 個を超える構成（`timelineDays × ceil(1440 / slotMinutes)`）では開発ビルドで一度だけ警告します。ビュー全体が `role="grid"` で、各行は `rowheader` と時間トラックの `gridcell` を持ちます。帯は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
 
@@ -852,7 +827,7 @@ function VirtualResourceView(props: VirtualResourceViewProps): ReactElement | nu
 
 `ResourceView` の列（リソース列）を横方向に仮想化した opt-in の別コンポーネントです（`ResourceView` 自体は変更しません）。可視範囲のリソース列だけを描画し、数百列規模の DOM 肥大を抑えます。DOM 構造・ARIA（`role="grid"` / `row` / `columnheader` / `gridcell`）は `ResourceView` と同じです。内部で `useVirtualizer`（`axis: 'horizontal'`）を使用します。`ref` 経由で `VirtualResourceViewHandle` を公開します。
 
-`ResourceView` の props（`renderEvent` / `renderAllDayItem` / `renderColumnHeader` / `unassignedLabel` / `emptyLabel` / `eventAriaLabel`）に加えて次を受け付けます。時間指定は `renderEvent`、終日アイテムは `renderAllDayItem` でそれぞれ独立にカスタマイズします（`ResourceView` と同じ）。
+`ResourceView` の props（`renderEvent` / `renderAllDayItem` / `renderColumnHeader`）に加えて次を受け付けます。時間指定は `renderEvent`、終日アイテムは `renderAllDayItem` でそれぞれ独立にカスタマイズします（`ResourceView` と同じ）。
 
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
@@ -877,7 +852,7 @@ function VirtualTimelineView(props: VirtualTimelineViewProps): ReactElement | nu
 
 `TimelineView` の行（リソース行）を縦方向に仮想化した opt-in の別コンポーネントです（`TimelineView` 自体は変更しません）。可視範囲のリソース行だけを描画し、数百行規模の DOM 肥大を抑えます。DOM 構造・ARIA（`role="grid"` / `row` / `rowheader` / `gridcell`）は `TimelineView` と同じです。内部で `useVirtualizer` を使用します。`ref` 経由で `VirtualTimelineViewHandle` を公開します。
 
-`TimelineView` の props（`renderEvent` / `renderRowHeader` / `unassignedLabel` / `emptyLabel` / `cornerLabel` / `eventAriaLabel`）に加えて次を受け付けます。
+`TimelineView` の props（`renderEvent` / `renderRowHeader`）に加えて次を受け付けます。
 
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
@@ -898,34 +873,17 @@ function VirtualTimelineView(props: VirtualTimelineViewProps): ReactElement | nu
 function Toolbar(props: ToolbarProps): ReactElement
 
 interface ToolbarProps {
-  /** ボタン文言の差し替え（省略時は日本語の既定文言） */
-  labels?: ToolbarLabels;
   /**
    * ビュー切替ボタンとして表示するビューの一覧（並び順もこの配列に従う）。
    * 既定は `['month', 'week', 'day', 'list']`。年・複数月・リソース・タイムラインは追加した場合のみ有効。
    */
   views?: readonly CalendarViewType[];
 }
-
-interface ToolbarLabels {
-  month?: ReactNode;
-  week?: ReactNode;
-  day?: ReactNode;
-  list?: ReactNode;
-  year?: ReactNode;
-  multiMonth?: ReactNode;
-  resource?: ReactNode;
-  timeline?: ReactNode;
-  today?: ReactNode;
-  prev?: ReactNode;
-  next?: ReactNode;
-  viewsGroup?: string;
-}
 ```
 
-「今日」「前へ」「次へ」のナビゲーション、期間タイトル、ビュー切替（既定は月・週・日・リスト。`views` prop で年・複数月・リソース・タイムラインビュー等を追加できる opt-in）を提供します。タイトルは現在のビューに応じて `formatMonthTitle` / `formatDayTitle` / `formatRangeTitle` / `formatYearTitle` のいずれかで整形されます（複数月ビューは表示範囲の開始月・終了月をそれぞれ `formatMonthTitle` で整形し、「2026年7月〜2026年9月」のように連結します。同一月なら単一表記。リソースビューは日ビューと同じ `formatDayTitle`。タイムラインビューは `timelineDays: 1` なら日ビューと同じ形式、複数日なら `formatRangeTitle` による範囲形式「2026年7月15日〜7月21日」）。`labels` で全ボタン文言を差し替えられます（i18n 対応）。ビュー切替ボタングループ（`toolbar-views`）の `aria-label` は `labels.viewsGroup` で差し替えられます（既定「表示切替」）。
+「今日」「前へ」「次へ」のナビゲーション、期間タイトル、ビュー切替（既定は月・週・日・リスト。`views` prop で年・複数月・リソース・タイムラインビュー等を追加できる opt-in）を提供します。タイトルは現在のビューに応じて `formatMonthTitle` / `formatDayTitle` / `formatRangeTitle` / `formatYearTitle` のいずれかで整形されます（複数月ビューは表示範囲の開始月・終了月をそれぞれ `formatMonthTitle` で整形し、「2026年7月〜2026年9月」のように連結します。同一月なら単一表記。リソースビューは日ビューと同じ `formatDayTitle`。タイムラインビューは `timelineDays: 1` なら日ビューと同じ形式、複数日なら `formatRangeTitle` による範囲形式「2026年7月15日〜7月21日」）。ボタンの表示文字列は `CalendarProvider` の `messages` prop（`messages.toolbar`）で差し替えられます（i18n 対応）。ビュー切替ボタングループ（`toolbar-views`）の `aria-label` は `messages.toolbar.viewsGroup` で差し替えられます（既定「表示切替」）。
 
-`labels` を含む各コンポーネントの `*Label` 系 props を英語文言でまとめて差し替えたい場合は、`enUsLabels` プリセットが使えます（詳細は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照）。
+各コンポーネントの文言をまとめて差し替えたい場合は、`CalendarProvider` の `messages` prop に中央メッセージカタログの部分上書きを渡します（詳細は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照）。
 
 ## 型
 
@@ -1013,7 +971,6 @@ interface ToolbarLabels {
 | `slotMinutes?` | `number` | `60` |
 | `timeAxisZones?` | `readonly TimeZoneId[]` | `[]`（週/日ビューの時間軸に並べる追加のタイムゾーン。不正な IANA タイムゾーン ID は `Error`） |
 | `defaultEventMinutes?` | `number` | `60` |
-| `defaultEventTitle?` | `string` | `'(タイトルなし)'`（既定作成時のタイトル） |
 | `listDays?` | `number` | `30` |
 | `multiMonthCount?` | `number` | `3` |
 | `timelineDays?` | `number` | `1` |
@@ -1039,7 +996,7 @@ interface ToolbarLabels {
 
 `timelineDays` はタイムラインビューの表示日数、`unassignedLane` はリソース/タイムラインビューの未割り当てレーンの生成規則です（`'auto'` = 該当する予定があるときのみ末尾に生成、`'always'` = 常に生成。詳細は [ビュー](./views.md#年複数月リソースタイムラインビューを有効にするopt-in) を参照）。
 
-`ResolvedCalendarOptions` は、表示・展開に使う既定値適用後のオプションだけを持つ型です（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `timeAxisZones` / `defaultEventMinutes` / `defaultEventTitle` / `listDays` / `multiMonthCount` / `timelineDays` / `timelineScale` / `unassignedLane` / `locale` / `hiddenWeekdays` / `showWeekNumbers` / `businessHours` / `eventOverlap` / `eventConstraint`（未指定は `null`） / `slotMinTime` / `slotMaxTime` / `now`。コールバック類や `initialView` / `initialDate` / `resources` / `initialCollapsedResourceIds` は含みません）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' | 'resource' | 'timeline'` です。
+`ResolvedCalendarOptions` は、表示・展開に使う既定値適用後のオプションだけを持つ型です（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `timeAxisZones` / `defaultEventMinutes` / `listDays` / `multiMonthCount` / `timelineDays` / `timelineScale` / `unassignedLane` / `locale` / `hiddenWeekdays` / `showWeekNumbers` / `businessHours` / `eventOverlap` / `eventConstraint`（未指定は `null`） / `slotMinTime` / `slotMaxTime` / `now`。コールバック類や `initialView` / `initialDate` / `resources` / `initialCollapsedResourceIds` は含みません）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' | 'resource' | 'timeline'` です。
 
 `BusinessHoursRule` は `{ daysOfWeek: readonly Weekday[]; startTime: string; endTime: string }`（`startTime` / `endTime` は `'HH:mm'` 形式。`startTime` が `endTime` 以降、または形式が不正だと `Error`）です。
 
@@ -1086,7 +1043,7 @@ interface ToolbarLabels {
 | 型 | シグネチャ | 説明 |
 | --- | --- | --- |
 | `UseCalendarResult` | `{ api: CalendarApi; state: CalendarState; viewModel: CalendarViewModel }` | `useCalendar` の戻り値 |
-| `CalendarContextValue` | `UseCalendarResult & { callbacks: CalendarInteractionCallbacks }` | `useCalendarContext()` の戻り値 |
+| `CalendarContextValue` | `UseCalendarResult & { callbacks: CalendarInteractionCallbacks; messages: MessageCatalog }` | `useCalendarContext()` の戻り値。`messages` は `state.options.locale` と `CalendarProviderProps.messages` から解決済みの中央メッセージカタログ |
 | `RangeSelection` | `{ range: DateRange; allDay: boolean; resourceId?: string | null }` | 範囲選択（新規作成操作）の内容。`resourceId` はリソース/タイムラインビューでの選択時のみ設定される（`null` は未割り当てレーン） |
 | `EventChange` | `{ occurrence: EventOccurrence; newRange: DateRange; allDay: boolean; scope: RecurringEditScope | null; resourceId?: string | null; changes: readonly EventChangeEntry[] }` | ドラッグ・キーボードによるイベント変更の内容。`resourceId` はリソース/タイムラインビューでの変更時のみ設定される（`null` は未割り当てへの移動）。`changes` は影響を受けた各イベントの before/after 一覧（undo 用途） |
 | `EventChangeProposal` | `{ occurrence: EventOccurrence; range: DateRange; allDay: boolean; resourceId?: string | null; action: 'move' | 'resize' | 'convert' }` | `onBeforeEventChange` の引数。これから適用しようとしている変更の内容（`resourceId` はリソース/タイムラインビューでの変更時のみ設定） |
@@ -1100,7 +1057,7 @@ interface ToolbarLabels {
 | フィールド | シグネチャ | 既定動作 |
 | --- | --- | --- |
 | `onEventClick?` | `(occurrence: EventOccurrence, domEvent: MouseEvent) => void` | 何もしない |
-| `onSelectRange?` | `(selection: RangeSelection) => void` | `defaultEventTitle`（既定 `'(タイトルなし)'`）のタイトルでイベントを即時作成する |
+| `onSelectRange?` | `(selection: RangeSelection) => void` | `messages.common.untitledEvent`（既定 `'(タイトルなし)'`）のタイトルでイベントを即時作成する |
 | `onBeforeSelectRange?` | `(selection: RangeSelection) => boolean | Promise<boolean>` | 常に許可する（`true`） |
 | `onEventChange?` | `(change: EventChange) => void` | 変更の適用はライブラリが行うため、これは通知のみ |
 | `onBeforeEventChange?` | `(proposal: EventChangeProposal) => boolean | Promise<boolean>` | 常に許可する（`true`） |
@@ -1136,7 +1093,7 @@ interface ToolbarLabels {
 | `isSameDayInZone(a, b, timeZone): boolean` | 現地時刻基準で同じ日かどうかを判定する |
 | `weekdayInZone(date, timeZone): Weekday` | 指定タイムゾーンにおける曜日を返す |
 | `parseDateValue(value, timeZone, allDay): Date` | `CalendarEvent` の `start`/`end` 値を絶対時刻に解釈する |
-| `formatSlotLabel(minutes: number): string` | 分数を `'HH:mm'` 形式のラベルにする |
+| `formatSlotLabel(minutes: number, locale: string): string` | 分数を、ロケールに応じた時刻ラベル（`Intl.DateTimeFormat` 整形。`ja` は `'HH:mm'`、`en-US` は `'HH:mm AM/PM'` 等）にする |
 | `isoWeekNumberInZone(date, timeZone): number` | 指定タイムゾーンにおける ISO 8601 週番号を返す |
 | `parseTimeOfDay(time: string): number` | `'HH:mm'` 形式の時刻文字列をその日の 0:00 からの分に変換する（`formatSlotLabel` の逆変換） |
 | `parseSlotBoundaryTime(time: string): number` | `'HH:mm'` を分に変換する（`slotMinTime`/`slotMaxTime` 用）。`'24:00'` のみ特例で `1440` を返し、それ以外は `parseTimeOfDay` と同じ |
@@ -1212,21 +1169,22 @@ console.log(starts.length); // => 3
 
 ### 繰り返しルールエディタ（`core/recurrence-editor`）
 
-RRULE 文字列とフォーム入力向けの構造化状態（`RecurrenceRuleState`）を相互変換する純粋関数です。対応範囲は `FREQ=DAILY/WEEKLY/MONTHLY/YEARLY`・`INTERVAL`・`BYDAY`（週の曜日集合、または月の第 n 曜日）・`BYMONTHDAY`（単一値）・`COUNT`/`UNTIL` のみで、範囲外の指定は `parseRecurrenceRule` が `unsupported` として元の文字列を保持します。React では `useRecurrenceRuleEditor` がこれらをラップします。使用例・対応範囲の詳細は [繰り返し予定: 繰り返しルールエディタ](./recurrence.md#繰り返しルールエディタ構造化状態での編集) を参照してください。
+RRULE 文字列とフォーム入力向けの構造化状態（`RecurrenceRuleState`）を相互変換する純粋関数です。対応範囲は `FREQ=DAILY/WEEKLY/MONTHLY/YEARLY`・`INTERVAL`・`BYDAY`（週の曜日集合、または月の第 n 曜日）・`BYMONTHDAY`（単一値）・`COUNT`/`UNTIL` のみで、範囲外の指定は `parseRecurrenceRule` が `unsupported` として元の文字列を保持します。core は React に依存しないため、検証エラー・非対応理由は機械可読な判別ユニオン（`RecurrenceValidationIssue` / `RecurrenceUnsupportedReason`）として返り、文言化（説明文・検証エラー・非対応理由のメッセージ）は `@koyomi-cal/react` の[中央メッセージカタログ](#中央メッセージカタログreactlocales)（`catalog.recurrenceEditor`）が担います。React では `useRecurrenceRuleEditor` がこれらをまとめてラップします。使用例・対応範囲の詳細は [繰り返し予定: 繰り返しルールエディタ](./recurrence.md#繰り返しルールエディタ構造化状態での編集) を参照してください。
 
 | 関数 / 型 | 説明 |
 | --- | --- |
 | `parseRecurrenceRule(params): ParsedRecurrenceRule` | RRULE 文字列を構造化状態に変換する（`params.rrule`/`dtstart`/`timeZone`）。対応範囲外・不正な RRULE は `{ kind: 'unsupported', rawRRule, reason }` |
 | `validateRecurrenceRuleState(state): readonly RecurrenceValidationIssue[]` | `state` のフィールド単位の検証エラーを返す（空配列なら有効）。副作用・例外のない純関数 |
 | `buildRecurrenceRuleString(params): string` | `state` を RRULE 本体文字列に変換する（`params.state`/`dtstart`/`timeZone`）。検証エラーがあると `Error` を投げる |
-| `describeRecurrenceRule(state, context?): string` | `state` を日本語の説明文にする。検証を要求しない best-effort な整形（例外を投げない） |
 | `RecurrenceFrequency`（型） | `'daily' \| 'weekly' \| 'monthly' \| 'yearly'` |
 | `RecurrenceWeekdayOrdinal`（型） | `1 \| 2 \| 3 \| 4 \| -1`（第 n 週。`-1` は最終週） |
 | `MonthlyRecurrencePattern`（型） | `{ kind: 'dayOfMonth'; day: number } \| { kind: 'nthWeekday'; ordinal: RecurrenceWeekdayOrdinal; weekday: Weekday }` |
 | `RecurrenceEnd`（型） | `{ type: 'never' } \| { type: 'count'; count: number } \| { type: 'until'; until: Date }`。`until` はイベント TZ の現地時刻として解釈される |
 | `RecurrenceRuleState`（型） | `{ freq: RecurrenceFrequency; interval: number; byWeekday?: readonly Weekday[]; monthlyPattern?: MonthlyRecurrencePattern; end: RecurrenceEnd }` |
-| `RecurrenceValidationIssue`（型） | `{ field: 'interval' \| 'byWeekday' \| 'monthlyPattern' \| 'count' \| 'until'; message: string }` |
-| `ParsedRecurrenceRule`（型） | `{ kind: 'none' } \| { kind: 'editable'; state: RecurrenceRuleState } \| { kind: 'unsupported'; rawRRule: string; reason: string }` |
+| `RecurrenceValidationIssue`（型） | 判別ユニオン。`{ field: 'interval'; code: 'invalid' } \| { field: 'byWeekday'; code: 'empty' \| 'duplicate' \| 'outOfRange' } \| { field: 'monthlyPattern'; code: 'dayOfMonthInvalid' \| 'ordinalInvalid' \| 'weekdayInvalid' } \| { field: 'count'; code: 'invalid' } \| { field: 'until'; code: 'invalid' }` |
+| `RecurrenceUnsupportedField`（型） | 対応していない RRULE フィールドの安定識別子（`'BYSETPOS' \| 'BYMONTH' \| 'BYYEARDAY' \| 'BYWEEKNO' \| 'BYHOUR' \| 'BYMINUTE' \| 'BYSECOND' \| 'BYEASTER' \| 'BYDAY_EXPANDED' \| 'BYMONTHDAY_EXPANDED'`） |
+| `RecurrenceUnsupportedReason`（型） | `parseRecurrenceRule` が対応範囲外と判断した理由の判別ユニオン（`{ code: 'unsupportedField'; field: RecurrenceUnsupportedField }` 等 14 種。`invalidRRuleSyntax` のみ `detail: string` に rrule.js の例外原文を保持） |
+| `ParsedRecurrenceRule`（型） | `{ kind: 'none' } \| { kind: 'editable'; state: RecurrenceRuleState } \| { kind: 'unsupported'; rawRRule: string; reason: RecurrenceUnsupportedReason }` |
 
 ```ts
 import { buildRecurrenceRuleString, parseRecurrenceRule } from '@koyomi-cal/react';
@@ -1535,101 +1493,46 @@ console.log(scrollFractionForTime('07:00', 480, 1200)); // => 0（範囲より�
 
 詳細は [ビュー: 初期スクロール位置](./views.md#初期スクロール位置initialscrolltime--scrolltotime) を参照してください。
 
-## ロケールプリセット
+## 中央メッセージカタログ（`react/locales`）
 
-### `enUsLabels`
-
-すべて英語の文字列リテラル（`overflowLabel` 系のみ関数）で組み立てているため、実際に生成される型は `*Label` props の型（`ReactNode`）そのものではなく、以下のようにリテラル値に基づいた具体的な型になります（`Toolbar` の `labels` や `ListView` の `emptyLabel` 等、対応する props は `ReactNode` を受け取れるので代入は問題なくできます）。この構造は `EnUsLabels` として named export しています。
+ビルトインコンポーネント・フックが表示するすべての文言は、`CalendarOptions.locale` と `CalendarProvider` の `messages` prop から解決される単一の `MessageCatalog` にまとまっています。使い方・具体例は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照してください。
 
 ```ts
-const enUsLabels: EnUsLabels;
+function resolveMessageCatalog(locale: string, overrides?: MessageCatalogOverrides): MessageCatalog
 
-type EnUsLabels = {
-  toolbar: {
-    month: string;
-    week: string;
-    day: string;
-    list: string;
-    year: string;
-    multiMonth: string;
-    resource: string;
-    timeline: string;
-    today: string;
-    prev: string;
-    next: string;
-    viewsGroup: string;
-  };
-  list: {
-    allDayLabel: string;
-    emptyLabel: string;
-    eventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
-    dayAriaLabel: (day: ListDay, defaultLabel: string) => string;
-  };
-  month: {
-    overflowLabel: (count: number) => ReactNode;
-    eventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
-  };
-  multiMonth: {
-    overflowLabel: (count: number) => ReactNode;
-    eventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
-  };
-  resource: {
-    unassignedLabel: string;
-    emptyLabel: string;
-    eventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
-  };
-  timeline: {
-    unassignedLabel: string;
-    emptyLabel: string;
-    cornerLabel: string;
-    eventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
-  };
-  year: {
-    dayCountLabel: (count: number) => string;
-    dayAriaLabel: (day: YearDay, defaultLabel: string) => string;
-  };
-  calendarView: {
-    listAllDayLabel: string;
-    listEmptyLabel: string;
-    monthOverflowLabel: (count: number) => ReactNode;
-    multiMonthOverflowLabel: (count: number) => ReactNode;
-    resourceUnassignedLabel: string;
-    resourceEmptyLabel: string;
-    timelineUnassignedLabel: string;
-    timelineEmptyLabel: string;
-    timelineCornerLabel: string;
-    monthEventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
-    timeGridEventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
-    listEventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
-    listDayAriaLabel: (day: ListDay, defaultLabel: string) => string;
-    multiMonthEventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
-    resourceEventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
-    timelineEventAriaLabel: (occurrence: EventOccurrence, defaultLabel: string) => string;
-    yearDayCountLabel: (count: number) => string;
-    yearDayAriaLabel: (day: YearDay, defaultLabel: string) => string;
-  };
-  recurrenceEditor: {
-    describeRule: (state: RecurrenceRuleState, defaultDescription: string) => string;
-  };
-  announcer: {
-    eventChanged: (change: EventChange, defaultMessage: string, ctx: AnnouncerFormatterContext) => string;
-    eventCreated: (
-      event: CalendarEvent,
-      selection: RangeSelection,
-      defaultMessage: string,
-      ctx: AnnouncerFormatterContext,
-    ) => string;
-    eventDeleted: (deletion: EventDelete, defaultMessage: string, ctx: AnnouncerFormatterContext) => string;
-    viewChanged: (
-      info: CalendarRangeChangeInfo,
-      defaultMessage: string,
-      ctx: AnnouncerFormatterContext,
-    ) => string;
-  };
-};
+const jaMessages: MessageCatalog; // CalendarOptions.locale の既定値（'ja'）に対応する同梱カタログ
+const enMessages: MessageCatalog; // 言語サブタグが 'en' のときに選ばれる同梱カタログ
+
+type EventChangeVerb = 'moved' | 'resized' | 'convertedToAllDay' | 'convertedToTimed';
 ```
 
-各コンポーネントが持つ `*Label` 系 props（既定値は日本語）を英語化したプリセットです。`toolbar` / `list` / `month` / `multiMonth` / `resource` / `timeline` / `year` はそれぞれ同名のビルトインコンポーネント（`VirtualListView` 等の仮想化版も含む）の props にそのままスプレッドできます。`calendarView` だけは `CalendarView` が転送用に持つプレフィックス付き props（`listAllDayLabel` 等）向けの形です。`recurrenceEditor` / `announcer` はコンポーネント props ではなく、`useRecurrenceRuleEditor` の `describeRule` オプション・`useCalendarAnnouncer` の `messages` オプションへそのまま渡す形です。`eventAriaLabel` 系は、既定 aria-label 文字列が使う日本語の区切り記号（読点「、」・波ダッシュ「〜」）を英語表記（カンマ・en dash）に置き換えます（日付・時刻自体は `locale` オプションにより Intl で整形済みのため触れません）。渡さない場合は既定の日本語文言のままです。使用例は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照してください。
+`resolveMessageCatalog(locale, overrides?)` は、`locale` の言語サブタグ（`-` より前、大文字小文字は区別しない）で `jaMessages` / `enMessages` のいずれかを選び（同梱にない言語は `jaMessages` にフォールバック）、`overrides`（`MessageCatalogOverrides`）を各グループ単位で浅くマージした完全なカタログを返します。`CalendarProvider` の `messages` prop、`useCalendarAnnouncer` / `useRecurrenceRuleEditor` の `messages` オプションは、いずれも内部でこの関数を使ってカタログを解決します。
+
+`MessageCatalog` は次のグループを持つ 2 階層固定（グループ→リーフ）の型です。グループ自体は個別に named export されていないため、`MessageCatalog['グループ名']`（例: `MessageCatalog['toolbar']`）として参照してください。
+
+| グループ | 対応するコンポーネント/フック | 主なリーフ |
+| --- | --- | --- |
+| `common` | 全ビュー共通 | `untitledEvent`（既定即時作成のタイトル）、`rangeSeparator`（日時範囲の区切り、既定 `'〜'`）、`itemSeparator`（項目の区切り、既定 `'、'`）、`eventAriaLabel(occurrence, rangeLabel)`（イベントの aria-label 全文） |
+| `toolbar` | `Toolbar` | `month`/`week`/`day`/`list`/`year`/`multiMonth`/`resource`/`timeline`/`today`/`prev`/`next`（表示文字列・aria-label）、`viewsGroup`（ビュー切替グループの aria-label） |
+| `list` | `ListView` / `VirtualListView` | `allDay`（終日ラベル）、`empty`（空状態）、`dayAriaLabel(day, dateLabel)`（日セクションの aria-label） |
+| `month` | `MonthView` | `overflow(count)`（「+N 件」の表示内容） |
+| `multiMonth` | `MultiMonthView` | `overflow(count)`（「+N 件」の表示内容） |
+| `resource` | `ResourceView` / `VirtualResourceView` | `unassigned`（未割り当て列ラベル）、`empty`（空状態） |
+| `timeline` | `TimelineView` / `VirtualTimelineView` | `unassigned`（未割り当て行ラベル）、`empty`（空状態）、`corner`（角セルの aria-label）、`resourceToggleAriaLabel(resource, collapsed)`（折りたたみボタンの aria-label） |
+| `year` | `YearView` | `dayCount(count)`（件数文言「予定N件」部分）、`dayAriaLabel(day, dateLabel)`（日セルの aria-label 全体） |
+| `announcer` | `useCalendarAnnouncer` | `unassignedResource`、`eventChanged(change, verb, rangeLabel, resourceLabel)`、`eventCreated(event, selection, rangeLabel, resourceLabel)`、`eventDeleted(deletion)`、`viewChanged(info, title)` |
+| `recurrenceEditor` | `useRecurrenceRuleEditor` | `describeRule(state, context?)`（説明文）、`validationMessage(issue)`（検証エラー文言）、`unsupportedReason(reason)`（非対応理由の文言） |
+
+`EventChangeVerb` は、移動・サイズ変更・終日⇔時間指定変換のいずれかを表す、ロケールに依存しない判定結果です。`messages.announcer.eventChanged` のようなカスタム文言関数の第 2 引数として渡され、`useCalendarAnnouncer` からは `classifyEventChangeVerb` としても公開されています。
+
+```ts
+import { resolveMessageCatalog } from '@koyomi-cal/react';
+
+resolveMessageCatalog('en-US').toolbar.today; // => 'Today'
+resolveMessageCatalog('fr').toolbar.today; // => '今日'（未対応言語は 'ja' にフォールバック）
+resolveMessageCatalog('ja', { month: { overflow: (count) => `他${count}件` } }).month.overflow(3);
+// => '他3件'（他のグループは既定のまま）
+```
 
 ## 関連ページ
 

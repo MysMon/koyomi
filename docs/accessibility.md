@@ -93,7 +93,7 @@ function App() {
 - **自動通知の対象** — `wrapCallbacks` でラップした `onEventChange`（移動・リサイズ・終日⇔時間指定変換）・`onEventDelete`（キーボード削除）・`onSelectRange` 未指定時の既定即時作成、いずれも確定後に通知します（`announce` オプションの `eventChange` / `eventCreate` / `eventDelete` で個別に無効化できます。既定はすべて `true`）。**カスタムの `onSelectRange`（ダイアログ等）を使う経路では、作成が確定したかどうかをアプリ側しか把握できないため自動通知しません**。作成確定時に `announcer.announce(text)` を手動で呼んでください
 - **ビュー変更の通知** — `wrapRangeChange` で `useCalendar({ onRangeChange: announcer.wrapRangeChange(onRangeChange) })` のように配線すると、ビュー・基準日・表示範囲の変更後に通知されます（`useCalendar` の `onRangeChange` は登録枠が 1 つのみのため、明示的に合成します）
 - **`politeness`**（既定 `'polite'`）— `'assertive'` にすると `role="alert"` / `aria-live="assertive"` になります
-- **`messages`** で既定の日本語文言を差し替えられます。各関数は「(対象データ, 既定文言, ctx)」を受け取り、`ctx`（`timeZone` / `locale` / `resources`）で日時・リソース名を整形できます。英語化したい場合は `enUsLabels.announcer` を渡してください（詳細は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照）
+- **通知文言** — `calendar` の `state.options.locale` から自動的に中央メッセージカタログ（`messages.announcer`）が解決されるため、`useCalendar` の `locale` を切り替えれば通知文言も追従します。`messages`（`MessageCatalogOverrides`）を渡すと `announcer` グループの文言を部分的に上書きできます（`CalendarProvider` の `messages` prop とは独立して解決されるため、揃えたい場合は同じ値を両方に渡してください）。カスタム関数は `eventChanged(change, verb, rangeLabel, resourceLabel)` のように、既に整形済みの日時範囲ラベル・リソース名・変更種別（`EventChangeVerb`）を直接受け取って全文を組み立てます。詳細は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照してください
 - 同一文言の連続通知（同じ予定を同じ内容で 2 回移動した場合等）でも、末尾に不可視トークンが交互に付くことでスクリーンリーダーが再読み上げできます
 - live region 要素は `CalendarProvider` の配下に置く必要はありません（`calendar` 以外への依存を持たないため、DOM 上の配置に制約はありません）
 
@@ -110,15 +110,14 @@ undo/redo 操作自体の通知文言は `useCalendarAnnouncer` の対象外で�
 
 ## 読み上げ文言のカスタマイズ
 
-既定の `aria-label` は日本語（例:「会議、7月16日 10:00〜11:00」）で固定されているため、多言語対応や文言の調整が必要な場合は各ビューの `eventAriaLabel` / `dayAriaLabel` / `dayCountLabel` prop で上書きできます。
+`aria-label`（例:「会議、7月16日 10:00〜11:00」）を含むすべての文言は `CalendarProvider` の中央メッセージカタログから組み立てられ、コンポーネントごとの `*AriaLabel` 系 props はありません。ロケールに応じて自動的に切り替わり、`messages` prop で部分的に上書きできます。
 
-- **イベントボタンを持つ全ビュー**（`MonthView` / `MultiMonthView` / `TimeGridView`（終日行含む） / `ListView` / `VirtualListView` / `ResourceView` / `VirtualResourceView` / `TimelineView` / `VirtualTimelineView`）は `eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string` を受け付けます。第 2 引数 `defaultLabel` に既定の aria-label 文字列（`formatEventAriaLabel` / `ariaLabelWithResource` の結果）が渡るので、加工・置換して返せます。省略時は既定文字列のままです
-- **年ビュー（YearView）** は日セルの件数文言「予定N件」部分を `dayCountLabel?: (count: number) => string` で、aria-label 全体を `dayAriaLabel?: (day: YearDay, defaultLabel: string) => string` で差し替えられます（`defaultLabel` は `dayCountLabel` 適用後の文字列）
-- **リストビュー（ListView / VirtualListView）** は日セクションの aria-label（例:「7月16日(木) 予定2件」）を `dayAriaLabel?: (day: ListDay, defaultLabel: string) => string` で差し替えられます。両ビューの既定 aria-label は同じ形式なので、仮想化の有無で読み上げが変わることはありません
-- **`Toolbar`** はビュー切替ボタングループ（`toolbar-views`）の `aria-label` を `labels.viewsGroup`（既定「表示切替」）で差し替えられます
-- `CalendarView` 経由では、それぞれ接頭辞付きの転送 prop（`monthEventAriaLabel` / `timeGridEventAriaLabel` / `listEventAriaLabel` / `listDayAriaLabel` / `multiMonthEventAriaLabel` / `resourceEventAriaLabel` / `timelineEventAriaLabel` / `yearDayCountLabel` / `yearDayAriaLabel`）で対応するビューへ転送されます
+- **イベントボタンを持つ全ビュー**（`MonthView` / `MultiMonthView` / `TimeGridView`（終日行含む） / `ListView` / `VirtualListView` / `ResourceView` / `VirtualResourceView` / `TimelineView` / `VirtualTimelineView`）の aria-label は `messages.common.eventAriaLabel(occurrence, rangeLabel)` で組み立てられます
+- **年ビュー（YearView）** は日セルの件数文言「予定N件」部分を `messages.year.dayCount(count)` で、aria-label 全体を `messages.year.dayAriaLabel(day, dateLabel)` で組み立てます
+- **リストビュー（ListView / VirtualListView）** は日セクションの aria-label（例:「7月16日(木) 予定2件」）を `messages.list.dayAriaLabel(day, dateLabel)` で組み立てます。両ビューの既定 aria-label は同じ形式なので、仮想化の有無で読み上げが変わることはありません
+- **`Toolbar`** はビュー切替ボタングループ（`toolbar-views`）の `aria-label` を `messages.toolbar.viewsGroup`（既定「表示切替」）で差し替えられます
 
-これらの英語訳は `enUsLabels` プリセットに含まれています（詳細は [テーマとスタイリング: 英語ロケール](./theming.md#英語ロケール既定文言の英語化) を参照）。
+カスタマイズ方法・自前ロケールの作り方の詳細は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照してください。
 
 ## テスト
 

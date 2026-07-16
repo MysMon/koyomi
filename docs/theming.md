@@ -321,11 +321,11 @@ console.log(eventEl?.style.getPropertyValue('--koyomi-event-color')); // => '#e6
 - `TimeGridView`: `renderEvent?: (item: PositionedOccurrence) => ReactNode`（終日行のイベント内容はカスタマイズ対象外）
 - `ListView`: `renderEvent?: (occurrence: EventOccurrence) => ReactNode`
 
-イベント以外にも、日セルへのコンテンツの差し込み（`renderDayCell`）、日ヘッダー・日付見出し（`renderDayHeader`）、「+N 件」等の UI 文字列（`overflowLabel` / `allDayLabel` / `emptyLabel` / `Toolbar` の `labels`）を差し替えられます。一覧は [ビュー: ビューコンポーネントのカスタマイズ props](./views.md#ビューコンポーネントのカスタマイズ-props) を参照してください。
+イベント以外にも、日セルへのコンテンツの差し込み（`renderDayCell`）、日ヘッダー・日付見出し（`renderDayHeader`）を差し替えられます。一覧は [ビュー: ビューコンポーネントのカスタマイズ props](./views.md#ビューコンポーネントのカスタマイズ-props) を参照してください。
 
-見た目の内容だけでなく、スクリーンリーダー等が読み上げる `aria-label` もカスタマイズできます。イベントボタンを持つ全ビュー（`MonthView` / `MultiMonthView` / `TimeGridView` / `ListView` / `VirtualListView` / `ResourceView` / `VirtualResourceView` / `TimelineView` / `VirtualTimelineView`）は `eventAriaLabel?: (occurrence: EventOccurrence, defaultLabel: string) => string` を受け付けます。第 2 引数の `defaultLabel` に既定の aria-label 文字列（日時・タイトル・リソース名を含む）が渡るので、それを加工・置換して返せます。省略時は既定文字列のままです。年ビューの日セルは `dayCountLabel?: (count: number) => string`（「予定N件」部分のみ）と `dayAriaLabel?: (day: YearDay, defaultLabel: string) => string`（aria-label 全体）の 2 段階で、`ListView` / `VirtualListView` の日セクションは `dayAriaLabel?: (day: ListDay, defaultLabel: string) => string` でカスタマイズできます（両ビューの既定 aria-label は同じ形式なので、仮想化の有無で読み上げは変わりません）。
+「+N 件」等の UI 文字列や、スクリーンリーダー等が読み上げる `aria-label` は、コンポーネントごとの props ではなく `CalendarProvider` の中央メッセージカタログで一括管理されています。イベントの aria-label は `messages.common.eventAriaLabel`、年ビューの日セルの件数文言・aria-label は `messages.year.dayCount` / `messages.year.dayAriaLabel`、リストビューの日セクションの aria-label は `messages.list.dayAriaLabel` から組み立てられます（`ListView` / `VirtualListView` の既定 aria-label は同じ形式なので、仮想化の有無で読み上げは変わりません）。カスタマイズ方法は次節を参照してください。
 
-`CalendarView` を使う場合は、`renderMonthEvent` / `renderTimeGridEvent` / `renderListEvent` prop がそれぞれのビューへ転送されます。同様に `monthEventAriaLabel` / `timeGridEventAriaLabel` / `listEventAriaLabel` / `listDayAriaLabel` / `multiMonthEventAriaLabel` / `resourceEventAriaLabel` / `timelineEventAriaLabel` / `yearDayCountLabel` / `yearDayAriaLabel` も同じ接頭辞付き転送規則でそれぞれのビューへ転送されます。
+`CalendarView` を使う場合は、`renderMonthEvent` / `renderTimeGridEvent` / `renderListEvent` prop がそれぞれのビューへ転送されます。aria-label・件数文言等は props の転送ではなく、`CalendarProvider` の `messages` prop（中央メッセージカタログ）から全ビュー共通に解決されます。
 
 ```tsx
 import { CalendarProvider, MonthView, useCalendar } from '@koyomi-cal/react';
@@ -408,70 +408,130 @@ function App() {
 }
 ```
 
-## 英語ロケール（既定文言の英語化）
+## 多言語対応（メッセージカタログ）
 
-ビルトインコンポーネントの `*Label` 系 props（`Toolbar` の `labels` や `allDayLabel` / `unassignedLabel` / `overflowLabel` / `cornerLabel` / `emptyLabel` / `eventAriaLabel` / `dayAriaLabel` / `dayCountLabel` など）は、省略すると日本語の既定文言（「今日」「終日」「未割り当て」等）や日本語区切りの aria-label を表示します。これらをまとめて英語に差し替えるプリセット `enUsLabels` を提供しています。
+ビルトインコンポーネント・フックが表示するすべての文言（ボタンの表示文字列、「+N 件」、空状態のメッセージ、イベント・日セクションの `aria-label`、繰り返しルールの説明文・検証エラー文言、読み上げ通知の文面）は、コンポーネントごとの `*Label` props ではなく、`CalendarProvider` の `messages` prop と `CalendarOptions.locale` から解決される単一の中央メッセージカタログ（`MessageCatalog`）にまとまっています。
 
-`enUsLabels` はコンポーネント単位のグループに分かれていて、対応する props にそのままスプレッドできます。`calendarView` だけは `CalendarView` が各ビューへの転送用に持つプレフィックス付き props（`listAllDayLabel` 等）向けの形です。
+### ロケールに連動する既定文言
+
+`CalendarOptions.locale`（既定 `'ja'`）の言語サブタグ（`-` より前の部分。大文字小文字は区別しない）に応じて、同梱の `jaMessages` / `enMessages` のいずれかが自動的に選ばれます。同梱していない言語は `jaMessages` にフォールバックします。
 
 ```tsx
-import {
-  CalendarProvider,
-  CalendarView,
-  enUsLabels,
-  ListView,
-  MonthView,
-  MultiMonthView,
-  ResourceView,
-  TimelineView,
-  Toolbar,
-  useCalendar,
-  YearView,
-} from '@koyomi-cal/react';
+import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi-cal/react';
 
 function App() {
-  const calendar = useCalendar();
+  const calendar = useCalendar({ locale: 'en-US' });
   return (
     <CalendarProvider value={calendar}>
-      <Toolbar labels={enUsLabels.toolbar} />
-      {/* 個々のビューコンポーネントを直接使う場合 */}
-      <ListView {...enUsLabels.list} />
-      <MonthView {...enUsLabels.month} />
-      <MultiMonthView {...enUsLabels.multiMonth} />
-      <ResourceView {...enUsLabels.resource} />
-      <TimelineView {...enUsLabels.timeline} />
-      <YearView {...enUsLabels.year} />
-      {/* CalendarView でビューを出し分ける場合はプレフィックス付き props をまとめて渡す */}
-      <CalendarView {...enUsLabels.calendarView} />
+      <Toolbar />
+      <CalendarView />
     </CalendarProvider>
   );
 }
 
 // 期待される動作:
-// - Toolbar の「今日」ボタンや各ビュー切替ボタンの表示文字列が
-//   "Today" / "Month" / "Week" / ... になる
-//   （「前へ」「次へ」ボタンは表示アイコン ‹ / › 自体は変わらず、
-//   aria-label のみ "Previous" / "Next" になる。ビュー切替グループの
-//   aria-label も "View switcher" になる）
+// - Toolbar の「今日」ボタンが "Today"、月/週/日/リストの切替ボタンが
+//   "Month"/"Week"/"Day"/"List" になる（「前へ」「次へ」の表示アイコン ‹/› 自体は
+//   変わらず、aria-label のみ "Previous"/"Next" になる）
 // - リストビューの終日ラベルが "All day"、空状態が "No events" になる
 // - 月/複数月ビューの「+N 件」が "+N more" になる
-// - リソース/タイムラインビューの未割り当てラベルが "Unassigned"、
-//   空状態が "No resources"、タイムラインの角セルの aria-label が "Resources" になる
-// - イベントボタンの aria-label の区切り記号（「、」「〜」）が英語表記
-//   （カンマ・en dash）になる（日付・時刻自体は locale により整形済み）
+// - リソース/タイムラインビューの未割り当てラベルが "Unassigned"、空状態が
+//   "No resources"、タイムラインの角セルの aria-label が "Resources" になる
+// - イベントの aria-label の区切り記号（読点「、」・波ダッシュ「〜」）が
+//   カンマ・en dash になる
 // - 年ビューの日セルの件数文言「予定N件」が "N events"（1 件なら "1 event"）になる
+// - locale が同梱していない言語（例: 'fr'）の場合は 'ja' のカタログにフォールバックする
 ```
 
-`eventAriaLabelEn`（`eventAriaLabel` 系 props に渡る関数）が変換するのは既定文字列中の区切り記号（「、」「〜」）だけです。曜日・月名などの日付・時刻表記自体は `defaultLabel` の時点で `Intl.DateTimeFormat` によりカレンダーの `locale` オプションで整形済みのため、`enUsLabels` はそれらを変換しません。`locale: 'ja'`（既定）のまま `enUsLabels` だけを渡した場合、区切り記号は英語表記になりますが、曜日等の日付・時刻表記は `locale` に従って日本語のままです。英語の日付・時刻表記まで揃えたい場合は、`useCalendar` / `createCalendar` の `locale` オプション自体を英語の BCP 47 タグ（例: `'en-US'`）に変更してください。
+### messages prop での部分上書き
 
-`enUsLabels` にはコンポーネントの `*Label` props 以外に、`useRecurrenceRuleEditor` の `describeRule` オプション向けの `recurrenceEditor.describeRule` と、`useCalendarAnnouncer` の `messages` オプション向けの `announcer` も含まれています。これらはコンポーネント props のようにスプレッドするのではなく、対応するオプションへそのまま渡します。
+`CalendarProvider` の `messages` prop（`MessageCatalogOverrides` 型）は、`MessageCatalog` の各グループ（`common` / `toolbar` / `list` / `month` / `multiMonth` / `resource` / `timeline` / `year` / `announcer` / `recurrenceEditor`）単位で既定カタログに浅くマージされます。グループ自体を省略すればそのグループ全体が既定のまま、グループの一部のリーフだけを指定すればそのリーフだけが差し替わります。
 
 ```tsx
-useRecurrenceRuleEditor({ start, timeZone, describeRule: enUsLabels.recurrenceEditor.describeRule });
-useCalendarAnnouncer({ calendar, messages: enUsLabels.announcer });
+import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi-cal/react';
+import type { MessageCatalogOverrides } from '@koyomi-cal/react';
+
+// コンポーネント外の定数、または useMemo の結果として渡す（毎レンダー新しい
+// オブジェクトを渡すと CalendarProvider のコンテキスト値の参照が安定せず、
+// 配下コンポーネントが不要に再レンダーされる）
+const messages: MessageCatalogOverrides = {
+  toolbar: { today: '本日' },
+  month: { overflow: (count) => `他${count}件` },
+};
+
+function App() {
+  const calendar = useCalendar();
+  return (
+    <CalendarProvider value={calendar} messages={messages}>
+      <Toolbar />
+      <CalendarView />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - 「今日」ボタンの表示が「本日」になる
+// - 月ビューの「+N 件」が「他N件」になる
+// - 指定していない他の文言（週/日ボタン、リストの空状態など）は既定のまま
 ```
 
-`enUsLabels` を渡さない場合は既定の日本語文言のままです。日本語・英語以外のロケールが必要な場合は、同じ形のオブジェクトを自前で用意して同様にスプレッドしてください。
+### 自前のロケールを作る
+
+日本語・英語以外の言語に対応する場合は、`MessageCatalog` 型を満たす完全なカタログを自前で用意し、`messages` にそのまま渡します（`MessageCatalogOverrides` は各グループを `Partial` 化した型なので、全キーを埋めたオブジェクトもそのまま代入できます）。
+
+```ts
+import type { MessageCatalog } from '@koyomi-cal/react';
+
+// MessageCatalog の全グループ（common / toolbar / list / month / multiMonth /
+// resource / timeline / year / announcer / recurrenceEditor）・全リーフを埋める
+const frMessages: MessageCatalog = {
+  common: {
+    untitledEvent: 'Sans titre',
+    rangeSeparator: '–',
+    itemSeparator: ', ',
+    eventAriaLabel: (occurrence, rangeLabel) => `${occurrence.event.title}, ${rangeLabel}`,
+  },
+  toolbar: {
+    month: 'Mois',
+    week: 'Semaine',
+    day: 'Jour',
+    list: 'Liste',
+    year: 'Année',
+    multiMonth: 'Multi-mois',
+    resource: 'Ressource',
+    timeline: 'Chronologie',
+    today: "Aujourd'hui",
+    prev: 'Précédent',
+    next: 'Suivant',
+    viewsGroup: 'Changer de vue',
+  },
+  // ...
+};
+```
+
+`locale` オプション自体は同梱カタログを選ぶ言語サブタグとしてのみ使われるため、任意の文字列（例: `'fr'`）を指定して構いません（同梱にない言語は既定では `jaMessages` にフォールバックしますが、`messages` に完全なカタログを渡せばそちらが優先されます）。各グループのリーフの型（`CommonMessages` / `ToolbarMessages` / `ListMessages` / `MonthMessages` / `MultiMonthMessages` / `ResourceMessages` / `TimelineMessages` / `YearMessages` / `AnnouncerMessages` / `RecurrenceEditorMessages`）は `MessageCatalog` の対応するグループとして参照できます。全リーフの一覧は [API リファレンス: 中央メッセージカタログ](./api.md#中央メッセージカタログreactlocales) を参照してください。
+
+### Provider に依存しないフックの locale / messages
+
+`useCalendarAnnouncer` は自身が保持する `calendar`（`useCalendar` の戻り値）の `state.options.locale` から自動的にカタログを解決するため、`useCalendar` の `locale` を切り替えれば通知文言も追従します。一方 `useRecurrenceRuleEditor` は `calendar` を受け取らないため、`locale`（既定 `'ja'`）はオプションとして明示的に渡す必要があります。
+
+```tsx
+useRecurrenceRuleEditor({ start, timeZone, locale: 'en-US' });
+// => description が "Weekly on Mon, Wed" のような英語文言になる
+```
+
+どちらのフックも `CalendarProvider` の `messages` prop とは独立して自身の `messages` オプションでカタログを部分上書きします。`CalendarProvider` に渡した上書きをこれらのフックにも反映したい場合は、同じ `MessageCatalogOverrides` を両方に渡してください。
+
+### 時刻ラベルの 12h/24h 表記
+
+時間グリッドの時刻軸目盛り（`formatSlotLabel`）は `Intl.DateTimeFormat` で整形され、`locale` の慣習に従って 12 時間制（AM/PM）・24 時間制が自動的に切り替わります。
+
+```ts
+import { formatSlotLabel } from '@koyomi-cal/react';
+
+formatSlotLabel(540, 'ja'); // => '09:00'
+formatSlotLabel(540, 'en-US'); // => '09:00 AM'
+```
 
 ## 関連ページ
 
