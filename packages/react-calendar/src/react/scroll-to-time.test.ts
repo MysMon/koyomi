@@ -72,4 +72,19 @@ describe('scrollContainerToTime', () => {
     scrollContainerToTime(element, '09:00', 0, 1440);
     expect(element.scrollTop).toBe(42);
   });
+
+  it('contentElement 指定時はその scrollHeight を基準に scrollTop を計算する（sticky 見出し分を除いた本文高基準）', () => {
+    const scroller = makeElement(2100);
+    const content = makeElement(2000);
+    scrollContainerToTime(scroller, '09:00', 0, 1440, content);
+    expect(scroller.scrollTop).toBe(0.375 * 2000);
+  });
+
+  it('contentElement の scrollHeight が 0 の場合は scrollTop を書き込まない', () => {
+    const scroller = makeElement(2100);
+    const content = makeElement(0);
+    scroller.scrollTop = 42;
+    scrollContainerToTime(scroller, '09:00', 0, 1440, content);
+    expect(scroller.scrollTop).toBe(42);
+  });
 });

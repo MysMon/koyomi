@@ -760,7 +760,12 @@ describe('VirtualResourceView - 初期スクロール位置（initialScrollTime�
     }
   });
 
-  function getRoot(container: HTMLElement): HTMLElement {
+  /**
+   * 縦横のスクロールはルート（[data-koyomi="resource"]）が一括で担う（見出し行は
+   * sticky）。initialScrollTime / scrollToTime はルートの scrollTop を変更しなければ
+   * 実ブラウザで無効になる。
+   */
+  function getScroller(container: HTMLElement): HTMLElement {
     const root = container.querySelector('[data-koyomi="resource"]');
     if (!(root instanceof HTMLElement)) {
       throw new Error('resource ルートが見つかりません');
@@ -770,28 +775,28 @@ describe('VirtualResourceView - 初期スクロール位置（initialScrollTime�
 
   it('initialScrollTime 省略時はマウント時に scrollTop が変化しない（回帰ペア）', () => {
     const { container } = render(<Harness resources={makeResources(1)} />);
-    expect(getRoot(container).scrollTop).toBe(0);
+    expect(getScroller(container).scrollTop).toBe(0);
   });
 
   it('initialScrollTime 指定時にマウント時 1 回だけ scrollTop が設定される', () => {
     const { container } = render(
       <Harness resources={makeResources(1)} viewProps={{ initialScrollTime: '09:00' }} />,
     );
-    expect(getRoot(container).scrollTop).toBe((540 / 1440) * 2000);
+    expect(getScroller(container).scrollTop).toBe((540 / 1440) * 2000);
   });
 
   it('ref.current.scrollToTime(time) で任意のタイミングにスクロールできる（scrollToResource と共存する）', () => {
     const handleRef = createRef<VirtualResourceViewHandle>();
     const { container } = render(<Harness resources={makeResources(1)} handleRef={handleRef} />);
-    const root = getRoot(container);
-    expect(root.scrollTop).toBe(0);
+    const body = getScroller(container);
+    expect(body.scrollTop).toBe(0);
 
     act(() => {
       handleRef.current?.scrollToTime('12:00');
     });
-    expect(root.scrollTop).toBe((720 / 1440) * 2000);
+    expect(body.scrollTop).toBe((720 / 1440) * 2000);
     // scrollToTime は縦スクロールのみを変更し、横スクロール（scrollLeft）には干渉しない
-    expect(root.scrollLeft).toBe(0);
+    expect(body.scrollLeft).toBe(0);
   });
 
   it('表示時間帯制限（slotMinTime/slotMaxTime）を指定していても initialScrollTime/scrollToTime は機能する（独立性の確認）', () => {
@@ -805,27 +810,27 @@ describe('VirtualResourceView - 初期スクロール位置（initialScrollTime�
         viewProps={{ initialScrollTime: '10:00' }}
       />,
     );
-    const root = getRoot(container);
-    expect(root.scrollTop).toBe(((600 - 480) / (1200 - 480)) * 2000);
+    const body = getScroller(container);
+    expect(body.scrollTop).toBe(((600 - 480) / (1200 - 480)) * 2000);
 
     act(() => {
       handleRef.current?.scrollToTime('14:00');
     });
-    expect(root.scrollTop).toBe(((840 - 480) / (1200 - 480)) * 2000);
+    expect(body.scrollTop).toBe(((840 - 480) / (1200 - 480)) * 2000);
   });
 
   it('アンマウント後に再マウントすると initialScrollTime が再適用される', () => {
     const { container, unmount } = render(
       <Harness resources={makeResources(1)} viewProps={{ initialScrollTime: '09:00' }} />,
     );
-    const root = getRoot(container);
-    expect(root.scrollTop).toBe((540 / 1440) * 2000);
-    root.scrollTop = 999;
+    const body = getScroller(container);
+    expect(body.scrollTop).toBe((540 / 1440) * 2000);
+    body.scrollTop = 999;
     unmount();
 
     const { container: remounted } = render(
       <Harness resources={makeResources(1)} viewProps={{ initialScrollTime: '09:00' }} />,
     );
-    expect(getRoot(remounted).scrollTop).toBe((540 / 1440) * 2000);
+    expect(getScroller(remounted).scrollTop).toBe((540 / 1440) * 2000);
   });
 });

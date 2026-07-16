@@ -50,23 +50,28 @@ export function scrollFractionForTime(
 /**
  * スクロールコンテナを指定時刻の位置へスクロールする（`scrollTop` への書き込み）。
  *
- * `time` が解析できない場合、または `element.scrollHeight` が 0（非表示など）の場合は
- * 何もしない（0 除算・無意味な `scrollTop = 0` 書き込みの防御）。
+ * `time` が解析できない場合、または基準要素の `scrollHeight` が 0（非表示など）の
+ * 場合は何もしない（0 除算・無意味な `scrollTop = 0` 書き込みの防御）。
  *
  * @param element - スクロールコンテナ要素
  * @param time - `'HH:mm'` 形式の時刻文字列
  * @param rangeStartMinutes - 表示範囲の開始（分）
  * @param rangeEndMinutes - 表示範囲の終了（分）
+ * @param contentElement - スクロール量の基準にする本文要素。sticky な見出し行を含む
+ *   単一スクロールコンテナ（リソースビューのルートなど）では、見出しを除いた
+ *   本文の高さを基準にしないと指定時刻からずれるため、本文要素を渡す。
+ *   省略時は `element` 自身（コンテナ全体が本文の場合）
  */
 export function scrollContainerToTime(
   element: HTMLElement,
   time: string,
   rangeStartMinutes: number,
   rangeEndMinutes: number,
+  contentElement: HTMLElement = element,
 ): void {
   const fraction = scrollFractionForTime(time, rangeStartMinutes, rangeEndMinutes);
-  if (fraction === null || element.scrollHeight <= 0) {
+  if (fraction === null || contentElement.scrollHeight <= 0) {
     return;
   }
-  element.scrollTop = fraction * element.scrollHeight;
+  element.scrollTop = fraction * contentElement.scrollHeight;
 }

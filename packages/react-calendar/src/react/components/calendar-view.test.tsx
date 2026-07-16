@@ -384,16 +384,17 @@ describe('CalendarView', () => {
           DEFAULT_EVENTS,
           resources,
         );
-        const body = container.querySelector('[data-koyomi="resource-body"]');
-        expect(body).not.toBeNull();
-        expect((body as HTMLElement).scrollTop).toBe((540 / 1440) * 2000);
+        // 縦スクロールはルート（[data-koyomi="resource"]）が担う（見出し行は sticky）
+        const scroller = container.querySelector('[data-koyomi="resource"]');
+        expect(scroller).not.toBeNull();
+        expect((scroller as HTMLElement).scrollTop).toBe((540 / 1440) * 2000);
       });
 
       it('省略時は scrollTop が変化しない（回帰ペア）', () => {
         const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
         const { container } = renderView('resource', {}, DEFAULT_EVENTS, resources);
-        const body = container.querySelector('[data-koyomi="resource-body"]');
-        expect((body as HTMLElement).scrollTop).toBe(0);
+        const scroller = container.querySelector('[data-koyomi="resource"]');
+        expect((scroller as HTMLElement).scrollTop).toBe(0);
       });
     });
 

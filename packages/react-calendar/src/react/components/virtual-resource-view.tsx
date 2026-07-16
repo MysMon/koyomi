@@ -691,7 +691,11 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
   const slotMaxTimeMinutes =
     viewModel.type === 'resource' ? viewModel.slotMaxTimeMinutes : MINUTES_PER_DAY;
 
+  // 縦横のスクロールはルート（[data-koyomi="resource"]）が一括で担う（見出し行は
+  // sticky）。scrollToTime / initialScrollTime のスクロール量は、見出しを除いた
+  // 本文（resource-body、bodyRef）の高さを基準に計算する。
   const rootRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [enabled, setEnabled] = useState(false);
   useLayoutEffect(() => {
     setEnabled(true);
@@ -751,8 +755,14 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
         }
       },
       scrollToTime(time: string) {
-        if (rootRef.current !== null) {
-          scrollContainerToTime(rootRef.current, time, slotMinTimeMinutes, slotMaxTimeMinutes);
+        if (rootRef.current !== null && bodyRef.current !== null) {
+          scrollContainerToTime(
+            rootRef.current,
+            time,
+            slotMinTimeMinutes,
+            slotMaxTimeMinutes,
+            bodyRef.current,
+          );
         }
       },
     }),
@@ -764,12 +774,13 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
   // 依存配列は空にする）。
   // biome-ignore lint/correctness/useExhaustiveDependencies: マウント時に 1 回だけ実行する意図的な設計（initialScrollTime は「初期」スクロール位置であり、事後の変更を反映しない）
   useLayoutEffect(() => {
-    if (initialScrollTime !== undefined && rootRef.current !== null) {
+    if (initialScrollTime !== undefined && rootRef.current !== null && bodyRef.current !== null) {
       scrollContainerToTime(
         rootRef.current,
         initialScrollTime,
         slotMinTimeMinutes,
         slotMaxTimeMinutes,
+        bodyRef.current,
       );
     }
   }, []);
@@ -975,7 +986,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
           </div>
         </div>
       </div>
-      <div data-koyomi="resource-body">
+      <div ref={bodyRef} data-koyomi="resource-body">
         <div data-koyomi="time-axis">
           {slots.map((slot) => (
             <div key={slot.minutes} data-koyomi="time-slot-label">

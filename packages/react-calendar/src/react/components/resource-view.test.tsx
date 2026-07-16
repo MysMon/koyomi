@@ -968,30 +968,35 @@ describe('ResourceView - 初期スクロール位置（initialScrollTime）・�
     }
   });
 
-  function getBody(container: HTMLElement): HTMLElement {
-    const body = container.querySelector('[data-koyomi="resource-body"]');
-    if (!(body instanceof HTMLElement)) {
-      throw new Error('resource-body が見つかりません');
+  /**
+   * 縦横のスクロールはルート（[data-koyomi="resource"]）が一括で担う（見出し行は
+   * sticky）。initialScrollTime / scrollToTime はルートの scrollTop を変更しなければ
+   * 実ブラウザで無効になる。
+   */
+  function getScroller(container: HTMLElement): HTMLElement {
+    const root = container.querySelector('[data-koyomi="resource"]');
+    if (!(root instanceof HTMLElement)) {
+      throw new Error('resource ルートが見つかりません');
     }
-    return body;
+    return root;
   }
 
   it('initialScrollTime 省略時はマウント時に scrollTop が変化しない（回帰ペア）', () => {
     const { container } = render(<Harness resources={[ROOM_A]} />);
-    expect(getBody(container).scrollTop).toBe(0);
+    expect(getScroller(container).scrollTop).toBe(0);
   });
 
   it('initialScrollTime 指定時にマウント時 1 回だけ scrollTop が設定される', () => {
     const { container } = render(
       <Harness resources={[ROOM_A]} viewProps={{ initialScrollTime: '09:00' }} />,
     );
-    expect(getBody(container).scrollTop).toBe((540 / 1440) * 2000);
+    expect(getScroller(container).scrollTop).toBe((540 / 1440) * 2000);
   });
 
   it('ref.current.scrollToTime(time) で任意のタイミングにスクロールできる', () => {
     const handleRef = createRef<ResourceViewHandle>();
     const { container } = render(<Harness resources={[ROOM_A]} viewProps={{ ref: handleRef }} />);
-    const body = getBody(container);
+    const body = getScroller(container);
     expect(body.scrollTop).toBe(0);
 
     act(() => {
@@ -1010,7 +1015,7 @@ describe('ResourceView - 初期スクロール位置（initialScrollTime）・�
         viewProps={{ initialScrollTime: '10:00', ref: handleRef }}
       />,
     );
-    const body = getBody(container);
+    const body = getScroller(container);
     expect(body.scrollTop).toBe(((600 - 480) / (1200 - 480)) * 2000);
 
     act(() => {
@@ -1023,7 +1028,7 @@ describe('ResourceView - 初期スクロール位置（initialScrollTime）・�
     const { container, unmount } = render(
       <Harness resources={[ROOM_A]} viewProps={{ initialScrollTime: '09:00' }} />,
     );
-    const body = getBody(container);
+    const body = getScroller(container);
     expect(body.scrollTop).toBe((540 / 1440) * 2000);
     body.scrollTop = 999;
     unmount();
@@ -1031,6 +1036,6 @@ describe('ResourceView - 初期スクロール位置（initialScrollTime）・�
     const { container: remounted } = render(
       <Harness resources={[ROOM_A]} viewProps={{ initialScrollTime: '09:00' }} />,
     );
-    expect(getBody(remounted).scrollTop).toBe((540 / 1440) * 2000);
+    expect(getScroller(remounted).scrollTop).toBe((540 / 1440) * 2000);
   });
 });

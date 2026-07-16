@@ -611,7 +611,8 @@ export function useResourceGridDrag(params: {
           })
         : { start: occurrence.start, end: occurrence.end };
 
-    // 縦方向のオートスクロール（時間グリッドと同じ仕組み。コンテナは resource-body）
+    // 縦方向のオートスクロール（時間グリッドと同じ仕組み。コンテナは縦横の
+    // スクロールを一括で担うルート [data-koyomi="resource"]）
     const autoScroll = createAutoScrollLoop('vertical');
 
     const updateAutoScroll = (clientX: number, clientY: number): void => {
@@ -620,7 +621,7 @@ export function useResourceGridDrag(params: {
         return;
       }
       const column = findColumnForClientX(clientX);
-      const container = column?.element.closest('[data-koyomi="resource-body"]') ?? null;
+      const container = column?.element.closest('[data-koyomi="resource"]') ?? null;
       if (container === null) {
         autoScroll.stop();
         return;

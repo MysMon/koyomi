@@ -96,9 +96,9 @@ export interface ResourceViewProps {
 /** {@link ResourceView} が `ref` 経由で公開する命令的 API。 */
 export interface ResourceViewHandle {
   /**
-   * `[data-koyomi="resource-body"]` を指定時刻の位置へスクロールする。
-   * 時刻が表示時間帯の外側の場合は最も近い境界へクランプする。`'HH:mm'` として
-   * 解析できない場合は何もしない。
+   * スクロールコンテナ（`[data-koyomi="resource"]`）を指定時刻の位置へ
+   * 縦スクロールする。時刻が表示時間帯の外側の場合は最も近い境界へクランプする。
+   * `'HH:mm'` として解析できない場合は何もしない。
    */
   scrollToTime(time: string): void;
 }
@@ -182,14 +182,23 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
   const slotMaxTimeMinutes =
     viewModel.type === 'resource' ? viewModel.slotMaxTimeMinutes : MINUTES_PER_DAY;
 
+  // 縦横のスクロールはルート（[data-koyomi="resource"]）が一括で担う（見出し行は
+  // sticky）。スクロール量の基準は見出しを除いた本文（resource-body）の高さ
+  const rootRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   useImperativeHandle(
     ref,
     (): ResourceViewHandle => ({
       scrollToTime(time: string) {
-        if (bodyRef.current !== null) {
-          scrollContainerToTime(bodyRef.current, time, slotMinTimeMinutes, slotMaxTimeMinutes);
+        if (rootRef.current !== null && bodyRef.current !== null) {
+          scrollContainerToTime(
+            rootRef.current,
+            time,
+            slotMinTimeMinutes,
+            slotMaxTimeMinutes,
+            bodyRef.current,
+          );
         }
       },
     }),
@@ -201,12 +210,13 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
   // 依存配列は空にする）。
   // biome-ignore lint/correctness/useExhaustiveDependencies: マウント時に 1 回だけ実行する意図的な設計（initialScrollTime は「初期」スクロール位置であり、事後の変更を反映しない）
   useLayoutEffect(() => {
-    if (initialScrollTime !== undefined && bodyRef.current !== null) {
+    if (initialScrollTime !== undefined && rootRef.current !== null && bodyRef.current !== null) {
       scrollContainerToTime(
-        bodyRef.current,
+        rootRef.current,
         initialScrollTime,
         slotMinTimeMinutes,
         slotMaxTimeMinutes,
+        bodyRef.current,
       );
     }
   }, []);
@@ -229,6 +239,7 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
 
   return (
     <div
+      ref={rootRef}
       data-koyomi="resource"
       data-koyomi-columns={String(columns.length)}
       style={withTimegridHoursStyle(slotMinTimeMinutes, slotMaxTimeMinutes)}
