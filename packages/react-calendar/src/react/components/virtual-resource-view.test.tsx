@@ -396,9 +396,9 @@ describe('VirtualResourceView', () => {
         resources={makeResources(2)}
         events={events}
         viewProps={{
-          renderColumnHeader: (column, defaultContent) => (
+          renderColumnHeader: (column, ctx) => (
             <span data-koyomi="custom-header">
-              CUSTOM:{column.key}:{defaultContent}
+              CUSTOM:{column.key}:{ctx.defaultContent}
             </span>
           ),
           renderEvent: (item) => (

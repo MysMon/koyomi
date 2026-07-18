@@ -188,4 +188,5 @@ console.log(calendar.getViewModel().type); // => 'month'
 - [アクセシビリティ](./accessibility.md)
 - [タイムゾーン](./timezones.md)
 - [テーマとスタイリング](./theming.md)
+- [カスタマイズガイド](./customization.md)
 - [API リファレンス](./api.md)

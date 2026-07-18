@@ -20,7 +20,13 @@ import type {
 } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { MessageCatalogOverrides } from '../locales/types';
-import type { CalendarInteractionCallbacks, MonthOverflowButtonProps } from '../types';
+import type {
+  CalendarInteractionCallbacks,
+  EventContentContext,
+  EventContentRenderer,
+  MonthOverflowButtonProps,
+  SlotRenderContext,
+} from '../types';
 import { useCalendar } from '../use-calendar';
 import { MultiMonthView } from './multi-month-view';
 
@@ -47,8 +53,9 @@ function Harness(props: {
   dayMaxEvents?: number;
   hiddenWeekdays?: readonly Weekday[];
   multiMonthCount?: number;
-  renderEvent?: (segment: EventSegment) => ReactElement;
-  renderDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
+  renderEvent?: (segment: EventSegment, ctx: EventContentContext) => ReactElement;
+  renderDayCell?: (day: MonthDay, ctx: SlotRenderContext) => ReactNode;
+  renderEventContent?: EventContentRenderer;
   overflowButtonProps?: (
     day: MonthDay,
     hiddenOccurrences: readonly EventOccurrence[],
@@ -79,6 +86,9 @@ function Harness(props: {
       value={calendar}
       {...(props.callbacks !== undefined ? { callbacks: props.callbacks } : {})}
       {...(props.messages !== undefined ? { messages: props.messages } : {})}
+      {...(props.renderEventContent !== undefined
+        ? { renderEventContent: props.renderEventContent }
+        : {})}
     >
       <MultiMonthView
         {...(props.renderEvent !== undefined ? { renderEvent: props.renderEvent } : {})}
@@ -279,18 +289,36 @@ describe('MultiMonthView - 月境界をまたぐ帯', () => {
 });
 
 describe('MultiMonthView - カスタム描画 props', () => {
-  it('renderEvent でセグメントの内容をカスタマイズできる', () => {
+  it('renderEvent でセグメントの内容をカスタマイズできる（ctx から既定内容とパーツを参照できる）', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: '朝会', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
     ];
     const { container } = render(
       <Harness
         events={events}
-        renderEvent={(segment) => <span>CUSTOM:{segment.occurrence.event.title}</span>}
+        renderEvent={(_segment, ctx) => (
+          <span>
+            {ctx.slot}|{ctx.parts.timeText}|{ctx.defaultContent}
+          </span>
+        )}
       />,
     );
     const segment = container.querySelector('[data-koyomi="month-event"]');
-    expect(segment?.textContent).toBe('CUSTOM:朝会');
+    expect(segment?.textContent).toBe('month-event|9:00|9:00 朝会');
+  });
+
+  it('CalendarProvider の renderEventContent が複数月ビューの帯にも適用される', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '朝会', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+    ];
+    const { container } = render(
+      <Harness
+        events={events}
+        renderEventContent={(_occurrence, ctx) => <>中央:{ctx.defaultContent}</>}
+      />,
+    );
+    const segment = container.querySelector('[data-koyomi="month-event"]');
+    expect(segment?.textContent).toBe('中央:9:00 朝会');
   });
 
   it('messages.common.eventAriaLabel をオーバーライドするとイベントセグメントの aria-label が変わる（省略時は既定文字列のまま）', () => {
@@ -352,11 +380,11 @@ describe('MultiMonthView - カスタム描画 props', () => {
     expect(overflowButton.style.bottom).toBe('0px');
   });
 
-  it('renderDayCell で日セルの内容を拡張できる（既定内容はそのまま利用可能）', () => {
+  it('renderDayCell で日セルの内容を拡張できる（既定内容は ctx.defaultContent でそのまま利用可能）', () => {
     const { container } = render(
       <Harness
-        renderDayCell={(day, defaultContent) => (
-          <div data-testid={`custom-${day.key}`}>{defaultContent}</div>
+        renderDayCell={(day, ctx) => (
+          <div data-testid={`custom-${day.key}`}>{ctx.defaultContent}</div>
         )}
       />,
     );

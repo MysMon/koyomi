@@ -161,6 +161,12 @@ test('大量リソースの仮想化スクロールでフォーカスと対象�
 });
 
 test('主要画面に WCAG 2.0 A/AA の自動検出違反がない', async ({ page }) => {
+  // CSS transition を無効化してから走査する。テーマ切替直後は background-color の
+  // 遷移中で、axe が「切替後の文字色 × 遷移途中の背景色」という実在しない
+  // 組み合わせのコントラストを検出してしまうため、確定後の配色のみを検査対象にする
+  await page.addStyleTag({
+    content: '*, *::before, *::after { transition: none !important; }',
+  });
   const lightResults = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa'])
     .exclude('[data-koyomi="timegrid-now-indicator"]')

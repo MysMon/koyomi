@@ -31,7 +31,12 @@ import type {
 } from '../../core/types';
 import { useCalendarContext } from '../context';
 import type { CommonMessages } from '../locales/types';
-import type { MonthOverflowButtonProps } from '../types';
+import type {
+  EventContentContext,
+  EventContentRenderer,
+  MonthOverflowButtonProps,
+  SlotRenderContext,
+} from '../types';
 import { useDayDrag } from '../use-day-drag';
 import { formatMonthTitle } from './format';
 import type { MonthDayDragHandlers } from './month-view-parts';
@@ -48,16 +53,21 @@ export interface MultiMonthViewProps {
   /**
    * イベントセグメントの表示内容をカスタマイズする関数。
    * 省略時の既定内容は `MonthView` と同じ（{@link MonthWeekRow} 参照）。
+   *
+   * `ctx.defaultContent` に省略時の内容、`ctx.parts` に分解済みパーツが渡される。
+   * 指定した場合は `CalendarProvider` の `renderEventContent` より優先される。
+   * @param segment - 対象のセグメント
+   * @param ctx - 既定内容・スロット種別・分解済みパーツ
    */
-  renderEvent?: (segment: EventSegment) => ReactNode;
+  renderEvent?: (segment: EventSegment, ctx: EventContentContext) => ReactNode;
   /**
    * 日セルの内容をカスタマイズするスロット。祝日ラベルやバッジの注入に使う。
-   * `defaultContent` は既定の内容（日番号ボタン＋（あれば）「+N 件」ボタン）であり、
+   * `ctx.defaultContent` は既定の内容（日番号ボタン＋（あれば）「+N 件」ボタン）であり、
    * そのまま包んで使うことも、完全に差し替えることもできる。省略時は既定内容をそのまま描画する。
    * @param day - 対象の日
-   * @param defaultContent - 既定の内容
+   * @param ctx - 既定内容
    */
-  renderDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
+  renderDayCell?: (day: MonthDay, ctx: SlotRenderContext) => ReactNode;
   /**
    * 「+N 件」ボタンに追加する props を返す関数。`aria-haspopup` / `aria-expanded` など、
    * 自前のポップオーバー UI と連携するための ARIA 属性を付与する用途に使う。
@@ -90,7 +100,7 @@ export interface MultiMonthViewProps {
  */
 export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null {
   const { renderEvent, renderDayCell, overflowButtonProps } = props;
-  const { api, state, viewModel, callbacks, messages } = useCalendarContext();
+  const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const calendar = { api, state, viewModel };
   // コンポーネント全体で 1 インスタンス（モジュール冒頭の TSDoc を参照）。
   const dayDrag = useDayDrag({
@@ -165,6 +175,7 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
           previewInvalid={previewInvalid}
           dayDrag={stableDayDrag}
           renderEvent={renderEvent}
+          renderEventContent={renderEventContent}
           overflowLabel={messages.multiMonth.overflow}
           renderDayCell={renderDayCell}
           commonMessages={messages.common}
@@ -200,11 +211,13 @@ function MultiMonthMonthSection(props: {
    */
   dayDrag: MonthDayDragHandlers;
   /** イベントセグメントの表示内容のカスタマイズ関数。 */
-  renderEvent: ((segment: EventSegment) => ReactNode) | undefined;
+  renderEvent: ((segment: EventSegment, ctx: EventContentContext) => ReactNode) | undefined;
+  /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
+  renderEventContent: EventContentRenderer | undefined;
   /** 「+N 件」ラベルのカスタマイズ関数。 */
   overflowLabel: (count: number) => ReactNode;
   /** 日セルの内容のカスタマイズ関数。 */
-  renderDayCell: ((day: MonthDay, defaultContent: ReactNode) => ReactNode) | undefined;
+  renderDayCell: ((day: MonthDay, ctx: SlotRenderContext) => ReactNode) | undefined;
   /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
   commonMessages: CommonMessages;
   /** 日番号クリック時のハンドラ。 */
@@ -236,6 +249,7 @@ function MultiMonthMonthSection(props: {
     previewInvalid,
     dayDrag,
     renderEvent,
+    renderEventContent,
     overflowLabel,
     renderDayCell,
     commonMessages,
@@ -284,6 +298,7 @@ function MultiMonthMonthSection(props: {
               selectionInvalid={previewInvalid}
               dayDrag={dayDrag}
               renderEvent={renderEvent}
+              renderEventContent={renderEventContent}
               overflowLabel={overflowLabel}
               renderDayCell={renderDayCell}
               commonMessages={commonMessages}

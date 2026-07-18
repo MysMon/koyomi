@@ -6,12 +6,17 @@
  * `docs/internal/components-dom.md` の「リストビュー」セクションに従って検証する。
  */
 import { fireEvent, render } from '@testing-library/react';
-import type { ReactElement, ReactNode } from 'react';
+import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { CalendarEvent, CalendarViewType, EventOccurrence, ListDay } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { MessageCatalogOverrides } from '../locales/types';
-import type { CalendarInteractionCallbacks } from '../types';
+import type {
+  CalendarInteractionCallbacks,
+  EventContentContext,
+  EventContentRenderer,
+  SlotRenderContext,
+} from '../types';
 import { useCalendar } from '../use-calendar';
 import type { ListViewProps } from './list-view';
 import { ListView } from './list-view';
@@ -28,6 +33,7 @@ function TestListView(props: {
   callbacks?: CalendarInteractionCallbacks;
   renderEvent?: ListViewProps['renderEvent'];
   renderDayHeader?: ListViewProps['renderDayHeader'];
+  renderEventContent?: EventContentRenderer;
   messages?: MessageCatalogOverrides;
   view?: CalendarViewType;
   timeZone?: string;
@@ -47,6 +53,9 @@ function TestListView(props: {
       value={calendar}
       {...(props.callbacks !== undefined ? { callbacks: props.callbacks } : {})}
       {...(props.messages !== undefined ? { messages: props.messages } : {})}
+      {...(props.renderEventContent !== undefined
+        ? { renderEventContent: props.renderEventContent }
+        : {})}
     >
       <ListView
         {...(props.renderEvent !== undefined ? { renderEvent: props.renderEvent } : {})}
@@ -419,6 +428,102 @@ describe('ListView', () => {
     expect(button?.querySelector('[data-koyomi="list-event-time"]')).toBeNull();
   });
 
+  it('renderEvent の ctx.parts で時刻・色見本・タイトルの部位を data-koyomi 部位を保ったまま並べ替えられる', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const renderEvent = (_occurrence: EventOccurrence, ctx: EventContentContext) => (
+      <>
+        {ctx.parts.title}
+        {ctx.parts.time}
+      </>
+    );
+    const { container } = render(<TestListView events={events} renderEvent={renderEvent} />);
+
+    const button = container.querySelector('[data-koyomi="list-event"]');
+    const parts = Array.from(button?.querySelectorAll('[data-koyomi]') ?? []).map((el) =>
+      el.getAttribute('data-koyomi'),
+    );
+    // タイトル → 時刻の順に入れ替わり、部位の data-koyomi 属性は保たれる
+    expect(parts).toEqual(['list-event-title', 'list-event-time']);
+    expect(button?.querySelector('[data-koyomi="list-event-time"]')?.textContent).toBe(
+      '10:00〜11:00',
+    );
+  });
+
+  it('renderEvent の ctx から既定内容・スロット種別・整形済み時刻テキストを参照できる', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const captured: EventContentContext[] = [];
+    const renderEvent = (_occurrence: EventOccurrence, ctx: EventContentContext) => {
+      captured.push(ctx);
+      return ctx.defaultContent;
+    };
+    const { container } = render(<TestListView events={events} renderEvent={renderEvent} />);
+
+    expect(captured[0]?.slot).toBe('list-event');
+    expect(captured[0]?.parts.timeText).toBe('10:00〜11:00');
+    expect(captured[0]?.parts.titleText).toBe('会議');
+    // ctx.defaultContent をそのまま返すと省略時と同じ 3 部位が描画される
+    const button = container.querySelector('[data-koyomi="list-event"]');
+    const parts = Array.from(button?.querySelectorAll('[data-koyomi]') ?? []).map((el) =>
+      el.getAttribute('data-koyomi'),
+    );
+    expect(parts).toEqual(['list-event-time', 'list-event-swatch', 'list-event-title']);
+  });
+
+  it('終日イベントの ctx.parts は timeText が null で、time 部位には終日ラベルが入る', () => {
+    const events: CalendarEvent[] = [
+      { id: 'allday', title: '休暇', start: '2026-07-16', end: '2026-07-17', allDay: true },
+    ];
+    const captured: EventContentContext[] = [];
+    const renderEvent = (_occurrence: EventOccurrence, ctx: EventContentContext) => {
+      captured.push(ctx);
+      return ctx.parts.time;
+    };
+    const { container } = render(<TestListView events={events} renderEvent={renderEvent} />);
+
+    expect(captured[0]?.parts.timeText).toBeNull();
+    expect(container.querySelector('[data-koyomi="list-event-time"]')?.textContent).toBe('終日');
+  });
+
+  it('CalendarProvider の renderEventContent が予定行に適用される（slot は list-event）', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const { container } = render(
+      <TestListView
+        events={events}
+        renderEventContent={(occurrence, ctx) => (
+          <span>
+            {ctx.slot}:{occurrence.event.title}
+          </span>
+        )}
+      />,
+    );
+
+    const button = container.querySelector('[data-koyomi="list-event"]');
+    expect(button?.textContent).toBe('list-event:会議');
+  });
+
+  it('renderEvent があれば renderEventContent より優先される', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const renderEventContent = vi.fn();
+    const { container } = render(
+      <TestListView
+        events={events}
+        renderEvent={() => <span>個別</span>}
+        renderEventContent={renderEventContent}
+      />,
+    );
+
+    expect(container.querySelector('[data-koyomi="list-event"]')?.textContent).toBe('個別');
+    expect(renderEventContent).not.toHaveBeenCalled();
+  });
+
   it('viewModel.type が list 以外のときは null を返す（DOM が生成されない）', () => {
     const { container } = render(<TestListView view="month" />);
     expect(container.querySelector('[data-koyomi="list"]')).toBeNull();
@@ -446,13 +551,13 @@ describe('ListView', () => {
     expect(empty?.textContent).toBe('No events');
   });
 
-  it('renderDayHeader を指定すると日付見出しの内容をカスタマイズできる（第2引数に既定内容を渡す）', () => {
+  it('renderDayHeader を指定すると日付見出しの内容をカスタマイズできる（第2引数の ctx に既定内容を渡す）', () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
     ];
-    const renderDayHeader = (day: ListDay, defaultContent: ReactNode) => (
+    const renderDayHeader = (day: ListDay, ctx: SlotRenderContext) => (
       <span data-testid="custom-header">
-        {day.key}:{defaultContent}
+        {day.key}:{ctx.defaultContent}
       </span>
     );
     const { container } = render(

@@ -83,7 +83,7 @@
   --koyomi-bg: #ffffff;
   --koyomi-fg: #1b2028;
   --koyomi-border: #e6e8ef;
-  --koyomi-muted: #6b7280;
+  --koyomi-muted: #606974;
   --koyomi-accent: #14608f;
   --koyomi-today-bg: #e8f1f8;
   --koyomi-event-color: #14608f;
@@ -91,7 +91,7 @@
   /* イベントチップの配色（淡色背景＋濃色文字）を event-color から合成する比率。
      tint = 背景に混ぜる濃さ / ink = 文字色に混ぜる濃さ（残りは fg 側の色） */
   --koyomi-event-tint: 14%;
-  --koyomi-event-ink: 78%;
+  --koyomi-event-ink: 65%;
   --koyomi-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
   --koyomi-radius: 6px;
   --koyomi-font-size: 13px;
@@ -142,7 +142,7 @@
     --koyomi-event-color: #7fb5da;
     --koyomi-event-fg: #1c1f26;
     --koyomi-event-tint: 20%;
-    --koyomi-event-ink: 82%;
+    --koyomi-event-ink: 50%;
     --koyomi-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
     --koyomi-now-color: #f87171;
     --koyomi-business-hours-bg: rgba(127, 181, 218, 0.07);
@@ -165,7 +165,7 @@
   --koyomi-event-color: #7fb5da;
   --koyomi-event-fg: #1c1f26;
   --koyomi-event-tint: 20%;
-  --koyomi-event-ink: 82%;
+  --koyomi-event-ink: 50%;
   --koyomi-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
   --koyomi-now-color: #f87171;
   --koyomi-business-hours-bg: rgba(127, 181, 218, 0.07);
@@ -180,13 +180,13 @@
   --koyomi-bg: #ffffff;
   --koyomi-fg: #1b2028;
   --koyomi-border: #e6e8ef;
-  --koyomi-muted: #6b7280;
+  --koyomi-muted: #606974;
   --koyomi-accent: #14608f;
   --koyomi-today-bg: #e8f1f8;
   --koyomi-event-color: #14608f;
   --koyomi-event-fg: #ffffff;
   --koyomi-event-tint: 14%;
-  --koyomi-event-ink: 78%;
+  --koyomi-event-ink: 65%;
   --koyomi-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
   --koyomi-business-hours-bg: rgba(20, 96, 143, 0.05);
   --koyomi-now-color: #ef4444;

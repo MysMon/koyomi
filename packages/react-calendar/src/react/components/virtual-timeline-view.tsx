@@ -38,9 +38,11 @@ import type { BusinessHourRange, TimelineItem, TimelineRow, TimeZoneId } from '.
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
 import type { CommonMessages, TimelineMessages } from '../locales/types';
+import type { EventContentContext, EventContentRenderer, SlotRenderContext } from '../types';
 import type { TimelinePreviewSegment } from '../use-timeline-drag';
 import { useTimelineDrag } from '../use-timeline-drag';
 import { useVirtualizer } from '../use-virtualizer';
+import { resolveEventContent, titleOnlyEventContentContext } from './event-content';
 import { withEventColorStyle } from './month-view-parts';
 import { ariaLabelWithResource } from './resource-view-parts';
 import type { TimelineRowDragHandlers } from './timeline-view-parts';
@@ -67,10 +69,10 @@ const VIRTUALIZE_WARN_THRESHOLD = 40;
 
 /** `VirtualTimelineView` の props。`TimelineView` のカスタマイズ props に仮想化固有の設定を加える。 */
 export interface VirtualTimelineViewProps {
-  /** 帯（タイムラインアイテム）の表示内容をカスタマイズする関数。省略時はタイトルのみ。 */
-  renderEvent?: (item: TimelineItem) => ReactNode;
-  /** 行見出しの内容をカスタマイズする関数（第 2 引数に既定内容）。 */
-  renderRowHeader?: (row: TimelineRow, defaultContent: ReactNode) => ReactNode;
+  /** 帯（タイムラインアイテム）の表示内容をカスタマイズする関数。省略時はタイトルのみ（{@link TimelineView} と同じ）。 */
+  renderEvent?: (item: TimelineItem, ctx: EventContentContext) => ReactNode;
+  /** 行見出しの内容をカスタマイズする関数（第 2 引数の ctx に既定内容。{@link TimelineView} と同じ）。 */
+  renderRowHeader?: (row: TimelineRow, ctx: SlotRenderContext) => ReactNode;
   /**
    * 行 1 件分の推定高（px）。件数に応じて変えたい場合は関数で渡す。
    * 実測（ResizeObserver）が入るまでの暫定値。既定はレーン数 × 28px
@@ -110,8 +112,10 @@ interface TimelineRowGroupProps {
   /** {@link TimelineViewModel.businessHourRanges}（全行共通）。 */
   businessHourRanges: readonly BusinessHourRange[];
   unassignedLabel: ReactNode;
-  renderEvent: ((item: TimelineItem) => ReactNode) | undefined;
-  renderRowHeader: ((row: TimelineRow, defaultContent: ReactNode) => ReactNode) | undefined;
+  renderEvent: ((item: TimelineItem, ctx: EventContentContext) => ReactNode) | undefined;
+  /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
+  renderEventContent: EventContentRenderer | undefined;
+  renderRowHeader: ((row: TimelineRow, ctx: SlotRenderContext) => ReactNode) | undefined;
   drag: TimelineRowDragHandlers;
   /** ドラッグ操作が進行中か（memo 判定に使う）。 */
   isDragging: boolean;
@@ -143,6 +147,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
     businessHourRanges,
     unassignedLabel,
     renderEvent,
+    renderEventContent,
     renderRowHeader,
     drag,
     preview,
@@ -190,7 +195,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
             ▸
           </button>
         )}
-        {renderRowHeader ? renderRowHeader(row, headerContent) : headerContent}
+        {renderRowHeader ? renderRowHeader(row, { defaultContent: headerContent }) : headerContent}
       </div>
       {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA gridcell */}
       {/* biome-ignore lint/a11y/useFocusableInteractive: gridcell 自体はフォーカス対象にしない */}
@@ -245,7 +250,13 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
               {...(itemTabbable === false ? { tabIndex: -1 } : {})}
             >
               <div data-koyomi="timeline-item-content">
-                {renderEvent ? renderEvent(item) : occurrence.event.title}
+                {resolveEventContent(
+                  renderEvent,
+                  renderEventContent,
+                  item,
+                  occurrence,
+                  titleOnlyEventContentContext('timeline-item', occurrence.event.title),
+                )}
               </div>
               {isEditable && !occurrence.allDay && !item.continuesBefore && (
                 <div
@@ -304,6 +315,7 @@ const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
     sameBusinessHourRanges(prev.businessHourRanges, next.businessHourRanges) &&
     prev.unassignedLabel === next.unassignedLabel &&
     prev.renderEvent === next.renderEvent &&
+    prev.renderEventContent === next.renderEventContent &&
     prev.renderRowHeader === next.renderRowHeader &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&
@@ -338,7 +350,7 @@ const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
  */
 export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactElement | null {
   const { renderEvent, renderRowHeader, estimateRowHeight, overscan, ref } = props;
-  const { api, state, viewModel, callbacks, messages } = useCalendarContext();
+  const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const timelineMessages = messages.timeline;
   const commonMessages = messages.common;
   const calendar = { api, state, viewModel };
@@ -533,6 +545,7 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
       businessHourRanges={businessHourRanges}
       unassignedLabel={timelineMessages.unassigned}
       renderEvent={renderEvent}
+      renderEventContent={renderEventContent}
       renderRowHeader={renderRowHeader}
       drag={stableDrag}
       isDragging={drag.isDragging}

@@ -6,7 +6,7 @@
  * テストプロセスは vitest.config.ts により TZ=Asia/Tokyo で実行される。
  */
 import { act, render } from '@testing-library/react';
-import type { ReactElement, ReactNode } from 'react';
+import type { ReactElement } from 'react';
 import { createRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
@@ -19,7 +19,12 @@ import type {
 } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { MessageCatalogOverrides } from '../locales/types';
-import type { UseCalendarResult } from '../types';
+import type {
+  EventContentContext,
+  EventContentRenderer,
+  SlotRenderContext,
+  UseCalendarResult,
+} from '../types';
 import { useCalendar } from '../use-calendar';
 import type { ResourceViewHandle, ResourceViewProps } from './resource-view';
 import { ResourceView } from './resource-view';
@@ -55,6 +60,8 @@ interface HarnessProps {
   viewProps?: ResourceViewProps;
   /** `CalendarProvider` の `messages` prop。 */
   messages?: MessageCatalogOverrides;
+  /** `CalendarProvider` の `renderEventContent` prop（ビュー横断のイベント内容レンダラー）。 */
+  renderEventContent?: EventContentRenderer;
   /** `useCalendar` の戻り値を外部から観測するための入れ物。 */
   sink?: { current: UseCalendarResult | null };
 }
@@ -80,6 +87,9 @@ function Harness(props: HarnessProps): ReactElement {
     <CalendarProvider
       value={calendar}
       {...(props.messages !== undefined ? { messages: props.messages } : {})}
+      {...(props.renderEventContent !== undefined
+        ? { renderEventContent: props.renderEventContent }
+        : {})}
     >
       <ResourceView {...(props.viewProps ?? {})} />
     </CalendarProvider>
@@ -344,7 +354,7 @@ describe('ResourceView - イベントブロック', () => {
 });
 
 describe('ResourceView - カスタム描画 props', () => {
-  it('renderEvent でイベントブロックの内容を差し替えられる', () => {
+  it('renderEvent でイベントブロックの内容を差し替えられる（ctx から既定内容とパーツを参照できる）', () => {
     const events: CalendarEvent[] = [
       {
         id: 'e1',
@@ -354,24 +364,23 @@ describe('ResourceView - カスタム描画 props', () => {
         resourceId: 'room-a',
       },
     ];
-    const renderEvent = (item: PositionedOccurrence): ReactElement => (
-      <span data-koyomi="custom-event">CUSTOM:{item.occurrence.event.title}</span>
+    const renderEvent = (_item: PositionedOccurrence, ctx: EventContentContext): ReactElement => (
+      <span data-koyomi="custom-event">
+        {ctx.slot}|{ctx.parts.timeText}|{ctx.defaultContent}
+      </span>
     );
     const { container } = render(
       <Harness resources={[ROOM_A]} events={events} viewProps={{ renderEvent }} />,
     );
     const custom = container.querySelector('[data-koyomi="custom-event"]');
     expect(custom).not.toBeNull();
-    expect(custom?.textContent).toBe('CUSTOM:定例会議');
+    expect(custom?.textContent).toBe('timegrid-event|10:00|10:00 定例会議');
   });
 
-  it('renderColumnHeader で列見出しの内容を差し替えられ、defaultContent には既定の内容が渡る', () => {
-    const renderColumnHeader = (
-      column: ResourceColumn,
-      defaultContent: ReactNode,
-    ): ReactElement => (
+  it('renderColumnHeader で列見出しの内容を差し替えられ、ctx.defaultContent には既定の内容が渡る', () => {
+    const renderColumnHeader = (column: ResourceColumn, ctx: SlotRenderContext): ReactElement => (
       <div data-koyomi="custom-header">
-        CUSTOM:{column.key}:{defaultContent}
+        CUSTOM:{column.key}:{ctx.defaultContent}
       </div>
     );
     const { container } = render(
@@ -380,6 +389,43 @@ describe('ResourceView - カスタム描画 props', () => {
     const custom = container.querySelector('[data-koyomi="custom-header"]');
     expect(custom).not.toBeNull();
     expect(custom?.textContent).toBe('CUSTOM:r:room-a:会議室A');
+  });
+
+  it('CalendarProvider の renderEventContent が時間指定ブロックと終日アイテムの両方に適用され、slot で判別できる', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '定例会議',
+        start: '2026-07-15T10:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'room-a',
+      },
+      {
+        id: 'ad1',
+        title: '休暇',
+        start: '2026-07-15',
+        end: '2026-07-16',
+        allDay: true,
+        resourceId: 'room-a',
+      },
+    ];
+    const { container } = render(
+      <Harness
+        resources={[ROOM_A]}
+        events={events}
+        renderEventContent={(occurrence, ctx) => (
+          <span>
+            {ctx.slot}:{occurrence.event.title}
+          </span>
+        )}
+      />,
+    );
+    expect(container.querySelector('[data-koyomi="timegrid-event-content"]')?.textContent).toBe(
+      'timegrid-event:定例会議',
+    );
+    expect(container.querySelector('[data-koyomi="allday-event"]')?.textContent).toBe(
+      'allday-event:休暇',
+    );
   });
 });
 

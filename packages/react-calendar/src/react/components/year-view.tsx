@@ -13,25 +13,26 @@ import { memo, useCallback } from 'react';
 import type { TimeZoneId, Weekday, YearDay, YearMonth } from '../../core/types';
 import { useCalendarContext } from '../context';
 import type { YearMessages } from '../locales/types';
+import type { SlotRenderContext } from '../types';
 import { formatWeekday } from './format';
 
 /** `YearView` の props。 */
 export interface YearViewProps {
   /**
    * 月見出しの内容をカスタマイズする関数。
-   * `defaultContent` は既定の内容（月名、例: `'7月'`）。省略時は既定内容をそのまま描画する。
+   * `ctx.defaultContent` は既定の内容（月名、例: `'7月'`）。省略時は既定内容をそのまま描画する。
    * @param month - 対象の月
-   * @param defaultContent - 既定の内容
+   * @param ctx - 既定内容
    */
-  renderMonthHeader?: (month: YearMonth, defaultContent: ReactNode) => ReactNode;
+  renderMonthHeader?: (month: YearMonth, ctx: SlotRenderContext) => ReactNode;
   /**
    * 日セル（ボタン）の内容をカスタマイズする関数。
-   * `defaultContent` は既定の内容（日番号＋（予定があれば）件数マーカー）。
+   * `ctx.defaultContent` は既定の内容（日番号＋（予定があれば）件数マーカー）。
    * 省略時は既定内容をそのまま描画する。
    * @param day - 対象の日
-   * @param defaultContent - 既定の内容
+   * @param ctx - 既定内容
    */
-  renderDayCell?: (day: YearDay, defaultContent: ReactNode) => ReactNode;
+  renderDayCell?: (day: YearDay, ctx: SlotRenderContext) => ReactNode;
 }
 
 /** `Intl.DateTimeFormat` インスタンスのキャッシュ（`locale|timeZone|種別` をキーにする）。 */
@@ -168,8 +169,8 @@ const YearMonthSection = memo(function YearMonthSection(props: {
   weekdays: readonly Weekday[];
   timeZone: TimeZoneId;
   locale: string;
-  renderMonthHeader: ((month: YearMonth, defaultContent: ReactNode) => ReactNode) | undefined;
-  renderDayCell: ((day: YearDay, defaultContent: ReactNode) => ReactNode) | undefined;
+  renderMonthHeader: ((month: YearMonth, ctx: SlotRenderContext) => ReactNode) | undefined;
+  renderDayCell: ((day: YearDay, ctx: SlotRenderContext) => ReactNode) | undefined;
   yearMessages: YearMessages;
   onDayClick: (date: Date) => void;
 }): ReactElement {
@@ -190,7 +191,9 @@ const YearMonthSection = memo(function YearMonthSection(props: {
 
   return (
     <section data-koyomi="year-month" data-koyomi-month={month.key}>
-      {renderMonthHeader ? renderMonthHeader(month, defaultHeaderContent) : defaultHeaderContent}
+      {renderMonthHeader
+        ? renderMonthHeader(month, { defaultContent: defaultHeaderContent })
+        : defaultHeaderContent}
       {/* biome-ignore lint/a11y/useSemanticElements: 月ビューの DOM 仕様に合わせた div ベースの ARIA grid（<table> はテーマ CSS と噛み合わないため不採用） */}
       <div data-koyomi="year-month-grid" role="grid">
         {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA row */}
@@ -234,7 +237,7 @@ const YearDayCell = memo(function YearDayCell(props: {
   day: YearDay;
   timeZone: TimeZoneId;
   locale: string;
-  renderDayCell: ((day: YearDay, defaultContent: ReactNode) => ReactNode) | undefined;
+  renderDayCell: ((day: YearDay, ctx: SlotRenderContext) => ReactNode) | undefined;
   yearMessages: YearMessages;
   onDayClick: (date: Date) => void;
 }): ReactElement {
@@ -266,7 +269,9 @@ const YearDayCell = memo(function YearDayCell(props: {
         {...(day.eventCount > 0 ? HAS_EVENTS_BUTTON_ATTRS : {})}
         onClick={() => onDayClick(day.date)}
       >
-        {renderDayCell ? renderDayCell(day, defaultButtonContent) : defaultButtonContent}
+        {renderDayCell
+          ? renderDayCell(day, { defaultContent: defaultButtonContent })
+          : defaultButtonContent}
       </button>
     </div>
   );

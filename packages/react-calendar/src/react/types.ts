@@ -7,6 +7,7 @@
  * 代わりにこれらのコールバックでアプリケーション側の UI に委譲する。
  */
 
+import type { ReactNode } from 'react';
 import type {
   CalendarApi,
   CalendarState,
@@ -18,6 +19,144 @@ import type {
   RecurringEditScope,
 } from '../core/types';
 import type { MessageCatalog } from './locales/types';
+
+/**
+ * すべてのカスタム描画スロット（render prop）に共通で渡されるコンテキスト。
+ *
+ * ビルトインコンポーネントの render prop はすべて `(item, ctx) => ReactNode` の
+ * 形をとり、`ctx` には省略時にライブラリが描画する既定の内容
+ * （{@link SlotRenderContext.defaultContent}）が必ず含まれる。既定内容をそのまま
+ * 返せば省略時と同じ表示になり、前後に要素を足す・独自の要素でラップするといった
+ * 「既定＋差分」のカスタマイズを、既定の整形を再構築せずに書ける。
+ *
+ * render prop が差し替えるのは**インタラクティブ要素の内側の内容だけ**である。
+ * 外側の要素（`<button>` 等）と `data-koyomi-*` 属性・`aria-label`・
+ * クリック/ドラッグの配線・リサイズハンドルはライブラリが常に保持する。
+ *
+ * @example
+ * ```tsx
+ * <MonthView
+ *   renderDayCell={(day, ctx) => (
+ *     <>
+ *       {ctx.defaultContent}
+ *       {day.isToday && <span data-holiday-badge>今日</span>}
+ *     </>
+ *   )}
+ * />
+ * ```
+ */
+export interface SlotRenderContext {
+  /** 省略時にライブラリが描画する既定の内容。 */
+  defaultContent: ReactNode;
+}
+
+/**
+ * イベント内容スロットの種別。
+ *
+ * どの描画枠（外側要素の `data-koyomi` 部位名と同じ語彙）に対する描画かを表す。
+ * {@link EventContentRenderer} でビュー横断のイベント内容を 1 箇所で定義するとき、
+ * 描画枠に応じて内容を出し分ける判別子として使う。
+ *
+ * - `'month-event'` — 月ビュー・複数月ビューの帯
+ * - `'timegrid-event'` — 週/日ビュー・リソースビューの時間指定ブロック
+ * - `'allday-event'` — 週/日ビューの終日行の帯・リソースビューの終日アイテム
+ * - `'list-event'` — リストビュー（仮想化含む）の予定行
+ * - `'timeline-item'` — タイムラインビュー（仮想化含む）の帯
+ */
+export type EventContentSlot =
+  | 'month-event'
+  | 'timegrid-event'
+  | 'allday-event'
+  | 'list-event'
+  | 'timeline-item';
+
+/**
+ * イベント内容スロットの既定内容を分解したパーツ。
+ *
+ * 「時刻とタイトルの順序を入れ替える」「間に追加情報を挟む」といった
+ * 並べ替え・差し込みを、既定の時刻整形や `data-koyomi` 部位を自前で
+ * 再構築せずに書くための部品。`xxxText` は整形済みの文字列、`time` /
+ * `swatch` / `title` は既定内容を構成するノードそのもの。
+ *
+ * @example リストビューでタイトルの前に場所を出す
+ * ```tsx
+ * renderEvent={(occurrence, ctx) => (
+ *   <>
+ *     {ctx.parts.time}
+ *     {ctx.parts.swatch}
+ *     <span>{occurrence.event.location}</span>
+ *     {ctx.parts.title}
+ *   </>
+ * )}
+ * ```
+ */
+export interface EventContentParts {
+  /**
+   * 整形済みの時刻テキスト。形式はスロットにより異なる（月の帯は開始時刻
+   * `'10:00'`、時間指定ブロック・リスト行は範囲 `'10:00〜11:00'` 等）。
+   * 既定内容が時刻を表示しないスロット（終日の帯・タイムラインの帯など）では `null`。
+   */
+  timeText: string | null;
+  /** タイトル文字列（`event.title` そのまま）。 */
+  titleText: string;
+  /**
+   * 時刻の既定部位。リスト行では `data-koyomi="list-event-time"` の要素、
+   * 部位要素を持たないスロットでは {@link EventContentParts.timeText} と同じ文字列。
+   * 既定内容が時刻を表示しない場合は `null`。
+   */
+  time: ReactNode;
+  /** 色見本の既定部位（リスト行の `data-koyomi="list-event-swatch"` のみ。他スロットは `null`）。 */
+  swatch: ReactNode;
+  /**
+   * タイトルの既定部位。リスト行では `data-koyomi="list-event-title"` の要素、
+   * 部位要素を持たないスロットではタイトル文字列そのもの。
+   */
+  title: ReactNode;
+}
+
+/**
+ * イベント内容スロット（`renderEvent` 系 render prop と
+ * {@link EventContentRenderer}）に渡されるコンテキスト。
+ *
+ * {@link SlotRenderContext.defaultContent} に加えて、描画枠の種別
+ * （{@link EventContentContext.slot}）と分解済みパーツ
+ * （{@link EventContentContext.parts}）を持つ。
+ */
+export interface EventContentContext extends SlotRenderContext {
+  /** どの描画枠に対する描画か。 */
+  slot: EventContentSlot;
+  /** 既定内容を分解したパーツ。 */
+  parts: EventContentParts;
+}
+
+/**
+ * ビュー横断のイベント内容レンダラー（`CalendarProvider` の
+ * `renderEventContent` prop）。
+ *
+ * すべてのビューのイベント内容を 1 箇所で定義する。ビュー個別の `renderEvent`
+ * 系 render prop が指定されているスロットではそちらが優先され、どちらも
+ * 無ければ既定内容が描画される（個別 > 中央 > 既定）。
+ *
+ * @param occurrence - 描画対象のオカレンス
+ * @param ctx - 描画枠の種別・既定内容・分解済みパーツ
+ * @returns イベント要素の内側に描画する内容
+ * @example 全ビュー共通でタイトルの後ろに場所を添える
+ * ```tsx
+ * <CalendarProvider
+ *   value={calendar}
+ *   renderEventContent={(occurrence, ctx) => (
+ *     <>
+ *       {ctx.defaultContent}
+ *       <span data-location>{occurrence.event.location}</span>
+ *     </>
+ *   )}
+ * >
+ * ```
+ */
+export type EventContentRenderer = (
+  occurrence: EventOccurrence,
+  ctx: EventContentContext,
+) => ReactNode;
 
 /**
  * `useCalendar` の戻り値。
@@ -336,6 +475,12 @@ export interface CalendarContextValue extends UseCalendarResult {
    * コンポーネントはこれを参照して文言を決定する。
    */
   messages: MessageCatalog;
+  /**
+   * ビュー横断のイベント内容レンダラー（`CalendarProviderProps.renderEventContent`）。
+   * 未指定時は `undefined`。ビルトインのビューコンポーネントは、ビュー個別の
+   * `renderEvent` 系 render prop が無いスロットでこれを使う（個別 > 中央 > 既定）。
+   */
+  renderEventContent: EventContentRenderer | undefined;
 }
 
 // re-export（React 層の利用者が core を直接 import しなくて済むように）

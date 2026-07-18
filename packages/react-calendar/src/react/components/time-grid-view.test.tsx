@@ -276,6 +276,117 @@ describe('TimeGridView', () => {
     expect(segment?.textContent).toBe('休暇');
   });
 
+  it('renderEvent の第 2 引数 ctx から既定内容・スロット種別・分解済みパーツを参照できる', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+    ];
+    const { container } = render(
+      <Harness
+        initialView="week"
+        events={events}
+        viewProps={{
+          renderEvent: (_item, ctx) => (
+            <span>
+              {ctx.slot}|{ctx.parts.timeText}|{ctx.parts.titleText}|{ctx.defaultContent}
+            </span>
+          ),
+        }}
+      />,
+    );
+    const content = container.querySelector('[data-koyomi="timegrid-event-content"]');
+    expect(content?.textContent).toBe('timegrid-event|10:00〜11:00|会議|10:00〜11:00 会議');
+  });
+
+  it('renderAllDayEvent の ctx はタイトルのみの既定内容を持ち、時刻パーツは null になる', () => {
+    const events: CalendarEvent[] = [
+      { id: 'ad1', title: '休暇', start: '2026-07-14', end: '2026-07-15', allDay: true },
+    ];
+    const { container } = render(
+      <Harness
+        initialView="week"
+        events={events}
+        viewProps={{
+          renderAllDayEvent: (_segment, ctx) => (
+            <span>
+              {ctx.slot}|{ctx.parts.timeText === null ? 'null' : 'x'}|{ctx.defaultContent}
+            </span>
+          ),
+        }}
+      />,
+    );
+    const segment = container.querySelector('[data-koyomi="allday-event"]');
+    expect(segment?.textContent).toBe('allday-event|null|休暇');
+  });
+
+  it('CalendarProvider の renderEventContent が時間指定ブロックと終日の帯の両方に適用され、slot で判別できる', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+      { id: 'ad1', title: '休暇', start: '2026-07-14', end: '2026-07-15', allDay: true },
+    ];
+    const calendarSink: { current: UseCalendarResult | null } = { current: null };
+
+    /** renderEventContent を CalendarProvider へ渡すためのローカルハーネス。 */
+    function CentralHarness(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'week',
+        events,
+      });
+      calendarSink.current = calendar;
+      return (
+        <CalendarProvider
+          value={calendar}
+          renderEventContent={(occurrence, ctx) => (
+            <span>
+              {ctx.slot}:{occurrence.event.title}
+            </span>
+          )}
+        >
+          <TimeGridView />
+        </CalendarProvider>
+      );
+    }
+
+    const { container } = render(<CentralHarness />);
+    expect(container.querySelector('[data-koyomi="timegrid-event-content"]')?.textContent).toBe(
+      'timegrid-event:会議',
+    );
+    expect(container.querySelector('[data-koyomi="allday-event"]')?.textContent).toBe(
+      'allday-event:休暇',
+    );
+  });
+
+  it('renderEvent は時間指定ブロックのみで renderEventContent より優先され、終日の帯には中央レンダラーが適用され続ける', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+      { id: 'ad1', title: '休暇', start: '2026-07-14', end: '2026-07-15', allDay: true },
+    ];
+
+    /** renderEvent（個別）と renderEventContent（中央）を同時に渡すローカルハーネス。 */
+    function MixedHarness(): ReactElement {
+      const calendar = useCalendar({
+        timeZone: TOKYO,
+        now: () => NOW,
+        initialDate: NOW,
+        initialView: 'week',
+        events,
+      });
+      return (
+        <CalendarProvider value={calendar} renderEventContent={() => <span>中央</span>}>
+          <TimeGridView renderEvent={() => <span>個別</span>} />
+        </CalendarProvider>
+      );
+    }
+
+    const { container } = render(<MixedHarness />);
+    expect(container.querySelector('[data-koyomi="timegrid-event-content"]')?.textContent).toBe(
+      '個別',
+    );
+    expect(container.querySelector('[data-koyomi="allday-event"]')?.textContent).toBe('中央');
+  });
+
   it('24 時間未満で日をまたぐイベント（22:00〜翌2:00）は allday-row に出ず、時間グリッド側で両日に分割され continues 属性が付く', () => {
     const events: CalendarEvent[] = [
       { id: 'cross', title: '夜間作業', start: '2026-07-14T22:00', end: '2026-07-15T02:00' },
@@ -586,13 +697,13 @@ describe('TimeGridView', () => {
     expect(segment?.querySelectorAll('[data-koyomi="allday-resize"]')).toHaveLength(0);
   });
 
-  it('renderDayHeader で日ヘッダーの表示内容をカスタマイズでき、defaultContent には既定の内容が渡る', () => {
+  it('renderDayHeader で日ヘッダーの表示内容をカスタマイズでき、ctx.defaultContent には既定の内容が渡る', () => {
     const { container } = render(
       <Harness
         initialView="week"
         viewProps={{
-          renderDayHeader: (day, defaultContent) => (
-            <div data-testid={`custom-header-${day.key}`}>{defaultContent}</div>
+          renderDayHeader: (day, ctx) => (
+            <div data-testid={`custom-header-${day.key}`}>{ctx.defaultContent}</div>
           ),
         }}
       />,

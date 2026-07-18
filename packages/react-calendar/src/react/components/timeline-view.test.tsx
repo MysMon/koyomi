@@ -6,7 +6,7 @@
  * テストプロセスは vitest.config.ts により TZ=Asia/Tokyo で実行される。
  */
 import { act, render } from '@testing-library/react';
-import type { ReactElement, ReactNode } from 'react';
+import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import type {
   BusinessHoursRule,
@@ -20,7 +20,12 @@ import type {
 } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { MessageCatalogOverrides } from '../locales/types';
-import type { UseCalendarResult } from '../types';
+import type {
+  EventContentContext,
+  EventContentRenderer,
+  SlotRenderContext,
+  UseCalendarResult,
+} from '../types';
 import { useCalendar } from '../use-calendar';
 import type { TimelineViewProps } from './timeline-view';
 import { TimelineView } from './timeline-view';
@@ -60,6 +65,8 @@ interface HarnessProps {
   viewProps?: TimelineViewProps;
   /** `CalendarProvider` の `messages` prop。 */
   messages?: MessageCatalogOverrides;
+  /** `CalendarProvider` の `renderEventContent` prop（ビュー横断のイベント内容レンダラー）。 */
+  renderEventContent?: EventContentRenderer;
   /** `useCalendar` の戻り値を外部から観測するための入れ物。 */
   sink?: { current: UseCalendarResult | null };
 }
@@ -87,6 +94,9 @@ function Harness(props: HarnessProps): ReactElement {
     <CalendarProvider
       value={calendar}
       {...(props.messages !== undefined ? { messages: props.messages } : {})}
+      {...(props.renderEventContent !== undefined
+        ? { renderEventContent: props.renderEventContent }
+        : {})}
     >
       <TimelineView {...(props.viewProps ?? {})} />
     </CalendarProvider>
@@ -387,15 +397,44 @@ describe('TimelineView - カスタム描画 props', () => {
         resourceId: 'crane-1',
       },
     ];
-    const renderEvent = (item: TimelineItem): ReactElement => (
-      <span data-koyomi="custom-item">CUSTOM:{item.occurrence.event.title}</span>
+    const renderEvent = (item: TimelineItem, ctx: EventContentContext): ReactElement => (
+      <span data-koyomi="custom-item">
+        {ctx.slot}|{ctx.parts.timeText === null ? 'null' : 'x'}|CUSTOM:
+        {item.occurrence.event.title}|{ctx.defaultContent}
+      </span>
     );
     const { container } = render(
       <Harness resources={[CRANE_1]} events={events} viewProps={{ renderEvent }} />,
     );
     const custom = container.querySelector('[data-koyomi="custom-item"]');
     expect(custom).not.toBeNull();
-    expect(custom?.textContent).toBe('CUSTOM:荷揚げ');
+    expect(custom?.textContent).toBe('timeline-item|null|CUSTOM:荷揚げ|荷揚げ');
+  });
+
+  it('CalendarProvider の renderEventContent が帯に適用される（slot は timeline-item）', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '荷揚げ',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'crane-1',
+      },
+    ];
+    const { container } = render(
+      <Harness
+        resources={[CRANE_1]}
+        events={events}
+        renderEventContent={(occurrence, ctx) => (
+          <span>
+            {ctx.slot}:{occurrence.event.title}
+          </span>
+        )}
+      />,
+    );
+    expect(container.querySelector('[data-koyomi="timeline-item-content"]')?.textContent).toBe(
+      'timeline-item:荷揚げ',
+    );
   });
 
   it('messages.common.eventAriaLabel をオーバーライドすると、resourceLabel を含む parts ごとカスタマイズできる（区切りの混在が起きない）', () => {
@@ -424,10 +463,10 @@ describe('TimelineView - カスタム描画 props', () => {
     expect(item).toHaveAttribute('aria-label', 'カスタム:7月15日 9:00〜11:00:クレーン1号機');
   });
 
-  it('renderRowHeader で行見出しの内容を差し替えられ、defaultContent には既定の内容が渡る', () => {
-    const renderRowHeader = (row: TimelineRow, defaultContent: ReactNode): ReactElement => (
+  it('renderRowHeader で行見出しの内容を差し替えられ、ctx.defaultContent には既定の内容が渡る', () => {
+    const renderRowHeader = (row: TimelineRow, ctx: SlotRenderContext): ReactElement => (
       <div data-koyomi="custom-row-header">
-        CUSTOM:{row.key}:{defaultContent}
+        CUSTOM:{row.key}:{ctx.defaultContent}
       </div>
     );
     const { container } = render(<Harness resources={[CRANE_1]} viewProps={{ renderRowHeader }} />);

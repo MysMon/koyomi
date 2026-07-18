@@ -27,8 +27,10 @@ import type { BusinessHourRange, TimelineItem, TimelineRow, TimeZoneId } from '.
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
 import type { CommonMessages, TimelineMessages } from '../locales/types';
+import type { EventContentContext, EventContentRenderer, SlotRenderContext } from '../types';
 import type { TimelinePreviewSegment } from '../use-timeline-drag';
 import { useTimelineDrag } from '../use-timeline-drag';
+import { resolveEventContent, titleOnlyEventContentContext } from './event-content';
 import { withEventColorStyle } from './month-view-parts';
 import { ariaLabelWithResource } from './resource-view-parts';
 import type { TimelineRowDragHandlers } from './timeline-view-parts';
@@ -52,15 +54,20 @@ export interface TimelineViewProps {
   /**
    * 帯（タイムラインアイテム）の表示内容をカスタマイズする関数。
    * 省略時はタイトルのみを表示する。
+   *
+   * `ctx.defaultContent` に省略時の内容、`ctx.parts` に分解済みパーツが渡される。
+   * 指定した場合は `CalendarProvider` の `renderEventContent` より優先される。
+   * @param item - 対象のタイムラインアイテム
+   * @param ctx - 既定内容・スロット種別・分解済みパーツ
    */
-  renderEvent?: (item: TimelineItem) => ReactNode;
+  renderEvent?: (item: TimelineItem, ctx: EventContentContext) => ReactNode;
   /**
    * 行見出しの内容をカスタマイズする関数。
-   * `defaultContent` は既定の内容（リソース名、未割り当て行は `messages.timeline.unassigned`）。
+   * `ctx.defaultContent` は既定の内容（リソース名、未割り当て行は `messages.timeline.unassigned`）。
    * @param row - 対象の行
-   * @param defaultContent - 既定の内容
+   * @param ctx - 既定内容
    */
-  renderRowHeader?: (row: TimelineRow, defaultContent: ReactNode) => ReactNode;
+  renderRowHeader?: (row: TimelineRow, ctx: SlotRenderContext) => ReactNode;
 }
 
 /** 目盛り数の警告を出したかどうか（モジュールで一度だけ）。 */
@@ -85,7 +92,7 @@ let warnedSlotCount = false;
  */
 export function TimelineView(props: TimelineViewProps): ReactElement | null {
   const { renderEvent, renderRowHeader } = props;
-  const { api, state, viewModel, callbacks, messages } = useCalendarContext();
+  const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const timelineMessages = messages.timeline;
   const commonMessages = messages.common;
   const calendar = { api, state, viewModel };
@@ -190,6 +197,7 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
             businessHourRanges={businessHourRanges}
             unassignedLabel={timelineMessages.unassigned}
             renderEvent={renderEvent}
+            renderEventContent={renderEventContent}
             renderRowHeader={renderRowHeader}
             drag={stableDrag}
             isDragging={drag.isDragging}
@@ -214,8 +222,10 @@ interface TimelineRowGroupProps {
   /** {@link TimelineViewModel.businessHourRanges}（全行共通）。 */
   businessHourRanges: readonly BusinessHourRange[];
   unassignedLabel: ReactNode;
-  renderEvent: ((item: TimelineItem) => ReactNode) | undefined;
-  renderRowHeader: ((row: TimelineRow, defaultContent: ReactNode) => ReactNode) | undefined;
+  renderEvent: ((item: TimelineItem, ctx: EventContentContext) => ReactNode) | undefined;
+  /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
+  renderEventContent: EventContentRenderer | undefined;
+  renderRowHeader: ((row: TimelineRow, ctx: SlotRenderContext) => ReactNode) | undefined;
   drag: TimelineRowDragHandlers;
   /** ドラッグ操作が進行中か（memo 判定に使う。詳細は {@link TimelineRowGroup} 参照）。 */
   isDragging: boolean;
@@ -239,6 +249,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
     businessHourRanges,
     unassignedLabel,
     renderEvent,
+    renderEventContent,
     renderRowHeader,
     drag,
     preview,
@@ -274,7 +285,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
             ▸
           </button>
         )}
-        {renderRowHeader ? renderRowHeader(row, headerContent) : headerContent}
+        {renderRowHeader ? renderRowHeader(row, { defaultContent: headerContent }) : headerContent}
       </div>
       {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA gridcell（時間トラック 1 本を 1 セルとして扱う） */}
       {/* biome-ignore lint/a11y/useFocusableInteractive: gridcell 自体はフォーカス対象にしない（内部の帯ボタンが個別にフォーカス可能） */}
@@ -328,7 +339,13 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
               )}
             >
               <div data-koyomi="timeline-item-content">
-                {renderEvent ? renderEvent(item) : occurrence.event.title}
+                {resolveEventContent(
+                  renderEvent,
+                  renderEventContent,
+                  item,
+                  occurrence,
+                  titleOnlyEventContentContext('timeline-item', occurrence.event.title),
+                )}
               </div>
               {isEditable && !occurrence.allDay && !item.continuesBefore && (
                 <div
@@ -392,6 +409,7 @@ const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
     sameBusinessHourRanges(prev.businessHourRanges, next.businessHourRanges) &&
     prev.unassignedLabel === next.unassignedLabel &&
     prev.renderEvent === next.renderEvent &&
+    prev.renderEventContent === next.renderEventContent &&
     prev.renderRowHeader === next.renderRowHeader &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&

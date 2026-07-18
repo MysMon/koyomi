@@ -247,10 +247,15 @@ export type {
   CalendarInteractionCallbacks,
   EventChange,
   EventChangeProposal,
+  EventContentContext,
+  EventContentParts,
+  EventContentRenderer,
+  EventContentSlot,
   EventDelete,
   MonthOverflowButtonProps,
   OverflowClickDetails,
   RangeSelection,
+  SlotRenderContext,
   UseCalendarResult,
 } from './react/types';
 // React: フック

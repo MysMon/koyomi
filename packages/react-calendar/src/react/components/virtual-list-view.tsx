@@ -19,6 +19,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { EventOccurrence, ListDay } from '../../core/types';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
+import type { EventContentContext, SlotRenderContext } from '../types';
 import { useVirtualizer } from '../use-virtualizer';
 import { ListDaySection } from './list-view-parts';
 
@@ -36,9 +37,9 @@ const VIRTUALIZE_WARN_THRESHOLD = 40;
  */
 export interface VirtualListViewProps {
   /** イベント行の内容をカスタム描画する関数（{@link ListView} と同じ）。 */
-  renderEvent?: (occurrence: EventOccurrence) => ReactNode;
-  /** 日付見出しの内容をカスタム描画する関数（第 2 引数に既定内容）。 */
-  renderDayHeader?: (day: ListDay, defaultContent: ReactNode) => ReactNode;
+  renderEvent?: (occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode;
+  /** 日付見出しの内容をカスタム描画する関数（第 2 引数の ctx に既定内容。{@link ListView} と同じ）。 */
+  renderDayHeader?: (day: ListDay, ctx: SlotRenderContext) => ReactNode;
   /**
    * 日セクション 1 件の推定高（px）。件数に応じて変えたい場合は関数で渡す。
    * 実測（ResizeObserver）が入るまでの暫定値。既定 64。
@@ -73,7 +74,7 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
     estimateDayHeight = DEFAULT_ESTIMATE_DAY_HEIGHT,
     overscan,
   } = props;
-  const { state, viewModel, callbacks, messages } = useCalendarContext();
+  const { state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const listMessages = messages.list;
   const commonMessages = messages.common;
 
@@ -232,6 +233,7 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
         {...(extra.pinned === true ? { pinned: true, eventTabbable: false } : {})}
         {...(extra.style !== undefined ? { style: extra.style } : {})}
         {...(renderEvent !== undefined ? { renderEvent } : {})}
+        {...(renderEventContent !== undefined ? { renderEventContent } : {})}
         {...(renderDayHeader !== undefined ? { renderDayHeader } : {})}
       />
     );

@@ -52,9 +52,11 @@ import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
 import type { CommonMessages } from '../locales/types';
 import { scrollContainerToTime } from '../scroll-to-time';
+import type { EventContentContext, EventContentRenderer, SlotRenderContext } from '../types';
 import type { ResourceGridDragHandlers, ResourcePreviewSegment } from '../use-resource-grid-drag';
 import { useResourceGridDrag } from '../use-resource-grid-drag';
 import { useVirtualizer } from '../use-virtualizer';
+import { resolveEventContent } from './event-content';
 import {
   percentOfSlotRange,
   withEventColorStyle,
@@ -63,9 +65,9 @@ import {
 import {
   ariaLabelText,
   ariaLabelWithResource,
-  defaultAllDayContent,
-  defaultTimedContent,
   MINUTES_PER_DAY,
+  resourceAllDayContentContext,
+  resourceTimedContentContext,
   sameBusinessHourSlots,
   sameEventOccurrence,
   samePositionedOccurrences,
@@ -95,11 +97,11 @@ export interface VirtualResourceViewProps {
    * 時間指定イベントブロックの表示内容をカスタマイズする関数。終日アイテムには
    * 適用されない（終日アイテムの内容は {@link VirtualResourceViewProps.renderAllDayItem} を使う）。
    */
-  renderEvent?: (item: PositionedOccurrence) => ReactNode;
+  renderEvent?: (item: PositionedOccurrence, ctx: EventContentContext) => ReactNode;
   /** 終日アイテムの表示内容をカスタマイズする関数。省略時はタイトルのみを表示する。 */
-  renderAllDayItem?: (occurrence: EventOccurrence) => ReactNode;
+  renderAllDayItem?: (occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode;
   /** 列見出しの内容をカスタマイズする関数（第 2 引数に既定内容）。 */
-  renderColumnHeader?: (column: ResourceColumn, defaultContent: ReactNode) => ReactNode;
+  renderColumnHeader?: (column: ResourceColumn, ctx: SlotRenderContext) => ReactNode;
   /** 列 1 本分の幅（px）。既定 160（`--koyomi-resource-column-width` の既定値と同じ）。 */
   columnWidth?: number;
   /** 前後 overscan 列数。既定 3。 */
@@ -203,9 +205,7 @@ function columnPositionStyle(extra: {
 interface HeaderCellProps {
   column: ResourceColumn;
   unassignedLabel: ReactNode;
-  renderColumnHeader:
-    | ((column: ResourceColumn, defaultContent: ReactNode) => ReactNode)
-    | undefined;
+  renderColumnHeader: ((column: ResourceColumn, ctx: SlotRenderContext) => ReactNode) | undefined;
   columnWidth: number;
   pinned?: boolean;
   left?: number;
@@ -237,7 +237,7 @@ function HeaderCellImpl(props: HeaderCellProps): ReactElement {
       {...(pinned === true ? { 'data-koyomi-pinned': 'true' } : {})}
       style={style}
     >
-      {renderColumnHeader ? renderColumnHeader(column, defaultContent) : defaultContent}
+      {renderColumnHeader ? renderColumnHeader(column, { defaultContent }) : defaultContent}
     </div>
   );
 }
@@ -273,7 +273,11 @@ interface AllDayCellProps {
   /** 仮想化: 終日アイテムをタブ順に含めるか。既定 `true`（`false` で `tabIndex=-1`）。 */
   itemTabbable?: boolean;
   /** 終日アイテムの表示内容のカスタマイズ関数（省略時はタイトルのみ）。 */
-  renderAllDayItem: ((occurrence: EventOccurrence) => ReactNode) | undefined;
+  renderAllDayItem:
+    | ((occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode)
+    | undefined;
+  /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
+  renderEventContent: EventContentRenderer | undefined;
   /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
   commonMessages: CommonMessages;
 }
@@ -294,6 +298,7 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
     left,
     itemTabbable,
     renderAllDayItem,
+    renderEventContent,
     commonMessages,
   } = props;
   const style: CSSProperties = {
@@ -332,6 +337,7 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
           timeZone={timeZone}
           locale={locale}
           renderAllDayItem={renderAllDayItem}
+          renderEventContent={renderEventContent}
           commonMessages={commonMessages}
           {...(itemTabbable === false ? { tabbable: false } : {})}
         />
@@ -357,6 +363,7 @@ const AllDayCell = memo(AllDayCellImpl, (prev, next) => {
     prev.left === next.left &&
     prev.itemTabbable === next.itemTabbable &&
     prev.renderAllDayItem === next.renderAllDayItem &&
+    prev.renderEventContent === next.renderEventContent &&
     prev.commonMessages === next.commonMessages
   );
 });
@@ -375,7 +382,11 @@ interface AllDayItemButtonProps {
   /** 仮想化: タブ順に含めるか。既定 `true`（`false` で `tabIndex=-1`。pinned 列で使う）。 */
   tabbable?: boolean;
   /** 終日アイテムの表示内容のカスタマイズ関数（省略時はタイトルのみ）。 */
-  renderAllDayItem: ((occurrence: EventOccurrence) => ReactNode) | undefined;
+  renderAllDayItem:
+    | ((occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode)
+    | undefined;
+  /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
+  renderEventContent: EventContentRenderer | undefined;
   /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
   commonMessages: CommonMessages;
 }
@@ -391,6 +402,7 @@ function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
     locale,
     tabbable,
     renderAllDayItem,
+    renderEventContent,
     commonMessages,
   } = props;
   const style = withEventColorStyle(
@@ -416,7 +428,13 @@ function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
       )}
       {...(tabbable === false ? { tabIndex: -1 } : {})}
     >
-      {renderAllDayItem ? renderAllDayItem(occurrence) : defaultAllDayContent(occurrence)}
+      {resolveEventContent(
+        renderAllDayItem,
+        renderEventContent,
+        occurrence,
+        occurrence,
+        resourceAllDayContentContext(occurrence),
+      )}
     </button>
   );
 }
@@ -432,6 +450,7 @@ const AllDayItemButton = memo(AllDayItemButtonImpl, (prev, next) => {
     prev.locale === next.locale &&
     prev.tabbable === next.tabbable &&
     prev.renderAllDayItem === next.renderAllDayItem &&
+    prev.renderEventContent === next.renderEventContent &&
     prev.commonMessages === next.commonMessages
   );
 });
@@ -451,7 +470,9 @@ interface ResourceColumnBodyProps {
   slotMaxTimeMinutes: number;
   isToday: boolean;
   nowIndicatorMinutes: number | null;
-  renderEvent: ((item: PositionedOccurrence) => ReactNode) | undefined;
+  renderEvent: ((item: PositionedOccurrence, ctx: EventContentContext) => ReactNode) | undefined;
+  /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
+  renderEventContent: EventContentRenderer | undefined;
   drag: ResourceColumnDragHandlers;
   isDragging: boolean;
   preview: ResourcePreviewSegment | null;
@@ -476,6 +497,7 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
     isToday,
     nowIndicatorMinutes,
     renderEvent,
+    renderEventContent,
     drag,
     preview,
     columnWidth,
@@ -565,7 +587,13 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
             {...(eventTabbable === false ? { tabIndex: -1 } : {})}
           >
             <div data-koyomi="timegrid-event-content">
-              {renderEvent ? renderEvent(item) : defaultTimedContent(item, timeZone, locale)}
+              {resolveEventContent(
+                renderEvent,
+                renderEventContent,
+                item,
+                item.occurrence,
+                resourceTimedContentContext(item, timeZone, locale),
+              )}
             </div>
             {isEditable && !item.continuesBefore && (
               <div
@@ -633,6 +661,7 @@ const ResourceColumnBody = memo(ResourceColumnBodyImpl, (prev, next) => {
     prev.isToday === next.isToday &&
     prev.nowIndicatorMinutes === next.nowIndicatorMinutes &&
     prev.renderEvent === next.renderEvent &&
+    prev.renderEventContent === next.renderEventContent &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&
     samePreviewSegment(prev.preview, next.preview) &&
@@ -672,7 +701,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
     initialScrollTime,
     ref,
   } = props;
-  const { api, state, viewModel, callbacks, messages } = useCalendarContext();
+  const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const resourceMessages = messages.resource;
   const commonMessages = messages.common;
   const calendar = { api, state, viewModel };
@@ -951,6 +980,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                   timeZone={timeZone}
                   locale={locale}
                   renderAllDayItem={renderAllDayItem}
+                  renderEventContent={renderEventContent}
                   commonMessages={commonMessages}
                 />
               ) : null;
@@ -979,6 +1009,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                   left={item.start}
                   itemTabbable={false}
                   renderAllDayItem={renderAllDayItem}
+                  renderEventContent={renderEventContent}
                   commonMessages={commonMessages}
                 />
               ) : null;
@@ -1016,6 +1047,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                 isToday={isToday}
                 nowIndicatorMinutes={nowIndicatorMinutes}
                 renderEvent={renderEvent}
+                renderEventContent={renderEventContent}
                 drag={stableDrag}
                 isDragging={drag.isDragging}
                 preview={drag.previewFor(column)}
@@ -1045,6 +1077,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                 isToday={isToday}
                 nowIndicatorMinutes={nowIndicatorMinutes}
                 renderEvent={renderEvent}
+                renderEventContent={renderEventContent}
                 drag={stableDrag}
                 isDragging={drag.isDragging}
                 preview={drag.previewFor(column)}

@@ -18,7 +18,7 @@ import type {
   YearMonth,
 } from '../../core/types';
 import { useCalendarContext } from '../context';
-import type { MonthOverflowButtonProps } from '../types';
+import type { EventContentContext, MonthOverflowButtonProps, SlotRenderContext } from '../types';
 import { ListView } from './list-view';
 import { MonthView } from './month-view';
 import { MultiMonthView } from './multi-month-view';
@@ -34,7 +34,9 @@ import { YearView } from './year-view';
  * `CalendarView` の props。各ビューのカスタム描画関数・仮想化設定を転送する。
  * 文言のカスタマイズは `CalendarProvider` の `messages` prop で行う
  * （各ビューが `useCalendarContext().messages` を直接参照するため、
- * `CalendarView` 経由の転送は不要）。
+ * `CalendarView` 経由の転送は不要）。ビュー横断のイベント内容も同様に
+ * `CalendarProvider` の `renderEventContent` prop で一括定義でき、転送は不要
+ * （ビュー個別の `render*Event` 系 prop が指定されたスロットではそちらが優先される）。
  *
  * 命名は転送先のビュー名を接頭辞に持つ（例: `renderListEvent` → `ListView`
  * の `renderEvent`）。これは複数のビューが同名の prop（例: 各ビューの
@@ -43,23 +45,23 @@ import { YearView } from './year-view';
  */
 export interface CalendarViewProps {
   /** 月ビューのセグメントのカスタム描画。`MonthView` の `renderEvent` に転送する。 */
-  renderMonthEvent?: (segment: EventSegment) => ReactNode;
+  renderMonthEvent?: (segment: EventSegment, ctx: EventContentContext) => ReactNode;
   /** 週/日ビューのイベントブロックのカスタム描画。`TimeGridView` の `renderEvent` に転送する。 */
-  renderTimeGridEvent?: (item: PositionedOccurrence) => ReactNode;
+  renderTimeGridEvent?: (item: PositionedOccurrence, ctx: EventContentContext) => ReactNode;
   /**
    * 週/日ビューの終日行の帯のカスタム描画。`TimeGridView` の `renderAllDayEvent` に転送する。
    * 省略時はタイトルのみ。
    */
-  renderTimeGridAllDayEvent?: (segment: EventSegment) => ReactNode;
+  renderTimeGridAllDayEvent?: (segment: EventSegment, ctx: EventContentContext) => ReactNode;
   /**
    * 週/日ビューの初期スクロール位置（`'HH:mm'`）。`TimeGridView` の
    * `initialScrollTime` に転送する。ref は転送しない（`TimeGridView` を直接使うこと）。
    */
   timeGridInitialScrollTime?: string;
   /** リストビューのイベント行のカスタム描画。`ListView` の `renderEvent` に転送する。 */
-  renderListEvent?: (occurrence: EventOccurrence) => ReactNode;
+  renderListEvent?: (occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode;
   /** リストビューの日付見出しのカスタム描画。`ListView` の `renderDayHeader` に転送する。 */
-  renderListDayHeader?: (day: ListDay, defaultContent: ReactNode) => ReactNode;
+  renderListDayHeader?: (day: ListDay, ctx: SlotRenderContext) => ReactNode;
   /**
    * リストビューを仮想化する（`ListView` の代わりに `VirtualListView` を使う）。
    * 大量の予定・長期間表示での DOM 肥大を抑える。既定 `false`（全件描画の `ListView`）。
@@ -73,7 +75,7 @@ export interface CalendarViewProps {
   /** 仮想化時の前後 overscan 日数。`VirtualListView` の `overscan` に転送する。 */
   listOverscan?: number;
   /** 月ビューの日セルのカスタム描画。`MonthView` の `renderDayCell` に転送する。 */
-  renderMonthDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
+  renderMonthDayCell?: (day: MonthDay, ctx: SlotRenderContext) => ReactNode;
   /**
    * 月ビューの「+N 件」ボタンに追加する props。`MonthView` の `overflowButtonProps` に転送する。
    * `aria-haspopup` / `aria-expanded` など、自前のポップオーバー UI と連携する ARIA 属性を
@@ -84,15 +86,15 @@ export interface CalendarViewProps {
     hiddenOccurrences: readonly EventOccurrence[],
   ) => MonthOverflowButtonProps;
   /** 週/日ビューの日ヘッダーのカスタム描画。`TimeGridView` の `renderDayHeader` に転送する。 */
-  renderTimeGridDayHeader?: (day: TimeGridDay, defaultContent: ReactNode) => ReactNode;
+  renderTimeGridDayHeader?: (day: TimeGridDay, ctx: SlotRenderContext) => ReactNode;
   /** 年ビューの月見出しのカスタム描画。`YearView` の `renderMonthHeader` に転送する。 */
-  renderYearMonthHeader?: (month: YearMonth, defaultContent: ReactNode) => ReactNode;
+  renderYearMonthHeader?: (month: YearMonth, ctx: SlotRenderContext) => ReactNode;
   /** 年ビューの日セルのカスタム描画。`YearView` の `renderDayCell` に転送する。 */
-  renderYearDayCell?: (day: YearDay, defaultContent: ReactNode) => ReactNode;
+  renderYearDayCell?: (day: YearDay, ctx: SlotRenderContext) => ReactNode;
   /** 複数月ビューのセグメントのカスタム描画。`MultiMonthView` の `renderEvent` に転送する。 */
-  renderMultiMonthEvent?: (segment: EventSegment) => ReactNode;
+  renderMultiMonthEvent?: (segment: EventSegment, ctx: EventContentContext) => ReactNode;
   /** 複数月ビューの日セルのカスタム描画。`MultiMonthView` の `renderDayCell` に転送する。 */
-  renderMultiMonthDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
+  renderMultiMonthDayCell?: (day: MonthDay, ctx: SlotRenderContext) => ReactNode;
   /**
    * 複数月ビューの「+N 件」ボタンに追加する props。`MultiMonthView` の
    * `overflowButtonProps` に転送する。
@@ -105,17 +107,17 @@ export interface CalendarViewProps {
    * リソースビューのイベントブロックのカスタム描画。`ResourceView` / `VirtualResourceView` の
    * `renderEvent` に転送する（時間指定のみ。終日は `renderResourceAllDayItem` を使う）。
    */
-  renderResourceEvent?: (item: PositionedOccurrence) => ReactNode;
+  renderResourceEvent?: (item: PositionedOccurrence, ctx: EventContentContext) => ReactNode;
   /**
    * リソースビューの終日アイテムのカスタム描画。`ResourceView` / `VirtualResourceView` の
    * `renderAllDayItem` に転送する。省略時はタイトルのみ。
    */
-  renderResourceAllDayItem?: (occurrence: EventOccurrence) => ReactNode;
+  renderResourceAllDayItem?: (occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode;
   /**
    * リソースビューの列見出しのカスタム描画。`ResourceView` / `VirtualResourceView` の
    * `renderColumnHeader` に転送する。
    */
-  renderResourceColumnHeader?: (column: ResourceColumn, defaultContent: ReactNode) => ReactNode;
+  renderResourceColumnHeader?: (column: ResourceColumn, ctx: SlotRenderContext) => ReactNode;
   /**
    * リソースビューの初期スクロール位置（`'HH:mm'`）。`ResourceView` /
    * `VirtualResourceView` の `initialScrollTime` に転送する。ref は転送しない
@@ -131,9 +133,9 @@ export interface CalendarViewProps {
    */
   virtualizeResource?: boolean;
   /** タイムラインの帯のカスタム描画。`TimelineView` の `renderEvent` に転送する。 */
-  renderTimelineEvent?: (item: TimelineItem) => ReactNode;
+  renderTimelineEvent?: (item: TimelineItem, ctx: EventContentContext) => ReactNode;
   /** タイムラインの行見出しのカスタム描画。`TimelineView` の `renderRowHeader` に転送する。 */
-  renderTimelineRowHeader?: (row: TimelineRow, defaultContent: ReactNode) => ReactNode;
+  renderTimelineRowHeader?: (row: TimelineRow, ctx: SlotRenderContext) => ReactNode;
   /**
    * タイムラインを仮想化する（`TimelineView` の代わりに `VirtualTimelineView` を使う）。
    * 数百行規模のリソースでの DOM 肥大を抑える。既定 `false`（全件描画の `TimelineView`）。

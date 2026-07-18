@@ -25,6 +25,7 @@ import type {
 import { useMemo } from 'react';
 import type { EventOccurrence, ListDay } from '../../core/types';
 import { useCalendarContext } from '../context';
+import type { EventContentContext, SlotRenderContext } from '../types';
 import { ListDaySection } from './list-view-parts';
 
 /**
@@ -36,14 +37,24 @@ export interface ListViewProps {
    * 省略時は時刻ラベル・色見本・タイトルからなる既定の内容を表示する。
    * 指定した場合、行の外側（`button[data-koyomi="list-event"]` とその
    * クリック・キーボード操作）は変わらず、内容だけが置き換わる。
+   *
+   * `ctx.defaultContent` に省略時の内容、`ctx.parts` に時刻
+   * （`list-event-time`）・色見本（`list-event-swatch`）・タイトル
+   * （`list-event-title`）の各部位ノードが渡されるため、`data-koyomi` 部位を
+   * 保ったまま並べ替え・差し込みができる。指定した場合は `CalendarProvider` の
+   * `renderEventContent` より優先される。
+   * @param occurrence - 対象のオカレンス
+   * @param ctx - 既定内容・スロット種別・分解済みパーツ
    */
-  renderEvent?: (occurrence: EventOccurrence) => ReactNode;
+  renderEvent?: (occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode;
   /**
    * 日付見出し（`list-day-header`）の内容をカスタム描画する関数。
-   * 第 2 引数に既定の内容（`'M月d日(曜)'` 形式のラベル）を渡すので、
+   * `ctx.defaultContent` に既定の内容（`'M月d日(曜)'` 形式のラベル）を渡すので、
    * それをラップして返すこともできる。省略時は既定の内容をそのまま表示する。
+   * @param day - 対象の日
+   * @param ctx - 既定内容
    */
-  renderDayHeader?: (day: ListDay, defaultContent: ReactNode) => ReactNode;
+  renderDayHeader?: (day: ListDay, ctx: SlotRenderContext) => ReactNode;
 }
 
 /**
@@ -70,7 +81,7 @@ export interface ListViewProps {
  */
 export function ListView(props: ListViewProps): ReactElement | null {
   const { renderEvent, renderDayHeader } = props;
-  const { state, viewModel, callbacks, messages } = useCalendarContext();
+  const { state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const timeZone = state.timeZone;
   const locale = state.options.locale;
   const listMessages = messages.list;
@@ -139,6 +150,7 @@ export function ListView(props: ListViewProps): ReactElement | null {
             callbacks={callbacks}
             ariaLabel={listMessages.dayAriaLabel(day, defaultDayHeader)}
             {...(renderEvent !== undefined ? { renderEvent } : {})}
+            {...(renderEventContent !== undefined ? { renderEventContent } : {})}
             {...(renderDayHeader !== undefined ? { renderDayHeader } : {})}
           />
         );

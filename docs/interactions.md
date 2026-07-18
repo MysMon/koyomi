@@ -490,11 +490,11 @@ function MonthWithOverflowPopover() {
           'aria-haspopup': 'dialog',
           'aria-expanded': openDay?.key === day.key,
         })}
-        renderDayCell={(day, defaultContent) =>
+        renderDayCell={(day, ctx) =>
           day.key === openDay?.key ? (
-            <div ref={refs.setReference}>{defaultContent}</div>
+            <div ref={refs.setReference}>{ctx.defaultContent}</div>
           ) : (
-            defaultContent
+            ctx.defaultContent
           )
         }
       />

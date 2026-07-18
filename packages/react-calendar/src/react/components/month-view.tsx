@@ -15,7 +15,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { useCallback } from 'react';
 import type { EventOccurrence, EventSegment, MonthDay } from '../../core/types';
 import { useCalendarContext } from '../context';
-import type { MonthOverflowButtonProps } from '../types';
+import type { EventContentContext, MonthOverflowButtonProps, SlotRenderContext } from '../types';
 import { useDayDrag } from '../use-day-drag';
 import {
   computeWeekSelectionSpan,
@@ -31,16 +31,23 @@ export interface MonthViewProps {
    * イベントセグメントの表示内容をカスタマイズする関数。
    * 省略時は、終日・複数日にまたがるセグメントはタイトルのみ、単日の時間指定
    * セグメント（`span === 1` かつ非終日）は開始時刻（`'H:mm'`）＋タイトルを表示する。
+   *
+   * `ctx.defaultContent` に省略時の内容、`ctx.parts` に分解済みパーツ
+   * （整形済みの時刻テキスト・タイトル）が渡されるため、既定の整形を
+   * 再構築せずに並べ替え・追記ができる。指定した場合は `CalendarProvider` の
+   * `renderEventContent` より優先される。
+   * @param segment - 対象のセグメント
+   * @param ctx - 既定内容・スロット種別・分解済みパーツ
    */
-  renderEvent?: (segment: EventSegment) => ReactNode;
+  renderEvent?: (segment: EventSegment, ctx: EventContentContext) => ReactNode;
   /**
    * 日セルの内容をカスタマイズするスロット。祝日ラベルやバッジの注入に使う。
-   * `defaultContent` は既定の内容（日番号ボタン＋（あれば）「+N 件」ボタン）であり、
+   * `ctx.defaultContent` は既定の内容（日番号ボタン＋（あれば）「+N 件」ボタン）であり、
    * そのまま包んで使うことも、完全に差し替えることもできる。省略時は既定内容をそのまま描画する。
    * @param day - 対象の日
-   * @param defaultContent - 既定の内容
+   * @param ctx - 既定内容
    */
-  renderDayCell?: (day: MonthDay, defaultContent: ReactNode) => ReactNode;
+  renderDayCell?: (day: MonthDay, ctx: SlotRenderContext) => ReactNode;
   /**
    * 「+N 件」ボタンに追加する props を返す関数。`aria-haspopup` / `aria-expanded` など、
    * 自前のポップオーバー UI と連携するための ARIA 属性を付与する用途に使う。
@@ -73,7 +80,7 @@ export interface MonthViewProps {
  */
 export function MonthView(props: MonthViewProps): ReactElement | null {
   const { renderEvent, renderDayCell, overflowButtonProps } = props;
-  const { api, state, viewModel, callbacks, messages } = useCalendarContext();
+  const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const calendar = { api, state, viewModel };
   const dayDrag = useDayDrag({
     calendar,
@@ -175,6 +182,7 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
             selectionInvalid={previewInvalid}
             dayDrag={stableDayDrag}
             renderEvent={renderEvent}
+            renderEventContent={renderEventContent}
             overflowLabel={messages.month.overflow}
             renderDayCell={renderDayCell}
             commonMessages={messages.common}
