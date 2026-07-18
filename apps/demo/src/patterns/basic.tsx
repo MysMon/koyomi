@@ -10,13 +10,16 @@
  * COUNT/UNTIL/月次 RRULE・EXDATE・繰り返しオーバーライド・extendedProps・
  * `editable: false` を含む多様なイベントを揃え、これらの挙動が最初から
  * 画面上で確認できるようにしている。
- * カレンダー本体上の操作のうち、範囲選択・予定クリックは `EventDialog` に、
- * 繰り返し予定の編集スコープ選択は `ScopeDialog` に委譲する。ドラッグ移動/リサイズ
- * による変更は `handleEventChange` が直接適用し、変更ログへ記録する。
+ * カレンダー本体上の操作のうち、範囲選択・予定クリックは `EventDialog`
+ * （モードレス表示）に、繰り返し予定の編集スコープ選択は `ScopeDialog` に委譲する。
+ * 範囲選択時は選択範囲に下書き予定を仮置きしてから作成ダイアログを開き、
+ * ダイアログを開いたままカレンダー上のドラッグで日時を調整できるようにする。
+ * ドラッグ移動/リサイズによる変更は `handleEventChange` が直接適用し、変更ログへ
+ * 記録する。
  *
  * `useCalendarAnnouncer` の aria-live 通知（{@link https://developer.mozilla.org/ja/docs/Web/Accessibility/ARIA/Attributes/aria-live | live region}）を
  * `announcer.wrapCallbacks` で `callbacks` に組み込む。このパターンは `onSelectRange` を
- * 自前実装（ダイアログを開くだけ）しているため、既定即時作成の自動通知は発火しない
+ * 自前実装（下書き予定を仮置きして作成ダイアログを開く）しているため、既定即時作成の自動通知は発火しない
  * （`wrapCallbacks` の規約）。作成確定は `EventDialog` の責務のため、`EventDialog` に
  * `announce` を渡し、保存確定時に明示的に通知する。`announcer.message` の変化は
  * 目視確認できるよう「操作ログ」パネルにも同時に追記する（実際の a11y 挙動は
@@ -31,6 +34,7 @@ import type {
   CalendarViewType,
   EventChange,
   EventDelete,
+  EventId,
   EventOccurrence,
   RangeSelection,
   RecurringEditScope,
@@ -48,7 +52,12 @@ import {
   useCalendarShortcuts,
 } from '@koyomi-cal/react';
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { EventDialog, type EventDialogMode } from '../EventDialog';
+import {
+  DEFAULT_EVENT_COLOR,
+  DRAFT_EVENT_TITLE,
+  EventDialog,
+  type EventDialogMode,
+} from '../EventDialog';
 import { type ScopeAction, ScopeDialog, type ScopeRequest } from '../ScopeDialog';
 import { sampleEvents, sampleResources } from '../sample-data';
 import './basic.css';
@@ -145,6 +154,32 @@ export function BasicPattern(): ReactElement {
   const [logEntries, setLogEntries] = useState<readonly LogEntry[]>([]);
   const scopeResolverRef = useRef<((scope: RecurringEditScope | null) => void) | null>(null);
   const previousAnnounceRef = useRef('');
+  // カレンダー上に仮置き中の下書き予定の ID（作成ダイアログ表示中のみ非 null）。
+  // onEventClick で下書き自身のクリックを無視するために参照する。
+  const draftEventIdRef = useRef<EventId | null>(null);
+
+  useEffect(() => {
+    draftEventIdRef.current = dialogMode?.type === 'create' ? dialogMode.draftEventId : null;
+  }, [dialogMode]);
+
+  /**
+   * 範囲選択から作成ダイアログを開く。ダイアログはモードレスのため、開いている間も
+   * ドラッグで位置・長さを調整できるよう、選択範囲に下書き予定を仮置きする。
+   * 下書きの確定（保存）・削除（キャンセル）は `EventDialog` が行う。
+   */
+  const openCreateDialog = useCallback(
+    (selection: RangeSelection) => {
+      const draft = api.createEvent({
+        title: DRAFT_EVENT_TITLE,
+        start: selection.range.start,
+        end: selection.range.end,
+        allDay: selection.allDay,
+        color: DEFAULT_EVENT_COLOR,
+      });
+      setDialogMode({ type: 'create', selection, draftEventId: draft.id });
+    },
+    [api],
+  );
 
   // announcer.message（aria-live 通知）の変化を「操作ログ」パネルにも同時に反映する
   // （実際の a11y 挙動は live region、目視確認は操作ログとの二重表示）。
@@ -228,9 +263,14 @@ export function BasicPattern(): ReactElement {
   const callbacks: CalendarInteractionCallbacks = useMemo(
     () => ({
       onSelectRange: (selection: RangeSelection) => {
-        setDialogMode({ type: 'create', selection });
+        openCreateDialog(selection);
       },
       onEventClick: (occurrence: EventOccurrence) => {
+        // 仮置き中の下書き予定のクリックでは何もしない（作成ダイアログを開いたまま
+        // ドラッグ調整の対象として扱う）
+        if (occurrence.eventId === draftEventIdRef.current) {
+          return;
+        }
         setDialogMode({ type: 'edit', occurrence });
       },
       resolveRecurringScope,
@@ -238,7 +278,7 @@ export function BasicPattern(): ReactElement {
       onEventDelete: handleEventDelete,
       onError: handleError,
     }),
-    [resolveRecurringScope, handleEventChange, handleEventDelete, handleError],
+    [openCreateDialog, resolveRecurringScope, handleEventChange, handleEventDelete, handleError],
   );
 
   useCalendarShortcuts({
@@ -247,7 +287,7 @@ export function BasicPattern(): ReactElement {
     onCreate: () => {
       const start = state.options.now();
       const end = new Date(start.getTime() + 60 * 60 * 1000);
-      setDialogMode({ type: 'create', selection: { range: { start, end }, allDay: false } });
+      openCreateDialog({ range: { start, end }, allDay: false });
     },
   });
 

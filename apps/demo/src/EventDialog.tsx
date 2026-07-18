@@ -2,9 +2,21 @@
  * @packageDocumentation
  * `EventDialog` — 予定の作成・編集ダイアログ。
  *
- * `<dialog>` 要素をネイティブモーダルとして使用する。新規作成（範囲選択から）と
- * 編集（オカレンスクリックから）の両方をこのコンポーネントで扱う。繰り返し予定の
- * 変更・削除は、保存・削除の直前に `resolveRecurringScope` で適用範囲を確認する。
+ * `<dialog>` 要素をモードレス（`show()`・バックドロップなし）で開き、表示中も
+ * 背後のカレンダーを直接操作できる。新規作成（範囲選択から）と編集（オカレンス
+ * クリックから）の両方をこのコンポーネントで扱う。
+ *
+ * - 新規作成: 呼び出し元が選択範囲に仮置きした下書き予定（{@link EventDialogMode}
+ *   の `draftEventId`）と連動する。カレンダー上で下書きをドラッグ移動・リサイズ
+ *   するとフォームの開始・終了に反映され、フォームのタイトル・色・日時の変更は
+ *   下書きへ即時反映される。保存で確定し、保存せずに閉じた・別のモードへ
+ *   切り替えた場合は下書きを削除する
+ * - 編集: ダイアログを開いたまま別の予定をクリックするとその予定の編集に
+ *   切り替わる。編集対象（繰り返しでない予定）がカレンダー上でドラッグされた
+ *   場合は開始・終了をフォームへ反映する
+ * - 繰り返し予定の変更・削除は、保存・削除の直前に `resolveRecurringScope` で
+ *   適用範囲を確認する（適用範囲の選択・削除の確認はモーダルのまま）
+ *
  * 編集対象イベントが `extendedProps` を持つ場合、その内容を読み取り専用で表示する。
  * 繰り返しルールの編集フォームは `useRecurrenceRuleEditor`（{@link RecurrenceRuleFields}）
  * に委ねる。
@@ -12,8 +24,8 @@
 
 import type {
   CalendarApi,
-  CalendarEventInput,
   CalendarEventPatch,
+  EventId,
   EventOccurrence,
   MonthlyRecurrencePattern,
   RangeSelection,
@@ -40,9 +52,13 @@ import type { ScopeAction } from './ScopeDialog';
 /**
  * ダイアログの表示モード。
  * `create` は範囲選択からの新規作成、`edit` はオカレンスクリックからの編集。
+ *
+ * `create` の `draftEventId` は、呼び出し元が選択範囲に `api.createEvent` で
+ * 仮置きした下書き予定の ID。ダイアログはこの下書きとフォームを連動させ、
+ * 保存で確定・保存せずに閉じた場合は削除する。
  */
 export type EventDialogMode =
-  | { type: 'create'; selection: RangeSelection }
+  | { type: 'create'; selection: RangeSelection; draftEventId: EventId }
   | { type: 'edit'; occurrence: EventOccurrence };
 
 /** `EventDialog` の props。 */
@@ -72,8 +88,14 @@ export interface EventDialogProps {
   announce?: (text: string) => void;
 }
 
-/** 既定の予定の色（スウォッチの先頭）。 */
-const DEFAULT_EVENT_COLOR = '#3f51b5';
+/** 既定の予定の色（スウォッチの先頭）。下書き予定の仮置き時の色にも使う。 */
+export const DEFAULT_EVENT_COLOR = '#3f51b5';
+
+/**
+ * 下書き予定（作成ダイアログ表示中にカレンダーへ仮置きする予定）のタイトル。
+ * タイトル未入力の間、カレンダー上の予定枠はこのタイトルで表示される。
+ */
+export const DRAFT_EVENT_TITLE = '(タイトルなし)';
 
 /** 色スウォッチの選択肢一覧。 */
 const EVENT_COLORS: readonly { value: string; label: string }[] = [
@@ -664,9 +686,10 @@ function RecurrenceRuleFields(props: RecurrenceRuleFieldsProps): ReactElement {
 }
 
 /**
- * 予定の作成・編集ダイアログ。
+ * 予定の作成・編集ダイアログ（モードレス表示）。
  *
- * - 新規作成: 保存で `api.createEvent`
+ * - 新規作成: 仮置き済みの下書き予定（`mode.draftEventId`）に対して、保存で
+ *   `api.updateEvent` で内容を確定する。保存せずに閉じた場合は下書きを削除する
  * - 単発予定の編集: 保存で `api.updateEvent` / 削除で `api.deleteEvent`
  * - 繰り返しオカレンスの編集: 保存・削除の前に `resolveRecurringScope` で適用範囲を
  *   確認する。キャンセル（`null`）の場合は何もせずダイアログを開いたままにする。
@@ -688,9 +711,19 @@ function RecurrenceRuleFields(props: RecurrenceRuleFieldsProps): ReactElement {
 export function EventDialog(props: EventDialogProps): ReactElement {
   const { mode, timeZone, api, resolveRecurringScope, onClose, announce } = props;
   const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
   const baseId = useId();
   const [form, setForm] = useState<FormState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 閉→開の遷移後、フォーム描画が終わったらタイトル入力へフォーカスするためのフラグ。
+  // 開いたまま編集対象を切り替えた場合はフォーカスを移さない（連続クリックの邪魔を
+  // しない）ため、開いた瞬間のみ true にする。
+  const focusPendingRef = useRef(false);
+  // 保存で確定済みの下書き予定の ID。閉じたときの下書き削除をスキップする判定に使う。
+  const committedDraftIdRef = useRef<EventId | null>(null);
+  // ストア上の対象イベント（下書き / 編集中の単発予定）の直近の開始・終了・終日。
+  // ドラッグ移動・リサイズなど外部からの変更をフォームへ反映する際の比較基準。
+  const lastStoreRangeRef = useRef<{ start: number; end: number; allDay: boolean } | null>(null);
 
   // mode が新しく設定されるたびにフォームを初期化する
   useEffect(() => {
@@ -700,18 +733,108 @@ export function EventDialog(props: EventDialogProps): ReactElement {
     }
   }, [mode]);
 
-  // mode の有無に応じて <dialog> の開閉を同期する
+  // mode の有無に応じて <dialog> の開閉を同期する。バックドロップで背後の
+  // カレンダーを塞がないよう、モードレス（show()）で開く
   useEffect(() => {
     const dialogEl = dialogRef.current;
     if (dialogEl === null) {
       return;
     }
     if (mode !== null && !dialogEl.open) {
-      dialogEl.showModal();
+      dialogEl.show();
+      focusPendingRef.current = true;
     } else if (mode === null && dialogEl.open) {
       dialogEl.close();
     }
   }, [mode]);
+
+  // 開いた直後（フォーム初期化後）にタイトル入力へフォーカスする
+  useEffect(() => {
+    if (form !== null && focusPendingRef.current) {
+      focusPendingRef.current = false;
+      titleInputRef.current?.focus();
+    }
+  }, [form]);
+
+  // create モードの下書き予定は、保存で確定しないまま閉じた・別のモードへ
+  // 切り替えた場合に削除する（キャンセル＝カレンダー上の仮置きも取り消し）
+  useEffect(() => {
+    if (mode === null || mode.type !== 'create') {
+      return undefined;
+    }
+    const draftEventId = mode.draftEventId;
+    return () => {
+      if (committedDraftIdRef.current === draftEventId) {
+        return;
+      }
+      // キーボード削除などで下書きが既に消えている場合は何もしない
+      if (api.getEvents().some((event) => event.id === draftEventId)) {
+        api.deleteEvent(draftEventId);
+      }
+    };
+  }, [mode, api]);
+
+  // 対象イベント（create の下書き / 繰り返しでない予定の編集）のドラッグ移動・
+  // リサイズなどストア側の変更を、フォームの開始・終了・終日へ反映する。
+  // 繰り返しオカレンスはスコープ操作でイベント構成自体が変わりうるため対象外。
+  const syncEventId =
+    mode === null
+      ? null
+      : mode.type === 'create'
+        ? mode.draftEventId
+        : mode.occurrence.isRecurring
+          ? null
+          : mode.occurrence.eventId;
+  useEffect(() => {
+    if (syncEventId === null) {
+      lastStoreRangeRef.current = null;
+      return undefined;
+    }
+    const readStoreRange = (): { start: number; end: number; allDay: boolean } | null => {
+      const event = api.getEvents().find((entry) => entry.id === syncEventId);
+      if (event === undefined || !(event.start instanceof Date) || !(event.end instanceof Date)) {
+        // start / end が文字列指定のイベントはドラッグで Date に置き換わるまで同期対象外
+        return null;
+      }
+      return {
+        start: event.start.getTime(),
+        end: event.end.getTime(),
+        allDay: event.allDay ?? false,
+      };
+    };
+    lastStoreRangeRef.current = readStoreRange();
+    return api.subscribe(() => {
+      if (!api.getEvents().some((entry) => entry.id === syncEventId)) {
+        // 対象がキーボード削除などで消えた場合はダイアログを閉じる
+        dialogRef.current?.close();
+        return;
+      }
+      const current = readStoreRange();
+      if (current === null) {
+        return;
+      }
+      const last = lastStoreRangeRef.current;
+      if (
+        last !== null &&
+        last.start === current.start &&
+        last.end === current.end &&
+        last.allDay === current.allDay
+      ) {
+        return;
+      }
+      lastStoreRangeRef.current = current;
+      setForm((prev) =>
+        prev === null
+          ? prev
+          : {
+              ...prev,
+              start: new Date(current.start),
+              end: new Date(current.end),
+              allDay: current.allDay,
+            },
+      );
+    });
+  }, [syncEventId, api]);
 
   // ネイティブな close（Esc・保存・キャンセルボタンいずれも close() 経由）を
   // 呼び出し元の状態クリアに伝える
@@ -740,33 +863,60 @@ export function EventDialog(props: EventDialogProps): ReactElement {
     setForm((prev) => (prev === null ? prev : { ...prev, ...patch }));
   };
 
+  /**
+   * create モードのとき、フォームの変更をカレンダー上の下書き予定へ即時反映する。
+   * 編集モードでは何もしない（保存時にまとめて適用する）。
+   */
+  const pushDraftPatch = (patch: CalendarEventPatch): void => {
+    if (mode.type !== 'create') {
+      return;
+    }
+    api.updateEvent(mode.draftEventId, patch);
+  };
+
+  /**
+   * 開始・終了・終日の変更を下書き予定へ反映する（終了 > 開始 の妥当な範囲のみ）。
+   * ストア変更のフォームへの逆流を防ぐため、比較基準（`lastStoreRangeRef`）を
+   * 先に更新してから適用する。
+   */
+  const pushDraftRange = (next: { start: Date; end: Date; allDay: boolean }): void => {
+    if (mode.type !== 'create' || next.end.getTime() <= next.start.getTime()) {
+      return;
+    }
+    lastStoreRangeRef.current = {
+      start: next.start.getTime(),
+      end: next.end.getTime(),
+      allDay: next.allDay,
+    };
+    api.updateEvent(mode.draftEventId, next);
+  };
+
   /** 終日チェックの切り替え。時間指定 ⇔ 終日で開始・終了を作り直す。 */
   const handleAllDayToggle = (nextAllDay: boolean): void => {
-    setForm((prev) => {
-      if (prev === null || prev.allDay === nextAllDay) {
-        return prev;
-      }
-      if (nextAllDay) {
-        const startKey = dateKeyInZone(prev.start, timeZone);
-        const lastIncludedInstant = new Date(
-          Math.max(prev.end.getTime() - 1, prev.start.getTime()),
-        );
-        const endKey = dateKeyInZone(lastIncludedInstant, timeZone);
-        const start = dateFromKey(startKey, timeZone);
-        const inclusiveEnd = dateFromKey(endKey, timeZone);
-        const end = addDaysInZone(
-          inclusiveEnd.getTime() > start.getTime() ? inclusiveEnd : start,
-          1,
-          timeZone,
-        );
-        return { ...prev, allDay: true, start, end };
-      }
-      const wall = getWallClock(prev.start, timeZone);
+    if (form.allDay === nextAllDay) {
+      return;
+    }
+    let start: Date;
+    let end: Date;
+    if (nextAllDay) {
+      const startKey = dateKeyInZone(form.start, timeZone);
+      const lastIncludedInstant = new Date(Math.max(form.end.getTime() - 1, form.start.getTime()));
+      const endKey = dateKeyInZone(lastIncludedInstant, timeZone);
+      start = dateFromKey(startKey, timeZone);
+      const inclusiveEnd = dateFromKey(endKey, timeZone);
+      end = addDaysInZone(
+        inclusiveEnd.getTime() > start.getTime() ? inclusiveEnd : start,
+        1,
+        timeZone,
+      );
+    } else {
+      const wall = getWallClock(form.start, timeZone);
       const dayParts = { year: wall.year, month: wall.month, day: wall.day };
-      const start = fromWallClock({ ...dayParts, hours: 9 }, timeZone);
-      const end = fromWallClock({ ...dayParts, hours: 10 }, timeZone);
-      return { ...prev, allDay: false, start, end };
-    });
+      start = fromWallClock({ ...dayParts, hours: 9 }, timeZone);
+      end = fromWallClock({ ...dayParts, hours: 10 }, timeZone);
+    }
+    patchForm({ allDay: nextAllDay, start, end });
+    pushDraftRange({ start, end, allDay: nextAllDay });
   };
 
   /** 保存（新規作成 or 更新）。 */
@@ -800,12 +950,14 @@ export function EventDialog(props: EventDialogProps): ReactElement {
     };
 
     if (mode.type === 'create') {
-      const input: CalendarEventInput = {
+      // 下書き予定にフォームの内容を適用して確定する（閉じるときの下書き削除は
+      // committedDraftIdRef の記録によりスキップされる）
+      api.updateEvent(mode.draftEventId, {
         ...commonFields,
         ...(rrule !== undefined ? { rrule } : {}),
-      };
-      const created = api.createEvent(input);
-      announce?.(`${created.title} を作成しました`);
+      });
+      committedDraftIdRef.current = mode.draftEventId;
+      announce?.(`${form.title} を作成しました`);
       dialogRef.current?.close();
       return;
     }
@@ -859,7 +1011,17 @@ export function EventDialog(props: EventDialogProps): ReactElement {
   };
 
   return (
-    <dialog ref={dialogRef} className="demo-dialog demo-event-dialog">
+    <dialog
+      ref={dialogRef}
+      className="demo-dialog demo-event-dialog"
+      onKeyDown={(keyEvent) => {
+        // モードレス表示（show()）ではネイティブの Esc キャンセルが働かないため自前で閉じる
+        if (keyEvent.key === 'Escape') {
+          keyEvent.preventDefault();
+          dialogRef.current?.close();
+        }
+      }}
+    >
       <form
         className="demo-form"
         onSubmit={(formEvent) => {
@@ -880,11 +1042,17 @@ export function EventDialog(props: EventDialogProps): ReactElement {
           <label htmlFor={`${baseId}-title`}>タイトル</label>
           <input
             id={`${baseId}-title`}
+            ref={titleInputRef}
             type="text"
             required
             disabled={isReadOnly}
             value={form.title}
-            onChange={(changeEvent) => patchForm({ title: changeEvent.target.value })}
+            onChange={(changeEvent) => {
+              const title = changeEvent.target.value;
+              patchForm({ title });
+              // 下書き予定のタイトルにも即時反映する（未入力の間は仮のタイトル）
+              pushDraftPatch({ title: title === '' ? DRAFT_EVENT_TITLE : title });
+            }}
           />
         </div>
 
@@ -922,7 +1090,22 @@ export function EventDialog(props: EventDialogProps): ReactElement {
                 const start = form.allDay
                   ? dateFromKey(value, timeZone)
                   : parseDateValue(value, timeZone, false);
-                patchForm({ start });
+                // 開始の変更は予定の長さを保ったまま終了も追従させる
+                // （日付のズレを開始の入力だけで直せるようにする）
+                const end = form.allDay
+                  ? addDaysInZone(
+                      start,
+                      Math.max(
+                        1,
+                        Math.round(
+                          (form.end.getTime() - form.start.getTime()) / (24 * 60 * 60 * 1000),
+                        ),
+                      ),
+                      timeZone,
+                    )
+                  : new Date(start.getTime() + (form.end.getTime() - form.start.getTime()));
+                patchForm({ start, end });
+                pushDraftRange({ start, end, allDay: form.allDay });
               }}
             />
           </div>
@@ -947,6 +1130,7 @@ export function EventDialog(props: EventDialogProps): ReactElement {
                   ? addDaysInZone(dateFromKey(value, timeZone), 1, timeZone)
                   : parseDateValue(value, timeZone, false);
                 patchForm({ end });
+                pushDraftRange({ start: form.start, end, allDay: form.allDay });
               }}
             />
           </div>
@@ -970,7 +1154,10 @@ export function EventDialog(props: EventDialogProps): ReactElement {
                 aria-label={swatch.label}
                 aria-pressed={form.color === swatch.value}
                 disabled={isReadOnly}
-                onClick={() => patchForm({ color: swatch.value })}
+                onClick={() => {
+                  patchForm({ color: swatch.value });
+                  pushDraftPatch({ color: swatch.value });
+                }}
               />
             ))}
           </div>
