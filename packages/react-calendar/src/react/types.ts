@@ -12,6 +12,7 @@ import type {
   CalendarApi,
   CalendarState,
   CalendarViewModel,
+  CalendarViewType,
   DateRange,
   EventChangeEntry,
   EventOccurrence,
@@ -93,8 +94,11 @@ export type EventContentSlot =
 export interface EventContentParts {
   /**
    * 整形済みの時刻テキスト。形式はスロットにより異なる（月の帯は開始時刻
-   * `'10:00'`、時間指定ブロック・リスト行は範囲 `'10:00〜11:00'` 等）。
-   * 既定内容が時刻を表示しないスロット（終日の帯・タイムラインの帯など）では `null`。
+   * `'10:00'`、時間指定ブロック・リスト行・タイムラインの帯は範囲
+   * `'10:00〜11:00'` 等）。タイムラインの帯は既定内容に時刻を表示しないが、
+   * 時間指定イベントでは整形済みの範囲がここに渡る（複数日にまたがる場合は
+   * 日付付き `'7月15日 22:00〜7月16日 2:00'`）。時刻を表示しないもの
+   * （終日イベント・複数日にまたがる月の帯セグメントなど）では `null`。
    */
   timeText: string | null;
   /** タイトル文字列（`event.title` そのまま）。 */
@@ -125,6 +129,15 @@ export interface EventContentParts {
 export interface EventContentContext extends SlotRenderContext {
   /** どの描画枠に対する描画か。 */
   slot: EventContentSlot;
+  /**
+   * どのビューでの描画か。
+   *
+   * 同じスロットを複数のビューが使うため（`'timegrid-event'` は週/日ビューと
+   * リソースビュー、`'month-event'` は月ビューと複数月ビュー）、
+   * {@link EventContentRenderer} でスロットが同じでもビューごとに内容を
+   * 出し分けたいときの判別子として使う。
+   */
+  view: CalendarViewType;
   /** 既定内容を分解したパーツ。 */
   parts: EventContentParts;
 }

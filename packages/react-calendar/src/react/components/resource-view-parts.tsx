@@ -105,6 +105,7 @@ export function resourceTimedContentContext(
 ): EventContentContext {
   return timedTextEventContentContext(
     'timegrid-event',
+    'resource',
     formatTimeLabel(item.occurrence.start, timeZone, locale),
     item.occurrence.event.title,
   );
@@ -115,7 +116,7 @@ export function resourceTimedContentContext(
  * 組み立てる。既定内容はタイトルのみ。
  */
 export function resourceAllDayContentContext(occurrence: EventOccurrence): EventContentContext {
-  return titleOnlyEventContentContext('allday-event', occurrence.event.title);
+  return titleOnlyEventContentContext('allday-event', 'resource', occurrence.event.title);
 }
 
 /** `CalendarResource | null` の、表示に影響する内容が等しいかどうかを比較する。 */

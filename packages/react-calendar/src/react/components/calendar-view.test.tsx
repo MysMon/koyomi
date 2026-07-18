@@ -548,6 +548,41 @@ describe('CalendarView', () => {
       expect(eventEl?.textContent).toBe(expected);
     });
 
+    it.each([
+      ['month', 'month'],
+      ['week', 'week'],
+      ['day', 'day'],
+      ['list', 'list'],
+      ['multiMonth', 'multiMonth'],
+      ['resource', 'resource'],
+      ['timeline', 'timeline'],
+    ] as const)('%s ビューでは ctx.view に %s が渡り、スロットが同じでもビューを判別できる', (view, expected) => {
+      const seenViews = new Set<string>();
+      function Harness(): ReactElement {
+        const calendar = useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          initialView: view,
+          events: EVENTS,
+          resources: RESOURCES,
+        });
+        return (
+          <CalendarProvider
+            value={calendar}
+            renderEventContent={(_occurrence, ctx) => {
+              seenViews.add(ctx.view);
+              return ctx.defaultContent;
+            }}
+          >
+            <CalendarView />
+          </CalendarProvider>
+        );
+      }
+      render(<Harness />);
+      expect(Array.from(seenViews)).toEqual([expected]);
+    });
+
     it('renderEventContent を使っても aria-label とリサイズハンドル（ドラッグ配線）は保たれる', () => {
       const { container: monthContainer } = renderWithCentral('month');
       const monthEvent = monthContainer.querySelector('[data-koyomi="month-event"]');

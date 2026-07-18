@@ -22,6 +22,7 @@
 import type { ReactElement, ReactNode } from 'react';
 import { useCallback } from 'react';
 import type {
+  CalendarViewType,
   DateRange,
   EventOccurrence,
   EventSegment,
@@ -176,6 +177,7 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
           dayDrag={stableDayDrag}
           renderEvent={renderEvent}
           renderEventContent={renderEventContent}
+          view="multiMonth"
           overflowLabel={messages.multiMonth.overflow}
           renderDayCell={renderDayCell}
           commonMessages={messages.common}
@@ -214,6 +216,8 @@ function MultiMonthMonthSection(props: {
   renderEvent: ((segment: EventSegment, ctx: EventContentContext) => ReactNode) | undefined;
   /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
   renderEventContent: EventContentRenderer | undefined;
+  /** どのビューでの描画か（`EventContentContext.view` に渡す）。 */
+  view: CalendarViewType;
   /** 「+N 件」ラベルのカスタマイズ関数。 */
   overflowLabel: (count: number) => ReactNode;
   /** 日セルの内容のカスタマイズ関数。 */
@@ -250,6 +254,7 @@ function MultiMonthMonthSection(props: {
     dayDrag,
     renderEvent,
     renderEventContent,
+    view,
     overflowLabel,
     renderDayCell,
     commonMessages,
@@ -299,6 +304,7 @@ function MultiMonthMonthSection(props: {
               dayDrag={dayDrag}
               renderEvent={renderEvent}
               renderEventContent={renderEventContent}
+              view={view}
               overflowLabel={overflowLabel}
               renderDayCell={renderDayCell}
               commonMessages={commonMessages}

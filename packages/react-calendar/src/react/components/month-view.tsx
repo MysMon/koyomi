@@ -183,6 +183,7 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
             dayDrag={stableDayDrag}
             renderEvent={renderEvent}
             renderEventContent={renderEventContent}
+            view="month"
             overflowLabel={messages.month.overflow}
             renderDayCell={renderDayCell}
             commonMessages={messages.common}

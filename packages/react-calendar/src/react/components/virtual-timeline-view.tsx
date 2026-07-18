@@ -255,7 +255,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
                   renderEventContent,
                   item,
                   occurrence,
-                  titleOnlyEventContentContext('timeline-item', occurrence.event.title),
+                  titleOnlyEventContentContext('timeline-item', 'timeline', occurrence.event.title),
                 )}
               </div>
               {isEditable && !occurrence.allDay && !item.continuesBefore && (
