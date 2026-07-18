@@ -13,11 +13,17 @@ import type {
   CalendarEvent,
   CalendarResource,
   CalendarViewType,
+  TimelineItem,
   TimelineScale,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { MessageCatalogOverrides } from '../locales/types';
-import type { CalendarInteractionCallbacks, UseCalendarResult } from '../types';
+import type {
+  CalendarInteractionCallbacks,
+  EventContentContext,
+  EventContentRenderer,
+  UseCalendarResult,
+} from '../types';
 import { useCalendar } from '../use-calendar';
 import type { VirtualTimelineViewHandle, VirtualTimelineViewProps } from './virtual-timeline-view';
 import { VirtualTimelineView } from './virtual-timeline-view';
@@ -66,6 +72,7 @@ interface HarnessProps {
   callbacks?: CalendarInteractionCallbacks;
   viewProps?: VirtualTimelineViewProps;
   messages?: MessageCatalogOverrides;
+  renderEventContent?: EventContentRenderer;
   sink?: { current: UseCalendarResult | null };
   handleRef?: React.Ref<VirtualTimelineViewHandle>;
 }
@@ -91,6 +98,9 @@ function Harness(props: HarnessProps): ReactElement {
       value={calendar}
       {...(props.callbacks ? { callbacks: props.callbacks } : {})}
       {...(props.messages !== undefined ? { messages: props.messages } : {})}
+      {...(props.renderEventContent !== undefined
+        ? { renderEventContent: props.renderEventContent }
+        : {})}
     >
       <VirtualTimelineView ref={props.handleRef} {...(props.viewProps ?? {})} />
     </CalendarProvider>
@@ -604,5 +614,68 @@ describe('VirtualTimelineView - リソースの階層グルーピング（parent
     expect(pinned?.getAttribute('data-koyomi-row-key')).toBe('r:parent');
     const pinnedToggle = pinned?.querySelector('[data-koyomi="timeline-row-toggle"]');
     expect(pinnedToggle?.getAttribute('tabindex')).toBe('-1');
+  });
+});
+
+describe('VirtualTimelineView - カスタム描画 props', () => {
+  const CRANE: CalendarResource = { id: 'crane-1', title: 'クレーン1' };
+  const EVENTS: readonly CalendarEvent[] = [
+    {
+      id: 'e1',
+      title: '荷揚げ',
+      start: '2026-07-15T09:00',
+      end: '2026-07-15T11:00',
+      resourceId: 'crane-1',
+    },
+  ];
+
+  it('renderEvent で帯の内容を差し替えられ、parts.timeText に整形済み時刻範囲が渡る', () => {
+    const renderEvent = (item: TimelineItem, ctx: EventContentContext): ReactElement => (
+      <span data-testid="custom-item">
+        {ctx.slot}|{ctx.view}|{ctx.parts.timeText}|{item.occurrence.event.title}
+      </span>
+    );
+    const { container } = render(
+      <Harness resources={[CRANE]} events={EVENTS} viewProps={{ renderEvent }} />,
+    );
+    expect(container.querySelector('[data-testid="custom-item"]')?.textContent).toBe(
+      'timeline-item|timeline|9:00〜11:00|荷揚げ',
+    );
+  });
+
+  it('CalendarProvider の renderEventContent が帯に適用され、境界（ボタン・aria-label・リサイズハンドル）は保たれる', () => {
+    const { container } = render(
+      <Harness
+        resources={[CRANE]}
+        events={EVENTS}
+        renderEventContent={(occurrence, ctx) => (
+          <>
+            {ctx.defaultContent}
+            <span data-testid="badge">{occurrence.isRecurring ? '定期' : '単発'}</span>
+          </>
+        )}
+      />,
+    );
+    const item = container.querySelector('[data-koyomi="timeline-item"]');
+    expect(item?.tagName).toBe('BUTTON');
+    expect(item?.querySelector('[data-testid="badge"]')?.textContent).toBe('単発');
+    expect(item).toHaveAttribute('aria-label', '荷揚げ、7月15日 9:00〜11:00、クレーン1');
+    expect(item?.querySelectorAll('[data-koyomi="timeline-resize"]')).toHaveLength(2);
+  });
+
+  it('ビュー個別の renderEvent は中央 renderEventContent より優先される', () => {
+    const renderEvent = (_item: TimelineItem, _ctx: EventContentContext): ReactElement => (
+      <span data-testid="individual">個別</span>
+    );
+    const { container } = render(
+      <Harness
+        resources={[CRANE]}
+        events={EVENTS}
+        viewProps={{ renderEvent }}
+        renderEventContent={() => <span data-testid="central">中央</span>}
+      />,
+    );
+    expect(container.querySelector('[data-testid="individual"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="central"]')).toBeNull();
   });
 });

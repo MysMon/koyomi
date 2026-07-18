@@ -561,14 +561,17 @@ describe('CalendarView', () => {
     const RESOURCES: readonly CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
 
     /** `renderEventContent` 付きで `CalendarView` を描画する。 */
-    function renderWithCentral(initialView: CalendarViewType) {
+    function renderWithCentral(
+      initialView: CalendarViewType,
+      events: readonly CalendarEvent[] = EVENTS,
+    ) {
       function Harness(): ReactElement {
         const calendar = useCalendar({
           timeZone: 'Asia/Tokyo',
           now: () => NOW,
           initialDate: NOW,
           initialView,
-          events: EVENTS,
+          events,
           resources: RESOURCES,
         });
         return (
@@ -639,6 +642,46 @@ describe('CalendarView', () => {
       const weekEvent = weekContainer.querySelector('[data-koyomi="timegrid-event"]');
       expect(weekEvent).toHaveAttribute('aria-label', '会議、7月15日 10:00〜11:00');
       expect(weekEvent?.querySelectorAll('[data-koyomi="timegrid-resize"]')).toHaveLength(2);
+    });
+
+    it('renderEventContent を使っても、リスト行・リソースのブロック・タイムラインの帯で境界（ボタン要素・aria-label・リサイズハンドル）は保たれる', () => {
+      const { container: listContainer } = renderWithCentral('list');
+      const listEvent = listContainer.querySelector('[data-koyomi="list-event"]');
+      expect(listEvent?.tagName).toBe('BUTTON');
+      expect(listEvent).toHaveAttribute('aria-label', '会議、7月15日 10:00〜11:00');
+
+      const { container: resourceContainer } = renderWithCentral('resource');
+      const resourceEvent = resourceContainer.querySelector('[data-koyomi="timegrid-event"]');
+      expect(resourceEvent?.tagName).toBe('BUTTON');
+      expect(resourceEvent).toHaveAttribute('aria-label', '会議、7月15日 10:00〜11:00、会議室A');
+      expect(resourceEvent?.querySelectorAll('[data-koyomi="timegrid-resize"]')).toHaveLength(2);
+
+      const { container: timelineContainer } = renderWithCentral('timeline');
+      const timelineItem = timelineContainer.querySelector('[data-koyomi="timeline-item"]');
+      expect(timelineItem?.tagName).toBe('BUTTON');
+      expect(timelineItem).toHaveAttribute('aria-label', '会議、7月15日 10:00〜11:00、会議室A');
+      expect(timelineItem?.querySelectorAll('[data-koyomi="timeline-resize"]')).toHaveLength(2);
+    });
+
+    it('renderEventContent を使っても、終日帯（allday-event）の aria-label とリサイズハンドルは保たれる', () => {
+      const allDayEvents: readonly CalendarEvent[] = [
+        {
+          id: 'ad1',
+          title: '休暇',
+          start: '2026-07-14',
+          end: '2026-07-16',
+          allDay: true,
+          location: '軽井沢',
+          resourceId: 'room-a',
+        },
+      ];
+      const { container } = renderWithCentral('week', allDayEvents);
+      const alldayEvent = container.querySelector('[data-koyomi="allday-event"]');
+      expect(alldayEvent?.tagName).toBe('BUTTON');
+      // 中央定義（＠場所）が終日帯にも適用されている
+      expect(alldayEvent?.querySelector('[data-testid="loc"]')?.textContent).toBe('＠軽井沢');
+      expect(alldayEvent).toHaveAttribute('aria-label', '休暇、7月14日〜7月15日');
+      expect(alldayEvent?.querySelectorAll('[data-koyomi="allday-resize"]')).toHaveLength(2);
     });
   });
 });
