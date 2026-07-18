@@ -539,7 +539,7 @@ describe('CalendarView', () => {
       ['week', 'timegrid-event', '10:00〜11:00 会議＠会議室A'],
       ['list', 'list-event', '10:00〜11:00会議＠会議室A'],
       ['multiMonth', 'month-event', '10:00 会議＠会議室A'],
-      ['resource', 'timegrid-event', '10:00 会議＠会議室A'],
+      ['resource', 'timegrid-event', '10:00〜11:00 会議＠会議室A'],
       ['timeline', 'timeline-item', '会議＠会議室A'],
     ] as const)('中央定義 1 箇所が %s ビューのイベント内容に適用され、既定の時刻表示も保たれる', (view, part, expected) => {
       const { container } = renderWithCentral(view);

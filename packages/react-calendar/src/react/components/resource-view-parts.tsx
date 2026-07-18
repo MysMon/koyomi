@@ -30,7 +30,8 @@ import type { CommonMessages } from '../locales/types';
 import type { EventContentContext } from '../types';
 import type { ResourcePreviewSegment } from '../use-resource-grid-drag';
 import { timedTextEventContentContext, titleOnlyEventContentContext } from './event-content';
-import { formatOccurrenceRangeLabel, formatTimeLabel } from './month-view-parts';
+import { formatClockRangeLabel } from './format';
+import { formatOccurrenceRangeLabel } from './month-view-parts';
 
 /** 1 日の分（24:00 = 1440 分）。 */
 export const MINUTES_PER_DAY = 1440;
@@ -96,17 +97,17 @@ export function ariaLabelWithResource(
 
 /**
  * リソースビューの時間指定イベント（`timegrid-event`）のイベント内容コンテキストを
- * 組み立てる。既定内容は開始時刻 + タイトル（`'H:mm タイトル'`）。
+ * 組み立てる。既定内容は時刻範囲 + タイトル（`'H:mm〜H:mm タイトル'`。
+ * 週/日ビューの時間指定ブロックと同じ形式）。
  */
 export function resourceTimedContentContext(
   item: PositionedOccurrence,
-  timeZone: TimeZoneId,
   locale: string,
 ): EventContentContext {
   return timedTextEventContentContext(
     'timegrid-event',
     'resource',
-    formatTimeLabel(item.occurrence.start, timeZone, locale),
+    formatClockRangeLabel(item.startMinutes, item.endMinutes, locale),
     item.occurrence.event.title,
   );
 }

@@ -793,7 +793,7 @@ function ResourceView(props: ResourceViewProps): ReactElement | null
 
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
-| `renderEvent` | `(item: PositionedOccurrence, ctx: EventContentContext) => ReactNode` | 時間指定イベントブロックの表示内容。省略時は開始時刻＋タイトル。終日アイテムには適用されない（`renderAllDayItem` を使う） |
+| `renderEvent` | `(item: PositionedOccurrence, ctx: EventContentContext) => ReactNode` | 時間指定イベントブロックの表示内容。省略時は `'H:mm〜H:mm タイトル'`（週/日ビューと同じ形式）。終日アイテムには適用されない（`renderAllDayItem` を使う） |
 | `renderAllDayItem` | `(occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode` | 終日アイテムの表示内容。省略時はタイトルのみ |
 | `renderColumnHeader` | `(column: ResourceColumn, ctx: SlotRenderContext) => ReactNode` | 列見出しの内容（`ctx.defaultContent` はリソース名、または未割り当て列は `messages.resource.unassigned`）をラップ・置換する |
 | `initialScrollTime` | `string`（`'HH:mm'`） | マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置。事後の変更は再適用されない |

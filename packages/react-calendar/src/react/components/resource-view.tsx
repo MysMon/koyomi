@@ -66,7 +66,8 @@ import {
 export interface ResourceViewProps {
   /**
    * 時間指定イベントブロックの表示内容をカスタマイズする関数。
-   * 省略時は開始時刻とタイトルを表示する。終日アイテムには適用されない
+   * 省略時は時刻範囲（`'H:mm〜H:mm'`。週/日ビューと同じ形式）とタイトルを表示する。
+   * 終日アイテムには適用されない
    * （終日アイテムの内容は {@link ResourceViewProps.renderAllDayItem} を使う）。
    *
    * `ctx.defaultContent` に省略時の内容、`ctx.parts` に分解済みパーツが渡される。
@@ -579,7 +580,7 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
                 renderEventContent,
                 item,
                 item.occurrence,
-                resourceTimedContentContext(item, timeZone, locale),
+                resourceTimedContentContext(item, locale),
               )}
             </div>
             {isEditable && !item.continuesBefore && (

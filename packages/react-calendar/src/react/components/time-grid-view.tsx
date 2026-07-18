@@ -52,7 +52,7 @@ import {
   timedTextEventContentContext,
   titleOnlyEventContentContext,
 } from './event-content';
-import { formatTimeZoneLabel, formatWeekday } from './format';
+import { formatClockRangeLabel, formatTimeZoneLabel, formatWeekday } from './format';
 import {
   percentOfSlotRange,
   withEventColorStyle,
@@ -129,37 +129,6 @@ export interface TimeGridViewHandle {
 }
 
 /**
- * {@link formatClockLabel} が使う `Intl.DateTimeFormat` インスタンスのキャッシュ。
- * ロケールごとに 1 つだけ生成して使い回す。
- */
-const clockLabelFormatterCache = new Map<string, Intl.DateTimeFormat>();
-
-/**
- * `formatClockLabel` 用の `Intl.DateTimeFormat` をロケールごとにキャッシュして返す。
- */
-function getClockLabelFormatter(locale: string): Intl.DateTimeFormat {
-  const cached = clockLabelFormatterCache.get(locale);
-  if (cached !== undefined) {
-    return cached;
-  }
-  const formatter = new Intl.DateTimeFormat(locale, {
-    hour: 'numeric',
-    minute: '2-digit',
-    // 実行環境のローカル TZ の影響を受けないよう、日付部分を固定した「架空の UTC 時刻」
-    // として整形する（時刻の大小関係のみが意味を持つ値のため、実際の年月日は無関係）。
-    timeZone: 'UTC',
-  });
-  clockLabelFormatterCache.set(locale, formatter);
-  return formatter;
-}
-
-/** 分（0〜1440）を、ロケールに応じた時刻ラベル（時は非ゼロ埋め）にする。 */
-function formatClockLabel(minutes: number, locale: string): string {
-  const fakeUtcDate = new Date(Date.UTC(2000, 0, 1, 0, 0) + minutes * 60_000);
-  return getClockLabelFormatter(locale).format(fakeUtcDate);
-}
-
-/**
  * 時間指定イベント（`timegrid-event`）のイベント内容コンテキストを組み立てる。
  * 既定内容は `'H:mm〜H:mm タイトル'`。
  */
@@ -171,7 +140,7 @@ function timegridEventContentContext(
   return timedTextEventContentContext(
     'timegrid-event',
     view,
-    `${formatClockLabel(item.startMinutes, locale)}〜${formatClockLabel(item.endMinutes, locale)}`,
+    formatClockRangeLabel(item.startMinutes, item.endMinutes, locale),
     item.occurrence.event.title,
   );
 }

@@ -97,6 +97,45 @@ export function formatTime(date: Date, timeZone: TimeZoneId, locale: string): st
 }
 
 /**
+ * 1 日の中の分（`0`〜`1440`）を、ロケールに応じた時刻ラベル（時は非ゼロ埋め）にする。
+ *
+ * 実行環境のローカルタイムゾーンの影響を受けないよう、日付部分を固定した
+ * 「架空の UTC 時刻」として整形する（時刻の大小関係のみが意味を持つ値のため、
+ * 実際の年月日は無関係）。`hourCycle` は固定せず、ロケールの慣習に委ねる
+ * （`en-US` では 12 時間制になる）。
+ *
+ * @param minutes - 1 日の中の分（例: `600` = 10:00）
+ * @param locale - ロケール
+ * @returns 例: `'10:00'`（`ja`）、`'10:00 AM'`（`en-US`）
+ */
+export function formatClockLabel(minutes: number, locale: string): string {
+  const fakeUtcDate = new Date(Date.UTC(2000, 0, 1, 0, 0) + minutes * 60_000);
+  return getCachedDateTimeFormat(locale, 'UTC', 'clock', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(fakeUtcDate);
+}
+
+/**
+ * 時間指定ブロックの時刻範囲ラベル（`'10:00〜11:00'`）を組み立てる。
+ *
+ * 週/日ビュー・リソースビューの時間指定ブロック（`timegrid-event`）の
+ * 既定内容と `parts.timeText` が使う（両ビューで同じ形式になることを保証する）。
+ *
+ * @param startMinutes - 開始の分（1 日の中の分）
+ * @param endMinutes - 終了の分（1 日の中の分）
+ * @param locale - ロケール
+ * @returns 例: `'10:00〜11:00'`
+ */
+export function formatClockRangeLabel(
+  startMinutes: number,
+  endMinutes: number,
+  locale: string,
+): string {
+  return `${formatClockLabel(startMinutes, locale)}〜${formatClockLabel(endMinutes, locale)}`;
+}
+
+/**
  * タイムゾーンを GMT オフセットの短縮ラベル（`'GMT+9'` / `'GMT-4'` など）にする。
  *
  * 週/日ビューの時間軸の見出し（どのタイムゾーンの時刻かを示すラベル）に使う。
