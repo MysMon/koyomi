@@ -325,7 +325,7 @@ console.log(eventEl?.style.getPropertyValue('--koyomi-event-color')); // => '#e6
 - `TimeGridView`: `renderEvent?: (item: PositionedOccurrence, ctx: EventContentContext) => ReactNode`（終日行のイベント内容は `renderAllDayEvent` を使う）
 - `ListView`: `renderEvent?: (occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode`
 
-第 2 引数の `ctx` には、省略時の内容（`ctx.defaultContent`）・描画枠の種別（`ctx.slot`）・分解済みパーツ（`ctx.parts`。整形済みの時刻テキストやタイトル）が渡されるため、「既定に足す」「時刻とタイトルを並べ替える」が既定の整形を再構築せずに書けます。全ビュー共通で一括定義したい場合は `CalendarProvider` の `renderEventContent` prop が使えます。詳細・レシピは [カスタマイズガイド](./customization.md) を参照してください。
+第 2 引数の `ctx` には、省略時の内容（`ctx.defaultContent`）・描画枠の種別（`ctx.slot`）・ビュー種別（`ctx.view`）・分解済みパーツ（`ctx.parts`。整形済みの時刻テキストやタイトル）が渡されるため、「既定に足す」「時刻とタイトルを並べ替える」が既定の整形を再構築せずに書けます。全ビュー共通で一括定義したい場合は `CalendarProvider` の `renderEventContent` prop が使えます。詳細・レシピは [カスタマイズガイド](./customization.md) を参照してください。
 
 イベント以外にも、日セルへのコンテンツの差し込み（`renderDayCell`）、日ヘッダー・日付見出し（`renderDayHeader`）を差し替えられます。一覧は [ビュー: ビューコンポーネントのカスタマイズ props](./views.md#ビューコンポーネントのカスタマイズ-props) を参照してください。
 
