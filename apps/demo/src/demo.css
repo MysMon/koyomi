@@ -356,6 +356,21 @@ body {
   background-color: rgba(32, 33, 36, 0.5);
 }
 
+/* 予定の作成・編集ダイアログはモードレス（バックドロップなし）で開くため、
+ * 背後のカレンダーを塞がないよう右上に固定表示する。バックドロップによる
+ * 区切りがない分、境界線で背景と区別する */
+.demo-event-dialog {
+  position: fixed;
+  top: 84px;
+  right: 16px;
+  left: auto;
+  margin: 0;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  border: 1px solid var(--demo-border);
+  z-index: 60;
+}
+
 /* ダイアログコンテナ自身のフォーカスリングは出さない（フォーカスは内部のフォーム部品が示す） */
 .demo-dialog:focus-visible {
   outline: none;

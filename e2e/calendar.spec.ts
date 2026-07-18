@@ -85,6 +85,43 @@ test('時間グリッドのポインタドラッグで予定作成ダイアロ�
 
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByRole('heading', { name: '予定を作成' })).toBeVisible();
+
+  // ダイアログはモードレス（バックドロップなし）で開き、選択範囲には下書き予定が
+  // 仮置きされる。下書き自身のクリックでは編集モードへ切り替わらない。
+  const eventDialog = page.locator('dialog.demo-event-dialog');
+  expect(await eventDialog.evaluate((element) => element.matches(':modal'))).toBe(false);
+  const draftChip = page.locator('[data-koyomi="timegrid-event"]', {
+    hasText: '(タイトルなし)',
+  });
+  await expect(draftChip).toBeVisible();
+  await draftChip.click();
+  await expect(page.getByRole('heading', { name: '予定を作成' })).toBeVisible();
+
+  // 開始を変更すると、終了は予定の長さ（1 時間）を保って追従する
+  const startInput = page.getByRole('textbox', { name: '開始' });
+  const startValue = await startInput.inputValue();
+  await startInput.fill(`${startValue.slice(0, 11)}18:00`);
+  await expect(page.getByRole('textbox', { name: '終了' })).toHaveValue(
+    `${startValue.slice(0, 11)}19:00`,
+  );
+
+  // キャンセルするとダイアログと一緒に下書き予定も消える
+  await page.getByRole('button', { name: 'キャンセル' }).click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+  await expect(draftChip).toHaveCount(0);
+});
+
+test('モードレス編集ダイアログは閉じずに別の予定のクリックで切り替わる', async ({ page }) => {
+  await page.locator('[data-koyomi-action="view-day"]').click();
+  const events = page.locator('[data-koyomi="timegrid-event"]');
+
+  await events.filter({ hasText: '商談: A社様' }).first().click();
+  await expect(page.getByRole('heading', { name: '予定を編集' })).toBeVisible();
+  await expect(page.getByLabel('タイトル')).toHaveValue('商談: A社様');
+
+  // キャンセル操作を挟まず、そのまま別の予定をクリックして編集対象を切り替える
+  await events.filter({ hasText: '採用面接' }).first().click();
+  await expect(page.getByLabel('タイトル')).toHaveValue('採用面接');
 });
 
 test('実タッチ入力のドラッグで予定作成ダイアログが開く', async ({ page }, testInfo) => {
