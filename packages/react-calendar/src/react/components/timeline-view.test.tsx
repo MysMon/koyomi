@@ -399,7 +399,7 @@ describe('TimelineView - カスタム描画 props', () => {
     ];
     const renderEvent = (item: TimelineItem, ctx: EventContentContext): ReactElement => (
       <span data-koyomi="custom-item">
-        {ctx.slot}|{ctx.parts.timeText === null ? 'null' : 'x'}|CUSTOM:
+        {ctx.slot}|{ctx.parts.timeText}|CUSTOM:
         {item.occurrence.event.title}|{ctx.defaultContent}
       </span>
     );
@@ -408,7 +408,47 @@ describe('TimelineView - カスタム描画 props', () => {
     );
     const custom = container.querySelector('[data-koyomi="custom-item"]');
     expect(custom).not.toBeNull();
-    expect(custom?.textContent).toBe('timeline-item|null|CUSTOM:荷揚げ|荷揚げ');
+    // 既定内容はタイトルのみだが、parts.timeText には整形済みの時刻範囲が渡る
+    expect(custom?.textContent).toBe('timeline-item|9:00〜11:00|CUSTOM:荷揚げ|荷揚げ');
+  });
+
+  it('複数日にまたがる時間指定イベントでは parts.timeText に日付付きの範囲が渡る', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '夜間搬入',
+        start: '2026-07-15T22:00',
+        end: '2026-07-16T02:00',
+        resourceId: 'crane-1',
+      },
+    ];
+    let seenTimeText: string | null = null;
+    const renderEvent = (_item: TimelineItem, ctx: EventContentContext): ReactElement => {
+      seenTimeText = ctx.parts.timeText;
+      return <span>{ctx.defaultContent}</span>;
+    };
+    render(<Harness resources={[CRANE_1]} events={events} viewProps={{ renderEvent }} />);
+    expect(seenTimeText).toBe('7月15日 22:00〜7月16日 2:00');
+  });
+
+  it('終日イベントの帯では parts.timeText は null のまま', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '終日整備',
+        start: '2026-07-15',
+        end: '2026-07-16',
+        allDay: true,
+        resourceId: 'crane-1',
+      },
+    ];
+    let seenTimeText: string | null = 'unset';
+    const renderEvent = (_item: TimelineItem, ctx: EventContentContext): ReactElement => {
+      seenTimeText = ctx.parts.timeText;
+      return <span>{ctx.defaultContent}</span>;
+    };
+    render(<Harness resources={[CRANE_1]} events={events} viewProps={{ renderEvent }} />);
+    expect(seenTimeText).toBeNull();
   });
 
   it('CalendarProvider の renderEventContent が帯に適用される（slot は timeline-item）', () => {

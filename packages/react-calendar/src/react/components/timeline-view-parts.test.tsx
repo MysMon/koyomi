@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { TimelineRow } from '../../core/types';
+import type { EventOccurrence, TimelineRow } from '../../core/types';
 import {
+  formatTimelineItemTimeText,
   sameBusinessHourRanges,
   samePreviewSegment,
   sameResource,
@@ -23,6 +24,51 @@ function row(overrides: Partial<TimelineRow> = {}): TimelineRow {
     ...overrides,
   };
 }
+
+/** テスト用のオカレンスを作る。 */
+function occurrence(overrides: Partial<EventOccurrence>): EventOccurrence {
+  const base: EventOccurrence = {
+    key: 'e1::2026-07-15T00:00:00.000Z',
+    eventId: 'e1',
+    event: { id: 'e1', title: '荷揚げ', start: '2026-07-15T09:00' },
+    start: new Date('2026-07-15T00:00:00Z'), // 東京 9:00
+    end: new Date('2026-07-15T02:00:00Z'), // 東京 11:00
+    originalStart: new Date('2026-07-15T00:00:00Z'),
+    allDay: false,
+    isRecurring: false,
+  };
+  return { ...base, ...overrides };
+}
+
+describe('formatTimelineItemTimeText', () => {
+  it('単日の時間指定イベントは時刻のみの範囲になる', () => {
+    expect(formatTimelineItemTimeText(occurrence({}), 'Asia/Tokyo', 'ja', '〜')).toBe(
+      '9:00〜11:00',
+    );
+  });
+
+  it('複数日にまたがる時間指定イベントは日付付きの範囲になる', () => {
+    const target = occurrence({
+      start: new Date('2026-07-15T13:00:00Z'), // 東京 7/15 22:00
+      end: new Date('2026-07-15T17:00:00Z'), // 東京 7/16 2:00
+    });
+    expect(formatTimelineItemTimeText(target, 'Asia/Tokyo', 'ja', '〜')).toBe(
+      '7月15日 22:00〜7月16日 2:00',
+    );
+  });
+
+  it('終日イベントは null になる', () => {
+    expect(formatTimelineItemTimeText(occurrence({ allDay: true }), 'Asia/Tokyo', 'ja', '〜')).toBe(
+      null,
+    );
+  });
+
+  it('区切り記号（rangeSeparator）が反映される', () => {
+    expect(formatTimelineItemTimeText(occurrence({}), 'Asia/Tokyo', 'ja', ' - ')).toBe(
+      '9:00 - 11:00',
+    );
+  });
+});
 
 describe('timeline-view-parts', () => {
   it('レーン数を 1 以上へクランプして CSS 変数にする', () => {

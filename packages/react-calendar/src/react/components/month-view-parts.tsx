@@ -8,7 +8,7 @@
  * 両コンポーネントで完全に一致する。
  *
  * 非公開モジュール（`index.ts` から re-export しない）。
- * 一部のヘルパ（`withEventColorStyle` / `formatTimeLabel`）は
+ * 一部のヘルパ（`withEventColorStyle` / `formatTimeLabel` / `formatDateLabel`）は
  * リソースビュー・タイムラインビューのコンポーネントとも共有する。
  */
 
@@ -127,7 +127,7 @@ export function formatTimeLabel(date: Date, timeZone: TimeZoneId, locale: string
 }
 
 /** 日付ラベル（`'M月d日'` 相当）を Intl で生成する。 */
-function formatDateLabel(date: Date, timeZone: TimeZoneId, locale: string): string {
+export function formatDateLabel(date: Date, timeZone: TimeZoneId, locale: string): string {
   return getDateTimeFormat(locale, timeZone, 'date', {
     timeZone,
     month: 'long',
