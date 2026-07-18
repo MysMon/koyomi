@@ -87,6 +87,52 @@ describe('CalendarView', () => {
       );
     });
 
+    it('renderMonthOverflowLabel が MonthView の renderOverflowLabel へ転送される', () => {
+      const events: CalendarEvent[] = [
+        { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+        { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+        { id: 'e3', title: 'C', start: '2026-07-08T11:00', end: '2026-07-08T11:30' },
+        { id: 'e4', title: 'D', start: '2026-07-08T12:00', end: '2026-07-08T12:30' },
+        { id: 'e5', title: 'E', start: '2026-07-08T13:00', end: '2026-07-08T13:30' },
+      ];
+      const { container } = renderView(
+        'month',
+        {
+          renderMonthOverflowLabel: (_day, ctx) => (
+            <span data-testid="custom-overflow">残り{ctx.hiddenOccurrences.length}件</span>
+          ),
+        },
+        events,
+      );
+      const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+      expect(overflowButton?.querySelector('[data-testid="custom-overflow"]')?.textContent).toBe(
+        '残り1件',
+      );
+    });
+
+    it('renderMultiMonthOverflowLabel が MultiMonthView の renderOverflowLabel へ転送される', () => {
+      const events: CalendarEvent[] = [
+        { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+        { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+        { id: 'e3', title: 'C', start: '2026-07-08T11:00', end: '2026-07-08T11:30' },
+        { id: 'e4', title: 'D', start: '2026-07-08T12:00', end: '2026-07-08T12:30' },
+        { id: 'e5', title: 'E', start: '2026-07-08T13:00', end: '2026-07-08T13:30' },
+      ];
+      const { container } = renderView(
+        'multiMonth',
+        {
+          renderMultiMonthOverflowLabel: (_day, ctx) => (
+            <span data-testid="custom-overflow">残り{ctx.hiddenOccurrences.length}件</span>
+          ),
+        },
+        events,
+      );
+      const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+      expect(overflowButton?.querySelector('[data-testid="custom-overflow"]')?.textContent).toBe(
+        '残り1件',
+      );
+    });
+
     it('renderTimeGridEvent が TimeGridView へ転送される', () => {
       const { container } = renderView('week', {
         renderTimeGridEvent: (item) => (

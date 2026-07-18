@@ -15,7 +15,12 @@ import type { ReactElement, ReactNode } from 'react';
 import { useCallback } from 'react';
 import type { EventOccurrence, EventSegment, MonthDay } from '../../core/types';
 import { useCalendarContext } from '../context';
-import type { EventContentContext, MonthOverflowButtonProps, SlotRenderContext } from '../types';
+import type {
+  EventContentContext,
+  MonthOverflowButtonProps,
+  MonthOverflowLabelContext,
+  SlotRenderContext,
+} from '../types';
 import { useDayDrag } from '../use-day-drag';
 import {
   computeWeekSelectionSpan,
@@ -59,6 +64,17 @@ export interface MonthViewProps {
     day: MonthDay,
     hiddenOccurrences: readonly EventOccurrence[],
   ) => MonthOverflowButtonProps;
+  /**
+   * 「+N 件」ボタンのラベル内容をカスタマイズするスロット。
+   * `ctx.defaultContent` は既定のラベル（中央メッセージカタログの `month.overflow` で
+   * 整形した「+N 件」）、`ctx.hiddenOccurrences` はその日で集約された非表示の
+   * オカレンス一覧。差し替えるのはボタンの内側だけで、ボタン要素・クリック配線
+   * （`onOverflowClick`）は保持される。文言だけを変えたい場合はこの prop ではなく
+   * `CalendarProvider` の `messages` を使う。
+   * @param day - 対象の日
+   * @param ctx - 既定内容・非表示オカレンス一覧
+   */
+  renderOverflowLabel?: (day: MonthDay, ctx: MonthOverflowLabelContext) => ReactNode;
 }
 
 /**
@@ -79,7 +95,7 @@ export interface MonthViewProps {
  * ```
  */
 export function MonthView(props: MonthViewProps): ReactElement | null {
-  const { renderEvent, renderDayCell, overflowButtonProps } = props;
+  const { renderEvent, renderDayCell, overflowButtonProps, renderOverflowLabel } = props;
   const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const calendar = { api, state, viewModel };
   const dayDrag = useDayDrag({
@@ -185,6 +201,7 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
             renderEventContent={renderEventContent}
             view="month"
             overflowLabel={messages.month.overflow}
+            renderOverflowLabel={renderOverflowLabel}
             renderDayCell={renderDayCell}
             commonMessages={messages.common}
             onDayNumberClick={handleDayNumberClick}

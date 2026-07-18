@@ -25,6 +25,7 @@ import type {
   EventContentContext,
   EventContentRenderer,
   MonthOverflowButtonProps,
+  MonthOverflowLabelContext,
   SlotRenderContext,
 } from '../types';
 import { useCalendar } from '../use-calendar';
@@ -60,6 +61,7 @@ function Harness(props: {
     day: MonthDay,
     hiddenOccurrences: readonly EventOccurrence[],
   ) => MonthOverflowButtonProps;
+  renderOverflowLabel?: (day: MonthDay, ctx: MonthOverflowLabelContext) => ReactNode;
   messages?: MessageCatalogOverrides;
   apiRef?: { current: CalendarApi | null };
 }): ReactElement {
@@ -95,6 +97,9 @@ function Harness(props: {
         {...(props.renderDayCell !== undefined ? { renderDayCell: props.renderDayCell } : {})}
         {...(props.overflowButtonProps !== undefined
           ? { overflowButtonProps: props.overflowButtonProps }
+          : {})}
+        {...(props.renderOverflowLabel !== undefined
+          ? { renderOverflowLabel: props.renderOverflowLabel }
           : {})}
       />
     </CalendarProvider>
@@ -563,6 +568,28 @@ describe('MultiMonthView - クリック操作', () => {
     fireEvent.keyDown(overflowButton, { key: 'Enter' });
 
     expect(onOverflowClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('renderOverflowLabel で「+N 件」の内容を差し替えられる（MonthView と同じ仕様）', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+    ];
+    const { container } = render(
+      <Harness
+        events={events}
+        dayMaxEvents={1}
+        renderOverflowLabel={(day, ctx) => (
+          <span data-testid="custom-overflow">
+            {day.key}|{ctx.hiddenOccurrences.length}|{ctx.defaultContent}
+          </span>
+        )}
+      />,
+    );
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    expect(overflowButton?.querySelector('[data-testid="custom-overflow"]')?.textContent).toBe(
+      '2026-07-08|1|+1 件',
+    );
   });
 
   it('overflowButtonProps を渡すと「+N 件」ボタンに aria-haspopup / aria-expanded が付与される', () => {

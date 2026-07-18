@@ -307,6 +307,35 @@ export interface MonthOverflowButtonProps {
 }
 
 /**
+ * 月ビュー・複数月ビューの「+N 件」ラベルのカスタム描画スロット
+ * （`MonthView` / `MultiMonthView` の `renderOverflowLabel`）に渡されるコンテキスト。
+ *
+ * {@link SlotRenderContext.defaultContent}（既定のラベル。中央メッセージカタログの
+ * `month.overflow` / `multiMonth.overflow` で整形した「+N 件」）に加えて、
+ * その日で「+N 件」に集約された非表示のオカレンス一覧を持つ。差し替えるのは
+ * ボタンの内側の内容だけで、ボタン要素・クリック配線
+ * （{@link CalendarInteractionCallbacks.onOverflowClick}）は常に保持される。
+ *
+ * @example 非表示のイベントを色付きドットで示す
+ * ```tsx
+ * <MonthView
+ *   renderOverflowLabel={(day, ctx) => (
+ *     <>
+ *       {ctx.defaultContent}
+ *       {ctx.hiddenOccurrences.map((occurrence) => (
+ *         <span key={occurrence.key} data-dot style={{ background: occurrence.event.color }} />
+ *       ))}
+ *     </>
+ *   )}
+ * />
+ * ```
+ */
+export interface MonthOverflowLabelContext extends SlotRenderContext {
+  /** その日で「+N 件」に集約された非表示のオカレンス一覧（開始時刻順）。 */
+  hiddenOccurrences: readonly EventOccurrence[];
+}
+
+/**
  * インタラクションのコールバック集。
  *
  * すべて省略可能で、省略時は次の既定動作になる:

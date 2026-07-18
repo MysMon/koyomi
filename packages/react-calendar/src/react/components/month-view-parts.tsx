@@ -36,6 +36,7 @@ import type {
   EventContentContext,
   EventContentRenderer,
   MonthOverflowButtonProps,
+  MonthOverflowLabelContext,
   SlotRenderContext,
 } from '../types';
 import type { DayCellProps, DayDragHandlers } from '../use-day-drag';
@@ -473,8 +474,13 @@ interface MonthWeekRowProps {
   renderEventContent: EventContentRenderer | undefined;
   /** どのビューでの描画か（`EventContentContext.view` に渡す）。 */
   view: CalendarViewType;
-  /** 「+N 件」ラベルのカスタマイズ関数。 */
+  /** 「+N 件」ラベルの既定内容（中央メッセージカタログの `overflow` で整形）。 */
   overflowLabel: (count: number) => ReactNode;
+  /**
+   * 「+N 件」ラベルの内容のカスタマイズ関数。ボタンの内側の内容だけを差し替え、
+   * ボタン要素・クリック配線は保持される。
+   */
+  renderOverflowLabel: ((day: MonthDay, ctx: MonthOverflowLabelContext) => ReactNode) | undefined;
   /** 日セルの内容のカスタマイズ関数。 */
   renderDayCell: ((day: MonthDay, ctx: SlotRenderContext) => ReactNode) | undefined;
   /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
@@ -527,6 +533,7 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
     renderEventContent,
     view,
     overflowLabel,
+    renderOverflowLabel,
     renderDayCell,
     commonMessages,
     onDayNumberClick,
@@ -614,7 +621,12 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
                     onOverflowClick(day, hiddenOccurrencesAt(dayCol), visibleOccurrencesAt(dayCol))
                   }
                 >
-                  {overflowLabel(day.overflowCount)}
+                  {renderOverflowLabel
+                    ? renderOverflowLabel(day, {
+                        defaultContent: overflowLabel(day.overflowCount),
+                        hiddenOccurrences: hiddenOccurrencesAt(dayCol),
+                      })
+                    : overflowLabel(day.overflowCount)}
                 </button>
               )}
             </>
