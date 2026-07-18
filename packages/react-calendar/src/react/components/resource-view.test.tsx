@@ -222,7 +222,8 @@ describe('ResourceView - イベントブロック', () => {
     const eventEl = container.querySelector('[data-koyomi="timegrid-event"]');
     expect(eventEl).not.toBeNull();
     expect(eventEl?.getAttribute('aria-label')).toBe('定例会議、7月15日 10:00〜11:00、会議室A');
-    expect(eventEl?.textContent).toContain('10:00');
+    // 既定内容は週/日ビューの時間指定ブロックと同じ時刻範囲形式
+    expect(eventEl?.textContent).toContain('10:00〜11:00');
     expect(eventEl?.textContent).toContain('定例会議');
   });
 
@@ -374,7 +375,7 @@ describe('ResourceView - カスタム描画 props', () => {
     );
     const custom = container.querySelector('[data-koyomi="custom-event"]');
     expect(custom).not.toBeNull();
-    expect(custom?.textContent).toBe('timegrid-event|10:00|10:00 定例会議');
+    expect(custom?.textContent).toBe('timegrid-event|10:00〜11:00|10:00〜11:00 定例会議');
   });
 
   it('renderColumnHeader で列見出しの内容を差し替えられ、ctx.defaultContent には既定の内容が渡る', () => {

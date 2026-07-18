@@ -8,7 +8,7 @@
  * 両コンポーネントで完全に一致する。
  *
  * 非公開モジュール（`index.ts` から re-export しない）。
- * 一部のヘルパ（`withEventColorStyle` / `formatTimeLabel`）は
+ * 一部のヘルパ（`withEventColorStyle` / `formatTimeLabel` / `formatDateLabel`）は
  * リソースビュー・タイムラインビューのコンポーネントとも共有する。
  */
 
@@ -23,6 +23,7 @@ import type {
 import { memo, useRef, useState } from 'react';
 import { addDaysInZone, startOfDayInZone } from '../../core/timezone';
 import type {
+  CalendarViewType,
   DateRange,
   EventOccurrence,
   EventSegment,
@@ -35,6 +36,7 @@ import type {
   EventContentContext,
   EventContentRenderer,
   MonthOverflowButtonProps,
+  MonthOverflowLabelContext,
   SlotRenderContext,
 } from '../types';
 import type { DayCellProps, DayDragHandlers } from '../use-day-drag';
@@ -126,7 +128,7 @@ export function formatTimeLabel(date: Date, timeZone: TimeZoneId, locale: string
 }
 
 /** 日付ラベル（`'M月d日'` 相当）を Intl で生成する。 */
-function formatDateLabel(date: Date, timeZone: TimeZoneId, locale: string): string {
+export function formatDateLabel(date: Date, timeZone: TimeZoneId, locale: string): string {
   return getDateTimeFormat(locale, timeZone, 'date', {
     timeZone,
     month: 'long',
@@ -214,13 +216,15 @@ function monthSegmentContentContext(
   segment: EventSegment,
   timeZone: TimeZoneId,
   locale: string,
+  view: CalendarViewType,
 ): EventContentContext {
   const occurrence = segment.occurrence;
   if (occurrence.allDay || segment.span > 1) {
-    return titleOnlyEventContentContext('month-event', occurrence.event.title);
+    return titleOnlyEventContentContext('month-event', view, occurrence.event.title);
   }
   return timedTextEventContentContext(
     'month-event',
+    view,
     formatTimeLabel(occurrence.start, timeZone, locale),
     occurrence.event.title,
   );
@@ -468,8 +472,15 @@ interface MonthWeekRowProps {
   renderEvent: ((segment: EventSegment, ctx: EventContentContext) => ReactNode) | undefined;
   /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
   renderEventContent: EventContentRenderer | undefined;
-  /** 「+N 件」ラベルのカスタマイズ関数。 */
+  /** どのビューでの描画か（`EventContentContext.view` に渡す）。 */
+  view: CalendarViewType;
+  /** 「+N 件」ラベルの既定内容（中央メッセージカタログの `overflow` で整形）。 */
   overflowLabel: (count: number) => ReactNode;
+  /**
+   * 「+N 件」ラベルの内容のカスタマイズ関数。ボタンの内側の内容だけを差し替え、
+   * ボタン要素・クリック配線は保持される。
+   */
+  renderOverflowLabel: ((day: MonthDay, ctx: MonthOverflowLabelContext) => ReactNode) | undefined;
   /** 日セルの内容のカスタマイズ関数。 */
   renderDayCell: ((day: MonthDay, ctx: SlotRenderContext) => ReactNode) | undefined;
   /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
@@ -520,7 +531,9 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
     dayDrag,
     renderEvent,
     renderEventContent,
+    view,
     overflowLabel,
+    renderOverflowLabel,
     renderDayCell,
     commonMessages,
     onDayNumberClick,
@@ -608,7 +621,12 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
                     onOverflowClick(day, hiddenOccurrencesAt(dayCol), visibleOccurrencesAt(dayCol))
                   }
                 >
-                  {overflowLabel(day.overflowCount)}
+                  {renderOverflowLabel
+                    ? renderOverflowLabel(day, {
+                        defaultContent: overflowLabel(day.overflowCount),
+                        hiddenOccurrences: hiddenOccurrencesAt(dayCol),
+                      })
+                    : overflowLabel(day.overflowCount)}
                 </button>
               )}
             </>
@@ -645,6 +663,7 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
                     columnCount={columnCount}
                     renderEvent={renderEvent}
                     renderEventContent={renderEventContent}
+                    view={view}
                     commonMessages={commonMessages}
                     dayDrag={dayDrag}
                   />
@@ -678,6 +697,8 @@ const MonthEventButton = memo(function MonthEventButton(props: {
   renderEvent: ((segment: EventSegment, ctx: EventContentContext) => ReactNode) | undefined;
   /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
   renderEventContent: EventContentRenderer | undefined;
+  /** どのビューでの描画か（`EventContentContext.view` に渡す）。 */
+  view: CalendarViewType;
   /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
   commonMessages: CommonMessages;
   dayDrag: MonthDayDragHandlers;
@@ -689,6 +710,7 @@ const MonthEventButton = memo(function MonthEventButton(props: {
     columnCount,
     renderEvent,
     renderEventContent,
+    view,
     commonMessages,
     dayDrag,
   } = props;
@@ -727,7 +749,7 @@ const MonthEventButton = memo(function MonthEventButton(props: {
         renderEventContent,
         segment,
         occurrence,
-        monthSegmentContentContext(segment, timeZone, locale),
+        monthSegmentContentContext(segment, timeZone, locale, view),
       )}
       {/* 左右端のリサイズハンドル。editable:false、またはこの週で継続表示中の端では出さない */}
       {isEditable && !segment.continuesBefore && (

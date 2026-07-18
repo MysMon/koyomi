@@ -60,11 +60,13 @@ render prop が置き換えるのは**インタラクティブ要素の内側の
   | `'list-event'` | リストビュー（仮想化含む）の予定行 |
   | `'timeline-item'` | タイムラインビュー（仮想化含む）の帯 |
 
+- `ctx.view` — どのビューでの描画か（`CalendarViewType`）。同じスロットを複数のビューが使うため（`'timegrid-event'` は週/日ビューとリソースビュー、`'month-event'` は月ビューと複数月ビュー）、スロットが同じでもビューごとに内容を出し分けたいときの判別子に使います
+
 - `ctx.parts` — 既定内容を分解したパーツ（`EventContentParts` 型）。「時刻とタイトルの順序を入れ替える」「間に追加情報を挟む」を、既定の時刻整形や `data-koyomi` 部位を自前で再構築せずに書くための部品です
 
   | フィールド | 内容 |
   | --- | --- |
-  | `timeText` | 整形済みの時刻テキスト（`string`）。形式はスロットにより異なる（`month-event` は開始時刻 `'10:00'`、`timegrid-event`・`list-event` は範囲 `'10:00〜11:00'` 等）。既定内容が時刻を表示しないスロット（終日の帯・タイムラインの帯など）では `null` |
+  | `timeText` | 整形済みの時刻テキスト（`string`）。形式はスロットにより異なる（`month-event` は開始時刻 `'10:00'`、`timegrid-event`・`list-event`・`timeline-item` は範囲 `'10:00〜11:00'` 等）。`timeline-item` は既定内容に時刻を表示しないが、時間指定イベントでは整形済みの範囲がここに渡る（複数日にまたがる場合は日付付き `'7月15日 22:00〜7月16日 2:00'`）。時刻を表示しないもの（終日イベント・複数日にまたがる月の帯など）では `null` |
   | `titleText` | タイトル文字列（`event.title` そのまま） |
   | `time` | 時刻の既定部位。リスト行では `data-koyomi="list-event-time"` の要素、部位要素を持たないスロットでは `timeText` と同じ文字列 |
   | `swatch` | 色見本の既定部位（リスト行の `data-koyomi="list-event-swatch"` のみ。他スロットは `null`） |
@@ -86,7 +88,7 @@ render prop が置き換えるのは**インタラクティブ要素の内側の
 
 ## ビュー横断で一括定義する（renderEventContent）
 
-アプリの情報設計（何をどの優先度で出すか）はビューを跨いで一貫していることが多いため、`CalendarProvider` の `renderEventContent` prop で**すべてのビューのイベント内容を 1 箇所で定義**できます。
+アプリの情報設計（何をどの優先度で出すか）はビューを跨いで一貫していることが多いため、`CalendarProvider` の `renderEventContent` prop で**すべてのビューのイベント内容を 1 箇所で定義**できます。対象は上表の 5 スロットすべてです（年ビューはイベント内容そのものを描画せず、日セルに件数マーカーを出すだけのため対象外です。年ビューの日セルは `renderDayCell` でカスタマイズできます）。
 
 ```tsx
 import type { EventContentRenderer } from '@koyomi-cal/react';
@@ -153,6 +155,27 @@ function App() {
 />
 ```
 
+### 「+N 件」に集約された予定を色付きドットで示す
+
+「+N 件」ボタンのラベルは `renderOverflowLabel`（`CalendarView` 経由では
+`renderMonthOverflowLabel` / `renderMultiMonthOverflowLabel`）で差し替えられます。
+ボタン要素・クリック配線（`onOverflowClick`）は保持され、内側だけが差し替わります。
+
+```tsx
+<MonthView
+  renderOverflowLabel={(day, ctx) => (
+    <>
+      {ctx.defaultContent}
+      {ctx.hiddenOccurrences.map((occurrence) => (
+        <span key={occurrence.key} className="dot" style={{ background: occurrence.event.color }} />
+      ))}
+    </>
+  )}
+/>
+```
+
+文言（「+N 件」の表記そのもの）だけを変えたい場合は、このスロットではなく中央メッセージカタログ（`messages.month.overflow` / `messages.multiMonth.overflow`）を使ってください。
+
 ### ビューによって情報量を変える
 
 ```tsx
@@ -160,6 +183,15 @@ const renderEventContent: EventContentRenderer = (occurrence, ctx) => {
   if (ctx.slot === 'month-event') {
     // 月の帯は狭いのでタイトルのみ
     return ctx.parts.title;
+  }
+  if (ctx.view === 'resource') {
+    // 同じ 'timegrid-event' スロットでも、リソースビューだけ場所を追記する
+    return (
+      <>
+        {ctx.defaultContent}
+        <span>{occurrence.event.location}</span>
+      </>
+    );
   }
   return (
     <>

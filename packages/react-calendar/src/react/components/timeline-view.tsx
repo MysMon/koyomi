@@ -35,6 +35,7 @@ import { withEventColorStyle } from './month-view-parts';
 import { ariaLabelWithResource } from './resource-view-parts';
 import type { TimelineRowDragHandlers } from './timeline-view-parts';
 import {
+  formatTimelineItemTimeText,
   sameBusinessHourRanges,
   samePreviewSegment,
   sameTimelineRow,
@@ -344,7 +345,17 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
                   renderEventContent,
                   item,
                   occurrence,
-                  titleOnlyEventContentContext('timeline-item', occurrence.event.title),
+                  titleOnlyEventContentContext(
+                    'timeline-item',
+                    'timeline',
+                    occurrence.event.title,
+                    formatTimelineItemTimeText(
+                      occurrence,
+                      timeZone,
+                      locale,
+                      commonMessages.rangeSeparator,
+                    ),
+                  ),
                 )}
               </div>
               {isEditable && !occurrence.allDay && !item.continuesBefore && (

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { DateRange } from '../../core/types';
 import {
+  formatClockLabel,
+  formatClockRangeLabel,
   formatDayHeader,
   formatDayTitle,
   formatMonthTitle,
@@ -24,6 +26,25 @@ describe('formatTime', () => {
     expect(formatTime(instant, 'Asia/Tokyo', 'ja')).toBe('10:00');
     // NY は東京より 13 時間遅れ（夏時間中）のため前日 21:00
     expect(formatTime(instant, 'America/New_York', 'ja')).toBe('21:00');
+  });
+});
+
+describe('formatClockLabel', () => {
+  it('1 日の中の分を、実行環境のタイムゾーンに依存せず時刻ラベルにする', () => {
+    expect(formatClockLabel(600, 'ja')).toBe('10:00');
+    expect(formatClockLabel(0, 'ja')).toBe('0:00');
+    expect(formatClockLabel(1439, 'ja')).toBe('23:59');
+  });
+
+  it('ロケールの慣習に従う（en-US は 12 時間制）', () => {
+    expect(formatClockLabel(600, 'en-US')).toBe('10:00 AM');
+  });
+});
+
+describe('formatClockRangeLabel', () => {
+  it('開始・終了の分を「開始〜終了」の範囲ラベルにする', () => {
+    expect(formatClockRangeLabel(600, 660, 'ja')).toBe('10:00〜11:00');
+    expect(formatClockRangeLabel(600, 660, 'en-US')).toBe('10:00 AM〜11:00 AM');
   });
 });
 

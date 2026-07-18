@@ -253,6 +253,7 @@ export type {
   EventContentSlot,
   EventDelete,
   MonthOverflowButtonProps,
+  MonthOverflowLabelContext,
   OverflowClickDetails,
   RangeSelection,
   SlotRenderContext,

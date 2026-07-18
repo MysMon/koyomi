@@ -33,8 +33,9 @@ function makeOccurrence(): EventOccurrence {
 
 describe('timedTextEventContentContext', () => {
   it('「時刻テキスト＋半角スペース＋タイトル」の既定内容と、分解済みパーツを組み立てる', () => {
-    const ctx = timedTextEventContentContext('timegrid-event', '10:00〜11:00', '会議');
+    const ctx = timedTextEventContentContext('timegrid-event', 'week', '10:00〜11:00', '会議');
     expect(ctx.slot).toBe('timegrid-event');
+    expect(ctx.view).toBe('week');
     expect(ctx.defaultContent).toBe('10:00〜11:00 会議');
     expect(ctx.parts.timeText).toBe('10:00〜11:00');
     expect(ctx.parts.titleText).toBe('会議');
@@ -43,18 +44,35 @@ describe('timedTextEventContentContext', () => {
     expect(ctx.parts.title).toBe('会議');
     expect(ctx.parts.swatch).toBeNull();
   });
+
+  it('同じスロットでもビューごとに ctx.view で判別できる', () => {
+    const ctx = timedTextEventContentContext('timegrid-event', 'resource', '10:00〜11:00', '会議');
+    expect(ctx.slot).toBe('timegrid-event');
+    expect(ctx.view).toBe('resource');
+  });
 });
 
 describe('titleOnlyEventContentContext', () => {
   it('タイトルのみの既定内容を組み立て、時刻パーツは null になる', () => {
-    const ctx = titleOnlyEventContentContext('allday-event', '出張');
+    const ctx = titleOnlyEventContentContext('allday-event', 'week', '出張');
     expect(ctx.slot).toBe('allday-event');
+    expect(ctx.view).toBe('week');
     expect(ctx.defaultContent).toBe('出張');
     expect(ctx.parts.timeText).toBeNull();
     expect(ctx.parts.time).toBeNull();
     expect(ctx.parts.swatch).toBeNull();
     expect(ctx.parts.titleText).toBe('出張');
     expect(ctx.parts.title).toBe('出張');
+  });
+
+  it('整形済み時刻テキストを渡すと、既定内容はタイトルのみのまま parts に時刻が載る', () => {
+    // タイムラインの帯（timeline-item）: 既定内容には時刻を表示しないが、
+    // カスタム描画からは parts.timeText で整形済み時刻を差し込める
+    const ctx = titleOnlyEventContentContext('timeline-item', 'timeline', '会議', '10:00〜11:00');
+    expect(ctx.defaultContent).toBe('会議');
+    expect(ctx.parts.timeText).toBe('10:00〜11:00');
+    expect(ctx.parts.time).toBe('10:00〜11:00');
+    expect(ctx.parts.title).toBe('会議');
   });
 });
 
@@ -71,6 +89,7 @@ describe('listEventContentContext', () => {
       title,
     });
     expect(ctx.slot).toBe('list-event');
+    expect(ctx.view).toBe('list');
     expect(ctx.parts.timeText).toBe('10:00〜11:00');
     expect(ctx.parts.titleText).toBe('会議');
     expect(ctx.parts.time).toBe(time);
@@ -100,7 +119,11 @@ describe('listEventContentContext', () => {
 describe('resolveEventContent', () => {
   const occurrence = makeOccurrence();
   const item = { occurrence, marker: 'view-item' };
-  const ctx: EventContentContext = titleOnlyEventContentContext('timeline-item', '会議');
+  const ctx: EventContentContext = titleOnlyEventContentContext(
+    'timeline-item',
+    'timeline',
+    '会議',
+  );
 
   it('ビュー個別の render prop があればそれを (item, ctx) で呼び、中央レンダラーは呼ばない', () => {
     const renderEvent = vi.fn().mockReturnValue('個別');

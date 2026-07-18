@@ -87,6 +87,52 @@ describe('CalendarView', () => {
       );
     });
 
+    it('renderMonthOverflowLabel が MonthView の renderOverflowLabel へ転送される', () => {
+      const events: CalendarEvent[] = [
+        { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+        { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+        { id: 'e3', title: 'C', start: '2026-07-08T11:00', end: '2026-07-08T11:30' },
+        { id: 'e4', title: 'D', start: '2026-07-08T12:00', end: '2026-07-08T12:30' },
+        { id: 'e5', title: 'E', start: '2026-07-08T13:00', end: '2026-07-08T13:30' },
+      ];
+      const { container } = renderView(
+        'month',
+        {
+          renderMonthOverflowLabel: (_day, ctx) => (
+            <span data-testid="custom-overflow">残り{ctx.hiddenOccurrences.length}件</span>
+          ),
+        },
+        events,
+      );
+      const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+      expect(overflowButton?.querySelector('[data-testid="custom-overflow"]')?.textContent).toBe(
+        '残り1件',
+      );
+    });
+
+    it('renderMultiMonthOverflowLabel が MultiMonthView の renderOverflowLabel へ転送される', () => {
+      const events: CalendarEvent[] = [
+        { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+        { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+        { id: 'e3', title: 'C', start: '2026-07-08T11:00', end: '2026-07-08T11:30' },
+        { id: 'e4', title: 'D', start: '2026-07-08T12:00', end: '2026-07-08T12:30' },
+        { id: 'e5', title: 'E', start: '2026-07-08T13:00', end: '2026-07-08T13:30' },
+      ];
+      const { container } = renderView(
+        'multiMonth',
+        {
+          renderMultiMonthOverflowLabel: (_day, ctx) => (
+            <span data-testid="custom-overflow">残り{ctx.hiddenOccurrences.length}件</span>
+          ),
+        },
+        events,
+      );
+      const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+      expect(overflowButton?.querySelector('[data-testid="custom-overflow"]')?.textContent).toBe(
+        '残り1件',
+      );
+    });
+
     it('renderTimeGridEvent が TimeGridView へ転送される', () => {
       const { container } = renderView('week', {
         renderTimeGridEvent: (item) => (
@@ -515,14 +561,17 @@ describe('CalendarView', () => {
     const RESOURCES: readonly CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
 
     /** `renderEventContent` 付きで `CalendarView` を描画する。 */
-    function renderWithCentral(initialView: CalendarViewType) {
+    function renderWithCentral(
+      initialView: CalendarViewType,
+      events: readonly CalendarEvent[] = EVENTS,
+    ) {
       function Harness(): ReactElement {
         const calendar = useCalendar({
           timeZone: 'Asia/Tokyo',
           now: () => NOW,
           initialDate: NOW,
           initialView,
-          events: EVENTS,
+          events,
           resources: RESOURCES,
         });
         return (
@@ -539,13 +588,48 @@ describe('CalendarView', () => {
       ['week', 'timegrid-event', '10:00〜11:00 会議＠会議室A'],
       ['list', 'list-event', '10:00〜11:00会議＠会議室A'],
       ['multiMonth', 'month-event', '10:00 会議＠会議室A'],
-      ['resource', 'timegrid-event', '10:00 会議＠会議室A'],
+      ['resource', 'timegrid-event', '10:00〜11:00 会議＠会議室A'],
       ['timeline', 'timeline-item', '会議＠会議室A'],
     ] as const)('中央定義 1 箇所が %s ビューのイベント内容に適用され、既定の時刻表示も保たれる', (view, part, expected) => {
       const { container } = renderWithCentral(view);
       const eventEl = container.querySelector(`[data-koyomi="${part}"]`);
       expect(eventEl?.querySelector('[data-testid="loc"]')?.textContent).toBe('＠会議室A');
       expect(eventEl?.textContent).toBe(expected);
+    });
+
+    it.each([
+      ['month', 'month'],
+      ['week', 'week'],
+      ['day', 'day'],
+      ['list', 'list'],
+      ['multiMonth', 'multiMonth'],
+      ['resource', 'resource'],
+      ['timeline', 'timeline'],
+    ] as const)('%s ビューでは ctx.view に %s が渡り、スロットが同じでもビューを判別できる', (view, expected) => {
+      const seenViews = new Set<string>();
+      function Harness(): ReactElement {
+        const calendar = useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          initialView: view,
+          events: EVENTS,
+          resources: RESOURCES,
+        });
+        return (
+          <CalendarProvider
+            value={calendar}
+            renderEventContent={(_occurrence, ctx) => {
+              seenViews.add(ctx.view);
+              return ctx.defaultContent;
+            }}
+          >
+            <CalendarView />
+          </CalendarProvider>
+        );
+      }
+      render(<Harness />);
+      expect(Array.from(seenViews)).toEqual([expected]);
     });
 
     it('renderEventContent を使っても aria-label とリサイズハンドル（ドラッグ配線）は保たれる', () => {
@@ -558,6 +642,46 @@ describe('CalendarView', () => {
       const weekEvent = weekContainer.querySelector('[data-koyomi="timegrid-event"]');
       expect(weekEvent).toHaveAttribute('aria-label', '会議、7月15日 10:00〜11:00');
       expect(weekEvent?.querySelectorAll('[data-koyomi="timegrid-resize"]')).toHaveLength(2);
+    });
+
+    it('renderEventContent を使っても、リスト行・リソースのブロック・タイムラインの帯で境界（ボタン要素・aria-label・リサイズハンドル）は保たれる', () => {
+      const { container: listContainer } = renderWithCentral('list');
+      const listEvent = listContainer.querySelector('[data-koyomi="list-event"]');
+      expect(listEvent?.tagName).toBe('BUTTON');
+      expect(listEvent).toHaveAttribute('aria-label', '会議、7月15日 10:00〜11:00');
+
+      const { container: resourceContainer } = renderWithCentral('resource');
+      const resourceEvent = resourceContainer.querySelector('[data-koyomi="timegrid-event"]');
+      expect(resourceEvent?.tagName).toBe('BUTTON');
+      expect(resourceEvent).toHaveAttribute('aria-label', '会議、7月15日 10:00〜11:00、会議室A');
+      expect(resourceEvent?.querySelectorAll('[data-koyomi="timegrid-resize"]')).toHaveLength(2);
+
+      const { container: timelineContainer } = renderWithCentral('timeline');
+      const timelineItem = timelineContainer.querySelector('[data-koyomi="timeline-item"]');
+      expect(timelineItem?.tagName).toBe('BUTTON');
+      expect(timelineItem).toHaveAttribute('aria-label', '会議、7月15日 10:00〜11:00、会議室A');
+      expect(timelineItem?.querySelectorAll('[data-koyomi="timeline-resize"]')).toHaveLength(2);
+    });
+
+    it('renderEventContent を使っても、終日帯（allday-event）の aria-label とリサイズハンドルは保たれる', () => {
+      const allDayEvents: readonly CalendarEvent[] = [
+        {
+          id: 'ad1',
+          title: '休暇',
+          start: '2026-07-14',
+          end: '2026-07-16',
+          allDay: true,
+          location: '軽井沢',
+          resourceId: 'room-a',
+        },
+      ];
+      const { container } = renderWithCentral('week', allDayEvents);
+      const alldayEvent = container.querySelector('[data-koyomi="allday-event"]');
+      expect(alldayEvent?.tagName).toBe('BUTTON');
+      // 中央定義（＠場所）が終日帯にも適用されている
+      expect(alldayEvent?.querySelector('[data-testid="loc"]')?.textContent).toBe('＠軽井沢');
+      expect(alldayEvent).toHaveAttribute('aria-label', '休暇、7月14日〜7月15日');
+      expect(alldayEvent?.querySelectorAll('[data-koyomi="allday-resize"]')).toHaveLength(2);
     });
   });
 });

@@ -24,6 +24,7 @@ import type {
   EventContentContext,
   EventContentRenderer,
   MonthOverflowButtonProps,
+  MonthOverflowLabelContext,
   SlotRenderContext,
 } from '../types';
 import { useCalendar } from '../use-calendar';
@@ -54,6 +55,7 @@ function Harness(props: {
     day: MonthDay,
     hiddenOccurrences: readonly EventOccurrence[],
   ) => MonthOverflowButtonProps;
+  renderOverflowLabel?: (day: MonthDay, ctx: MonthOverflowLabelContext) => ReactNode;
   messages?: MessageCatalogOverrides;
   apiRef?: { current: CalendarApi | null };
 }): ReactElement {
@@ -87,6 +89,9 @@ function Harness(props: {
         {...(props.renderDayCell !== undefined ? { renderDayCell: props.renderDayCell } : {})}
         {...(props.overflowButtonProps !== undefined
           ? { overflowButtonProps: props.overflowButtonProps }
+          : {})}
+        {...(props.renderOverflowLabel !== undefined
+          ? { renderOverflowLabel: props.renderOverflowLabel }
           : {})}
       />
     </CalendarProvider>
@@ -414,6 +419,55 @@ describe('MonthView - イベントセグメント', () => {
     const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
     expect(overflowButton).not.toBeNull();
     expect(overflowButton?.textContent).toBe('+2 件');
+  });
+
+  it('renderOverflowLabel で「+N 件」の内容を差し替えられ、ctx に既定内容と非表示オカレンスが渡る', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+      { id: 'e3', title: 'C', start: '2026-07-08T11:00', end: '2026-07-08T11:30' },
+    ];
+    const { container } = render(
+      <Harness
+        events={events}
+        dayMaxEvents={1}
+        renderOverflowLabel={(day, ctx) => (
+          <span data-testid="custom-overflow">
+            {day.key}|{ctx.hiddenOccurrences.map((occurrence) => occurrence.event.title).join(',')}|
+            {ctx.defaultContent}
+          </span>
+        )}
+      />,
+    );
+
+    // 外側のボタン要素（data-koyomi="month-overflow"）は保持されたまま、内側だけが差し替わる
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    expect(overflowButton).not.toBeNull();
+    expect(overflowButton?.querySelector('[data-testid="custom-overflow"]')?.textContent).toBe(
+      '2026-07-08|B,C|+2 件',
+    );
+  });
+
+  it('renderOverflowLabel を使っても「+N 件」クリックの配線（onOverflowClick）は保たれる', () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'A', start: '2026-07-08T09:00', end: '2026-07-08T09:30' },
+      { id: 'e2', title: 'B', start: '2026-07-08T10:00', end: '2026-07-08T10:30' },
+    ];
+    const onOverflowClick = vi.fn();
+    const { container } = render(
+      <Harness
+        events={events}
+        dayMaxEvents={1}
+        callbacks={{ onOverflowClick }}
+        renderOverflowLabel={(_day, ctx) => <strong>{ctx.defaultContent}</strong>}
+      />,
+    );
+    const overflowButton = container.querySelector('[data-koyomi="month-overflow"]');
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('overflow button not found');
+    }
+    fireEvent.click(overflowButton);
+    expect(onOverflowClick).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -22,6 +22,7 @@
 import type { ReactElement, ReactNode } from 'react';
 import { useCallback } from 'react';
 import type {
+  CalendarViewType,
   DateRange,
   EventOccurrence,
   EventSegment,
@@ -35,6 +36,7 @@ import type {
   EventContentContext,
   EventContentRenderer,
   MonthOverflowButtonProps,
+  MonthOverflowLabelContext,
   SlotRenderContext,
 } from '../types';
 import { useDayDrag } from '../use-day-drag';
@@ -79,6 +81,14 @@ export interface MultiMonthViewProps {
     day: MonthDay,
     hiddenOccurrences: readonly EventOccurrence[],
   ) => MonthOverflowButtonProps;
+  /**
+   * 「+N 件」ボタンのラベル内容をカスタマイズするスロット（`MonthView` の
+   * `renderOverflowLabel` と同じ仕様。既定ラベルの整形には中央メッセージカタログの
+   * `multiMonth.overflow` が使われる）。
+   * @param day - 対象の日
+   * @param ctx - 既定内容・非表示オカレンス一覧
+   */
+  renderOverflowLabel?: (day: MonthDay, ctx: MonthOverflowLabelContext) => ReactNode;
 }
 
 /**
@@ -99,7 +109,7 @@ export interface MultiMonthViewProps {
  * ```
  */
 export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null {
-  const { renderEvent, renderDayCell, overflowButtonProps } = props;
+  const { renderEvent, renderDayCell, overflowButtonProps, renderOverflowLabel } = props;
   const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const calendar = { api, state, viewModel };
   // コンポーネント全体で 1 インスタンス（モジュール冒頭の TSDoc を参照）。
@@ -176,7 +186,9 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
           dayDrag={stableDayDrag}
           renderEvent={renderEvent}
           renderEventContent={renderEventContent}
+          view="multiMonth"
           overflowLabel={messages.multiMonth.overflow}
+          renderOverflowLabel={renderOverflowLabel}
           renderDayCell={renderDayCell}
           commonMessages={messages.common}
           onDayNumberClick={handleDayNumberClick}
@@ -214,6 +226,10 @@ function MultiMonthMonthSection(props: {
   renderEvent: ((segment: EventSegment, ctx: EventContentContext) => ReactNode) | undefined;
   /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
   renderEventContent: EventContentRenderer | undefined;
+  /** どのビューでの描画か（`EventContentContext.view` に渡す）。 */
+  view: CalendarViewType;
+  /** 「+N 件」ラベルの内容のカスタマイズ関数（{@link MonthWeekRow} へ転送）。 */
+  renderOverflowLabel: ((day: MonthDay, ctx: MonthOverflowLabelContext) => ReactNode) | undefined;
   /** 「+N 件」ラベルのカスタマイズ関数。 */
   overflowLabel: (count: number) => ReactNode;
   /** 日セルの内容のカスタマイズ関数。 */
@@ -250,7 +266,9 @@ function MultiMonthMonthSection(props: {
     dayDrag,
     renderEvent,
     renderEventContent,
+    view,
     overflowLabel,
+    renderOverflowLabel,
     renderDayCell,
     commonMessages,
     onDayNumberClick,
@@ -299,7 +317,9 @@ function MultiMonthMonthSection(props: {
               dayDrag={dayDrag}
               renderEvent={renderEvent}
               renderEventContent={renderEventContent}
+              view={view}
               overflowLabel={overflowLabel}
+              renderOverflowLabel={renderOverflowLabel}
               renderDayCell={renderDayCell}
               commonMessages={commonMessages}
               onDayNumberClick={onDayNumberClick}

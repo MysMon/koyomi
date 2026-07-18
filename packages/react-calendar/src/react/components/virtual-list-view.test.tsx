@@ -12,8 +12,13 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { CalendarEvent, EventOccurrence, ListDay } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { MessageCatalogOverrides } from '../locales/types';
-import type { CalendarInteractionCallbacks } from '../types';
+import type {
+  CalendarInteractionCallbacks,
+  EventContentContext,
+  EventContentRenderer,
+} from '../types';
 import { useCalendar } from '../use-calendar';
+import type { VirtualListViewProps } from './virtual-list-view';
 import { VirtualListView } from './virtual-list-view';
 
 class NoopResizeObserver {
@@ -63,6 +68,8 @@ function TestVirtualList(props: {
   listDays?: number;
   estimateDayHeight?: number;
   messages?: MessageCatalogOverrides;
+  viewProps?: VirtualListViewProps;
+  renderEventContent?: EventContentRenderer;
 }): ReactElement {
   const calendar = useCalendar({
     timeZone: 'Asia/Tokyo',
@@ -77,8 +84,14 @@ function TestVirtualList(props: {
       value={calendar}
       {...(props.callbacks !== undefined ? { callbacks: props.callbacks } : {})}
       {...(props.messages !== undefined ? { messages: props.messages } : {})}
+      {...(props.renderEventContent !== undefined
+        ? { renderEventContent: props.renderEventContent }
+        : {})}
     >
-      <VirtualListView estimateDayHeight={props.estimateDayHeight ?? 50} />
+      <VirtualListView
+        estimateDayHeight={props.estimateDayHeight ?? 50}
+        {...(props.viewProps ?? {})}
+      />
     </CalendarProvider>
   );
 }
@@ -385,5 +398,58 @@ describe('VirtualListView', () => {
         />,
       ),
     ).not.toThrow();
+  });
+});
+
+describe('VirtualListView - カスタム描画 props', () => {
+  it('renderEvent で行の内容を差し替えられ、ctx.parts の部位ノード（data-koyomi 付き）を並べ替えに使える', () => {
+    const events: CalendarEvent[] = [
+      { id: 'a', title: '朝会', start: '2026-07-16T09:00:00', end: '2026-07-16T09:30:00' },
+    ];
+    const renderEvent = (_occurrence: EventOccurrence, ctx: EventContentContext): ReactElement => (
+      <>
+        {ctx.parts.title}
+        {ctx.parts.time}
+      </>
+    );
+    const { container } = render(
+      <TestVirtualList events={events} listDays={40} viewProps={{ renderEvent }} />,
+    );
+    const button = container.querySelector('[data-koyomi="list-event"]');
+    expect(button).not.toBeNull();
+    // タイトル → 時刻の順に並べ替えられ、data-koyomi 部位はそのまま
+    const parts = Array.from(button?.querySelectorAll('[data-koyomi]') ?? []).map((el) =>
+      el.getAttribute('data-koyomi'),
+    );
+    expect(parts).toEqual(['list-event-title', 'list-event-time']);
+    expect(button?.textContent).toBe('朝会09:00〜09:30');
+  });
+
+  it('CalendarProvider の renderEventContent が行に適用され、ボタン要素と aria-label は保たれる', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'a',
+        title: '朝会',
+        start: '2026-07-16T09:00:00',
+        end: '2026-07-16T09:30:00',
+        location: '第1会議室',
+      },
+    ];
+    const { container } = render(
+      <TestVirtualList
+        events={events}
+        listDays={40}
+        renderEventContent={(occurrence, ctx) => (
+          <>
+            {ctx.defaultContent}
+            <span data-testid="loc">＠{occurrence.event.location}</span>
+          </>
+        )}
+      />,
+    );
+    const button = container.querySelector('[data-koyomi="list-event"]');
+    expect(button?.tagName).toBe('BUTTON');
+    expect(button?.querySelector('[data-testid="loc"]')?.textContent).toBe('＠第1会議室');
+    expect(button).toHaveAttribute('aria-label', '朝会、7月16日 9:00〜9:30');
   });
 });

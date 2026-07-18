@@ -24,6 +24,7 @@ import { memo, useRef, useState } from 'react';
 import type {
   BusinessHourRange,
   CalendarResource,
+  EventOccurrence,
   TimelineDay,
   TimelineHeaderGroup,
   TimelineItem,
@@ -34,6 +35,41 @@ import type {
 } from '../../core/types';
 import type { TimelineDragHandlers, TimelinePreviewSegment } from '../use-timeline-drag';
 import { formatDayHeader, formatMonthTitle, formatRangeTitle } from './format';
+import { formatDateLabel, formatTimeLabel } from './month-view-parts';
+
+/**
+ * タイムラインの帯（`timeline-item`）の `parts.timeText` 用に、時間指定イベントの
+ * 整形済み時刻範囲を組み立てる。
+ *
+ * 既定内容（タイトルのみ）には表示しないが、カスタム描画スロット・中央
+ * `renderEventContent` から既定の整形を再構築せずに時刻を差し込めるようにする。
+ * 単日なら時刻のみ（`'9:00〜11:00'`）、複数日にまたがる場合は日付付き
+ * （`'7月15日 22:00〜7月16日 2:00'`）。終日イベントは時刻を持たないため `null`。
+ *
+ * @param occurrence - 対象のオカレンス
+ * @param timeZone - 表示タイムゾーン
+ * @param locale - ロケール
+ * @param rangeSeparator - 開始側・終了側を連結する区切り記号
+ *   （{@link MessageCatalog.common.rangeSeparator}）
+ * @returns 整形済みの時刻範囲テキスト（終日イベントは `null`）
+ */
+export function formatTimelineItemTimeText(
+  occurrence: EventOccurrence,
+  timeZone: TimeZoneId,
+  locale: string,
+  rangeSeparator: string,
+): string | null {
+  if (occurrence.allDay) {
+    return null;
+  }
+  const startDateLabel = formatDateLabel(occurrence.start, timeZone, locale);
+  const endDateLabel = formatDateLabel(occurrence.end, timeZone, locale);
+  const startTime = formatTimeLabel(occurrence.start, timeZone, locale);
+  const endTime = formatTimeLabel(occurrence.end, timeZone, locale);
+  return startDateLabel === endDateLabel
+    ? `${startTime}${rangeSeparator}${endTime}`
+    : `${startDateLabel} ${startTime}${rangeSeparator}${endDateLabel} ${endTime}`;
+}
 
 /** 1 日の分（24:00 = 1440 分）。 */
 export const MINUTES_PER_DAY = 1440;

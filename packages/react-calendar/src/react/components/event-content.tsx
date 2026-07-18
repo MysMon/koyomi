@@ -12,28 +12,31 @@
  */
 
 import type { ReactNode } from 'react';
-import type { EventOccurrence } from '../../core/types';
+import type { CalendarViewType, EventOccurrence } from '../../core/types';
 import type { EventContentContext, EventContentRenderer, EventContentSlot } from '../types';
 
 /**
  * 「時刻テキスト＋半角スペース＋タイトル」型スロットのコンテキストを組み立てる。
  *
  * 月ビューの帯（開始時刻）・時間グリッドのブロック（時刻範囲）・リソースビューの
- * 時間指定ブロック（開始時刻）が使う。部位要素を持たないスロットのため、
+ * 時間指定ブロック（時刻範囲）が使う。部位要素を持たないスロットのため、
  * `parts.time` / `parts.title` はテキストそのものになる。
  *
  * @param slot - 描画枠の種別
+ * @param view - どのビューでの描画か
  * @param timeText - 整形済みの時刻テキスト
  * @param titleText - タイトル文字列
  * @returns 組み立てたコンテキスト
  */
 export function timedTextEventContentContext(
   slot: EventContentSlot,
+  view: CalendarViewType,
   timeText: string,
   titleText: string,
 ): EventContentContext {
   return {
     slot,
+    view,
     defaultContent: `${timeText} ${titleText}`,
     parts: { timeText, titleText, time: timeText, swatch: null, title: titleText },
   };
@@ -46,17 +49,24 @@ export function timedTextEventContentContext(
  * 終日/複数日セグメントなど、既定内容が時刻を表示しないスロットが使う。
  *
  * @param slot - 描画枠の種別
+ * @param view - どのビューでの描画か
  * @param titleText - タイトル文字列
- * @returns 組み立てたコンテキスト（時刻パーツは `null`）
+ * @param timeText - 整形済みの時刻テキスト。既定内容には表示しないが、
+ *   `parts.timeText` / `parts.time` としてカスタム描画から差し込めるようにする
+ *   （タイムラインの帯の時間指定イベントが使う）。時刻を持たないスロットでは省略する
+ * @returns 組み立てたコンテキスト
  */
 export function titleOnlyEventContentContext(
   slot: EventContentSlot,
+  view: CalendarViewType,
   titleText: string,
+  timeText: string | null = null,
 ): EventContentContext {
   return {
     slot,
+    view,
     defaultContent: titleText,
-    parts: { timeText: null, titleText, time: null, swatch: null, title: titleText },
+    parts: { timeText, titleText, time: timeText, swatch: null, title: titleText },
   };
 }
 
@@ -88,6 +98,8 @@ export function listEventContentContext(args: ListEventContentContextArgs): Even
   const { timeText, time, swatch, titleText, title } = args;
   return {
     slot: 'list-event',
+    // リスト行スロットはリストビュー（仮想化含む）専用のため、ビューは固定
+    view: 'list',
     defaultContent: (
       <>
         {time}

@@ -343,7 +343,7 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"] (style: --koyomi-tim
         button[data-koyomi="timegrid-event"] × n           … getEventProps を展開
            [data-continues-before?][data-continues-after?][data-koyomi-dragging?]
            style: top/height/left/width すべて %
-          div[data-koyomi="timegrid-event-content"]        … 内容既定: 開始時刻＋タイトル
+          div[data-koyomi="timegrid-event-content"]        … 内容既定: 時刻範囲＋タイトル（週/日ビューと同形式）
           div[data-koyomi="timegrid-resize"][data-edge="start"]?
              … getResizeHandleProps(item, 'start')（editable: false / continuesBefore には出力しない）
           div[data-koyomi="timegrid-resize"][data-edge="end"]?

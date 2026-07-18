@@ -29,6 +29,7 @@ import { memo, useCallback, useImperativeHandle, useLayoutEffect, useRef, useSta
 import { addDaysInZone, startOfDayInZone } from '../../core/timezone';
 import type {
   BusinessHourSlot,
+  CalendarViewType,
   DateRange,
   EventOccurrence,
   EventSegment,
@@ -51,7 +52,7 @@ import {
   timedTextEventContentContext,
   titleOnlyEventContentContext,
 } from './event-content';
-import { formatTimeZoneLabel, formatWeekday } from './format';
+import { formatClockRangeLabel, formatTimeZoneLabel, formatWeekday } from './format';
 import {
   percentOfSlotRange,
   withEventColorStyle,
@@ -128,47 +129,18 @@ export interface TimeGridViewHandle {
 }
 
 /**
- * {@link formatClockLabel} が使う `Intl.DateTimeFormat` インスタンスのキャッシュ。
- * ロケールごとに 1 つだけ生成して使い回す。
- */
-const clockLabelFormatterCache = new Map<string, Intl.DateTimeFormat>();
-
-/**
- * `formatClockLabel` 用の `Intl.DateTimeFormat` をロケールごとにキャッシュして返す。
- */
-function getClockLabelFormatter(locale: string): Intl.DateTimeFormat {
-  const cached = clockLabelFormatterCache.get(locale);
-  if (cached !== undefined) {
-    return cached;
-  }
-  const formatter = new Intl.DateTimeFormat(locale, {
-    hour: 'numeric',
-    minute: '2-digit',
-    // 実行環境のローカル TZ の影響を受けないよう、日付部分を固定した「架空の UTC 時刻」
-    // として整形する（時刻の大小関係のみが意味を持つ値のため、実際の年月日は無関係）。
-    timeZone: 'UTC',
-  });
-  clockLabelFormatterCache.set(locale, formatter);
-  return formatter;
-}
-
-/** 分（0〜1440）を、ロケールに応じた時刻ラベル（時は非ゼロ埋め）にする。 */
-function formatClockLabel(minutes: number, locale: string): string {
-  const fakeUtcDate = new Date(Date.UTC(2000, 0, 1, 0, 0) + minutes * 60_000);
-  return getClockLabelFormatter(locale).format(fakeUtcDate);
-}
-
-/**
  * 時間指定イベント（`timegrid-event`）のイベント内容コンテキストを組み立てる。
  * 既定内容は `'H:mm〜H:mm タイトル'`。
  */
 function timegridEventContentContext(
   item: PositionedOccurrence,
   locale: string,
+  view: CalendarViewType,
 ): EventContentContext {
   return timedTextEventContentContext(
     'timegrid-event',
-    `${formatClockLabel(item.startMinutes, locale)}〜${formatClockLabel(item.endMinutes, locale)}`,
+    view,
+    formatClockRangeLabel(item.startMinutes, item.endMinutes, locale),
     item.occurrence.event.title,
   );
 }
@@ -683,6 +655,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
                         renderAllDayEvent={renderAllDayEvent}
                         renderEventContent={renderEventContent}
                         commonMessages={commonMessages}
+                        view={state.view}
                       />
                     ))}
                 </div>
@@ -735,6 +708,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
               drag={stableDrag}
               isDragging={timeGridDrag.isDragging}
               preview={timeGridDrag.previewFor(day)}
+              view={state.view}
             />
           ))}
         </div>
@@ -773,6 +747,8 @@ function AllDaySegmentButton(props: {
   renderEventContent: EventContentRenderer | undefined;
   /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
   commonMessages: CommonMessages;
+  /** どのビューでの描画か（`EventContentContext.view` に渡す）。 */
+  view: CalendarViewType;
 }): ReactElement {
   const {
     segment,
@@ -783,6 +759,7 @@ function AllDaySegmentButton(props: {
     renderAllDayEvent,
     renderEventContent,
     commonMessages,
+    view,
   } = props;
   const occurrence = segment.occurrence;
   const segmentProps = dayDrag.getSegmentProps(segment);
@@ -818,7 +795,7 @@ function AllDaySegmentButton(props: {
         renderEventContent,
         segment,
         occurrence,
-        titleOnlyEventContentContext('allday-event', occurrence.event.title),
+        titleOnlyEventContentContext('allday-event', view, occurrence.event.title),
       )}
       {isEditable && !segment.continuesBefore && (
         <span
@@ -860,6 +837,8 @@ function TimeGridDayColumnImpl(props: {
   isDragging: boolean;
   /** この日に表示すべきドラッグプレビュー区間（親側で解決済み、交差しなければ `null`）。 */
   preview: TimeGridPreviewSegment | null;
+  /** どのビューでの描画か（`EventContentContext.view` に渡す）。 */
+  view: CalendarViewType;
 }): ReactElement {
   const {
     day,
@@ -876,6 +855,7 @@ function TimeGridDayColumnImpl(props: {
     drag,
     isDragging,
     preview,
+    view,
   } = props;
   const { ref, ...dayProps } = drag.getDayProps(day);
   const showNowIndicator = nowIndicatorDayKey === day.key && nowIndicatorMinutes !== null;
@@ -925,6 +905,7 @@ function TimeGridDayColumnImpl(props: {
           commonMessages={commonMessages}
           drag={drag}
           isDragging={isDragging}
+          view={view}
         />
       ))}
       {preview !== null && (
@@ -976,6 +957,7 @@ const TimeGridDayColumn = memo(TimeGridDayColumnImpl, (prev, next) => {
     prev.commonMessages === next.commonMessages &&
     prev.drag === next.drag &&
     prev.isDragging === next.isDragging &&
+    prev.view === next.view &&
     samePreviewSegment(prev.preview, next.preview)
   );
 });
@@ -997,6 +979,8 @@ function TimeGridEventButtonImpl(props: {
   drag: TimeGridColumnDragHandlers;
   /** ドラッグ操作が進行中か（このコンポーネント自体は使わないが、memo 判定に必要）。 */
   isDragging: boolean;
+  /** どのビューでの描画か（`EventContentContext.view` に渡す）。 */
+  view: CalendarViewType;
 }): ReactElement {
   const {
     item,
@@ -1008,6 +992,7 @@ function TimeGridEventButtonImpl(props: {
     renderEventContent,
     commonMessages,
     drag,
+    view,
   } = props;
   const occurrence = item.occurrence;
   const eventProps = drag.getEventProps(item);
@@ -1045,7 +1030,7 @@ function TimeGridEventButtonImpl(props: {
           renderEventContent,
           item,
           occurrence,
-          timegridEventContentContext(item, locale),
+          timegridEventContentContext(item, locale, view),
         )}
       </div>
       {isEditable && !item.continuesBefore && (
@@ -1084,6 +1069,7 @@ const TimeGridEventButton = memo(TimeGridEventButtonImpl, (prev, next) => {
     prev.renderEventContent === next.renderEventContent &&
     prev.commonMessages === next.commonMessages &&
     prev.drag === next.drag &&
-    prev.isDragging === next.isDragging
+    prev.isDragging === next.isDragging &&
+    prev.view === next.view
   );
 });

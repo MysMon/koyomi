@@ -18,7 +18,12 @@ import type {
   YearMonth,
 } from '../../core/types';
 import { useCalendarContext } from '../context';
-import type { EventContentContext, MonthOverflowButtonProps, SlotRenderContext } from '../types';
+import type {
+  EventContentContext,
+  MonthOverflowButtonProps,
+  MonthOverflowLabelContext,
+  SlotRenderContext,
+} from '../types';
 import { ListView } from './list-view';
 import { MonthView } from './month-view';
 import { MultiMonthView } from './multi-month-view';
@@ -85,6 +90,11 @@ export interface CalendarViewProps {
     day: MonthDay,
     hiddenOccurrences: readonly EventOccurrence[],
   ) => MonthOverflowButtonProps;
+  /**
+   * 月ビューの「+N 件」ボタンのラベル内容のカスタム描画。`MonthView` の
+   * `renderOverflowLabel` に転送する。
+   */
+  renderMonthOverflowLabel?: (day: MonthDay, ctx: MonthOverflowLabelContext) => ReactNode;
   /** 週/日ビューの日ヘッダーのカスタム描画。`TimeGridView` の `renderDayHeader` に転送する。 */
   renderTimeGridDayHeader?: (day: TimeGridDay, ctx: SlotRenderContext) => ReactNode;
   /** 年ビューの月見出しのカスタム描画。`YearView` の `renderMonthHeader` に転送する。 */
@@ -103,6 +113,11 @@ export interface CalendarViewProps {
     day: MonthDay,
     hiddenOccurrences: readonly EventOccurrence[],
   ) => MonthOverflowButtonProps;
+  /**
+   * 複数月ビューの「+N 件」ボタンのラベル内容のカスタム描画。`MultiMonthView` の
+   * `renderOverflowLabel` に転送する。
+   */
+  renderMultiMonthOverflowLabel?: (day: MonthDay, ctx: MonthOverflowLabelContext) => ReactNode;
   /**
    * リソースビューのイベントブロックのカスタム描画。`ResourceView` / `VirtualResourceView` の
    * `renderEvent` に転送する（時間指定のみ。終日は `renderResourceAllDayItem` を使う）。
@@ -181,6 +196,9 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
             {...(props.monthOverflowButtonProps
               ? { overflowButtonProps: props.monthOverflowButtonProps }
               : {})}
+            {...(props.renderMonthOverflowLabel
+              ? { renderOverflowLabel: props.renderMonthOverflowLabel }
+              : {})}
           />
         );
       case 'week':
@@ -236,6 +254,9 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
               : {})}
             {...(props.multiMonthOverflowButtonProps
               ? { overflowButtonProps: props.multiMonthOverflowButtonProps }
+              : {})}
+            {...(props.renderMultiMonthOverflowLabel
+              ? { renderOverflowLabel: props.renderMultiMonthOverflowLabel }
               : {})}
           />
         );

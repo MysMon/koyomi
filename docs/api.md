@@ -623,7 +623,7 @@ function useCalendarContext(): CalendarContextValue
 
 `messages`（`MessageCatalogOverrides`）は、`value.state.options.locale` の言語サブタグで選ばれる同梱カタログ（`ja` / `en`、未対応言語は `ja` にフォールバック）へグループ単位で浅くマージされ、配下の全ビューコンポーネントの文言・aria-label に反映されます。呼び出しのたびに新しいオブジェクトを渡さず、安定した参照（コンポーネント外の定数、または `useMemo` の結果）で渡してください。詳細は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を、全リーフの一覧は [中央メッセージカタログ](#中央メッセージカタログreactlocales) を参照してください。
 
-`renderEventContent`（`EventContentRenderer`）は、配下の全ビューのイベント内容を 1 箇所で定義するビュー横断のイベント内容レンダラーです。ビュー個別の `renderEvent` 系 render prop が指定されているスロットではそちらが優先されます（個別 > 中央 > 既定）。`messages` と同じく安定した参照で渡してください。詳細は [カスタマイズガイド: ビュー横断で一括定義する](./customization.md#ビュー横断で一括定義するrendereventcontent) を参照してください。
+`renderEventContent`（`EventContentRenderer`）は、配下の全ビューのイベント内容を 1 箇所で定義するビュー横断のイベント内容レンダラーです。年ビューはイベント内容そのものを描画しない（件数マーカーのみ）ため対象外です。ビュー個別の `renderEvent` 系 render prop が指定されているスロットではそちらが優先されます（個別 > 中央 > 既定）。`messages` と同じく安定した参照で渡してください。詳細は [カスタマイズガイド: ビュー横断で一括定義する](./customization.md#ビュー横断で一括定義するrendereventcontent) を参照してください。
 
 ```tsx
 import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi-cal/react';
@@ -659,6 +659,7 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `renderMonthEvent` | `(segment: EventSegment, ctx: EventContentContext) => ReactNode` | 月ビューのセグメントのカスタム描画 |
 | `renderMonthDayCell` | `(day: MonthDay, ctx: SlotRenderContext) => ReactNode` | 月ビューの日セルのカスタム描画（`MonthView.renderDayCell` へ転送） |
 | `monthOverflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 月ビューの「+N 件」ボタンに追加する props（`MonthView.overflowButtonProps` へ転送） |
+| `renderMonthOverflowLabel` | `(day: MonthDay, ctx: MonthOverflowLabelContext) => ReactNode` | 月ビューの「+N 件」ラベル内容のカスタム描画（`MonthView.renderOverflowLabel` へ転送） |
 | `renderTimeGridEvent` | `(item: PositionedOccurrence, ctx: EventContentContext) => ReactNode` | 週/日ビューのイベントブロックのカスタム描画（時間指定のみ。終日行は `renderTimeGridAllDayEvent` へ） |
 | `renderTimeGridAllDayEvent` | `(segment: EventSegment, ctx: EventContentContext) => ReactNode` | 週/日ビューの終日行の帯のカスタム描画（`TimeGridView.renderAllDayEvent` へ転送）。省略時はタイトルのみ |
 | `renderTimeGridDayHeader` | `(day: TimeGridDay, ctx: SlotRenderContext) => ReactNode` | 週/日ビューの日ヘッダーのカスタム描画（`TimeGridView.renderDayHeader` へ転送） |
@@ -673,6 +674,7 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `renderMultiMonthEvent` | `(segment: EventSegment, ctx: EventContentContext) => ReactNode` | 複数月ビューのセグメントのカスタム描画（`MultiMonthView.renderEvent` へ転送） |
 | `renderMultiMonthDayCell` | `(day: MonthDay, ctx: SlotRenderContext) => ReactNode` | 複数月ビューの日セルのカスタム描画（`MultiMonthView.renderDayCell` へ転送） |
 | `multiMonthOverflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 複数月ビューの「+N 件」ボタンに追加する props（`MultiMonthView.overflowButtonProps` へ転送） |
+| `renderMultiMonthOverflowLabel` | `(day: MonthDay, ctx: MonthOverflowLabelContext) => ReactNode` | 複数月ビューの「+N 件」ラベル内容のカスタム描画（`MultiMonthView.renderOverflowLabel` へ転送） |
 | `renderResourceEvent` | `(item: PositionedOccurrence, ctx: EventContentContext) => ReactNode` | リソースビューの時間指定イベントブロックのカスタム描画（`ResourceView` / `VirtualResourceView` の `renderEvent` へ転送。終日アイテムは `renderResourceAllDayItem` へ） |
 | `renderResourceAllDayItem` | `(occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode` | リソースビューの終日アイテムのカスタム描画（`ResourceView` / `VirtualResourceView` の `renderAllDayItem` へ転送）。省略時はタイトルのみ |
 | `renderResourceColumnHeader` | `(column: ResourceColumn, ctx: SlotRenderContext) => ReactNode` | リソースビューの列見出しのカスタム描画（`ResourceView` / `VirtualResourceView` の `renderColumnHeader` へ転送） |
@@ -697,6 +699,7 @@ function MonthView(props: MonthViewProps): ReactElement | null
 | `renderEvent` | `(segment: EventSegment, ctx: EventContentContext) => ReactNode` | セグメントの表示内容。省略時は終日・複数日セグメントはタイトルのみ、単日の時間指定セグメントは `'H:mm タイトル'` |
 | `renderDayCell` | `(day: MonthDay, ctx: SlotRenderContext) => ReactNode` | 日セルの内容（日番号ボタン＋「+N 件」ボタン）をラップ・置換する。祝日ラベルやバッジの注入用 |
 | `overflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 「+N 件」ボタンに追加する props（`aria-haspopup` / `aria-expanded` 等）。省略時は追加の props を付与しない |
+| `renderOverflowLabel` | `(day: MonthDay, ctx: MonthOverflowLabelContext) => ReactNode` | 「+N 件」ラベルの内容。ボタン要素・クリック配線は保持され、内側だけが差し替わる。`ctx.hiddenOccurrences` に集約された非表示オカレンス一覧が渡る。文言だけの変更は `messages` を使う |
 
 「+N 件」の文言（既定 `messages.month.overflow`）とイベントボタンの aria-label（`messages.common.eventAriaLabel`）は `CalendarProvider` の `messages` prop で差し替えます（[テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) 参照）。ルート要素には WAI-ARIA の grid ロール（`grid` / `row` / `columnheader` / `gridcell`）と、各日セルへの完全な日付の `aria-label`・今日への `aria-current="date"` が付与されます。
 
@@ -780,6 +783,7 @@ function MultiMonthView(props: MultiMonthViewProps): ReactElement | null
 | `renderEvent` | `(segment: EventSegment, ctx: EventContentContext) => ReactNode` | セグメントの表示内容。既定内容は `MonthView` と同じ |
 | `renderDayCell` | `(day: MonthDay, ctx: SlotRenderContext) => ReactNode` | 日セルの内容をラップ・置換する。前後月の日付セル（`data-outside`）はインタラクティブでないため適用されない |
 | `overflowButtonProps` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 「+N 件」ボタンに追加する props（`MonthView` と同じ） |
+| `renderOverflowLabel` | `(day: MonthDay, ctx: MonthOverflowLabelContext) => ReactNode` | 「+N 件」ラベルの内容（`MonthView` と同じ仕様。既定ラベルの整形には `multiMonth.overflow` が使われる） |
 
 「+N 件」の文言（既定 `messages.multiMonth.overflow`）とイベントボタンの aria-label（`messages.common.eventAriaLabel`、`MonthView` と同じ）は `CalendarProvider` の `messages` prop で差し替えます。`MonthView` との違いは、前後月の日付セルに予定を表示しない点だけです。月境界をまたぐ帯は月ごとにクランプされ、`continuesBefore` / `continuesAfter` で「←続く／続く→」を示します（月ビューの複数週セグメントと同じセマンティクス）。前後月の日付セルはクリック・キーボード操作の対象になりません（`tabIndex` なし）。
 
@@ -793,7 +797,7 @@ function ResourceView(props: ResourceViewProps): ReactElement | null
 
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
-| `renderEvent` | `(item: PositionedOccurrence, ctx: EventContentContext) => ReactNode` | 時間指定イベントブロックの表示内容。省略時は開始時刻＋タイトル。終日アイテムには適用されない（`renderAllDayItem` を使う） |
+| `renderEvent` | `(item: PositionedOccurrence, ctx: EventContentContext) => ReactNode` | 時間指定イベントブロックの表示内容。省略時は `'H:mm〜H:mm タイトル'`（週/日ビューと同じ形式）。終日アイテムには適用されない（`renderAllDayItem` を使う） |
 | `renderAllDayItem` | `(occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode` | 終日アイテムの表示内容。省略時はタイトルのみ |
 | `renderColumnHeader` | `(column: ResourceColumn, ctx: SlotRenderContext) => ReactNode` | 列見出しの内容（`ctx.defaultContent` はリソース名、または未割り当て列は `messages.resource.unassigned`）をラップ・置換する |
 | `initialScrollTime` | `string`（`'HH:mm'`） | マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置。事後の変更は再適用されない |
@@ -811,7 +815,7 @@ function TimelineView(props: TimelineViewProps): ReactElement | null
 
 | プロパティ | シグネチャ | 説明 |
 | --- | --- | --- |
-| `renderEvent` | `(item: TimelineItem, ctx: EventContentContext) => ReactNode` | 帯（タイムラインアイテム）の表示内容。省略時はタイトルのみ |
+| `renderEvent` | `(item: TimelineItem, ctx: EventContentContext) => ReactNode` | 帯（タイムラインアイテム）の表示内容。省略時はタイトルのみ（時間指定イベントでは `ctx.parts.timeText` に整形済みの時刻範囲が渡る） |
 | `renderRowHeader` | `(row: TimelineRow, ctx: SlotRenderContext) => ReactNode` | 行見出しの内容（`ctx.defaultContent` はリソース名、または未割り当て行は `messages.timeline.unassigned`）をラップ・置換する |
 
 未割り当て行の見出しラベル（既定 `messages.timeline.unassigned`）、空状態（行が 1 つもない）のメッセージ（既定 `messages.timeline.empty`）、ヘッダー行の角セル（行見出し列の列見出し）の `aria-label`（既定 `messages.timeline.corner`）、帯の aria-label（`messages.common.eventAriaLabel`。日時＋リソース名）、折りたたみトグルボタン（`TimelineRow.hasChildren` が `true` の行のみ）の aria-label（`messages.timeline.resourceToggleAriaLabel`）は `CalendarProvider` の `messages` prop で差し替えます。
@@ -1046,7 +1050,7 @@ interface ToolbarProps {
 | `SlotRenderContext` | `{ defaultContent: ReactNode }` | すべてのカスタム描画スロットの第 2 引数。`defaultContent` は省略時にライブラリが描画する既定の内容 |
 | `EventContentSlot` | `'month-event' \| 'timegrid-event' \| 'allday-event' \| 'list-event' \| 'timeline-item'` | イベント内容スロットの描画枠の種別（外側要素の `data-koyomi` 部位名と同じ語彙） |
 | `EventContentParts` | `{ timeText: string \| null; titleText: string; time: ReactNode; swatch: ReactNode; title: ReactNode }` | イベント内容の既定内容を分解したパーツ（詳細は [カスタマイズガイド](./customization.md#イベント内容のカスタマイズctxparts-と-ctxslot)） |
-| `EventContentContext` | `SlotRenderContext & { slot: EventContentSlot; parts: EventContentParts }` | イベント内容スロット（`renderEvent` 系・`renderEventContent`）の第 2 引数 |
+| `EventContentContext` | `SlotRenderContext & { slot: EventContentSlot; view: CalendarViewType; parts: EventContentParts }` | イベント内容スロット（`renderEvent` 系・`renderEventContent`）の第 2 引数。`view` はどのビューでの描画か（同じスロットを複数ビューが使うため、ビュー単位の出し分けに使う） |
 | `EventContentRenderer` | `(occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode` | ビュー横断のイベント内容レンダラー（`CalendarProviderProps.renderEventContent`）。優先順位はビュー個別の render prop > 中央 > 既定内容 |
 | `RangeSelection` | `{ range: DateRange; allDay: boolean; resourceId?: string | null }` | 範囲選択（新規作成操作）の内容。`resourceId` はリソース/タイムラインビューでの選択時のみ設定される（`null` は未割り当てレーン） |
 | `EventChange` | `{ occurrence: EventOccurrence; newRange: DateRange; allDay: boolean; scope: RecurringEditScope | null; resourceId?: string | null; changes: readonly EventChangeEntry[] }` | ドラッグ・キーボードによるイベント変更の内容。`resourceId` はリソース/タイムラインビューでの変更時のみ設定される（`null` は未割り当てへの移動）。`changes` は影響を受けた各イベントの before/after 一覧（undo 用途） |
@@ -1054,6 +1058,7 @@ interface ToolbarProps {
 | `EventDelete` | `{ occurrence: EventOccurrence; scope: RecurringEditScope | null; changes: readonly EventChangeEntry[] }` | キーボード削除の内容。`changes` は `EventChange` と同様 |
 | `OverflowClickDetails` | `{ visibleOccurrences: readonly EventOccurrence[] }` | `onOverflowClick` の第 3 引数。その日で表示中のオカレンス一覧（`hiddenOccurrences` と組み合わせて全件を把握できる） |
 | `MonthOverflowButtonProps` | `{ 'aria-haspopup'?: 'true' | 'dialog' | 'menu' | 'listbox' | 'tree' | 'grid'; 'aria-expanded'?: boolean; 'aria-controls'?: string }` | 「+N 件」ボタンに追加する props（`overflowButtonProps` の戻り値） |
+| `MonthOverflowLabelContext` | `SlotRenderContext & { hiddenOccurrences: readonly EventOccurrence[] }` | 「+N 件」ラベルのカスタム描画スロット（`renderOverflowLabel`）の第 2 引数 |
 | `CalendarInteractionCallbacks` | 下表参照 | インタラクションのコールバック集 |
 
 **`CalendarInteractionCallbacks` のフィールド**（すべて省略可能）

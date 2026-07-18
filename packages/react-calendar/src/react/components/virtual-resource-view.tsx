@@ -592,7 +592,7 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
                 renderEventContent,
                 item,
                 item.occurrence,
-                resourceTimedContentContext(item, timeZone, locale),
+                resourceTimedContentContext(item, locale),
               )}
             </div>
             {isEditable && !item.continuesBefore && (
