@@ -42,6 +42,7 @@ pnpm add @koyomi-cal/react
 pnpm install
 pnpm check   # 用語・テスト配置 + Lint + 型チェック + Vitest
 pnpm test:e2e # Playwright（Chromium / Firefox / WebKit / touch / axe）
+pnpm bench   # 性能ベンチマーク（docs/performance.md に実測値の例）
 pnpm demo    # デモアプリを起動
 ```
 
