@@ -197,6 +197,80 @@ test('大量リソースの仮想化スクロールでフォーカスと対象�
   await expect(timeline.locator('[data-koyomi-resource-id="member-200"]').first()).toBeVisible();
 });
 
+test('VirtualResourceView の横スクロールで表示列の窓が追従し、両端でも破綻しない', async ({
+  page,
+}) => {
+  await page.getByRole('link', { name: /チーム/ }).click();
+  const resource = page.locator('[data-koyomi="resource"][data-koyomi-virtualized="true"]');
+  await expect(resource).toBeVisible();
+
+  // 初期状態（scrollLeft=0）では先頭のメンバーが可視で、大きく離れたメンバーは窓の外
+  await expect(resource.locator('[data-koyomi-resource-id="member-1"]').first()).toBeVisible();
+  await expect(resource.locator('[data-koyomi-resource-id="member-150"]')).toHaveCount(0);
+  const headerCells = resource.locator('[data-koyomi="resource-header-cell"]');
+  // 209 列（メンバー 200 + 階層リソース 9）のうち、可視窓＋overscan だけが描画される
+  expect(await headerCells.count()).toBeLessThan(60);
+
+  // 中間までスクロールすると、窓が追従して離れたメンバーが可視になり、先頭は窓の外へ出る
+  await resource.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth / 2;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(resource.locator('[data-koyomi-resource-id="member-105"]').first()).toBeVisible();
+  await expect(resource.locator('[data-koyomi-resource-id="member-1"]')).toHaveCount(0);
+
+  // 末尾までスクロールすると、末尾の階層リソース（大阪1F 会議室A）が可視になる
+  await resource.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(
+    resource.locator('[data-koyomi-resource-id="room-osaka-1f-a"]').first(),
+  ).toBeVisible();
+  await expect(resource.locator('[data-koyomi-resource-id="member-1"]')).toHaveCount(0);
+
+  // 先頭へ戻ると、往復後も再び先頭メンバーが可視になる（境界の往復で破綻しない）
+  await resource.evaluate((element) => {
+    element.scrollLeft = 0;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(resource.locator('[data-koyomi-resource-id="member-1"]').first()).toBeVisible();
+});
+
+test('VirtualTimelineView の縦スクロールで表示行の窓が追従し、両端でも破綻しない', async ({
+  page,
+}) => {
+  await page.getByRole('link', { name: /チーム/ }).click();
+  await page.getByRole('button', { name: 'タイムライン' }).click();
+  const timeline = page.locator('[data-koyomi="timeline"][data-koyomi-virtualized="true"]');
+  await expect(timeline).toBeVisible();
+  const body = timeline.locator('[data-koyomi="timeline-body"]');
+
+  // 初期状態（scrollTop=0）では先頭のメンバーが可視で、大きく離れたメンバーは窓の外
+  await expect(timeline.locator('[data-koyomi-resource-id="member-1"]').first()).toBeVisible();
+  await expect(timeline.locator('[data-koyomi-resource-id="member-150"]')).toHaveCount(0);
+  const rowGroups = timeline.locator('[data-koyomi="timeline-row-group"]');
+  // 209 行超のうち、可視窓＋overscan だけが描画される
+  expect(await rowGroups.count()).toBeLessThan(80);
+
+  // 末尾までスクロールすると、末尾の階層リソース（大阪1F 会議室A）が可視になる
+  await body.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(
+    timeline.locator('[data-koyomi-resource-id="room-osaka-1f-a"]').first(),
+  ).toBeVisible();
+  await expect(timeline.locator('[data-koyomi-resource-id="member-1"]')).toHaveCount(0);
+
+  // 先頭へ戻ると、往復後も再び先頭メンバーが可視になる（境界の往復で破綻しない）
+  await body.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(timeline.locator('[data-koyomi-resource-id="member-1"]').first()).toBeVisible();
+});
+
 test('主要画面に WCAG 2.0 A/AA の自動検出違反がない', async ({ page }) => {
   // CSS transition を無効化してから走査する。テーマ切替直後は background-color の
   // 遷移中で、axe が「切替後の文字色 × 遷移途中の背景色」という実在しない
