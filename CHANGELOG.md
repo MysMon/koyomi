@@ -44,6 +44,7 @@
 - **終日 ⇔ 時間指定のドラッグ変換**: 週/日ビューで終日行と時間グリッドをまたいでドラッグすると相互に変換
 - **キーボードのみでの予定操作**: 矢印キーでの移動（±snap 分 / ±1 日 / ±7 日）、Shift+矢印でのリサイズ、日セルの Enter/Space 作成
 - **RDATE 対応**: `CalendarEvent.rdates` によるパターン外オカレンスの追加（シリーズ分割時の振り分けも対応）
+- **iCalendar（ICS）入出力**: `eventsToIcs` / `eventsFromIcs`（React 非依存の `core/ics`）を追加。終日（`VALUE=DATE`）・イベント TZ（`TZID`）・`RRULE`/`EXDATE`/`RDATE`・オーバーライド（`RECURRENCE-ID`）に対応し、折り返し・エスケープは RFC 5545 準拠。UNTIL は「イベント TZ の現地時刻」と UTC 表記を相互変換し、`STATUS:CANCELLED` のオーバーライドはマスターの `exdates` に取り込む。非対応構文（VTIMEZONE 定義・EXRULE・`VALUE=PERIOD` 等）の扱いは docs/ics.md に明記
 - **hiddenWeekdays オプション**: 月・週ビューの列から任意の曜日を除外（週末非表示等）
 - **現在時刻線の追従**: `CalendarApi.refresh()` と `useCalendar` の `refreshSeconds`
 - **新コールバック**: `onEventDelete`（削除通知）、`onError`（エラー通知）。`onOverflowClick` に非表示オカレンス一覧（第 2 引数）を追加

@@ -23,6 +23,7 @@
 - [予定の管理](./docs/events.md)
 - [インタラクション（作成・移動・リサイズ）](./docs/interactions.md)
 - [繰り返し予定](./docs/recurrence.md)
+- [iCalendar（ICS）入出力](./docs/ics.md)
 - [アクセシビリティ](./docs/accessibility.md)
 - [タイムゾーン](./docs/timezones.md)
 - [テーマとスタイリング](./docs/theming.md)

@@ -17,6 +17,7 @@
 | 大量の予定・リソースを描画する（仮想化） | `dayMaxEvents`・`slotMinTime`/`slotMaxTime`・[`VirtualListView`](#virtuallistview)・[`VirtualResourceView`](#virtualresourceview)・[`VirtualTimelineView`](#virtualtimelineview)・[`useVirtualizer`](#usevirtualizer) | [パフォーマンス](./performance.md) |
 | 多言語対応・読み上げ文言をカスタマイズする | `CalendarOptions.locale`・`CalendarProvider` の `messages`・[`useCalendarAnnouncer`](#usecalendarannouncer) | [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) |
 | React に依存せずカレンダーエンジンだけを使う | [`@koyomi-cal/react/core`](#koyomi-calreactcorereact-非依存の単体エントリ) | [はじめに: React に依存しないコアだけを使う](./getting-started.md#react-に依存しないコアだけを使う) |
+| iCalendar（`.ics`）でエクスポート・インポートする | [`eventsToIcs` / `eventsFromIcs`](#icalendar-入出力coreics) | [iCalendar（ICS）入出力](./ics.md) |
 
 ## カレンダーエンジン
 
@@ -182,7 +183,7 @@ history.redo(); // もう一度変更後の状態にする
 
 ### `@koyomi-cal/react/core`（React 非依存の単体エントリ）
 
-`createCalendar` / `CalendarApi` を含む `src/core/` 配下の公開 API は、`@koyomi-cal/react` のトップレベルエントリだけでなく、**React を一切 import しない**専用エントリ `@koyomi-cal/react/core` からも利用できます。`createCalendar`・`buildXxxViewModel`（月・週日・年・複数月・リソース・タイムライン・リストの全 7 種）・`expandEvents` / `occurrenceKey` / `resolveOccurrence`・繰り返しルールユーティリティ（`expandRecurrence` 等）・タイムゾーンユーティリティ（`fromWallClock` 等）・`applyPatch` や `*InWithChanges` 系のイベント変更関数・関連する公開型（`CalendarApi` / `CalendarEvent` / `EventChangeEntry` 等）を再エクスポートしており、`@koyomi-cal/react` のトップレベルエントリが `./core/*` から再エクスポートしている集合と一致します（React コンポーネント・フックは含まれません）。
+`createCalendar` / `CalendarApi` を含む `src/core/` 配下の公開 API は、`@koyomi-cal/react` のトップレベルエントリだけでなく、**React を一切 import しない**専用エントリ `@koyomi-cal/react/core` からも利用できます。`createCalendar`・`buildXxxViewModel`（月・週日・年・複数月・リソース・タイムライン・リストの全 7 種）・`expandEvents` / `occurrenceKey` / `resolveOccurrence`・繰り返しルールユーティリティ（`expandRecurrence` 等）・タイムゾーンユーティリティ（`fromWallClock` 等）・iCalendar 入出力（`eventsToIcs` / `eventsFromIcs`）・`applyPatch` や `*InWithChanges` 系のイベント変更関数・関連する公開型（`CalendarApi` / `CalendarEvent` / `EventChangeEntry` 等）を再エクスポートしており、`@koyomi-cal/react` のトップレベルエントリが `./core/*` から再エクスポートしている集合と一致します（React コンポーネント・フックは含まれません）。
 
 ```ts
 import { createCalendar } from '@koyomi-cal/react/core';
@@ -1309,6 +1310,38 @@ const resolved = resolveOccurrence({
 console.log(resolved?.start.getTime() === occurrences[1]!.start.getTime()); // => true
 ```
 
+### iCalendar 入出力（`core/ics`）
+
+`CalendarEvent[]` と iCalendar（RFC 5545、`.ics`）文字列を相互変換します。終日イベント（`VALUE=DATE`）、イベントごとのタイムゾーン（`TZID`）、繰り返し（`RRULE` / `EXDATE` / `RDATE`）、オーバーライド（`RECURRENCE-ID`）に対応し、行の折り返し（75 オクテット）と TEXT 値のエスケープは RFC 5545 に準拠します。日時・繰り返しの表現の対応と非対応構文の扱いの詳細は [iCalendar（ICS）入出力](./ics.md) を参照してください。
+
+| 関数 / 型 | 説明 |
+| --- | --- |
+| `eventsToIcs(events, options?): string` | イベントの配列を `VCALENDAR`/`VEVENT` 文字列にする（CRLF 改行） |
+| `eventsFromIcs(ics): CalendarEvent[]` | `.ics` テキストをイベントの配列にする（`RECURRENCE-ID` はオーバーライドに変換） |
+| `EventsToIcsOptions`（型） | `eventsToIcs` のオプション。`timeZone`（`timeZone` を持たないイベントの解釈に用いるタイムゾーン）/ `defaultEventMinutes` / `dtstamp` / `prodId` |
+
+```ts
+import { eventsFromIcs, eventsToIcs } from '@koyomi-cal/react';
+
+const ics = eventsToIcs(
+  [
+    {
+      id: 'weekly',
+      title: '週次ミーティング',
+      start: '2026-07-06T10:00:00',
+      end: '2026-07-06T11:00:00',
+      timeZone: 'Asia/Tokyo',
+      rrule: 'FREQ=WEEKLY;BYDAY=MO',
+    },
+  ],
+  { timeZone: 'Asia/Tokyo' },
+);
+console.log(ics.includes('DTSTART;TZID=Asia/Tokyo:20260706T100000')); // => true
+
+const events = eventsFromIcs(ics);
+console.log(events[0]?.rrule); // => 'FREQ=WEEKLY;BYDAY=MO'
+```
+
 ### インタラクション計算（`core/interaction`）
 
 ドラッグによる予定の作成・移動・リサイズで必要な「ポインタ位置 → 日時」の変換とプレビュー範囲の計算を、DOM に依存しない純粋関数として提供します。`useDayDrag` / `useTimeGridDrag` が内部で使用しています。
@@ -1610,6 +1643,7 @@ customMessages.toolbar.week; // => 'Week'（enMessages のまま）
 - [予定の管理](./events.md)
 - [インタラクション（作成・移動・リサイズ）](./interactions.md)
 - [繰り返し予定](./recurrence.md)
+- [iCalendar（ICS）入出力](./ics.md)
 - [アクセシビリティ](./accessibility.md)
 - [タイムゾーン](./timezones.md)
 - [テーマとスタイリング](./theming.md)

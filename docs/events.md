@@ -527,6 +527,7 @@ const occurrences = calendar.getOccurrences({
 ## 関連ページ
 
 - [繰り返し予定](./recurrence.md)
+- [iCalendar（ICS）入出力](./ics.md)
 - [タイムゾーン](./timezones.md)
 - [インタラクション（作成・移動・リサイズ）](./interactions.md)
 - [API リファレンス](./api.md)
