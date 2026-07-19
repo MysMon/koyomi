@@ -1,0 +1,90 @@
+/*
+ * 「ストレステスト」パターン（`stress.tsx`）専用スタイル。
+ *
+ * 全セレクタをこのパターンのルート要素（`.stress-pattern`）配下にスコープし、
+ * demo.css や他パターンに影響しないようにする。カレンダー本体
+ * （[data-koyomi="..."]）の見た目は @koyomi-cal/react/theme.css に委ね、
+ * ここでは仮想化コンテナの境界寸法とコントロールのレイアウトのみを定義する。
+ */
+
+.stress-pattern .stress-view-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.stress-pattern .stress-view-tab {
+  font: inherit;
+  font-size: 13px;
+  color: var(--demo-fg);
+  background-color: var(--demo-surface);
+  border: 1px solid var(--demo-border);
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.stress-pattern .stress-view-tab:hover {
+  border-color: var(--demo-accent);
+}
+
+.stress-pattern .stress-view-tab[aria-current="page"] {
+  border-color: var(--demo-accent);
+  background-color: color-mix(in srgb, var(--demo-accent) 14%, var(--demo-surface));
+  font-weight: 600;
+}
+
+.stress-pattern .demo-control input[type="range"] {
+  width: 220px;
+}
+
+.stress-pattern .stress-apply-button {
+  font: inherit;
+  font-size: 13px;
+  color: var(--demo-fg);
+  background-color: var(--demo-surface);
+  border: 1px solid var(--demo-accent);
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.stress-pattern .stress-apply-button:hover {
+  background-color: color-mix(in srgb, var(--demo-accent) 14%, var(--demo-surface));
+}
+
+/* 計測結果の表示行 */
+.stress-pattern .stress-measure {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--demo-muted);
+}
+
+.stress-pattern .stress-calendar-frame {
+  background-color: var(--demo-surface);
+  border: 1px solid var(--demo-border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(32, 33, 36, 0.08);
+}
+
+/* VirtualResourceView: 横方向（リソース列）の仮想化のための境界幅。 */
+.stress-pattern .stress-calendar-frame [data-koyomi="resource"] {
+  width: 100%;
+  max-height: 560px;
+}
+
+/* VirtualTimelineView: 縦方向（行 = リソース）の仮想化のための境界高。 */
+.stress-pattern .stress-calendar-frame [data-koyomi="timeline-body"] {
+  max-height: 560px;
+}
+
+/* VirtualListView: 縦方向（日セクション）の仮想化のための境界高。 */
+.stress-pattern .stress-calendar-frame {
+  --koyomi-virtual-list-max-height: 560px;
+}
+
+.stress-pattern .stress-hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--demo-muted);
+}
