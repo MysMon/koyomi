@@ -1108,7 +1108,7 @@ interface ToolbarProps {
 | `getLocalTimeZone(): TimeZoneId` | 実行環境のローカルタイムゾーン ID を返す |
 | `isValidTimeZone(timeZone: string): boolean` | 有効な IANA タイムゾーン ID かどうかを判定する |
 | `getWallClock(date, timeZone): Required<WallClockParts>` | 絶対時刻を指定タイムゾーンの現地時刻の成分に分解する |
-| `fromWallClock(parts, timeZone): Date` | 現地時刻の成分から絶対時刻を構築する（存在しない時刻は直後の実在時刻に繰り上げ） |
+| `fromWallClock(parts, timeZone, disambiguation?): Date` | 現地時刻の成分から絶対時刻を構築する（存在しない時刻は直後の実在時刻に繰り上げ）。`disambiguation`（`'earlier' \| 'later'`、既定 `'earlier'`）で DST の曖昧な時刻を早い方/遅い方のどちらのオフセットで解決するかを選べる（詳細は [タイムゾーン: 存在しない時刻・曖昧な時刻の解決規則](./timezones.md#存在しない時刻曖昧な時刻の解決規則dst) を参照） |
 | `startOfDayInZone(date, timeZone): Date` | 指定タイムゾーンにおけるその日の 0:00 の絶対時刻を返す |
 | `addDaysInZone(date, amount, timeZone): Date` | 現地時刻基準で日数を加算する（DST を跨いでも時刻を維持） |
 | `addMinutesInZone(date, amount, timeZone): Date` | 現地時刻基準で分数を加算する |
