@@ -88,6 +88,33 @@ describe('useVirtualizer', () => {
     expect(result.current.totalSize).toBe(200);
   });
 
+  it('overscan を除いた可視範囲を startIndex/endIndex として返す', async () => {
+    const element = scrollElement(100);
+    const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+
+    // 可視 0..4（100px / 20px）。overscan 3 は virtualItems にのみ含まれる
+    expect(result.current.startIndex).toBe(0);
+    expect(result.current.endIndex).toBe(4);
+
+    await act(async () => {
+      element.scrollTop = 100;
+      element.dispatchEvent(new Event('scroll'));
+      await nextFrame();
+    });
+
+    // 可視 5..9（100〜199px）
+    expect(result.current.startIndex).toBe(5);
+    expect(result.current.endIndex).toBe(9);
+  });
+
+  it('count=0 のとき startIndex/endIndex は -1 になる', () => {
+    const element = scrollElement(100);
+    const { result } = renderHook(() => useVirtualizer({ ...baseOptions(element, true), count: 0 }));
+
+    expect(result.current.startIndex).toBe(-1);
+    expect(result.current.endIndex).toBe(-1);
+  });
+
   it('スクロールすると可視窓が移動する', async () => {
     const element = scrollElement(100);
     const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
