@@ -209,7 +209,29 @@ function RecurrenceForm({ start, timeZone }: { start: Date; timeZone: string }) 
 // - errors が空でない間、editor.rruleString は null になる
 ```
 
-`start` / `timeZone` / `rrule` は **作成時のみ有効**です（`useCalendar` の `events` と同じ規約）。編集対象（新規作成 / 既存オカレンス編集）を切り替える場合は、このフックを使うコンポーネントに一意な `key` を指定して再マウントしてください（マウント後に異なる値を渡すと、開発ビルドでは一度だけ警告が表示されます）。
+`start` / `timeZone` / `rrule` は **作成時のみ有効**です（`useCalendar` の `events` と同じ規約）。編集対象（新規作成 / 既存オカレンス編集）を切り替える場合は `reset({ start, timeZone, rrule })` を呼んでください。エディタ全体が新しい編集対象で初期化し直され（編集中の `state` は引き継がれません。`rrule` 省略時は「繰り返しなし」）、以後の `rruleString` / `description` / `setFrequency` の既定値補完も新しい `start` / `timeZone` を基準に計算されます。既存予定の編集ダイアログを 1 つ用意して予定ごとに使い回す構成では、対象の予定が変わったタイミングで `reset` を呼べば再マウントは不要です。
+
+```tsx
+import { useEffect } from 'react';
+import { useRecurrenceRuleEditor } from '@koyomi-cal/react';
+
+// 既存予定の編集ダイアログ: 対象の予定が変わったら reset で切り替える（再マウント不要）
+function RecurrenceDialog({ start, rrule }: { start: Date; rrule?: string }) {
+  const editor = useRecurrenceRuleEditor({ start, timeZone: 'Asia/Tokyo', rrule });
+  const { reset } = editor;
+  useEffect(() => {
+    reset({ start, timeZone: 'Asia/Tokyo', rrule });
+  }, [reset, start, rrule]);
+  return <p>{editor.description}</p>;
+}
+
+// 期待される動作:
+// - start / rrule が別の予定の値に変わると、reset により editor.state・description が
+//   新しい予定の内容へ切り替わる（コンポーネントの key 再マウントは不要）
+// - reset を呼んでいる間、マウント後の options 変更に対する開発ビルドの警告は表示されない
+```
+
+このフックを使うコンポーネントに一意な `key` を指定して再マウントする方法も引き続き使えます。`reset` を呼ばずにマウント後の `start` / `timeZone` / `rrule` へ異なる値を渡した場合は反映されず、開発ビルドでは一度だけ警告が表示されます。
 
 `locale` オプション（既定 `'ja'`）で `description` / `errors[].message` / `unsupported.message` の言語を切り替えられます。同梱にない言語は `'ja'` にフォールバックします。`start`/`timeZone`/`rrule` と異なり作成時限定ではなく、変更のたびに再解決されます。`messages` オプション（`MessageCatalogOverrides`）を渡すと `recurrenceEditor` グループの文言を部分的に上書きできます。
 

@@ -321,9 +321,9 @@ function App() {
 function useRecurrenceRuleEditor(options: UseRecurrenceRuleEditorOptions): UseRecurrenceRuleEditorResult
 
 interface UseRecurrenceRuleEditorOptions {
-  start: Date; // 作成時のみ有効
-  timeZone: TimeZoneId; // 作成時のみ有効
-  rrule?: string; // 作成時のみ有効。省略時は「繰り返しなし」
+  start: Date; // 作成時のみ有効（切り替えは reset）
+  timeZone: TimeZoneId; // 作成時のみ有効（切り替えは reset）
+  rrule?: string; // 作成時のみ有効（切り替えは reset）。省略時は「繰り返しなし」
   locale?: string; // 文言を解決するロケール。既定 'ja'。変更のたびに再解決される
   messages?: MessageCatalogOverrides; // recurrenceEditor グループの部分上書き
 }
@@ -338,13 +338,14 @@ interface UseRecurrenceRuleEditorResult {
   setEnd(end: RecurrenceEnd): void;
   enable(): void;
   clear(): void;
+  reset(target: Pick<UseRecurrenceRuleEditorOptions, 'start' | 'timeZone' | 'rrule'>): void;
   errors: readonly (RecurrenceValidationIssue & { message: string })[];
   rruleString: string | null;
   description: string | null;
 }
 ```
 
-繰り返しルールをフォーム入力向けの構造化状態として編集するヘッドレスなフックです。RRULE 文字列の相互変換・検証は `core/recurrence-editor` の純関数（`parseRecurrenceRule` 等）に委譲し、このフックは React の状態管理（`state` の保持・setter の安定化）に加えて、`locale` / `messages` から解決した中央メッセージカタログで `errors[].message` / `unsupported.message` / `description` を組み立てます。`start`/`timeZone`/`rrule` は作成時のみ有効（`useCalendar` の `events` と同じ規約）で、編集対象を切り替える場合はこのフックを使うコンポーネントに一意な `key` を指定して再マウントします。`locale` は `Provider` に依存せず、渡さない場合は既定 `'ja'` になります（`useCalendar` の `locale` オプションとは連動しません）。対応範囲・使用例の詳細は [繰り返し予定: 繰り返しルールエディタ](./recurrence.md#繰り返しルールエディタ構造化状態での編集) を参照してください。
+繰り返しルールをフォーム入力向けの構造化状態として編集するヘッドレスなフックです。RRULE 文字列の相互変換・検証は `core/recurrence-editor` の純関数（`parseRecurrenceRule` 等）に委譲し、このフックは React の状態管理（`state` の保持・setter の安定化）に加えて、`locale` / `messages` から解決した中央メッセージカタログで `errors[].message` / `unsupported.message` / `description` を組み立てます。`start`/`timeZone`/`rrule` は作成時のみ有効（`useCalendar` の `events` と同じ規約）で、編集対象を切り替える場合は `reset({ start, timeZone, rrule })` を呼びます（エディタ全体が新しい編集対象で初期化し直されるため、再マウントは不要です。このフックを使うコンポーネントに一意な `key` を指定して再マウントする方法も引き続き使えます）。`locale` は `Provider` に依存せず、渡さない場合は既定 `'ja'` になります（`useCalendar` の `locale` オプションとは連動しません）。対応範囲・使用例の詳細は [繰り返し予定: 繰り返しルールエディタ](./recurrence.md#繰り返しルールエディタ構造化状態での編集) を参照してください。
 
 ### `useCalendarShortcuts`
 

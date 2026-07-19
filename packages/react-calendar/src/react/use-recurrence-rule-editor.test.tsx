@@ -4,13 +4,17 @@
  *
  * テストプロセスは vitest.config.ts により TZ=Asia/Tokyo で実行される。
  */
-import { act, renderHook } from '@testing-library/react';
+import { act, render, renderHook } from '@testing-library/react';
+import { useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useRecurrenceRuleEditor } from './use-recurrence-rule-editor';
 
 const TOKYO = 'Asia/Tokyo';
+const NEW_YORK = 'America/New_York';
 /** 東京 7/1 9:00（水曜日）の絶対時刻。 */
 const START = new Date('2026-07-01T00:00:00Z');
+/** ニューヨーク 7/6 22:00（月曜日）＝ 東京 7/7 11:00（火曜日）の絶対時刻。 */
+const NY_MONDAY_NIGHT = new Date('2026-07-07T02:00:00Z');
 
 describe('useRecurrenceRuleEditor', () => {
   afterEach(() => {
@@ -226,7 +230,7 @@ describe('useRecurrenceRuleEditor', () => {
       expect(result.current.state?.freq).toBe('daily');
     });
 
-    it('マウント後に異なる rrule を渡すと console.warn で一度だけ警告する', () => {
+    it('マウント後に異なる rrule を渡すと console.warn で一度だけ警告し、文言が reset を案内する', () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const { rerender } = renderHook(
         (props: { rrule: string }) =>
@@ -240,7 +244,128 @@ describe('useRecurrenceRuleEditor', () => {
       rerender({ rrule: 'FREQ=WEEKLY;BYDAY=MO' });
 
       expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain('reset');
       expect(warn.mock.calls[0]?.[0]).toContain('key');
+    });
+  });
+
+  describe('reset による編集対象の切り替え', () => {
+    it('reset で新しい start/timeZone/rrule が反映され、rruleString も新しい編集対象で再計算される', () => {
+      const { result } = renderHook(() =>
+        useRecurrenceRuleEditor({ start: START, timeZone: TOKYO, rrule: 'FREQ=DAILY' }),
+      );
+      expect(result.current.state?.freq).toBe('daily');
+
+      act(() => {
+        result.current.reset({
+          start: NY_MONDAY_NIGHT,
+          timeZone: NEW_YORK,
+          rrule: 'FREQ=WEEKLY;BYDAY=MO',
+        });
+      });
+
+      expect(result.current.state).toEqual({
+        freq: 'weekly',
+        interval: 1,
+        byWeekday: [1],
+        end: { type: 'never' },
+      });
+      expect(result.current.unsupported).toBeNull();
+      expect(result.current.rruleString).toBe('FREQ=WEEKLY;BYDAY=MO');
+    });
+
+    it('reset 後の setFrequency("weekly") の既定曜日は新しい start/timeZone から算出される', () => {
+      const { result } = renderHook(() =>
+        useRecurrenceRuleEditor({ start: START, timeZone: TOKYO, rrule: 'FREQ=DAILY' }),
+      );
+
+      act(() => {
+        result.current.reset({ start: NY_MONDAY_NIGHT, timeZone: NEW_YORK, rrule: 'FREQ=DAILY' });
+      });
+      act(() => {
+        result.current.setFrequency('weekly');
+      });
+
+      // NY_MONDAY_NIGHT はニューヨークでは月曜（1）、東京では火曜（2）。
+      // 旧 timeZone（東京）が使われると [2] になるため、[1] で新 timeZone の使用を確認する
+      expect(result.current.state?.byWeekday).toEqual([1]);
+    });
+
+    it('reset で rrule を省略すると「繰り返しなし」に初期化される', () => {
+      const { result } = renderHook(() =>
+        useRecurrenceRuleEditor({ start: START, timeZone: TOKYO, rrule: 'FREQ=DAILY' }),
+      );
+      expect(result.current.state).not.toBeNull();
+
+      act(() => {
+        result.current.reset({ start: START, timeZone: TOKYO });
+      });
+
+      expect(result.current.state).toBeNull();
+      expect(result.current.unsupported).toBeNull();
+      expect(result.current.rruleString).toBeNull();
+      expect(result.current.description).toBeNull();
+    });
+
+    it('reset で対応範囲外の rrule を渡すと unsupported になり、編集中の state は引き継がれない', () => {
+      const { result } = renderHook(() =>
+        useRecurrenceRuleEditor({ start: START, timeZone: TOKYO, rrule: 'FREQ=DAILY' }),
+      );
+
+      act(() => {
+        result.current.reset({ start: START, timeZone: TOKYO, rrule: 'FREQ=HOURLY' });
+      });
+
+      expect(result.current.state).toBeNull();
+      expect(result.current.unsupported?.rawRRule).toBe('FREQ=HOURLY');
+    });
+
+    it('reset を呼んだ後は options の変更を検出する開発時警告が出ない', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { result, rerender } = renderHook(
+        (props: { rrule: string }) =>
+          useRecurrenceRuleEditor({ start: START, timeZone: TOKYO, rrule: props.rrule }),
+        { initialProps: { rrule: 'FREQ=DAILY' } },
+      );
+
+      act(() => {
+        result.current.reset({ start: START, timeZone: TOKYO, rrule: 'FREQ=WEEKLY;BYDAY=MO' });
+      });
+      // props 側は reset に追随してもしなくても警告しない（reset が編集対象の切り替え手段のため）
+      rerender({ rrule: 'FREQ=WEEKLY;BYDAY=MO' });
+      rerender({ rrule: 'FREQ=DAILY' });
+
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('reset の参照は再レンダーで安定している', () => {
+      const { result, rerender } = renderHook(() =>
+        useRecurrenceRuleEditor({ start: START, timeZone: TOKYO, rrule: 'FREQ=DAILY' }),
+      );
+
+      const first = result.current.reset;
+      rerender();
+
+      expect(result.current.reset).toBe(first);
+    });
+
+    it('既存予定の編集ダイアログを再マウントせずに reset で編集対象を切り替えられる', () => {
+      // key 再マウントの代わりに、props の変化に応じて reset を呼ぶダイアログ相当のコンポーネント
+      function RecurrenceDialog({ start, rrule }: { start: Date; rrule: string }) {
+        const editor = useRecurrenceRuleEditor({ start, timeZone: TOKYO, rrule });
+        const { reset } = editor;
+        useEffect(() => {
+          reset({ start, timeZone: TOKYO, rrule });
+        }, [reset, start, rrule]);
+        return <p>{editor.description}</p>;
+      }
+
+      const { container, rerender } = render(<RecurrenceDialog start={START} rrule="FREQ=DAILY" />);
+      expect(container.textContent).toBe('毎日');
+
+      rerender(<RecurrenceDialog start={START} rrule="FREQ=WEEKLY;BYDAY=MO,WE" />);
+
+      expect(container.textContent).toBe('毎週月・水');
     });
   });
 
