@@ -203,6 +203,13 @@ Some props on Koyomi's hooks are used **only as the initial value at mount time*
 
 Why these are initial-value-only: `useCalendar`'s `events`/`resources` are used only as the **seed** for the calendar engine's internal mutable state (the event store); after that, the state managed by the engine itself is authoritative. If React props were synced on every render, external changes via `setEvents` and changes via props could conflict, leaving it undefined which one wins — so the convention is deliberately "initial value only". `useRecurrenceRuleEditor`'s `start`/`timeZone`/`rrule` similarly fix the starting point of an editing session as internal hook state, once, for the same reason.
 
+## Try the examples
+
+[examples/](../../examples/) has standalone examples you can open directly in StackBlitz / CodeSandbox.
+
+- [vite-minimal](../../examples/vite-minimal) — Vite + React. A minimal month-view setup with drag interactions (create, move, resize)
+- [nextjs-app-router](../../examples/nextjs-app-router) — Next.js App Router. SSR setup, the `'use client'` boundary, and how to load `theme.css`
+
 ## What to read next
 
 - [Views (month, week, day, list, year, multi-month, resource, timeline)](../views.md) (Japanese)

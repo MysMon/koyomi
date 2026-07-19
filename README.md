@@ -32,6 +32,7 @@
 - [カスタマイズガイド](./docs/customization.md)
 - [API リファレンス](./docs/api.md)
 - [English documentation (docs/en/)](./docs/en/README.md)
+- [サンプル（StackBlitz / CodeSandbox で開ける examples/）](./examples/)
 
 ## インストール
 

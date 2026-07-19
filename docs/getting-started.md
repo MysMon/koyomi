@@ -210,6 +210,13 @@ Koyomi のフックの一部の props は、**マウント時の初期値とし�
 `start`/`timeZone`/`rrule` も同様に、編集セッションの起点をフック内部の状態として
 一度確定させるためのものです。
 
+## サンプルをすぐに試す
+
+[examples/](../examples/) に、StackBlitz / CodeSandbox でそのまま開ける独立構成のサンプルを用意しています。
+
+- [vite-minimal](../examples/vite-minimal) — Vite + React。月ビューとドラッグ操作（作成・移動・リサイズ）の最小構成
+- [nextjs-app-router](../examples/nextjs-app-router) — Next.js App Router。SSR セットアップと `'use client'` 境界、`theme.css` の読み込み方
+
 ## 次に読む
 
 - [ビュー（月・週・日・リスト・年・複数月・リソース・タイムライン）](./views.md)

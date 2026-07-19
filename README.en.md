@@ -33,6 +33,7 @@ The canonical documentation is in Japanese: see [docs/](./docs/). An English doc
 - [Documentation index and key concepts (English)](./docs/en/README.md)
 - [はじめに (Japanese)](./docs/getting-started.md)
 - [API リファレンス / API Reference (Japanese)](./docs/api.md)
+- [Examples (runnable in StackBlitz / CodeSandbox)](./examples/)
 
 ## Installation
 
