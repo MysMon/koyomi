@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { createCalendar } from '../core/calendar';
 import type { CalendarEvent, CalendarOptions, CalendarRangeChangeInfo } from '../core/types';
+import { warnIfLowContrastEventColor } from './event-color-contrast';
 import { isDevBuild } from './is-dev-build';
 import type { UseCalendarResult } from './types';
 
@@ -148,6 +149,25 @@ export function useCalendar(options?: UseCalendarOptions): UseCalendarResult {
   // キャッシュされた同一参照を返すため、サーバーレンダー中の一貫性も保たれる。
   const state = useSyncExternalStore(api.subscribe, api.getState, api.getState);
   const viewModel = api.getViewModel();
+
+  // event.color / resource.color の WCAG AA コントラスト警告（開発ビルド限定）。
+  // 同じ色を何度も警告しないよう、警告済みの色をマウント中保持する Set に積む
+  // （docs/accessibility.md 参照）。
+  const warnedColorsRef = useRef<Set<string> | null>(null);
+  if (isDevBuild()) {
+    warnedColorsRef.current ??= new Set();
+    const warned = warnedColorsRef.current;
+    for (const event of state.events) {
+      if (event.color !== undefined) {
+        warnIfLowContrastEventColor(event.color, warned);
+      }
+    }
+    for (const resource of state.resources) {
+      if (resource.color !== undefined) {
+        warnIfLowContrastEventColor(resource.color, warned);
+      }
+    }
+  }
 
   // refreshSeconds による現在時刻の自動追従（0 以下なら何もしない）。
   // onEventsChange と同様に、レンダーごとの最新値が反映される

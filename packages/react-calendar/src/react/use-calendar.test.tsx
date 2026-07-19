@@ -377,5 +377,86 @@ describe('useCalendar', () => {
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]?.[0]).toContain('setResources');
     });
+
+    it('event.color が既定前景色と WCAG AA を満たさないと console.warn する', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const events: readonly CalendarEvent[] = [
+        { id: '1', title: '黄色い予定', start: '2026-07-15T10:00', color: '#ffff00' },
+      ];
+
+      renderHook(() =>
+        useCalendar({ timeZone: 'Asia/Tokyo', now: () => NOW, initialDate: NOW, events }),
+      );
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain('#ffff00');
+    });
+
+    it('resource.color が既定前景色と WCAG AA を満たさないと console.warn する', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const resources: readonly CalendarResource[] = [
+        { id: 'room-1', title: '会議室A', color: '#ffff00' },
+      ];
+
+      renderHook(() =>
+        useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          initialView: 'resource',
+          resources,
+        }),
+      );
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain('#ffff00');
+    });
+
+    it('event.color が WCAG AA を満たす色なら警告しない', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const events: readonly CalendarEvent[] = [
+        { id: '1', title: '予定', start: '2026-07-15T10:00', color: '#14608f' },
+      ];
+
+      renderHook(() =>
+        useCalendar({ timeZone: 'Asia/Tokyo', now: () => NOW, initialDate: NOW, events }),
+      );
+
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('同じ色を持つ複数の予定が再レンダリングを跨いでも、色ごとに一度しか警告しない', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const events: readonly CalendarEvent[] = [
+        { id: '1', title: '黄色い予定1', start: '2026-07-15T10:00', color: '#ffff00' },
+        { id: '2', title: '黄色い予定2', start: '2026-07-15T12:00', color: '#ffff00' },
+      ];
+
+      const { rerender } = renderHook(
+        () => useCalendar({ timeZone: 'Asia/Tokyo', now: () => NOW, initialDate: NOW, events }),
+        { initialProps: {} },
+      );
+      rerender();
+
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it('マウント後に api.setEvents で追加した予定の色も判定される', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { result } = renderHook(() =>
+        useCalendar({ timeZone: 'Asia/Tokyo', now: () => NOW, initialDate: NOW }),
+      );
+
+      expect(warn).not.toHaveBeenCalled();
+
+      act(() => {
+        result.current.api.setEvents([
+          { id: '1', title: '黄色い予定', start: '2026-07-15T10:00', color: '#ffff00' },
+        ]);
+      });
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain('#ffff00');
+    });
   });
 });
