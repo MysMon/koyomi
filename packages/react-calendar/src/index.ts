@@ -302,6 +302,11 @@ export {
   useCalendarAnnouncer,
 } from './react/use-calendar-announcer';
 export {
+  type UseCalendarClipboardOptions,
+  type UseCalendarClipboardResult,
+  useCalendarClipboard,
+} from './react/use-calendar-clipboard';
+export {
   type UseCalendarHistoryOptions,
   type UseCalendarHistoryResult,
   useCalendarHistory,

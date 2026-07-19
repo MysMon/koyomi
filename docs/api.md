@@ -316,6 +316,52 @@ function App() {
 }
 ```
 
+### `useCalendarClipboard`
+
+```ts
+function useCalendarClipboard(options: UseCalendarClipboardOptions): UseCalendarClipboardResult
+
+interface UseCalendarClipboardOptions {
+  calendar: UseCalendarResult;
+  keyboardShortcuts?: boolean; // 既定 false
+  history?: { push(changes: readonly EventChangeEntry[]): void }; // useCalendarHistory の戻り値をそのまま渡せる
+  onCopy?: (occurrence: EventOccurrence) => void;
+  onPaste?: (created: CalendarEvent) => void;
+}
+
+interface UseCalendarClipboardResult {
+  hasClipboard: boolean;
+  copy(occurrence: EventOccurrence): void;
+  paste(newStart?: Date): CalendarEvent | null;
+  clear(): void;
+}
+```
+
+イベントのコピー&ペースト（複製）を配線するフックです。コピーの内容はフック内部のクリップボードに保持され（OS のクリップボードは使いません）、貼り付けは `calendar.api.createEvent` でイベントを作成します。コピーの構築は `buildOccurrenceCopy`（`core/mutations`）に委譲するため、**繰り返しイベントのコピーは当該オカレンスの単発化**になります（シリーズ全体はコピーされません）。`paste` は `newStart` 省略時にコピー元と同じ日時へ複製します。`keyboardShortcuts: true` にすると `Ctrl/Cmd+C`（フォーカス中の予定要素をコピー）・`Ctrl/Cmd+V`（フォーカス中の日付セルへ、コピー元の時刻を維持して貼り付け）が有効になります（`input`/`textarea`/`select`/`contentEditable` にフォーカス中は無効）。`history` に `useCalendarHistory` の戻り値を渡すと、貼り付けが undo/redo の対象になります。詳細は [インタラクション: コピー&ペースト](./interactions.md#コピーペーストusecalendarclipboard) を参照してください。
+
+```tsx
+import {
+  CalendarProvider,
+  CalendarView,
+  useCalendar,
+  useCalendarClipboard,
+  useCalendarHistory,
+} from '@koyomi-cal/react';
+
+function App() {
+  const calendar = useCalendar({ initialView: 'month' });
+  const history = useCalendarHistory({ calendar, keyboardShortcuts: true });
+  useCalendarClipboard({ calendar, history, keyboardShortcuts: true });
+  return (
+    <CalendarProvider value={calendar}>
+      <CalendarView />
+    </CalendarProvider>
+  );
+}
+// => 予定ボタンにフォーカスして Ctrl+C、日付セルにフォーカスして Ctrl+V で
+//    その日に複製が作成され、Ctrl+Z で取り消せる
+```
+
 ### `useRecurrenceRuleEditor`
 
 ```ts

@@ -312,7 +312,7 @@ const result = pasteEventInWithChanges(
 ```
 
 キーボードショートカット（`Ctrl/Cmd+C` / `Ctrl/Cmd+V`）でこれらを配線する React フック
-`useCalendarClipboard` は [インタラクション](./interactions.md#コピーペーストctrlcmdc--v) を
+`useCalendarClipboard` は [インタラクション: コピー&ペースト](./interactions.md#コピーペーストusecalendarclipboard) を
 参照してください。
 
 ## パッチ規則（applyPatch）

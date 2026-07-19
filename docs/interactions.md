@@ -453,6 +453,57 @@ useCalendarShortcuts({
 
 `CalendarProvider` の `gridNavigation` を有効にすると、日セル・終日セルでは矢印キーによるセル間移動が使えるようになり、セル内に予定がある日の `Enter` は範囲選択ではなく最初の予定へのフォーカス移動になります（`Space` の範囲選択、予定にフォーカスした状態のキー割り当ては上表のまま変わりません）。詳細は [アクセシビリティ: grid 内のキーボードナビゲーション](./accessibility.md#grid-内のキーボードナビゲーションgridnavigation) を参照してください。
 
+## コピー&ペースト（useCalendarClipboard）
+
+`useCalendarClipboard` を使うと、イベントのコピー&ペースト（複製）を配線できます。コピーの内容はフック内部のクリップボードに保持され（OS のクリップボードは使いません）、貼り付けは `calendar.api.createEvent` でイベントを作成します。UI は提供しません（ヘッドレス）。
+
+- `copy(occurrence)` — オカレンスをコピーする
+- `paste(newStart?)` — 貼り付けてイベントを作成する。`newStart` 省略時はコピー元と同じ日時への複製になる
+- `hasClipboard` — クリップボードにコピー内容があるか（貼り付けボタンの活性化などに使う）
+- `clear()` — クリップボードを空にする
+
+**繰り返しイベントのコピーは、シリーズ全体ではなく当該オカレンスの単発化です**（Google カレンダーのコピーと同じ扱い）。コピーされた内容は `rrule` を持たない単発イベントになり、貼り付けてもシリーズは複製されません（コピー規則の詳細は [予定の管理: 複製とコピー&ペースト](./events.md#複製とコピーペースト) を参照）。
+
+`keyboardShortcuts: true`（既定は `false` の opt-in）でキーボードショートカットが有効になります。
+
+| キー | 動作 |
+| --- | --- |
+| `Ctrl/Cmd+C` | フォーカス中の予定要素（`data-koyomi-occurrence` 属性を持つ要素）のオカレンスをコピー |
+| `Ctrl/Cmd+V` | フォーカス中の日付セル（`data-koyomi-date` 属性を持つ要素）の日へ貼り付け |
+
+- `Ctrl/Cmd+C` は予定要素にフォーカスがあるときだけ動作し、それ以外では `preventDefault` も行いません（ページ上のテキストコピーを妨げません）
+- `Ctrl/Cmd+V` はフォーカスがカレンダーの DOM（`data-koyomi-*` 属性を持つ要素）の内側にあるときだけ動作します。貼り付け先の日はフォーカス中の日付セルから決まり、時間指定の予定はコピー元の時刻を維持して（終日の予定は終日のまま）その日に配置されます。カレンダー内でも日付セルが特定できない位置（ツールバー等）では、コピー元と同じ日時への複製になります
+- `input` / `textarea` / `select` / `contentEditable` にフォーカスがある間は無効です
+
+`history` に `useCalendarHistory` の戻り値を渡すと、貼り付けで作成されたイベントが履歴に積まれ、`Ctrl/Cmd+Z` で取り消せるようになります。
+
+```tsx
+import {
+  CalendarProvider,
+  CalendarView,
+  useCalendar,
+  useCalendarClipboard,
+  useCalendarHistory,
+} from '@koyomi-cal/react';
+
+function App() {
+  const calendar = useCalendar({ initialView: 'month' });
+  const history = useCalendarHistory({ calendar, keyboardShortcuts: true });
+  useCalendarClipboard({ calendar, history, keyboardShortcuts: true });
+  return (
+    <CalendarProvider value={calendar}>
+      <CalendarView />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - 予定ボタンにフォーカスして Ctrl+C → 別の日付セルにフォーカスして Ctrl+V すると、
+//   その日にコピー元の時刻を維持した複製が作成される
+// - 繰り返し予定のオカレンスをコピーした場合、貼り付けは単発イベントになる
+// - Ctrl+Z で貼り付けが取り消される（history を渡した場合）
+```
+
 ## 「+N 件」のポップオーバーを自前で組む
 
 Koyomi はポップオーバー・ダイアログなどの UI を提供しません（ヘッドレスの方針）。月ビュー・複数月ビューの「+N 件」ボタンは、隠れた予定を一覧表示するポップオーバーの起点になるよう `onOverflowClick` と `overflowButtonProps` を提供しており、[Floating UI](https://floating-ui.com/) 等の位置決めライブラリと組み合わせて自前の UI を構築できます。
