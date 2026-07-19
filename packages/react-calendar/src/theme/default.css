@@ -1624,3 +1624,26 @@
   inset-inline-start: 0;
   width: 100%;
 }
+
+/* ---------------------------------------------------------------------------
+ * モーション低減（prefers-reduced-motion）
+ *
+ * ツールバーボタンの配色変化（transition）・タイムラインの折りたたみトグルの
+ * 回転（transition）など、既存ルールが使う transition/animation をまとめて
+ * 無効化する。個々のプロパティを追いかけて上書きする代わりに、root/toolbar
+ * 配下すべてを対象にした 1 ルールで一括無効化する（box-sizing リセットと
+ * 同じ対象範囲）。このルールの詳細度（属性セレクタ 1 個分、0,1,0）は
+ * transition/animation を宣言する既存ルール（`[data-koyomi="button"]` 等、
+ * 同じく 0,1,0）と同じだが、ファイル内で最後に置くことで通常のカスケード規則
+ * （詳細度が同じ場合はソース順で後勝ち）により上書きされる。`!important` は
+ * 使わない（Biome の `noImportantStyles` に抵触するため）。
+ * ------------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  [data-koyomi="root"],
+  [data-koyomi="root"] *,
+  [data-koyomi="toolbar"],
+  [data-koyomi="toolbar"] * {
+    transition: none;
+    animation: none;
+  }
+}

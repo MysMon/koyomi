@@ -101,6 +101,10 @@ import '@koyomi-cal/react/theme.css';
 document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 ```
 
+## motion の削減（prefers-reduced-motion）
+
+デフォルトテーマは `prefers-color-scheme` と同様に `prefers-reduced-motion: reduce` にも自動で追従します。OS/ブラウザで「視差効果を減らす」等の設定を有効にしているユーザーには、ボタンの配色変化やタイムラインの折りたたみトグルの回転といった `transition` がすべて無効化されます（瞬時に切り替わります）。この対応はデフォルトテーマの CSS のみで完結しており、追加の設定は不要です。
+
 ## data-koyomi 属性の一覧
 
 ビルトインコンポーネントが出力する主な要素と `data-koyomi="<部位名>"` の対応です。カスタム CSS を書く際のセレクタ一覧として使えます。
