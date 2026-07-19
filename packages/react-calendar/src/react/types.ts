@@ -523,6 +523,12 @@ export interface CalendarContextValue extends UseCalendarResult {
    * `renderEvent` 系 render prop が無いスロットでこれを使う（個別 > 中央 > 既定）。
    */
   renderEventContent: EventContentRenderer | undefined;
+  /**
+   * grid 内のセル間キーボードナビゲーション（roving tabindex）が有効か
+   * （`CalendarProviderProps.gridNavigation` の解決値。未指定時は `false`）。
+   * 対応するビルトインビュー（月・複数月・年・週/日の終日行）が参照する。
+   */
+  gridNavigation: boolean;
 }
 
 // re-export（React 層の利用者が core を直接 import しなくて済むように）

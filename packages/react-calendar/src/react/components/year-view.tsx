@@ -14,6 +14,7 @@ import type { TimeZoneId, Weekday, YearDay, YearMonth } from '../../core/types';
 import { useCalendarContext } from '../context';
 import type { YearMessages } from '../locales/types';
 import type { SlotRenderContext } from '../types';
+import { defaultActiveCellKey, useGridNavigation } from '../use-grid-navigation';
 import { formatWeekday } from './format';
 
 /** `YearView` の props。 */
@@ -112,7 +113,24 @@ const HAS_EVENTS_BUTTON_ATTRS: { 'data-has-events': 'true' } = { 'data-has-event
  */
 export function YearView(props: YearViewProps): ReactElement | null {
   const { renderMonthHeader, renderDayCell } = props;
-  const { api, state, viewModel, callbacks, messages } = useCalendarContext();
+  const { api, state, viewModel, callbacks, messages, gridNavigation } = useCalendarContext();
+
+  // roving tabindex（gridNavigation）。前後月の日ボタンは対象外のため、
+  // 既定 Tab ストップ・フォールバックとも各月本体の日だけから決める
+  const yearViewModel = viewModel.type === 'year' ? viewModel : null;
+  const defaultNavKey =
+    yearViewModel === null
+      ? null
+      : defaultActiveCellKey(
+          yearViewModel.months.flatMap((month) =>
+            month.weeks.flatMap((week) => week.filter((day) => day.inCurrentMonth)),
+          ),
+        );
+  const nav = useGridNavigation({
+    calendar: { api, state, viewModel },
+    enabled: gridNavigation && yearViewModel !== null,
+    defaultKey: defaultNavKey,
+  });
 
   /** 指定日の day ビューへ切り替える（月ビューの日番号ボタンと同じ挙動）。 */
   const goToDay = useCallback(
@@ -144,8 +162,21 @@ export function YearView(props: YearViewProps): ReactElement | null {
   const { timeZone, options } = state;
   const { locale } = options;
 
+  // roving tabindex の現在の Tab ストップ（ビュー全体で単一）。フォーカス済みの
+  // セルが表示中の年の月本体に含まれていればそれ、いなければ既定キーへフォールバック
+  const navActiveKey = !nav.enabled
+    ? null
+    : nav.activeKey !== null &&
+        months.some((month) =>
+          month.weeks.some((week) =>
+            week.some((day) => day.inCurrentMonth && day.key === nav.activeKey),
+          ),
+        )
+      ? nav.activeKey
+      : defaultNavKey;
+
   return (
-    <div data-koyomi="year">
+    <div data-koyomi="year" {...nav.containerProps}>
       {months.map((month) => (
         <YearMonthSection
           key={month.key}
@@ -153,6 +184,8 @@ export function YearView(props: YearViewProps): ReactElement | null {
           weekdays={weekdays}
           timeZone={timeZone}
           locale={locale}
+          navEnabled={nav.enabled}
+          navActiveKey={navActiveKey}
           renderMonthHeader={renderMonthHeader}
           renderDayCell={renderDayCell}
           yearMessages={messages.year}
@@ -169,6 +202,13 @@ const YearMonthSection = memo(function YearMonthSection(props: {
   weekdays: readonly Weekday[];
   timeZone: TimeZoneId;
   locale: string;
+  /** roving tabindex（`CalendarProvider` の `gridNavigation`）が有効か。 */
+  navEnabled: boolean;
+  /**
+   * 現在の Tab ストップのセルの日付キー（ビュー全体で単一）。
+   * `navEnabled` が `false` の間は `null`。
+   */
+  navActiveKey: string | null;
   renderMonthHeader: ((month: YearMonth, ctx: SlotRenderContext) => ReactNode) | undefined;
   renderDayCell: ((day: YearDay, ctx: SlotRenderContext) => ReactNode) | undefined;
   yearMessages: YearMessages;
@@ -179,6 +219,8 @@ const YearMonthSection = memo(function YearMonthSection(props: {
     weekdays,
     timeZone,
     locale,
+    navEnabled,
+    navActiveKey,
     renderMonthHeader,
     renderDayCell,
     yearMessages,
@@ -219,6 +261,15 @@ const YearMonthSection = memo(function YearMonthSection(props: {
                   day={day}
                   timeZone={timeZone}
                   locale={locale}
+                  // roving tabindex 有効時は Tab ストップの日ボタンだけ 0、他は -1。
+                  // 前後月の日ボタンはナビゲーション対象外なので常に -1（Tab 順からも外す）
+                  navTabIndex={
+                    !navEnabled
+                      ? undefined
+                      : day.inCurrentMonth && day.key === navActiveKey
+                        ? 0
+                        : -1
+                  }
                   renderDayCell={renderDayCell}
                   yearMessages={yearMessages}
                   onDayClick={onDayClick}
@@ -237,11 +288,16 @@ const YearDayCell = memo(function YearDayCell(props: {
   day: YearDay;
   timeZone: TimeZoneId;
   locale: string;
+  /**
+   * roving tabindex 有効時に日ボタンへ付与する `tabIndex`（`0` または `-1`）。
+   * `undefined` の間は `tabIndex` を付与しない（ネイティブの Tab 順のまま）。
+   */
+  navTabIndex: number | undefined;
   renderDayCell: ((day: YearDay, ctx: SlotRenderContext) => ReactNode) | undefined;
   yearMessages: YearMessages;
   onDayClick: (date: Date) => void;
 }): ReactElement {
-  const { day, timeZone, locale, renderDayCell, yearMessages, onDayClick } = props;
+  const { day, timeZone, locale, navTabIndex, renderDayCell, yearMessages, onDayClick } = props;
   const dateLabel = formatMonthDayLabel(day.date, timeZone, locale);
   const countLabel = day.eventCount > 0 ? yearMessages.dayCount(day.eventCount) : null;
   const ariaLabel = yearMessages.dayAriaLabel(day, { dateLabel, countLabel });
@@ -263,6 +319,7 @@ const YearDayCell = memo(function YearDayCell(props: {
         type="button"
         data-koyomi="year-day"
         data-koyomi-date={day.key}
+        {...(navTabIndex !== undefined ? { tabIndex: navTabIndex } : {})}
         aria-label={ariaLabel}
         {...(day.isToday ? TODAY_BUTTON_ATTRS : {})}
         {...(!day.inCurrentMonth ? OUTSIDE_BUTTON_ATTRS : {})}

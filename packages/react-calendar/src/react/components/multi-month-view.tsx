@@ -40,6 +40,7 @@ import type {
   SlotRenderContext,
 } from '../types';
 import { useDayDrag } from '../use-day-drag';
+import { defaultActiveCellKey, useGridNavigation } from '../use-grid-navigation';
 import { formatMonthTitle } from './format';
 import type { MonthDayDragHandlers } from './month-view-parts';
 import {
@@ -47,6 +48,7 @@ import {
   formatWeekdayLabel,
   MonthWeekRow,
   useStableDayDrag,
+  weekNavActiveCol,
   withMonthLanesStyle,
 } from './month-view-parts';
 
@@ -110,7 +112,8 @@ export interface MultiMonthViewProps {
  */
 export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null {
   const { renderEvent, renderDayCell, overflowButtonProps, renderOverflowLabel } = props;
-  const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
+  const { api, state, viewModel, callbacks, messages, renderEventContent, gridNavigation } =
+    useCalendarContext();
   const calendar = { api, state, viewModel };
   // コンポーネント全体で 1 インスタンス（モジュール冒頭の TSDoc を参照）。
   const dayDrag = useDayDrag({
@@ -123,6 +126,22 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
   // `month-view-parts.tsx` の useStableDayDrag のコメントを参照。全月で共有する
   // 単一インスタンスなので、ラッパーも 1 つだけ作れば足りる）。
   const stableDayDrag = useStableDayDrag(dayDrag);
+  // roving tabindex（gridNavigation）。前後月セルは非インタラクティブ（対象外）の
+  // ため、既定 Tab ストップ・フォールバックとも月本体の日だけから決める
+  const multiMonthViewModel = viewModel.type === 'multiMonth' ? viewModel : null;
+  const defaultNavKey =
+    multiMonthViewModel === null
+      ? null
+      : defaultActiveCellKey(
+          multiMonthViewModel.months.flatMap((month) =>
+            month.weeks.flatMap((week) => week.days.filter((day) => day.inCurrentMonth)),
+          ),
+        );
+  const nav = useGridNavigation({
+    calendar,
+    enabled: gridNavigation && multiMonthViewModel !== null,
+    defaultKey: defaultNavKey,
+  });
 
   /** 指定日の day ビューへ切り替える。 */
   const goToDay = useCallback(
@@ -173,8 +192,25 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
   const previewRange = dayDrag.previewRange;
   const previewInvalid = dayDrag.previewInvalid;
 
+  // roving tabindex の現在の Tab ストップ（ビュー全体で単一）。フォーカス済みの
+  // セルが表示中の月本体に含まれていればそれ、いなければ既定キーへフォールバック
+  const navActiveKey = !nav.enabled
+    ? null
+    : nav.activeKey !== null &&
+        months.some((month) =>
+          month.weeks.some((week) =>
+            week.days.some((day) => day.inCurrentMonth && day.key === nav.activeKey),
+          ),
+        )
+      ? nav.activeKey
+      : defaultNavKey;
+
   return (
-    <div data-koyomi="multimonth" style={withMonthLanesStyle(options.dayMaxEvents)}>
+    <div
+      data-koyomi="multimonth"
+      style={withMonthLanesStyle(options.dayMaxEvents)}
+      {...nav.containerProps}
+    >
       {months.map((month) => (
         <MultiMonthMonthSection
           key={month.key}
@@ -183,6 +219,8 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
           locale={locale}
           previewRange={previewRange}
           previewInvalid={previewInvalid}
+          navEnabled={nav.enabled}
+          navActiveKey={navActiveKey}
           dayDrag={stableDayDrag}
           renderEvent={renderEvent}
           renderEventContent={renderEventContent}
@@ -217,6 +255,13 @@ function MultiMonthMonthSection(props: {
   previewRange: DateRange | null;
   /** ドラッグプレビューが宣言的制約に違反しているか（`previewRange` が `null` の間は無視される）。 */
   previewInvalid: boolean;
+  /** roving tabindex（`CalendarProvider` の `gridNavigation`）が有効か。 */
+  navEnabled: boolean;
+  /**
+   * 現在の Tab ストップのセルの日付キー（ビュー全体で単一）。
+   * `navEnabled` が `false` の間は `null`。
+   */
+  navActiveKey: string | null;
   /**
    * 日セル・帯セグメントのドラッグ操作ハンドラ（`MultiMonthView` 全体で共有する
    * 単一インスタンスを `useStableDayDrag` で参照安定化させたもの）。
@@ -263,6 +308,8 @@ function MultiMonthMonthSection(props: {
     locale,
     previewRange,
     previewInvalid,
+    navEnabled,
+    navActiveKey,
     dayDrag,
     renderEvent,
     renderEventContent,
@@ -286,6 +333,9 @@ function MultiMonthMonthSection(props: {
       previewRange !== null
         ? computeWeekSelectionSpan(week.days, previewRange, timeZone, false)
         : null,
+    // 前後月セルは非インタラクティブなので、月本体の日だけを Tab ストップ候補にする
+    // （同じ日付キーが隣接月グリッドの前後月セルに現れても一致させない）
+    navActiveCol: weekNavActiveCol(week.days, navActiveKey, true),
   }));
 
   return (
@@ -306,7 +356,7 @@ function MultiMonthMonthSection(props: {
         </div>
         {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA rowgroup */}
         <div data-koyomi="month-weeks" role="rowgroup">
-          {weeksWithSelection.map(({ week, selectionSpan }) => (
+          {weeksWithSelection.map(({ week, selectionSpan, navActiveCol }) => (
             <MonthWeekRow
               key={`${month.key}:${week.days[0]?.key ?? ''}`}
               week={week}
@@ -314,6 +364,8 @@ function MultiMonthMonthSection(props: {
               locale={locale}
               selectionSpan={selectionSpan}
               selectionInvalid={previewInvalid}
+              navEnabled={navEnabled}
+              navActiveCol={navActiveCol}
               dayDrag={dayDrag}
               renderEvent={renderEvent}
               renderEventContent={renderEventContent}
