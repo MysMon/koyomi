@@ -451,6 +451,8 @@ useCalendarShortcuts({
 
 **日セル・終日セルにフォーカスした状態（月ビュー・終日行・リソースビューの終日セル）:** `Enter` または `Space` でその日 1 日分の範囲選択（`onSelectRange`、`allDay: true`）が発火します。リソースビューの終日セル（`resource-allday-cell`）ではフォーカス中の列の `resourceId` が付きます。リストビューの予定行は Enter・Space によるクリックのみに対応します。
 
+`CalendarProvider` の `gridNavigation` を有効にすると、日セル・終日セルでは矢印キーによるセル間移動が使えるようになり、セル内に予定がある日の `Enter` は範囲選択ではなく最初の予定へのフォーカス移動になります（`Space` の範囲選択、予定にフォーカスした状態のキー割り当ては上表のまま変わりません）。詳細は [アクセシビリティ: grid 内のキーボードナビゲーション](./accessibility.md#grid-内のキーボードナビゲーションgridnavigation) を参照してください。
+
 ## 「+N 件」のポップオーバーを自前で組む
 
 Koyomi はポップオーバー・ダイアログなどの UI を提供しません（ヘッドレスの方針）。月ビュー・複数月ビューの「+N 件」ボタンは、隠れた予定を一覧表示するポップオーバーの起点になるよう `onOverflowClick` と `overflowButtonProps` を提供しており、[Floating UI](https://floating-ui.com/) 等の位置決めライブラリと組み合わせて自前の UI を構築できます。

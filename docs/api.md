@@ -636,12 +636,14 @@ function useCalendarContext(): CalendarContextValue
 
 | 型 / 関数 | シグネチャ |
 | --- | --- |
-| `CalendarProviderProps` | `{ value: UseCalendarResult; callbacks?: CalendarInteractionCallbacks; messages?: MessageCatalogOverrides; renderEventContent?: EventContentRenderer; children?: ReactNode }` |
+| `CalendarProviderProps` | `{ value: UseCalendarResult; callbacks?: CalendarInteractionCallbacks; messages?: MessageCatalogOverrides; renderEventContent?: EventContentRenderer; gridNavigation?: boolean; children?: ReactNode }` |
 | `useCalendarContext` | `(): CalendarContextValue` |
 
 `messages`（`MessageCatalogOverrides`）は、`value.state.options.locale` の言語サブタグで選ばれる同梱カタログ（`ja` / `en`、未対応言語は `ja` にフォールバック）へグループ単位で浅くマージされ、配下の全ビューコンポーネントの文言・aria-label に反映されます。呼び出しのたびに新しいオブジェクトを渡さず、安定した参照（コンポーネント外の定数、または `useMemo` の結果）で渡してください。詳細は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を、全リーフの一覧は [中央メッセージカタログ](#中央メッセージカタログreactlocales) を参照してください。
 
 `renderEventContent`（`EventContentRenderer`）は、配下の全ビューのイベント内容を 1 箇所で定義するビュー横断のイベント内容レンダラーです。年ビューはイベント内容そのものを描画しない（件数マーカーのみ）ため対象外です。ビュー個別の `renderEvent` 系 render prop が指定されているスロットではそちらが優先されます（個別 > 中央 > 既定）。`messages` と同じく安定した参照で渡してください。詳細は [カスタマイズガイド: ビュー横断で一括定義する](./customization.md#ビュー横断で一括定義するrendereventcontent) を参照してください。
+
+`gridNavigation`（既定 `false`）を有効にすると、月・複数月・年ビューの日セルと週/日ビューの終日セルが roving tabindex（WAI-ARIA APG の grid パターン）になり、ビューごとに単一の Tab ストップ + 矢印キー・Home/End・PageUp/PageDown でのセル間移動が使えます。キー割り当てと予定操作とのモード分離（セルの Enter で予定へ入り、予定の Escape でセルへ戻る）の詳細は [アクセシビリティ: grid 内のキーボードナビゲーション](./accessibility.md#grid-内のキーボードナビゲーションgridnavigation) を参照してください。
 
 ```tsx
 import { CalendarProvider, CalendarView, Toolbar, useCalendar } from '@koyomi-cal/react';
@@ -1068,7 +1070,7 @@ interface ToolbarProps {
 | 型 | シグネチャ | 説明 |
 | --- | --- | --- |
 | `UseCalendarResult` | `{ api: CalendarApi; state: CalendarState; viewModel: CalendarViewModel }` | `useCalendar` の戻り値 |
-| `CalendarContextValue` | `UseCalendarResult & { callbacks: CalendarInteractionCallbacks; messages: MessageCatalog; renderEventContent: EventContentRenderer \| undefined }` | `useCalendarContext()` の戻り値。`messages` は `state.options.locale` と `CalendarProviderProps.messages` から解決済みの中央メッセージカタログ |
+| `CalendarContextValue` | `UseCalendarResult & { callbacks: CalendarInteractionCallbacks; messages: MessageCatalog; renderEventContent: EventContentRenderer \| undefined; gridNavigation: boolean }` | `useCalendarContext()` の戻り値。`messages` は `state.options.locale` と `CalendarProviderProps.messages` から解決済みの中央メッセージカタログ、`gridNavigation` は `CalendarProviderProps.gridNavigation` の解決値（未指定時 `false`） |
 | `SlotRenderContext` | `{ defaultContent: ReactNode }` | すべてのカスタム描画スロットの第 2 引数。`defaultContent` は省略時にライブラリが描画する既定の内容 |
 | `EventContentSlot` | `'month-event' \| 'timegrid-event' \| 'allday-event' \| 'list-event' \| 'timeline-item'` | イベント内容スロットの描画枠の種別（外側要素の `data-koyomi` 部位名と同じ語彙） |
 | `EventContentParts` | `{ timeText: string \| null; titleText: string; time: ReactNode; swatch: ReactNode; title: ReactNode }` | イベント内容の既定内容を分解したパーツ（詳細は [カスタマイズガイド](./customization.md#イベント内容のカスタマイズctxparts-と-ctxslot)） |

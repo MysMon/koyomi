@@ -77,7 +77,9 @@ div[data-koyomi="month"] (role="grid", style: --koyomi-month-lanes=dayMaxEvents)
         div[data-koyomi="month-day"][data-koyomi-date="YYYY-MM-DD"]
            (role="gridcell", tabIndex=0, aria-label=完全な日付, aria-current="date"?)
            [data-today?][data-outside?] × 可視列数    … useDayDrag.getDayCellProps を展開
-                                                       （Enter/Space でその日 1 日分の範囲選択）
+                                                       （Enter/Space でその日 1 日分の範囲選択。
+                                                        gridNavigation 有効時は roving tabindex:
+                                                        Tab ストップのセルのみ 0、他は -1）
           … 内容は renderDayCell で差し替え可能（既定は以下。イベントの帯は差し替え対象外）
           button[data-koyomi="month-day-number"]     … クリックでその日の day ビューへ
           button[data-koyomi="month-overflow"]?      … 「+N 件」（overflowCount > 0 のとき、
@@ -139,7 +141,8 @@ div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"] (style: --koyomi-
     div[data-koyomi="allday-row"] (role="row")
       div[data-koyomi="timegrid-axis-gutter"][data-koyomi-timezone] (role="presentation") × timeAxes.length
       div[data-koyomi="allday-cells"] (role="presentation")  … position: relative の基準（row→gridcell 間の透過ラッパ）
-        div[data-koyomi="allday-cell"][data-koyomi-date] (role="gridcell", aria-label=完全な日付) × days   … getDayCellProps（allDay 作成用）
+        div[data-koyomi="allday-cell"][data-koyomi-date] (role="gridcell", aria-label=完全な日付) × days   … getDayCellProps（allDay 作成用。
+               gridNavigation 有効時は roving tabindex: Tab ストップのセルのみ 0、他は -1）
           button[data-koyomi="allday-event"] × n     … getSegmentProps。開始日のセルが DOM 上所有する
                （positioned ancestor は allday-cells のため、複数日スパンの座標は従来どおり）。
                style: insetInlineStart/width %、top: lane × var(--koyomi-lane-height, 24px)。
@@ -255,6 +258,8 @@ div[data-koyomi="year"]
                (aria-label=完全な日付+予定件数, aria-current="date"?)
                [data-today?][data-outside?][data-has-events?]
                … 実際の操作・フォーカス対象。クリックで goTo(date) + setView('day')。
+                 gridNavigation 有効時は roving tabindex（Tab ストップのボタンのみ 0、
+                 他は -1。data-outside のボタンは常に -1 で矢印移動の対象外）。
                  内容は renderDayCell で差し替え可能（既定は以下）
               … 既定内容: 日番号のテキスト
               span[data-koyomi="year-day-count"][aria-hidden="true"]?
