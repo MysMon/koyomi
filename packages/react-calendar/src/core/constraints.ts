@@ -12,6 +12,7 @@ import { rangesOverlap } from './date-utils';
 import {
   addDaysInZone,
   minutesOfDayInZone,
+  parseSlotBoundaryTime,
   parseTimeOfDay,
   startOfDayInZone,
   weekdayInZone,
@@ -97,10 +98,10 @@ export function hasBlockingOverlap(
  * 確認する（1 日でも収まらない部分があれば `false`）。DST の切替日でも現地時刻
  * 基準で判定するため、実際の経過時間（23/25 時間）の影響を受けない。
  *
- * `BusinessHoursRule.endTime` は `'HH:mm'` 形式のみで `'24:00'` を表現できないため、
- * 日をまたぐ候補区間はその初日が必ず日境界（24:00 相当）まで達し、どれだけ広い
- * ルールでも最後の 1 分をカバーできず常に `false` になる（複数日にまたがる
- * 時間指定イベントは実質的にこの制約を満たせない）。
+ * 日をまたぐ候補区間は、その初日が必ず日境界（24:00 相当）まで達するため、
+ * 初日の曜日に `endTime: '24:00'`（日の終端）のルールが必要になる。複数日に
+ * またがる時間指定イベントは、各日を `'24:00'` まで（最終日は候補の終了まで）
+ * 覆うルールの組み合わせがあれば制約を満たせる。
  *
  * @param range - 判定対象の日時範囲（終日イベントの呼び出しは呼び出し側でスキップすること）
  * @param rules - 営業時間ルール一覧。空配列の場合は常に `false`（意図的な仕様。
@@ -134,7 +135,8 @@ export function isRangeWithinBusinessHours(
           return false;
         }
         const ruleStart = parseTimeOfDay(rule.startTime);
-        const ruleEnd = parseTimeOfDay(rule.endTime);
+        // endTime は日の終端 '24:00'（= 1440）を許容する
+        const ruleEnd = parseSlotBoundaryTime(rule.endTime);
         return startMinutes >= ruleStart && endMinutes <= ruleEnd;
       });
       if (!coveredByAnyRule) {

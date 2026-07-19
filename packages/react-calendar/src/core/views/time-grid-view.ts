@@ -423,7 +423,8 @@ export function buildBusinessHourSlots(
     .filter((rule) => rule.daysOfWeek.includes(weekday))
     .map((rule) => ({
       startMinutes: parseTimeOfDay(rule.startTime),
-      endMinutes: parseTimeOfDay(rule.endTime),
+      // endTime は日の終端 '24:00'（= 1440）を許容する
+      endMinutes: parseSlotBoundaryTime(rule.endTime),
     }));
   return slots.map((slot) => ({
     minutes: slot.minutes,

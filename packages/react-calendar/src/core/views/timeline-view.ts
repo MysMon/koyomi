@@ -21,6 +21,7 @@ import {
   getWallClock,
   isSameDayInZone,
   minutesOfDayInZone,
+  parseSlotBoundaryTime,
   parseTimeOfDay,
   startOfDayInZone,
   weekdayInZone,
@@ -132,7 +133,8 @@ function buildBusinessHourRanges(
       const dayOffset = dayIndex * MINUTES_PER_DAY;
       raw.push({
         startMinutes: dayOffset + parseTimeOfDay(rule.startTime),
-        endMinutes: dayOffset + parseTimeOfDay(rule.endTime),
+        // endTime は日の終端 '24:00'（= 1440）を許容する
+        endMinutes: dayOffset + parseSlotBoundaryTime(rule.endTime),
       });
     }
   });

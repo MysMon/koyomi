@@ -530,7 +530,7 @@ function App() {
 // - 土日、および平日でも 9:00 より前・18:00 以降のスロットには属性が付かない
 ```
 
-`daysOfWeek` に該当する曜日について、`startTime`〜`endTime`（ともに `'HH:mm'` 形式）を営業時間として扱います（`endTime` は排他的。`startTime` ちょうどは営業時間内、`endTime` ちょうどは営業時間外）。複数件を配列で渡すと OR 判定になるため、曜日ごとに異なる時間帯を指定できます。
+`daysOfWeek` に該当する曜日について、`startTime`〜`endTime`（ともに `'HH:mm'` 形式）を営業時間として扱います（`endTime` は排他的。`startTime` ちょうどは営業時間内、`endTime` ちょうどは営業時間外）。`endTime` には日の終端を表す特例として `'24:00'` も指定できます（`startTime` には指定できません）。複数件を配列で渡すと OR 判定になるため、曜日ごとに異なる時間帯を指定できます。
 
 ```tsx
 businessHours: [
@@ -545,11 +545,11 @@ businessHours: [
 
 `TimeGridDay.businessHourSlots`（`slots` と同じ並びの `{ minutes, isBusinessHours }[]`）としてビューモデルからも参照できます。`businessHours` 未指定時（既定 `[]`）はすべてのスロットが `isBusinessHours: false` になり、DOM 属性も出力されません。`startTime` が `endTime` 以降、または `'HH:mm'` 形式でない値を指定すると `Error` になります。
 
-`startTime` が `endTime` より前であることが必須のため、1 件の `BusinessHoursRule` で日をまたぐ営業時間（例: 22:00〜翌 2:00）を直接表現することはできません（指定すると Error になります）。日をまたぐ営業時間は、判定が曜日ごとの独立したスロット列で行われることを利用し、日をまたいで2件のルールに分けて指定します。
+`startTime` が `endTime` より前であることが必須のため、1 件の `BusinessHoursRule` で日をまたぐ営業時間（例: 22:00〜翌 2:00）を直接表現することはできません（指定すると Error になります）。日をまたぐ営業時間は、判定が曜日ごとの独立したスロット列で行われることを利用し、日をまたいで2件のルールに分けて指定します（初日側の `endTime` に `'24:00'` を使うと、日の終端まで途切れなくカバーできます）。
 
 ```tsx
 businessHours: [
-  { daysOfWeek: [2], startTime: '22:00', endTime: '23:59' }, // 火曜の遅い時間帯
+  { daysOfWeek: [2], startTime: '22:00', endTime: '24:00' }, // 火曜の遅い時間帯（日の終端まで）
   { daysOfWeek: [3], startTime: '00:00', endTime: '02:00' }, // 水曜の早い時間帯（火曜深夜からの続き）
 ]
 ```

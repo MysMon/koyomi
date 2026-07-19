@@ -1017,7 +1017,7 @@ interface ToolbarProps {
 
 `ResolvedCalendarOptions` は、表示・展開に使う既定値適用後のオプションだけを持つ型です（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `timeAxisZones` / `defaultEventMinutes` / `listDays` / `multiMonthCount` / `timelineDays` / `timelineScale` / `unassignedLane` / `locale` / `hiddenWeekdays` / `showWeekNumbers` / `businessHours` / `eventOverlap` / `eventConstraint`（未指定は `null`） / `slotMinTime` / `slotMaxTime` / `now`。コールバック類や `initialView` / `initialDate` / `resources` / `initialCollapsedResourceIds` は含みません）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' | 'resource' | 'timeline'` です。
 
-`BusinessHoursRule` は `{ daysOfWeek: readonly Weekday[]; startTime: string; endTime: string }`（`startTime` / `endTime` は `'HH:mm'` 形式。`startTime` が `endTime` 以降、または形式が不正だと `Error`）です。
+`BusinessHoursRule` は `{ daysOfWeek: readonly Weekday[]; startTime: string; endTime: string }`（`startTime` / `endTime` は `'HH:mm'` 形式。`endTime` のみ日の終端を表す `'24:00'` も指定可。`startTime` が `endTime` 以降、または形式が不正だと `Error`）です。
 
 `CalendarRangeChangeInfo` は `{ view: CalendarViewType; currentDate: Date; rangeStart: Date; rangeEnd: Date }`（`onRangeChange` に渡される変更後のビュー・基準日・表示範囲。`rangeStart`/`rangeEnd` は `getVisibleRange()` と同じ範囲で `rangeEnd` は排他的）です。
 
@@ -1121,7 +1121,7 @@ interface ToolbarProps {
 | `formatSlotLabel(minutes: number, locale: string): string` | 分数を、ロケールに応じた時刻ラベル（`Intl.DateTimeFormat` 整形。`ja` は `'HH:mm'`、`en-US` は `'HH:mm AM/PM'` 等）にする |
 | `isoWeekNumberInZone(date, timeZone): number` | 指定タイムゾーンにおける ISO 8601 週番号を返す |
 | `parseTimeOfDay(time: string): number` | `'HH:mm'` 形式の時刻文字列をその日の 0:00 からの分に変換する（`formatSlotLabel` の逆変換） |
-| `parseSlotBoundaryTime(time: string): number` | `'HH:mm'` を分に変換する（`slotMinTime`/`slotMaxTime` 用）。`'24:00'` のみ特例で `1440` を返し、それ以外は `parseTimeOfDay` と同じ |
+| `parseSlotBoundaryTime(time: string): number` | `'HH:mm'` を分に変換する（`slotMinTime`/`slotMaxTime` や `BusinessHoursRule.endTime` など日内の時間帯の境界用）。`'24:00'` のみ特例で `1440` を返し、それ以外は `parseTimeOfDay` と同じ |
 | `WallClockParts`（型） | `{ year; month; day; hours?; minutes?; seconds?; milliseconds? }` |
 
 ```ts

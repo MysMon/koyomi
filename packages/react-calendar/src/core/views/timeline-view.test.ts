@@ -375,6 +375,17 @@ describe('buildTimelineViewModel', () => {
       ]);
     });
 
+    it("endTime '24:00'（日の終端）の区間は翌日 00:00 始まりの区間と連続とみなされマージされる", () => {
+      // 金曜 22:00〜24:00 と土曜 00:00〜02:00 は表示分座標系で連続する 1 本の帯になる
+      const vm = build({
+        businessHours: [
+          { daysOfWeek: [5], startTime: '22:00', endTime: '24:00' },
+          { daysOfWeek: [6], startTime: '00:00', endTime: '02:00' },
+        ],
+      });
+      expect(vm.businessHourRanges).toEqual([{ startMinutes: 1320, endMinutes: 1440 + 120 }]);
+    });
+
     it('daysOfWeek に表示日の曜日が含まれない場合は区間が生成されない', () => {
       const vm = build({
         businessHours: [{ daysOfWeek: [1, 2, 3, 4], startTime: '09:00', endTime: '18:00' }],

@@ -248,13 +248,14 @@ function assertTimeAxisZones(timeAxisZones: readonly TimeZoneId[]): void {
 
 /**
  * 営業時間の指定一覧を検証し、不正な要素があれば例外を投げる。
- * `startTime` / `endTime` の形式は {@link parseTimeOfDay} が検証し、
+ * `startTime` の形式は {@link parseTimeOfDay} が、`endTime` の形式は
+ * {@link parseSlotBoundaryTime} が検証し（`endTime` のみ日の終端 `'24:00'` を許容）、
  * ここでは `startTime` が `endTime` より前であることを追加で検証する。
  */
 function assertBusinessHours(businessHours: readonly BusinessHoursRule[]): void {
   for (const rule of businessHours) {
     const start = parseTimeOfDay(rule.startTime);
-    const end = parseTimeOfDay(rule.endTime);
+    const end = parseSlotBoundaryTime(rule.endTime);
     if (start >= end) {
       throw new Error(
         `不正な営業時間の指定です（startTime は endTime より前である必要があります）: startTime='${rule.startTime}', endTime='${rule.endTime}'`,

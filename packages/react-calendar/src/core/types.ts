@@ -429,7 +429,10 @@ export interface BusinessHoursRule {
   daysOfWeek: readonly Weekday[];
   /** 開始時刻（`'HH:mm'` 形式）。 */
   startTime: string;
-  /** 終了時刻（`'HH:mm'` 形式）。`startTime` より後である必要があり、この時刻自体は含まない。 */
+  /**
+   * 終了時刻（`'HH:mm'` 形式）。`startTime` より後である必要があり、この時刻自体は含まない。
+   * 日の終端を表す特例として `'24:00'` も指定できる（`startTime` には指定できない）。
+   */
   endTime: string;
 }
 

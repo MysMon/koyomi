@@ -133,6 +133,31 @@ describe('createCalendar', () => {
       ).toThrow();
     });
 
+    it("businessHours の endTime には日の終端を表す '24:00' を指定できる", () => {
+      const calendar = makeCalendar({
+        businessHours: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '24:00' }],
+      });
+      expect(calendar.getState().options.businessHours[0]?.endTime).toBe('24:00');
+    });
+
+    it("businessHours の startTime に '24:00' を指定すると Error になる（'24:00' は endTime 専用）", () => {
+      expect(() =>
+        createCalendar({
+          timeZone: 'Asia/Tokyo',
+          businessHours: [{ daysOfWeek: [1], startTime: '24:00', endTime: '24:00' }],
+        }),
+      ).toThrow();
+    });
+
+    it("businessHours の endTime の '24:00' 超（'24:01' など）は Error になる", () => {
+      expect(() =>
+        createCalendar({
+          timeZone: 'Asia/Tokyo',
+          businessHours: [{ daysOfWeek: [1], startTime: '09:00', endTime: '24:01' }],
+        }),
+      ).toThrow();
+    });
+
     it('eventOverlap / eventConstraint は省略時にそれぞれ true / null になる', () => {
       const calendar = makeCalendar();
       expect(calendar.getState().options.eventOverlap).toBe(true);
@@ -159,6 +184,15 @@ describe('createCalendar', () => {
           eventConstraint: [{ daysOfWeek: [1], startTime: '18:00', endTime: '09:00' }],
         }),
       ).toThrow();
+    });
+
+    it("eventConstraint 配列の endTime にも '24:00' を指定できる（businessHours と同じ検証）", () => {
+      const calendar = makeCalendar({
+        eventConstraint: [{ daysOfWeek: [1], startTime: '18:00', endTime: '24:00' }],
+      });
+      expect(calendar.getState().options.eventConstraint).toEqual([
+        { daysOfWeek: [1], startTime: '18:00', endTime: '24:00' },
+      ]);
     });
 
     it('slotMinTime/slotMaxTime は省略時に既定 00:00/24:00 になる', () => {

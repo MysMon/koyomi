@@ -472,11 +472,12 @@ export function parseTimeOfDay(time: string): number {
 }
 
 /**
- * `'HH:mm'` 形式の時刻文字列を、表示範囲の境界（{@link CalendarOptions.slotMinTime} /
- * {@link CalendarOptions.slotMaxTime}）用に分（0〜1440）へ変換する。
+ * `'HH:mm'` 形式の時刻文字列を、日内の時間帯の境界（{@link CalendarOptions.slotMinTime} /
+ * {@link CalendarOptions.slotMaxTime} や {@link BusinessHoursRule.endTime}）用に
+ * 分（0〜1440）へ変換する。
  *
  * `'24:00'` のみ特例として `1440` を返す（{@link parseTimeOfDay} は日内の時刻専用のため
- * `'24:00'` を無効な時刻として `Error` にするが、表示範囲の終了境界は排他的な
+ * `'24:00'` を無効な時刻として `Error` にするが、排他的な終了境界は日の終端
  * `'24:00'` を指定できる必要がある）。それ以外の値は {@link parseTimeOfDay} に委譲する。
  *
  * @param time - `'HH:mm'` 形式の時刻文字列（例: `'09:00'`、`'24:00'`）
