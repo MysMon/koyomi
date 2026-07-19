@@ -158,6 +158,16 @@ function App() {
 
 `onEventClick` を省略した場合は何も起こりません（既定動作なし）。ダイアログや詳細パネルの実装は利用側の自由です。Koyomi はそれらの UI を提供しません。
 
+## import 経路とバンドルサイズ
+
+公開 API はすべてトップレベルエントリ `@koyomi-cal/react` から import します。パッケージは 1 ソースモジュール = 1 ファイルの ESM として公開されているため、使わないビューコンポーネントやフックはバンドラの tree-shaking でアプリのバンドルから除外されます。バンドルサイズのためにビュー別へ import を分ける必要はありません（ビュー別のサブパスエントリはありません）。
+
+- `@koyomi-cal/react` — すべての公開 API（コア + React バインディング）
+- `@koyomi-cal/react/core` — React 非依存のコアのみ（[React に依存しないコアだけを使う](#react-に依存しないコアだけを使う)）
+- `@koyomi-cal/react/theme.css` — デフォルトテーマ CSS
+
+実測値の例は [パフォーマンス: バンドルサイズと tree-shaking](./performance.md#バンドルサイズと-tree-shaking) を参照してください。
+
 ## SSR / Next.js で使う
 
 `useCalendar` は SSR（`renderToString` / Next.js の App Router 等）でも例外なく初期状態を描画できます。次の 2 点に注意してください。

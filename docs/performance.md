@@ -250,6 +250,50 @@ URL だけで同じ構成を再現できます。データはベンチマーク�
 維持されます。初回描画時間はイベント件数・リソース件数にほぼ比例して増え、
 最重量の 10,000 件 × 1,000 リソースでも 1.5 秒未満です。
 
+## バンドルサイズと tree-shaking
+
+`@koyomi-cal/react` は 1 ソースモジュール = 1 ファイルの ESM として公開され、
+`package.json` の `sideEffects` で CSS 以外のファイルに副作用がないことを宣言して
+います。このため、すべての公開 API をトップレベルエントリ（`@koyomi-cal/react`）
+から import しても、実際に使った分だけがアプリのバンドルに含まれます（未使用の
+ビューコンポーネント・フック・ユーティリティはバンドラの tree-shaking で除外
+されます）。ビュー別のサブパスエントリはなく、import 経路の使い分けは不要です。
+React に依存しない処理だけを使う場合のみ
+[`@koyomi-cal/react/core`](./api.md#koyomi-calreactcorereact-非依存の単体エントリ)
+を使います。
+
+### 実測値の例
+
+最小アプリを esbuild 0.28.1 でバンドル（minify）した際のライブラリ寄与分
+（`react` / `react-dom` を external にした値。計測日: 2026-07-19）です。
+
+| import する範囲 | raw | gzip |
+| --- | ---: | ---: |
+| 全ビュー + Toolbar（`CalendarView` / `Toolbar` / `useCalendar`） | 257.5 KB | 72.4 KB |
+| 月ビューのみ（`MonthView` / `CalendarProvider` / `useCalendar`） | 146.9 KB | 44.1 KB |
+| コアのみ（`@koyomi-cal/react/core` の `createCalendar`） | 102.8 KB | 30.9 KB |
+
+次のものは import する範囲によらず、`createCalendar`（`useCalendar` の内部）を
+使う限り常にバンドルに含まれます。tree-shaking では除外されない設計上の固定費
+として見積もってください。
+
+- **RRULE 展開エンジン**（バンドル済みの `rrule`、gzip 約 13 KB）。イベントの
+  展開は `rrule` の有無によらず同じ経路を通るためです
+- **全ビューのビューモデルビルダー**（`buildMonthViewModel` 等、gzip 約 4 KB）。
+  `api.setOptions({ view })` でいつでもビューを切り替えられるようにするためです
+- **中央メッセージカタログ**（`ja` / `en` の両方、gzip 約 5 KB）
+
+### 再現方法
+
+リポジトリルートで次を実行すると、`scripts/bundle-fixtures/` の最小アプリ
+（月ビューのみ / 全ビュー）をビルド済み dist に対してバンドルし、未使用ビューが
+除外されていることと、ライブラリ寄与分の gzip サイズが閾値以下であることを
+検証できます（CI でも同じ検証を実行します）。
+
+```sh
+pnpm build && pnpm bundle:check
+```
+
 ## 関連ページ
 
 - [ビュー（月・週・日・リスト・年・複数月・リソース・タイムライン）](./views.md)

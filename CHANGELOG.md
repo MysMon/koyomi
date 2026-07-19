@@ -122,6 +122,14 @@
 - デモに件数可変（スライダー）の「ストレステスト」パターン（`#/stress`）を追加。
   イベント件数 × リソース件数 × ビューを URL のクエリと同期し、ベンチマークと
   データ生成コードを共有して初回描画時間をその場で計測できる
+- dist を単一ファイルへの平坦化から 1 ソースモジュール = 1 ファイルの ESM 出力へ
+  変更し、利用側バンドラの tree-shaking 粒度をモジュール単位に改善（月ビューのみを
+  import する最小アプリのライブラリ寄与分で gzip 50.2 KB → 44.1 KB。公開 API・
+  import 経路は不変で、`./theme.css` エントリの実体パスのみ
+  `dist/theme/default.css` に変更）
+- バンドルサイズ検証（`pnpm bundle:check`）を追加。最小アプリ（月ビューのみ /
+  全ビュー）をビルド済み dist に対してバンドルし、未使用ビューの除外とライブラリ
+  寄与分の gzip サイズ閾値を CI で検証する
 
 ### ドキュメント
 
@@ -137,6 +145,9 @@
   有効な props」の一覧表を追加
 - スクリーンリーダー実機検証（NVDA/VoiceOver）の計画書を追加
   （[docs/internal/a11y-screen-reader-verification.md](./docs/internal/a11y-screen-reader-verification.md)）
+- パフォーマンス（[docs/performance.md](./docs/performance.md)）にバンドルサイズと
+  tree-shaking の実測値（import 範囲別のライブラリ寄与分と、常に含まれる固定費の
+  内訳）を記録。API リファレンス・はじめにへ import 経路の説明を追加
 
 ## [0.1.0] - 2026-07-08
 

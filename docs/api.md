@@ -20,6 +20,18 @@
 | React に依存せずカレンダーエンジンだけを使う | [`@koyomi-cal/react/core`](#koyomi-calreactcorereact-非依存の単体エントリ) | [はじめに: React に依存しないコアだけを使う](./getting-started.md#react-に依存しないコアだけを使う) |
 | iCalendar（`.ics`）でエクスポート・インポートする | [`eventsToIcs` / `eventsFromIcs`](#icalendar-入出力coreics) | [iCalendar（ICS）入出力](./ics.md) |
 
+## import 経路
+
+公開 API の import 経路は次の 3 つだけです。
+
+| 経路 | 内容 |
+| --- | --- |
+| `@koyomi-cal/react` | すべての公開 API（コア + React バインディング） |
+| `@koyomi-cal/react/core` | React 非依存のコアのみ（[詳細](#koyomi-calreactcorereact-非依存の単体エントリ)） |
+| `@koyomi-cal/react/theme.css` | デフォルトテーマ CSS |
+
+パッケージは 1 ソースモジュール = 1 ファイルの ESM として公開され、CSS 以外のファイルに副作用がないことを `sideEffects` で宣言しているため、トップレベルエントリからまとめて import しても、実際に使った API だけがアプリのバンドルに含まれます（未使用のビューコンポーネント等はバンドラの tree-shaking で除外されます）。ビュー別のサブパスエントリはありません。実測値は [パフォーマンス: バンドルサイズと tree-shaking](./performance.md#バンドルサイズと-tree-shaking) を参照してください。
+
 ## カレンダーエンジン
 
 ### `createCalendar`
