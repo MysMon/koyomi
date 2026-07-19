@@ -8,12 +8,15 @@
  * 列内の配置計算（日内クランプ・重なりの横並び）は週/日ビューと共有の
  * ヘルパ（{@link ./time-grid-view} の `buildDayItems` 等）に委譲する。
  *
- * オカレンス → レーンの振り分けは `event.resourceId` に基づく 1 パスのバケット分けで行い、
+ * オカレンス → レーンの振り分けは割当リソース ID（{@link assignedLaneIds}。
+ * `resourceIds` が優先、未指定時は `resourceId`）に基づく 1 パスのバケット分けで行い、
  * 「列ごとに全オカレンスをフィルタ」する O(列数 × 全件) の走査はしない
- * （レーン内の日別振り分けは日数分の走査のみ）。
+ * （レーン内の日別振り分けは日数分の走査のみ）。複数リソース割当のオカレンスは
+ * 割当先の各レーンに同一オカレンスとして表示される。
  */
 
 import { eachDayInRange } from '../date-utils';
+import { assignedLaneIds } from '../resource-assignment';
 import {
   addDaysInZone,
   dateKeyInZone,
@@ -88,9 +91,11 @@ function allDayItemOverlapsDay(occurrence: EventOccurrence, dayStart: Date, dayE
  * - 列はリソース × 日の直積（リソース優先。各リソースの中に表示日が昇順で並ぶ）。
  *   表示日数 1 の列キーは `` `r:${id}` `` / `'unassigned'`、2 以上は
  *   {@link laneDayColumnKey} による日付キー付きの形式になる
- * - オカレンスを `event.resourceId` で 1 パスのバケット分けする。
- *   `resourceId` が未指定、または `resources` に存在しない ID（参照先のない
- *   resourceId）の場合は未割り当てレーンに合流する（黙って非表示にしない）
+ * - オカレンスを割当リソース ID（{@link assignedLaneIds}。`resourceIds` が優先、
+ *   未指定時は `resourceId`）で 1 パスのバケット分けする。複数リソース割当の
+ *   オカレンスは割当先の各レーンに同一オカレンスとして入る。割当がない、または
+ *   割当がすべて `resources` に存在しない ID（参照先のない ID）の場合は
+ *   未割り当てレーンに合流する（黙って非表示にしない）
  * - 未割り当て列は {@link CalendarOptions.unassignedLane} の規則で生成する
  *   （`'auto'` = 該当オカレンスがある場合のみ、`'always'` = 常に。生成される場合は
  *   全表示日分の列が末尾にまとまる）
@@ -201,16 +206,17 @@ export function buildResourceViewModel(params: {
     }
   }
 
-  // オカレンス → レーン ID（リソース ID または null = 未割り当て）の 1 パスのバケット分け
+  // オカレンス → レーン ID（リソース ID または null = 未割り当て）の 1 パスのバケット分け。
+  // 複数リソース割当（resourceIds）のオカレンスは割当先の各レーンに入る
   const bucket = new Map<string | null, EventOccurrence[]>();
   for (const occurrence of occurrences) {
-    const resourceId = occurrence.event.resourceId;
-    const laneId = resourceId !== undefined && resourceById.has(resourceId) ? resourceId : null;
-    const list = bucket.get(laneId);
-    if (list === undefined) {
-      bucket.set(laneId, [occurrence]);
-    } else {
-      list.push(occurrence);
+    for (const laneId of assignedLaneIds(occurrence.event, resourceById)) {
+      const list = bucket.get(laneId);
+      if (list === undefined) {
+        bucket.set(laneId, [occurrence]);
+      } else {
+        list.push(occurrence);
+      }
     }
   }
 

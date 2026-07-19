@@ -14,6 +14,7 @@
 
 import { startOfMonthInZone, startOfWeekInZone } from '../date-utils';
 import { layoutIntervalLanes } from '../layout/interval-lane-layout';
+import { assignedLaneIds } from '../resource-assignment';
 import {
   addDaysInZone,
   dateKeyInZone,
@@ -233,9 +234,11 @@ function buildHeaderGroups(
  * - リソース一覧は {@link buildResourceTree} でツリー順（**ID 重複は先勝ち**、
  *   {@link CalendarResource.parentId} による深さ優先の行き掛け順）に並べ、
  *   {@link filterVisibleResourceTree} で `collapsedResourceIds` に含まれる祖先を持つ
- *   行（折りたたみ中の子孫）を除外する。オカレンスは `event.resourceId` で
- *   1 パスのバケット分けし、未指定・参照先のない ID は未割り当て行に合流する
- *   （{@link ./resource-view} と同じ規則）
+ *   行（折りたたみ中の子孫）を除外する。オカレンスは割当リソース ID
+ *   （{@link assignedLaneIds}。`resourceIds` が優先、未指定時は `resourceId`）で
+ *   1 パスのバケット分けし、割当なし・すべて参照先のない ID の場合は未割り当て行に
+ *   合流する（{@link ./resource-view} と同じ規則）。複数リソース割当のオカレンスは
+ *   割当先の各行に同一オカレンスとして表示される
  * - 未割り当て行は {@link CalendarOptions.unassignedLane} の規則で常に末尾に生成する
  *   （ツリーの対象にしない。`depth: 0` / `hasChildren: false` / `collapsed: false` 固定）
  * - 各オカレンスを表示分の区間に変換する:
@@ -441,16 +444,17 @@ export function buildTimelineViewModel(params: {
   // 折りたたみ中の祖先を持つ行（非表示の子孫）を除いた、実際に行を生成する対象
   const visibleTree = filterVisibleResourceTree(tree, collapsedResourceIds);
 
-  // オカレンス → レーン ID の 1 パスのバケット分け
+  // オカレンス → レーン ID の 1 パスのバケット分け。
+  // 複数リソース割当（resourceIds）のオカレンスは割当先の各行に入る
   const bucket = new Map<string | null, EventOccurrence[]>();
   for (const occurrence of occurrences) {
-    const resourceId = occurrence.event.resourceId;
-    const laneId = resourceId !== undefined && resourceById.has(resourceId) ? resourceId : null;
-    const list = bucket.get(laneId);
-    if (list === undefined) {
-      bucket.set(laneId, [occurrence]);
-    } else {
-      list.push(occurrence);
+    for (const laneId of assignedLaneIds(occurrence.event, resourceById)) {
+      const list = bucket.get(laneId);
+      if (list === undefined) {
+        bucket.set(laneId, [occurrence]);
+      } else {
+        list.push(occurrence);
+      }
     }
   }
 

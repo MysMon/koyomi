@@ -30,6 +30,7 @@ function makeOccurrence(params: {
   eventId?: string;
   allDay?: boolean;
   resourceId?: string;
+  resourceIds?: readonly string[];
 }): EventOccurrence {
   const eventId = params.eventId ?? 'ev-1';
   const allDay = params.allDay ?? false;
@@ -40,6 +41,7 @@ function makeOccurrence(params: {
     end: params.end,
     allDay,
     ...(params.resourceId !== undefined ? { resourceId: params.resourceId } : {}),
+    ...(params.resourceIds !== undefined ? { resourceIds: params.resourceIds } : {}),
   };
   return {
     key: `${eventId}@${params.start.toISOString()}`,
@@ -167,6 +169,115 @@ describe('buildResourceViewModel', () => {
       expect(vm.columns.map((column) => column.key)).toEqual(['r:unassigned', 'unassigned']);
       expect(vm.columns[0]?.resource?.title).toBe('会議室U');
       expect(vm.columns[1]?.resource).toBeNull();
+    });
+  });
+
+  describe('resourceIds（複数リソース割当）', () => {
+    it('resourceIds の各リソースの列に同一オカレンスが表示される', () => {
+      const occurrence = makeOccurrence({
+        start: at('2026-07-10T10:00'),
+        end: at('2026-07-10T11:00'),
+        resourceIds: ['room-a', 'room-b'],
+      });
+      const vm = build({
+        resources: [resource('room-a'), resource('room-b'), resource('room-c')],
+        occurrences: [occurrence],
+      });
+      expect(vm.columns.map((column) => column.items.length)).toEqual([1, 1, 0]);
+      // 同一オカレンス（同じ参照）が両列に現れる
+      expect(vm.columns[0]?.items[0]?.occurrence).toBe(occurrence);
+      expect(vm.columns[1]?.items[0]?.occurrence).toBe(occurrence);
+    });
+
+    it('resourceIds 指定時は resourceId を無視する（優先規則）', () => {
+      const vm = build({
+        resources: [resource('room-a'), resource('room-b')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceId: 'room-a',
+            resourceIds: ['room-b'],
+          }),
+        ],
+      });
+      expect(vm.columns.map((column) => column.items.length)).toEqual([0, 1]);
+    });
+
+    it('resourceIds が空配列のオカレンスは未割り当て列に入る（resourceId があっても）', () => {
+      const vm = build({
+        resources: [resource('room-a')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceId: 'room-a',
+            resourceIds: [],
+          }),
+        ],
+      });
+      expect(vm.columns.map((column) => column.key)).toEqual(['r:room-a', 'unassigned']);
+      expect(vm.columns[1]?.items).toHaveLength(1);
+    });
+
+    it('参照先のない ID は除外され、存在する ID のレーンにだけ表示される', () => {
+      const vm = build({
+        resources: [resource('room-a')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceIds: ['room-a', 'ghost'],
+          }),
+        ],
+      });
+      // 存在する ID が 1 つでもあれば未割り当て列には入らない
+      expect(vm.columns.map((column) => column.key)).toEqual(['r:room-a']);
+      expect(vm.columns[0]?.items).toHaveLength(1);
+    });
+
+    it('割当がすべて参照先のない ID の場合は未割り当て列に 1 回だけ合流する', () => {
+      const vm = build({
+        resources: [resource('room-a')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceIds: ['ghost-1', 'ghost-2'],
+          }),
+        ],
+      });
+      expect(vm.columns.map((column) => column.key)).toEqual(['r:room-a', 'unassigned']);
+      expect(vm.columns[1]?.items).toHaveLength(1);
+    });
+
+    it('resourceIds 内の重複 ID があっても同じ列に二重表示されない', () => {
+      const vm = build({
+        resources: [resource('room-a')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceIds: ['room-a', 'room-a'],
+          }),
+        ],
+      });
+      expect(vm.columns[0]?.items).toHaveLength(1);
+    });
+
+    it('終日オカレンスも resourceIds の各列の allDayItems に表示される', () => {
+      const vm = build({
+        resources: [resource('room-a'), resource('room-b')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T00:00'),
+            end: at('2026-07-11T00:00'),
+            allDay: true,
+            resourceIds: ['room-a', 'room-b'],
+          }),
+        ],
+      });
+      expect(vm.columns.map((column) => column.allDayItems.length)).toEqual([1, 1]);
     });
   });
 

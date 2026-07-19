@@ -97,6 +97,13 @@ export {
   type RecurrenceWeekdayOrdinal,
   validateRecurrenceRuleState,
 } from './core/recurrence-editor';
+// リソース割当の解決（resourceId / resourceIds）
+export {
+  assignedLaneIds,
+  effectiveResourceIds,
+  type ResourceAssignmentFields,
+  resourceLanePatch,
+} from './core/resource-assignment';
 // タイムゾーンユーティリティ
 export {
   addDaysInZone,

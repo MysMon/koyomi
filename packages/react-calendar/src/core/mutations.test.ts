@@ -400,6 +400,18 @@ describe("updateEventIn: scope 'this'（オーバーライド作成）", () => {
     expect(Object.hasOwn(override, 'resourceId')).toBe(false);
   });
 
+  it('マスターに resourceIds（複数リソース割当）があればオーバーライドに継承する', () => {
+    const result = updateEventIn(
+      [makeMaster({ resourceIds: ['room-1', 'room-2'] })],
+      'master-1',
+      { title: '臨時' },
+      { occurrenceStart, scope: 'this' },
+      makeContext(),
+    );
+    const override = findById(result, 'gen-1');
+    expect(override.resourceIds).toEqual(['room-1', 'room-2']);
+  });
+
   it('patch.resourceId 指定時はマスターの resourceId より優先される', () => {
     const result = updateEventIn(
       [makeMaster({ resourceId: 'room-1' })],

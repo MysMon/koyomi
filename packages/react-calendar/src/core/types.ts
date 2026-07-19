@@ -150,8 +150,19 @@ export interface CalendarEvent {
    * 割当先のリソース ID（{@link CalendarResource.id}）。
    * 省略時は「未割り当て」として扱われる（リソース/タイムラインビューの
    * 未割り当てレーンに表示される）。他のビューの表示には影響しない。
+   * {@link CalendarEvent.resourceIds} が指定されている場合、このフィールドは無視される。
    */
   resourceId?: string;
+  /**
+   * 割当先のリソース ID の一覧（複数リソース割当）。指定すると、リソース/タイムライン
+   * ビューで割当先の各レーンに同一オカレンスが表示される（Google カレンダーの
+   * 複数会議室割当相当）。重複する ID は 1 件として扱われる。
+   *
+   * このフィールドを指定した場合（空配列を含む）、{@link CalendarEvent.resourceId} は
+   * 無視される。空配列は「未割り当て」を意味する。省略時は `resourceId`（単一割当）に
+   * 従う。他のビューの表示には影響しない。
+   */
+  resourceIds?: readonly string[];
   /** 場所。 */
   location?: string;
   /** 説明文。 */

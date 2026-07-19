@@ -944,7 +944,8 @@ interface ToolbarProps {
 | `location?` | `string` | 場所 |
 | `description?` | `string` | 説明文 |
 | `editable?` | `boolean` | 変更操作（ドラッグ・キーボードの移動/リサイズ/削除）を許可するか（既定 `true`） |
-| `resourceId?` | `string` | 割当先リソースの ID（[予定の管理: リソース](./events.md#リソース)を参照） |
+| `resourceId?` | `string` | 割当先リソースの ID（[予定の管理: リソース](./events.md#リソース)を参照）。`resourceIds` 指定時は無視される |
+| `resourceIds?` | `readonly string[]` | 割当先リソース ID の一覧（複数リソース割当）。指定時（空配列を含む）は `resourceId` より優先され、割当先の各レーンに同一オカレンスが表示される（[予定の管理: 複数リソース割当](./events.md#複数リソース割当resourceids)を参照） |
 | `overlap?` | `boolean` | このイベントに他のイベントを重ねてよいか。省略時は `CalendarOptions.eventOverlap`（既定 `true`）に従う |
 | `constraint?` | `'businessHours' \| readonly BusinessHoursRule[]` | このイベントのドロップ先を制限する。省略時は `CalendarOptions.eventConstraint` に従う。終日イベントには適用されない |
 | `extendedProps?` | `Record<string, unknown>` | 利用者定義の任意データ |
@@ -1270,6 +1271,24 @@ console.log(result.events.length); // => 1
 ```
 
 繰り返し編集のセマンティクス（この予定のみ / これ以降 / すべて）の詳細は [繰り返し予定](./recurrence.md) を参照してください。
+
+### リソース割当の解決（`core/resource-assignment`）
+
+イベントのリソース割当（`resourceId` / `resourceIds`）の解決規則を純粋関数として提供します。リソース/タイムラインビューのバケット分けと、ドラッグ系フックのレーン間移動パッチが同じ規則を共有しており、独自 UI からも再利用できます（規則の全体像は [予定の管理: 複数リソース割当](./events.md#複数リソース割当resourceids) を参照）。
+
+| 関数 / 型 | 説明 |
+| --- | --- |
+| `effectiveResourceIds(event): readonly string[]` | イベントの実効的な割当リソース ID 一覧（重複除去済み・指定順）を返す。`resourceIds` 指定時（空配列を含む）はそれを採用して `resourceId` を無視し、未指定時は `resourceId` の 1 件（なければ空配列）になる |
+| `assignedLaneIds(event, knownResourceIds): readonly (string \| null)[]` | イベントが属するレーン ID の一覧を返す。実効的な割当のうち `knownResourceIds`（存在するリソース ID の集合）にある ID だけがレーンになり、1 件もない場合は未割り当てレーン（`[null]`）に 1 回だけ合流する |
+| `resourceLanePatch(event, sourceLaneId, targetLaneId): CalendarEventPatch` | レーン間移動による割当変更のパッチを構築する。操作したレーン（`sourceLaneId`）の割当だけを移動先（`targetLaneId`。`null` = 未割り当て）に変更し、他の割当は保持する。複数割当では移動先と統合（重複させない）し、変更が不要なら空オブジェクトを返す |
+| `ResourceAssignmentFields`（型） | `Pick<CalendarEvent, 'resourceId' \| 'resourceIds'>`。上記関数が参照する割当フィールドのみの部分型 |
+
+```ts
+import { effectiveResourceIds, resourceLanePatch } from '@koyomi-cal/react';
+
+effectiveResourceIds({ resourceId: 'a', resourceIds: ['b', 'c'] }); // => ['b', 'c']
+resourceLanePatch({ resourceIds: ['a', 'c'] }, 'a', 'b'); // => { resourceIds: ['b', 'c'] }
+```
 
 ### イベント展開（`core/expansion`）
 

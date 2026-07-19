@@ -447,6 +447,9 @@ function buildOverride(
   if (master.resourceId !== undefined) {
     base.resourceId = master.resourceId;
   }
+  if (master.resourceIds !== undefined) {
+    base.resourceIds = master.resourceIds;
+  }
   if (master.location !== undefined) {
     base.location = master.location;
   }
