@@ -2,6 +2,22 @@
 
 `@koyomi-cal/react` が公開する API の全体リファレンスです。カレンダーエンジン・React フック・コンポーネント・型・低レベルユーティリティをカテゴリ別に一覧します。各機能の詳しい使い方や設計意図は、末尾の関連ページを参照してください。
 
+## ユースケース別ガイド
+
+やりたいことから、使う API と詳しい解説ページを引けます。API の全量を把握する前に、まずここから必要な項目だけ拾い読みしてください。
+
+| やりたいこと | 使う API | 詳しくは |
+| --- | --- | --- |
+| 最初の1画面を表示する | [`useCalendar`](#usecalendar)・[`CalendarProvider`](#calendarprovider)・[`CalendarView`](#calendarview)・[`Toolbar`](#toolbar) | [はじめに](./getting-started.md) |
+| クリック・ドラッグで予定を作成する | `callbacks.onSelectRange`・[`useDayDrag`](#usedaydrag)・[`useTimeGridDrag`](#usetimegriddrag)・[`useExternalDrag`](#useexternaldrag)（外部要素からのドロップ） | [インタラクション](./interactions.md) |
+| 予定の移動・リサイズに対応する | [`useDayDrag`](#usedaydrag)・[`useTimeGridDrag`](#usetimegriddrag)・[`useResourceGridDrag`](#useresourcegriddrag)・[`useTimelineDrag`](#usetimelinedrag)・`moveOccurrenceIn`・`eventOverlap`/`eventConstraint` | [インタラクション](./interactions.md) |
+| 繰り返し予定に対応する | `CalendarEvent.rrule`/`rdates`/`exdates`・[`useRecurrenceRuleEditor`](#userecurrenceruleeditor)・`updateEvent`/`deleteEvent` の `scope` | [繰り返し予定](./recurrence.md) |
+| undo/redo を実装する | [`createEventHistory`](#createeventhistory)・[`useCalendarHistory`](#usecalendarhistory)・`onEventChange`/`onEventDelete` の `changes` | [予定の管理: undo（元に戻す）を実装する](./events.md#undo元に戻すを実装する) |
+| リソース・タイムラインを表示する | `CalendarResource`・`resources` オプション・[`ResourceView`](#resourceview)・[`TimelineView`](#timelineview) | [ビュー](./views.md) |
+| 大量の予定・リソースを描画する（仮想化） | `dayMaxEvents`・`slotMinTime`/`slotMaxTime`・[`VirtualListView`](#virtuallistview)・[`VirtualResourceView`](#virtualresourceview)・[`VirtualTimelineView`](#virtualtimelineview)・[`useVirtualizer`](#usevirtualizer) | [パフォーマンス](./performance.md) |
+| 多言語対応・読み上げ文言をカスタマイズする | `CalendarOptions.locale`・`CalendarProvider` の `messages`・[`useCalendarAnnouncer`](#usecalendarannouncer) | [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) |
+| React に依存せずカレンダーエンジンだけを使う | [`@koyomi-cal/react/core`](#koyomi-calreactcorereact-非依存の単体エントリ) | [はじめに: React に依存しないコアだけを使う](./getting-started.md#react-に依存しないコアだけを使う) |
+
 ## カレンダーエンジン
 
 ### `createCalendar`
