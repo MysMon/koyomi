@@ -197,4 +197,9 @@ export { buildResourceViewModel } from './core/views/resource-view';
 export { buildTimeGridViewModel } from './core/views/time-grid-view';
 export { buildTimelineViewModel } from './core/views/timeline-view';
 export { buildYearViewModel } from './core/views/year-view';
-export type { VirtualItem } from './core/virtualization';
+export {
+  sameVisibleWindowRange,
+  type VirtualItem,
+  type VisibleWindowRange,
+  visibleWindowRange,
+} from './core/virtualization';
