@@ -32,7 +32,7 @@ Koyomi のテストの位置づけ・書き方・置き場所を定める。用�
 - テストプロセスは `TZ=Asia/Tokyo` 固定（`vitest.config.ts`）。他タイムゾーンの検証は `TZDate` や明示的な IANA ID 指定で行う
 - DOM を伴うテストは jsdom。`getBoundingClientRect` / `elementsFromPoint` / `PointerEvent` など jsdom が実装しない API は既存テストのモックパターン（`mockRect` / `mockElementsFromPoint` / `MouseEvent` 代用）に倣う
 - 単一ファイルの実行: `pnpm --filter @koyomi-cal/react exec vitest run <path>`。コミット前は必ず `pnpm check`
-- 実ブラウザ E2E: `pnpm test:e2e`。Chromium / Firefox / WebKit で主要操作、Chromium の実タッチ入力、仮想化スクロールとフォーカス保持、キーボードのみでの予定操作（矢印キー移動・リサイズ・Delete 削除・aria-live 通知）、繰り返し編集スコープ × DST 切替日の組み合わせ、axe による WCAG 2.0/2.1/2.2 A/AA の自動検査を行う
+- 実ブラウザ E2E: `pnpm test:e2e`。Chromium / Firefox / WebKit で主要操作、Chromium の実タッチ入力、仮想化スクロールとフォーカス保持、キーボードのみでの予定操作（矢印キー移動・リサイズ・Delete 削除・aria-live 通知）、`gridNavigation`（roving tabindex）のセル間移動とモード分離、繰り返し編集スコープ × DST 切替日の組み合わせ、axe による WCAG 2.0/2.1/2.2 A/AA の自動検査を行う
 
 ## カバレッジの考え方
 

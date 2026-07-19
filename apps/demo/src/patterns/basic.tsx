@@ -382,7 +382,12 @@ export function BasicPattern(): ReactElement {
       <div {...announcer.liveRegionProps}>{announcer.message}</div>
 
       <main className="demo-main">
-        <CalendarProvider value={calendar} callbacks={announcer.wrapCallbacks(callbacks)}>
+        {/* gridNavigation: 日セルの roving tabindex（矢印キーでのセル間移動）を有効化 */}
+        <CalendarProvider
+          value={calendar}
+          callbacks={announcer.wrapCallbacks(callbacks)}
+          gridNavigation={true}
+        >
           <Toolbar views={ALL_VIEWS} />
           {/* 週/日・リソースビューは 0:00 起点だと営業時間帯が画面外になるため、
               初期スクロール位置を 8:00 に合わせる */}
