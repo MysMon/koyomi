@@ -62,6 +62,39 @@ normalizeRRuleString('freq=daily;count=3'); // => 'FREQ=DAILY;COUNT=3'
 // normalizeRRuleString('FOO=BAR'); // => Error を投げる（FREQ が指定されていない）
 ```
 
+## 対応していないもの: EXRULE・複数 RRULE
+
+`CalendarEvent.rrule` は単一の RRULE 文字列のみを受け付けます。RFC 5545 が定める
+次の仕様には対応していません。
+
+- **EXRULE**（除外用の繰り返しルール） — 「毎日発生するが、毎週月曜だけは除外する」
+  のような、繰り返しパターンで除外を表現する指定
+- **複数の RRULE の合成**（RRULESET 相当） — 1 つの予定に複数の RRULE を組み合わせて
+  1 つの繰り返し系列とする指定
+
+これらが必要な場合は、次のいずれかの方法で代替してください。
+
+- **個別の除外日時に展開できる場合**: EXRULE が生成する除外日時をあらかじめ計算し、
+  `CalendarEvent.exdates`（EXDATE 相当。[exdates / recurringEventId / originalStart](#exdates--recurringeventid--originalstart上級-外部データとの同期) 参照）に列挙する
+- **複数の繰り返しパターンを合成したい場合**: それぞれのパターンを別々の
+  `rrule` を持つ複数の `CalendarEvent`（同じ内容で `id` だけ異なる別イベント）として
+  `setEvents`/`createEvent` に渡す。オカレンスの重複を避けたい場合は、各パターンの
+  `exdates` で他方のパターンが生成する日時を除外する
+
+```ts
+calendar.setEvents([
+  {
+    id: 'standup-mon-fri',
+    title: '朝会',
+    start: '2026-07-06T09:00:00', // 月曜
+    rrule: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', // 平日毎日
+    exdates: ['2026-07-20T09:00:00'], // EXRULE 相当（第3月曜を個別に除外）
+  },
+]);
+// 期待される動作:
+// - 平日の毎日 9:00 のオカレンスが展開されるが、7/20（月）だけは exdates により除外される
+```
+
 ## 繰り返しルールエディタ（構造化状態での編集）
 
 RRULE 文字列を直接組み立てる代わりに、フォーム入力向けの構造化された状態として繰り返しルールを編集したい場合は、`parseRecurrenceRule` / `validateRecurrenceRuleState` / `buildRecurrenceRuleString`（`core/recurrence-editor`）と、それらを React の状態管理に接続した `useRecurrenceRuleEditor` フックが使えます。検証エラー・非対応理由は `core/recurrence-editor` 側では機械可読なコード（`RecurrenceValidationIssue` の `field`/`code`、`RecurrenceUnsupportedReason`）として返り、文言化（説明文・検証エラー・非対応理由のメッセージ）は `@koyomi-cal/react` の中央メッセージカタログ（`resolveMessageCatalog`）が担います。
