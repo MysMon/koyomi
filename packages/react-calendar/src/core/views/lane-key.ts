@@ -27,6 +27,23 @@ export function laneKeyForResource(resourceId: string): string {
 }
 
 /**
+ * レーンキーと日付キーから、複数日リソースビューの列キーを組み立てる。
+ *
+ * リソースビューの表示日数（{@link CalendarOptions.resourceViewDays}）が 2 以上のとき、
+ * 同じレーンが日ごとに複数の列になるため、日付キーを付けて列を一意にする。
+ * この形式はデコードしない（列の日付・リソースは `ResourceColumn` の
+ * `date` / `dayKey` / `resource` フィールドを参照する。リソース ID は任意の文字を
+ * 含み得るため、文字列からの逆変換は行わない）。
+ *
+ * @param laneKey - レーンキー（{@link laneKeyForResource} の結果または {@link UNASSIGNED_LANE_KEY}）
+ * @param dayKey - `'YYYY-MM-DD'` 形式の日付キー
+ * @returns `` `${laneKey}@${dayKey}` `` 形式の列キー
+ */
+export function laneDayColumnKey(laneKey: string, dayKey: string): string {
+  return `${laneKey}@${dayKey}`;
+}
+
+/**
  * レーンキーからリソース ID を復元する（{@link laneKeyForResource} の逆変換）。
  *
  * @param key - レーンキー（`null` 可）

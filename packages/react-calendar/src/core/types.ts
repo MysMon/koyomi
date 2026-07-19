@@ -619,16 +619,26 @@ export interface MultiMonthViewModel {
   weekdays: readonly Weekday[];
 }
 
-/** リソースビューの 1 列分（1 リソース）。 */
+/** リソースビューの 1 列分（1 リソース × 1 日）。 */
 export interface ResourceColumn {
   /** 対応するリソース。未割り当てレーンは `null`。 */
   resource: CalendarResource | null;
   /**
-   * 列を一意に識別するキー。リソース列は `` `r:${resource.id}` ``、
+   * 列を一意に識別するキー。表示日数が 1 の場合、リソース列は `` `r:${resource.id}` ``、
    * 未割り当て列は `'unassigned'`（判別子付きの形式にすることで、
    * `'unassigned'` という ID のリソースと衝突しない）。
+   * 表示日数が 2 以上（{@link CalendarOptions.resourceViewDays}）の場合は
+   * 日付キーを付けた `` `r:${resource.id}@YYYY-MM-DD` `` / `` `unassigned@YYYY-MM-DD` `` になる。
    */
   key: string;
+  /** この列が表す日の開始時刻（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
+  date: Date;
+  /** この列が表す日の `'YYYY-MM-DD'` キー。 */
+  dayKey: string;
+  /** この列が表す日が今日かどうか。 */
+  isToday: boolean;
+  /** この列が表す日の {@link ResourceViewModel.days} 内でのインデックス。 */
+  dayIndex: number;
   /** この列に配置された時間指定イベント（週/日ビューと同じ配置計算）。 */
   items: readonly PositionedOccurrence[];
   /**
@@ -638,18 +648,41 @@ export interface ResourceColumn {
   allDayItems: readonly EventOccurrence[];
 }
 
+/** リソースビューの表示日 1 日分のメタデータ。 */
+export interface ResourceViewDay {
+  /** その日の開始時刻（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
+  date: Date;
+  /** 表示タイムゾーンにおける `'YYYY-MM-DD'` 形式のキー。 */
+  key: string;
+  /** 今日かどうか（表示タイムゾーン基準）。 */
+  isToday: boolean;
+  /**
+   * {@link ResourceViewModel.slots} と同じ並びで、各スロットがこの日の曜日基準で
+   * {@link CalendarOptions.businessHours} の営業時間内かどうかを示す。
+   * `businessHours` 未指定時はすべて `isBusinessHours: false`。
+   */
+  businessHourSlots: readonly BusinessHourSlot[];
+}
+
 /** リソースビューのビューモデル。 */
 export interface ResourceViewModel {
   type: 'resource';
-  /** 表示日の開始時刻（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
+  /** 表示範囲の先頭日の開始時刻（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
   date: Date;
-  /** 表示日の `'YYYY-MM-DD'` キー。 */
+  /** 表示範囲の先頭日の `'YYYY-MM-DD'` キー。 */
   dateKey: string;
-  /** 表示日が今日かどうか。 */
+  /** 表示範囲の先頭日が今日かどうか。列ごとの判定は {@link ResourceColumn.isToday} を使う。 */
   isToday: boolean;
   /**
-   * リソース列（{@link CalendarOptions.resources} の並び順。
-   * {@link CalendarOptions.unassignedLane} の規則で末尾に未割り当て列が付くことがある）。
+   * 表示日の一覧（{@link CalendarOptions.resourceViewDays} 日分、昇順）。
+   * 既定（`resourceViewDays: 1`）では先頭日 1 件のみ。
+   */
+  days: readonly ResourceViewDay[];
+  /**
+   * リソース列（リソース × 日の直積。リソースは {@link CalendarOptions.resources} の
+   * 並び順で、各リソースの中に表示日が昇順で並ぶ。
+   * {@link CalendarOptions.unassignedLane} の規則で末尾に未割り当て列（の日別の並び）が
+   * 付くことがある）。
    */
   columns: readonly ResourceColumn[];
   /** 列が 1 つもないか（リソース未設定かつ未割り当て列も生成されない場合）。 */
@@ -665,16 +698,15 @@ export interface ResourceViewModel {
   /** {@link CalendarOptions.slotMaxTime} を分に変換した値（1〜1440）。 */
   slotMaxTimeMinutes: number;
   /**
-   * 現在時刻線の位置（その日の 0:00 からの分）。表示日が今日でない場合、または
-   * 現在時刻が表示時間帯（`slotMinTimeMinutes`〜`slotMaxTimeMinutes`）の外にある
-   * 場合は `null`。
+   * 現在時刻線の位置（その日の 0:00 からの分）。表示範囲に今日が含まれない場合、
+   * または現在時刻が表示時間帯（`slotMinTimeMinutes`〜`slotMaxTimeMinutes`）の外にある
+   * 場合は `null`。描画対象の列は {@link ResourceColumn.isToday} で判定する。
    */
   nowIndicatorMinutes: number | null;
   /**
-   * {@link ResourceViewModel.slots} と同じ並びで、各スロットが
-   * {@link CalendarOptions.businessHours} の営業時間内かどうかを示す
-   * （表示日 {@link ResourceViewModel.date} の曜日基準で判定。列 = リソースのため
-   * 全列共通の 1 本になる。週/日ビューの `TimeGridDay.businessHourSlots` と同じ規則）。
+   * 先頭日の営業時間内フラグ（{@link ResourceViewDay.businessHourSlots} の先頭日分と
+   * 同じ配列参照。週/日ビューの `TimeGridDay.businessHourSlots` と同じ規則）。
+   * 日ごとの判定は {@link ResourceViewModel.days} の各要素を使う。
    * `businessHours` 未指定時はすべて `isBusinessHours: false`。
    */
   businessHourSlots: readonly BusinessHourSlot[];
@@ -954,6 +986,14 @@ export interface CalendarOptions {
    */
   timelineDays?: number;
   /**
+   * リソースビューが表示する日数。既定は `1`。
+   * `2` 以上を指定すると、列がリソース × 日の直積になる
+   * （リソースごとに日を昇順で並べるグルーピング順）。
+   * `next()` / `prev()` の移動単位にもなる。
+   * 0 以下・非整数は `1` へ正規化される。
+   */
+  resourceViewDays?: number;
+  /**
    * タイムラインビューの横軸のズーム粒度。既定は `'hour'`。
    *
    * - `'hour'`  — 時刻目盛り（`slotMinutes` 間隔）。既存の挙動と完全に同一
@@ -1125,6 +1165,8 @@ export interface ResolvedCalendarOptions {
   multiMonthCount: number;
   /** タイムラインビューが表示する日数。 */
   timelineDays: number;
+  /** リソースビューが表示する日数。 */
+  resourceViewDays: number;
   /** タイムラインビューの横軸のズーム粒度。 */
   timelineScale: TimelineScale;
   /** 未割り当てレーンの生成規則。 */

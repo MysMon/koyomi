@@ -61,6 +61,7 @@ const DEFAULT_OPTIONS: Omit<ResolvedCalendarOptions, 'now'> = {
   listDays: 30,
   multiMonthCount: 3,
   timelineDays: 1,
+  resourceViewDays: 1,
   timelineScale: 'hour',
   unassignedLane: 'auto',
   locale: 'ja',
@@ -143,6 +144,10 @@ function resolveOptions(
     listDays: normalizePositiveInt(options?.listDays ?? current.listDays, 1),
     multiMonthCount: normalizePositiveInt(options?.multiMonthCount ?? current.multiMonthCount, 1),
     timelineDays: normalizePositiveInt(options?.timelineDays ?? current.timelineDays, 1),
+    resourceViewDays: normalizePositiveInt(
+      options?.resourceViewDays ?? current.resourceViewDays,
+      1,
+    ),
     timelineScale: options?.timelineScale ?? current.timelineScale,
     unassignedLane: options?.unassignedLane ?? current.unassignedLane,
     locale: options?.locale ?? current.locale,
@@ -213,6 +218,7 @@ function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOpt
     a.listDays === b.listDays &&
     a.multiMonthCount === b.multiMonthCount &&
     a.timelineDays === b.timelineDays &&
+    a.resourceViewDays === b.resourceViewDays &&
     a.timelineScale === b.timelineScale &&
     a.unassignedLane === b.unassignedLane &&
     a.locale === b.locale &&
@@ -522,6 +528,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       listDays: resolvedOptions.listDays,
       multiMonthCount: resolvedOptions.multiMonthCount,
       timelineDays: resolvedOptions.timelineDays,
+      resourceViewDays: resolvedOptions.resourceViewDays,
     });
   }
 
@@ -606,6 +613,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           businessHours: resolvedOptions.businessHours,
           slotMinTime: resolvedOptions.slotMinTime,
           slotMaxTime: resolvedOptions.slotMaxTime,
+          resourceViewDays: resolvedOptions.resourceViewDays,
           now,
         });
       case 'timeline':
@@ -673,6 +681,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
         listDays: resolvedOptions.listDays,
         multiMonthCount: resolvedOptions.multiMonthCount,
         timelineDays: resolvedOptions.timelineDays,
+        resourceViewDays: resolvedOptions.resourceViewDays,
       });
       commit(true);
     },
@@ -682,6 +691,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
         listDays: resolvedOptions.listDays,
         multiMonthCount: resolvedOptions.multiMonthCount,
         timelineDays: resolvedOptions.timelineDays,
+        resourceViewDays: resolvedOptions.resourceViewDays,
       });
       commit(true);
     },

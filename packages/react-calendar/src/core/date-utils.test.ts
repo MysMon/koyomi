@@ -546,13 +546,26 @@ describe('visibleRangeFor', () => {
     expect(range.end.toISOString()).toBe('2026-09-30T15:00:00.000Z'); // 10/1 0:00 JST
   });
 
-  it('resource: day と同一の範囲（基準日の 1 日）になる', () => {
+  it('resource: 既定（resourceViewDays 未指定）では day と同一の範囲（基準日の 1 日）になる', () => {
     const range = visibleRangeFor('resource', current, TOKYO, options);
     const dayRange = visibleRangeFor('day', current, TOKYO, options);
     expect(range.start.getTime()).toBe(dayRange.start.getTime());
     expect(range.end.getTime()).toBe(dayRange.end.getTime());
     expect(range.start.toISOString()).toBe('2026-06-30T15:00:00.000Z');
     expect(range.end.toISOString()).toBe('2026-07-01T15:00:00.000Z');
+  });
+
+  it('resource: resourceViewDays の値を反映する（基準日の 0:00 から resourceViewDays 日間）', () => {
+    const range = visibleRangeFor('resource', current, TOKYO, {
+      weekStartsOn: 0,
+      listDays: 30,
+      multiMonthCount: 3,
+      timelineDays: 1,
+      resourceViewDays: 3,
+    });
+    expect(range.start.toISOString()).toBe('2026-06-30T15:00:00.000Z'); // 7/1 0:00 JST
+    expect(range.end.toISOString()).toBe('2026-07-03T15:00:00.000Z'); // 7/4 0:00 JST
+    expect(eachDayInRange(range, TOKYO)).toHaveLength(3);
   });
 
   it('timeline: 既定（timelineDays=1）では day と同一の範囲になる', () => {
@@ -714,12 +727,22 @@ describe('navigateDate', () => {
     ).toBe('2026-01-31T15:00:00.000Z'); // 2/1 0:00 JST
   });
 
-  it('resource: ±1 日移動する（day と同一）', () => {
+  it('resource: 既定（resourceViewDays 未指定）では ±1 日移動する（day と同一）', () => {
     expect(navigateDate('resource', current, 1, TOKYO, options).toISOString()).toBe(
       '2026-07-16T01:00:00.000Z',
     );
     expect(navigateDate('resource', current, -1, TOKYO, options).toISOString()).toBe(
       '2026-07-14T01:00:00.000Z',
+    );
+  });
+
+  it('resource: resourceViewDays の値を反映する（±resourceViewDays 日移動する）', () => {
+    const withDays = { listDays: 30, multiMonthCount: 3, timelineDays: 1, resourceViewDays: 3 };
+    expect(navigateDate('resource', current, 1, TOKYO, withDays).toISOString()).toBe(
+      '2026-07-18T01:00:00.000Z', // 7/15 + 3日
+    );
+    expect(navigateDate('resource', current, -1, TOKYO, withDays).toISOString()).toBe(
+      '2026-07-12T01:00:00.000Z', // 7/15 - 3日
     );
   });
 

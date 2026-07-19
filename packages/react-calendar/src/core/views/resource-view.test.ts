@@ -71,6 +71,7 @@ function build(params: {
   businessHours?: readonly BusinessHoursRule[];
   slotMinTime?: string;
   slotMaxTime?: string;
+  resourceViewDays?: number;
 }) {
   return buildResourceViewModel({
     currentDate: params.currentDate ?? at('2026-07-10T09:00'),
@@ -84,6 +85,7 @@ function build(params: {
     ...(params.businessHours !== undefined ? { businessHours: params.businessHours } : {}),
     ...(params.slotMinTime !== undefined ? { slotMinTime: params.slotMinTime } : {}),
     ...(params.slotMaxTime !== undefined ? { slotMaxTime: params.slotMaxTime } : {}),
+    ...(params.resourceViewDays !== undefined ? { resourceViewDays: params.resourceViewDays } : {}),
   });
 }
 
@@ -491,6 +493,189 @@ describe('buildResourceViewModel', () => {
       });
       expect(atStart.nowIndicatorMinutes).toBe(480);
       expect(atEnd.nowIndicatorMinutes).toBeNull();
+    });
+  });
+
+  describe('resourceViewDays（複数日表示）', () => {
+    it('省略時（既定 1）は days が表示日 1 件になり、列キーに日サフィックスが付かない（回帰ペア）', () => {
+      const vm = build({ resources: [resource('r1')] });
+      expect(vm.days).toHaveLength(1);
+      expect(vm.days[0]).toMatchObject({ key: '2026-07-10', isToday: true });
+      expect(vm.days[0]?.date).toEqual(at('2026-07-10T00:00'));
+      expect(vm.columns.map((column) => column.key)).toEqual(['r:r1']);
+      expect(vm.columns[0]).toMatchObject({
+        dayKey: '2026-07-10',
+        dayIndex: 0,
+        isToday: true,
+      });
+      expect(vm.columns[0]?.date).toEqual(at('2026-07-10T00:00'));
+    });
+
+    it('resourceViewDays: 2 では列がリソース優先（リソースごとに日を昇順で並べる）の直積になる', () => {
+      const vm = build({
+        resources: [resource('r1'), resource('r2')],
+        resourceViewDays: 2,
+      });
+      expect(vm.columns.map((column) => column.key)).toEqual([
+        'r:r1@2026-07-10',
+        'r:r1@2026-07-11',
+        'r:r2@2026-07-10',
+        'r:r2@2026-07-11',
+      ]);
+      expect(vm.columns.map((column) => column.dayIndex)).toEqual([0, 1, 0, 1]);
+      expect(vm.days.map((day) => day.key)).toEqual(['2026-07-10', '2026-07-11']);
+    });
+
+    it('未割り当て列も日ごとに生成され、末尾にまとまる（該当オカレンスが 2 日目のみでも全日分生成される）', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        resourceViewDays: 2,
+        occurrences: [
+          makeOccurrence({ start: at('2026-07-11T10:00'), end: at('2026-07-11T11:00') }),
+        ],
+      });
+      expect(vm.columns.map((column) => column.key)).toEqual([
+        'r:r1@2026-07-10',
+        'r:r1@2026-07-11',
+        'unassigned@2026-07-10',
+        'unassigned@2026-07-11',
+      ]);
+      expect(vm.columns[2]?.items).toHaveLength(0);
+      expect(vm.columns[3]?.items).toHaveLength(1);
+    });
+
+    it('オカレンスは属する日の列にのみ配置される', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        resourceViewDays: 2,
+        occurrences: [
+          makeOccurrence({
+            eventId: 'day1',
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceId: 'r1',
+          }),
+          makeOccurrence({
+            eventId: 'day2',
+            start: at('2026-07-11T10:00'),
+            end: at('2026-07-11T11:00'),
+            resourceId: 'r1',
+          }),
+        ],
+      });
+      expect(vm.columns[0]?.items.map((item) => item.occurrence.eventId)).toEqual(['day1']);
+      expect(vm.columns[1]?.items.map((item) => item.occurrence.eventId)).toEqual(['day2']);
+    });
+
+    it('日をまたぐ時間指定オカレンス（22:00〜翌 2:00）は両日の列に分割され continues が立つ', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        resourceViewDays: 2,
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T22:00'),
+            end: at('2026-07-11T02:00'),
+            resourceId: 'r1',
+          }),
+        ],
+      });
+      const firstDayItem = vm.columns[0]?.items[0];
+      expect(firstDayItem).toMatchObject({
+        startMinutes: 1320,
+        endMinutes: 1440,
+        continuesBefore: false,
+        continuesAfter: true,
+      });
+      const secondDayItem = vm.columns[1]?.items[0];
+      expect(secondDayItem).toMatchObject({
+        startMinutes: 0,
+        endMinutes: 120,
+        continuesBefore: true,
+        continuesAfter: false,
+      });
+    });
+
+    it('複数日の終日オカレンスは重なる各日の列の allDayItems に現れる', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        resourceViewDays: 3,
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-11T00:00'),
+            end: at('2026-07-13T00:00'),
+            allDay: true,
+            resourceId: 'r1',
+          }),
+        ],
+      });
+      // 表示日は 7/10〜7/12。終日オカレンス（7/11〜7/12）は 7/11・7/12 の列にのみ現れる
+      expect(vm.columns.map((column) => column.allDayItems.length)).toEqual([0, 1, 1]);
+    });
+
+    it('days[].businessHourSlots は各日の曜日基準で判定され、viewModel.businessHourSlots は先頭日の値になる', () => {
+      // 2026-07-10 は金曜（weekday: 5）、2026-07-11 は土曜（weekday: 6）。金曜だけ営業にする
+      const vm = build({
+        resourceViewDays: 2,
+        resources: [resource('r1')],
+        businessHours: [{ daysOfWeek: [5], startTime: '09:00', endTime: '18:00' }],
+      });
+      const friday = vm.days[0]?.businessHourSlots.find((slot) => slot.minutes === 540);
+      const saturday = vm.days[1]?.businessHourSlots.find((slot) => slot.minutes === 540);
+      expect(friday?.isBusinessHours).toBe(true);
+      expect(saturday?.isBusinessHours).toBe(false);
+      expect(vm.businessHourSlots).toBe(vm.days[0]?.businessHourSlots);
+    });
+
+    it('isToday は該当日の列にだけ立ち、nowIndicatorMinutes は今日が表示範囲のどこかにあれば分を返す', () => {
+      // 表示範囲 7/10〜7/11、now は 2 日目（7/11）10:30
+      const vm = build({
+        resources: [resource('r1')],
+        resourceViewDays: 2,
+        now: at('2026-07-11T10:30'),
+      });
+      expect(vm.columns.map((column) => column.isToday)).toEqual([false, true]);
+      expect(vm.days.map((day) => day.isToday)).toEqual([false, true]);
+      // viewModel.isToday は先頭日の判定（先頭日は今日ではない）
+      expect(vm.isToday).toBe(false);
+      expect(vm.nowIndicatorMinutes).toBe(10 * 60 + 30);
+    });
+
+    it('今日が表示範囲に含まれない場合は nowIndicatorMinutes が null になる', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        resourceViewDays: 2,
+        now: at('2026-07-13T10:30'),
+      });
+      expect(vm.nowIndicatorMinutes).toBeNull();
+    });
+
+    it('0 以下・小数の resourceViewDays は 1 日表示へ正規化される（壊れた表示を作らない防御）', () => {
+      const zero = build({ resources: [resource('r1')], resourceViewDays: 0 });
+      expect(zero.days).toHaveLength(1);
+      const fractional = build({ resources: [resource('r1')], resourceViewDays: 2.9 });
+      expect(fractional.days).toHaveLength(2);
+    });
+
+    it('America/New_York の DST 開始日をまたぐ 2 日表示でも各日のキーと日内の分が現地時刻基準になる', () => {
+      // 2026-03-08 は NY の DST 開始日（2:00 → 3:00）。表示範囲は 3/8〜3/9
+      const vm = build({
+        timeZone: NY,
+        currentDate: at('2026-03-08T12:00', NY),
+        now: at('2026-03-08T12:00', NY),
+        resourceViewDays: 2,
+        resources: [resource('r1')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-03-09T10:00', NY),
+            end: at('2026-03-09T11:00', NY),
+            resourceId: 'r1',
+          }),
+        ],
+      });
+      expect(vm.days.map((day) => day.key)).toEqual(['2026-03-08', '2026-03-09']);
+      const secondDayItem = vm.columns[1]?.items[0];
+      expect(secondDayItem?.startMinutes).toBe(600);
+      expect(secondDayItem?.endMinutes).toBe(660);
     });
   });
 });

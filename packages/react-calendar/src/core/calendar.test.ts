@@ -490,6 +490,18 @@ describe('createCalendar', () => {
         expect(calendar.getState().currentDate.getTime() - before).toBe(24 * 60 * 60 * 1000);
       });
 
+      it('resource ビューの next() は resourceViewDays 日進む', () => {
+        const calendar = createCalendar({
+          timeZone: 'Asia/Tokyo',
+          initialView: 'resource',
+          initialDate: START,
+          resourceViewDays: 3,
+        });
+        const before = calendar.getState().currentDate.getTime();
+        calendar.next();
+        expect(calendar.getState().currentDate.getTime() - before).toBe(3 * 24 * 60 * 60 * 1000);
+      });
+
       it('timeline ビューの next() は timelineDays 日進む', () => {
         const calendar = createCalendar({
           timeZone: 'Asia/Tokyo',
@@ -1225,6 +1237,48 @@ describe('createCalendar', () => {
       const vm = calendar.getViewModel();
       if (vm.type !== 'resource') throw new Error('unreachable');
       expect(vm.dateKey).toBe('2026-07-04');
+    });
+
+    it('resourceViewDays を指定するとリソースビューの表示日数・列数に反映される', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        now: () => new Date('2026-07-15T01:00:00Z'),
+        initialDate: new Date('2026-07-15T01:00:00Z'),
+        initialView: 'resource',
+        resources: [{ id: 'r1', title: '会議室' }],
+        resourceViewDays: 2,
+      });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'resource') throw new Error('unreachable');
+      expect(vm.days.map((day) => day.key)).toEqual(['2026-07-15', '2026-07-16']);
+      expect(vm.columns.map((column) => column.key)).toEqual([
+        'r:r1@2026-07-15',
+        'r:r1@2026-07-16',
+      ]);
+      // 表示範囲もイベント展開と同じ 2 日分になる
+      const range = calendar.getVisibleRange();
+      expect(range.end.getTime() - range.start.getTime()).toBe(2 * 24 * 60 * 60 * 1000);
+    });
+
+    it('resourceViewDays を updateOptions で変更するとリソースビューの表示日数に反映され、0 以下は 1 へ正規化される', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        now: () => new Date('2026-07-15T01:00:00Z'),
+        initialDate: new Date('2026-07-15T01:00:00Z'),
+        initialView: 'resource',
+        resources: [{ id: 'r1', title: '会議室' }],
+      });
+      calendar.updateOptions({ resourceViewDays: 3 });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'resource') throw new Error('unreachable');
+      expect(vm.days).toHaveLength(3);
+      expect(calendar.getState().options.resourceViewDays).toBe(3);
+
+      calendar.updateOptions({ resourceViewDays: 0 });
+      expect(calendar.getState().options.resourceViewDays).toBe(1);
+      const normalized = calendar.getViewModel();
+      if (normalized.type !== 'resource') throw new Error('unreachable');
+      expect(normalized.days).toHaveLength(1);
     });
 
     it('タイムラインビューは hiddenWeekdays を無視し、常に timelineDays 日の連続した並びになる', () => {
