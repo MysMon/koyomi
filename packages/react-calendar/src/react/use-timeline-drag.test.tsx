@@ -329,6 +329,106 @@ describe('useTimelineDrag - 移動・リサイズ', () => {
   });
 });
 
+describe('useTimelineDrag - 複数リソース割当（resourceIds）', () => {
+  /** 指定行キーの行内にある帯要素を取得する（複数レーンに同一オカレンスが表示されるため）。 */
+  function getItemElementInRow(
+    container: HTMLElement,
+    rowKey: string,
+    eventId: string,
+    startIso: string,
+  ): HTMLElement {
+    const key = `${eventId}@${at(startIso).toISOString()}`;
+    const element = container.querySelector(
+      `[data-koyomi="timeline-row"][data-koyomi-resource="${rowKey}"] [data-koyomi-occurrence="${key}"]`,
+    );
+    if (element === null) {
+      throw new Error(`行 ${rowKey} 内に帯要素が見つかりません: ${key}`);
+    }
+    return element as HTMLElement;
+  }
+
+  const CRANE_3: CalendarResource = { id: 'crane-3', title: 'クレーン3号機' };
+
+  it('ドラッグした行の割当だけが移動先に変わり、他の行の割当は保持される', () => {
+    const event: CalendarEvent = {
+      id: 'ev-multi',
+      title: '共同作業',
+      start: `${DAY0}T09:00`,
+      end: `${DAY0}T10:00`,
+      resourceIds: ['crane-1', 'crane-3'],
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1, CRANE_2, CRANE_3],
+      timelineDays: 1,
+      events: [event],
+    });
+    mockAllRowRects(container, 1);
+    const itemEl = getItemElementInRow(container, 'r:crane-1', 'ev-multi', `${DAY0}T09:00`);
+
+    firePointerDown(itemEl, dm(0, 9, 0), rowCenterY(0)); // crane-1 行 9:00 を掴む
+    movePointer(dm(0, 9, 0), rowCenterY(1)); // crane-2 行へ（時間は不変）
+    releasePointer(dm(0, 9, 0), rowCenterY(1));
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]?.resourceIds).toEqual(['crane-2', 'crane-3']);
+    expect(events[0]).not.toHaveProperty('resourceId');
+  });
+
+  it('ArrowDown でフォーカス中の行の割当だけが隣の行へ移る（時間は不変）', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-multi-key',
+      title: '共同作業',
+      start: `${DAY0}T09:00`,
+      end: `${DAY0}T10:00`,
+      resourceIds: ['crane-1', 'crane-3'],
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1, CRANE_2, CRANE_3],
+      timelineDays: 1,
+      events: [event],
+    });
+    const itemEl = getItemElementInRow(container, 'r:crane-1', 'ev-multi-key', `${DAY0}T09:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(itemEl, { key: 'ArrowDown' });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]?.resourceIds).toEqual(['crane-2', 'crane-3']);
+    expect(events[0]).toMatchObject({ start: `${DAY0}T09:00`, end: `${DAY0}T10:00` });
+  });
+
+  it('未割り当て行へドラッグするとドラッグした行の割当だけが外れる', () => {
+    const event: CalendarEvent = {
+      id: 'ev-multi-unassign',
+      title: '共同作業',
+      start: `${DAY0}T09:00`,
+      end: `${DAY0}T10:00`,
+      resourceIds: ['crane-1', 'crane-2'],
+    };
+    const { container, sink } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      unassignedLane: 'always',
+      timelineDays: 1,
+      events: [event],
+    });
+    mockAllRowRects(container, 1);
+    const itemEl = getItemElementInRow(
+      container,
+      'r:crane-2',
+      'ev-multi-unassign',
+      `${DAY0}T09:00`,
+    );
+
+    firePointerDown(itemEl, dm(0, 9, 0), rowCenterY(1)); // crane-2 行を掴む
+    movePointer(dm(0, 9, 0), rowCenterY(2)); // 未割り当て行へ
+    releasePointer(dm(0, 9, 0), rowCenterY(2));
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]?.resourceIds).toEqual(['crane-1']);
+  });
+});
+
 describe('useTimelineDrag - 追加通知（onEventDoubleClick / onEventContextMenu / onEventHover / onEventHoverEnd）', () => {
   const EVENT: CalendarEvent = {
     id: 'ev-notify',

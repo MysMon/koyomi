@@ -9,8 +9,11 @@
  * 「ビュー固有の処理をコールバックとして注入するだけで吸収できる」と
  * 判断できたロジックに限る:
  *
- * - {@link laneResourceIdOf} — オカレンスの現在のレーンのリソース ID を求める
+ * - {@link laneResourceIdOf} — オカレンスの代表レーンのリソース ID を求める
  *   （リソースビュー・タイムラインの2フックで共有）
+ * - {@link laneIdFromEventTarget} — 操作した DOM 要素から操作元レーンのリソース ID を
+ *   解決する（複数リソース割当のオカレンスは複数レーンに表示されるため、操作元の
+ *   特定は DOM を正とする。リソースビュー・タイムラインの2フックで共有）
  * - {@link collectOverlapBlockersInRange} — 重なり判定用ブロッカーの収集
  *   （時間グリッド・日単位（帯）・リソース・タイムライン・外部ドラッグの 5 フック共通。
  *   `api.getOccurrences` から収集することで、表示中のビューモデルに現れない
@@ -45,6 +48,7 @@
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { type OverlapBlocker, occurrenceBlocksOverlap } from '../core/constraints';
 import { rangesOverlap } from '../core/date-utils';
+import { assignedLaneIds, effectiveResourceIds } from '../core/resource-assignment';
 import { addDaysInZone, startOfDayInZone } from '../core/timezone';
 import type {
   CalendarApi,
@@ -54,15 +58,21 @@ import type {
   RecurringEditScope,
   TimeZoneId,
 } from '../core/types';
+import { resourceIdFromLaneKey } from '../core/views/lane-key';
 import type { CalendarInteractionCallbacks, EventChangeProposal, RangeSelection } from './types';
 
 /**
- * オカレンスの現在のレーンのリソース ID（未割り当ては `null`）を返す。
+ * オカレンスの代表レーンのリソース ID（未割り当ては `null`）を返す。
  *
- * `resources` に存在しない ID（参照先を失った resourceId）はビュービルダーが
+ * `resources` に存在しない ID（参照先を失った割当）はビュービルダーが
  * 未割り当てレーン／行へ合流させるため、ここでも `null` に正規化する。
  * 正規化しないと、キーボードでの列・行移動が現在のレーンを見つけられず、
  * 変更検出も表示上のレーンと食い違う。
+ *
+ * 複数リソース割当（`resourceIds`）のオカレンスは複数のレーンに表示されるため、
+ * この関数は**先頭の存在する割当**（表示上の最初のレーン）を代表として返す。
+ * 操作対象のレーンを厳密に特定する必要がある場合は、操作した DOM 要素から
+ * {@link laneIdFromEventTarget} で解決し、この関数はそのフォールバックとして使う。
  *
  * リソースビュー（`use-resource-grid-drag`）・タイムライン（`use-timeline-drag`）の
  * 両方から共通で使う（週/日ビューにはレーンの概念がないため対象外）。
@@ -75,11 +85,35 @@ export function laneResourceIdOf(
   occurrence: EventOccurrence,
   resources: readonly { id: string }[],
 ): string | null {
-  const resourceId = occurrence.event.resourceId;
-  if (resourceId === undefined) {
-    return null;
+  const first = effectiveResourceIds(occurrence.event).find((id) =>
+    resources.some((resource) => resource.id === id),
+  );
+  return first ?? null;
+}
+
+/**
+ * 操作対象の DOM 要素から、その要素が属するレーンのリソース ID を解決する。
+ *
+ * リソースビューの列・終日セル、タイムラインの行はいずれも `data-koyomi-resource`
+ * 属性にレーンキー（`` `r:${id}` `` / `'unassigned'`。{@link resourceIdFromLaneKey} の
+ * デコード対象）を持つため、最も近い祖先のこの属性から操作元レーンを特定できる。
+ * 複数リソース割当（`resourceIds`）のオカレンスは複数のレーンに同時に表示されるため、
+ * 「操作したレーン」の特定はイベントデータからは行えず、この DOM 解決を正とする。
+ *
+ * @param target - 操作イベントの `currentTarget`（またはその子孫要素）
+ * @returns レーンのリソース ID（未割り当てレーンは `null`）。属性を持つ祖先が
+ *   見つからない場合は `undefined`（呼び出し側が {@link laneResourceIdOf} 等へ
+ *   フォールバックする）
+ */
+export function laneIdFromEventTarget(target: EventTarget | null): string | null | undefined {
+  if (!(target instanceof Element)) {
+    return undefined;
   }
-  return resources.some((resource) => resource.id === resourceId) ? resourceId : null;
+  const laneElement = target.closest('[data-koyomi-resource]');
+  if (laneElement === null) {
+    return undefined;
+  }
+  return resourceIdFromLaneKey(laneElement.getAttribute('data-koyomi-resource'));
 }
 
 /**
@@ -198,9 +232,10 @@ function unionRanges(a: DateRange, b: DateRange): DateRange {
  * @param range - 判定対象の候補範囲
  * @param eventOverlap - {@link CalendarOptions.eventOverlap} の実効値
  * @param lane - レーンを持つビュー（リソース・タイムライン・それらへの外部ドラッグ）
- *   でのみ指定する。指定すると、{@link laneResourceIdOf} で正規化した結果が
- *   `lane.laneId` と一致するオカレンスだけに絞り込む（レーンの概念がないビュー
- *   （時間グリッド・日単位（帯）等）では省略する）
+ *   でのみ指定する。指定すると、所属レーン一覧（{@link assignedLaneIds}。複数リソース
+ *   割当のオカレンスは割当先の各レーンに属する）が `lane.laneId` を含むオカレンス
+ *   だけに絞り込む（レーンの概念がないビュー（時間グリッド・日単位（帯）等）では
+ *   省略する）
  * @returns 収集された {@link OverlapBlocker} の一覧
  */
 export function collectOverlapBlockersInRange(
@@ -241,12 +276,17 @@ export function collectOverlapBlockersInRange(
   const overlapping = entry.occurrences.filter((occurrence) =>
     rangesOverlap({ start: occurrence.start, end: occurrence.end }, range),
   );
-  const scoped =
-    lane === undefined
-      ? overlapping
-      : overlapping.filter(
-          (occurrence) => laneResourceIdOf(occurrence, lane.resources) === lane.laneId,
-        );
+  let scoped: readonly EventOccurrence[];
+  if (lane === undefined) {
+    scoped = overlapping;
+  } else {
+    // 複数リソース割当（resourceIds）のオカレンスは属する各レーンでブロッカーになるため、
+    // 代表レーンではなく所属レーン一覧（assignedLaneIds）で判定する
+    const knownIds = new Set(lane.resources.map((resource) => resource.id));
+    scoped = overlapping.filter((occurrence) =>
+      assignedLaneIds(occurrence.event, knownIds).includes(lane.laneId),
+    );
+  }
   return scoped.map((occurrence) => ({
     key: occurrence.key,
     start: occurrence.start,

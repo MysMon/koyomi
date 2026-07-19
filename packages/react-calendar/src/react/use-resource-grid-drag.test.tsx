@@ -454,6 +454,124 @@ describe('useResourceGridDrag - 移動・リサイズ', () => {
   });
 });
 
+describe('useResourceGridDrag - 複数リソース割当（resourceIds）', () => {
+  /** 指定レーンの列内にあるオカレンス要素を取得する（複数レーンに同一オカレンスが表示されるため）。 */
+  function getEventElementInLane(
+    container: HTMLElement,
+    laneKey: string,
+    eventId: string,
+    startIso: string,
+  ): HTMLElement {
+    const key = `${eventId}@${at(startIso).toISOString()}`;
+    const element = container.querySelector(
+      `[data-koyomi="resource-column"][data-koyomi-resource="${laneKey}"] [data-koyomi-occurrence="${key}"]`,
+    );
+    if (element === null) {
+      throw new Error(`レーン ${laneKey} 内にイベント要素が見つかりません: ${key}`);
+    }
+    return element as HTMLElement;
+  }
+
+  it('ドラッグしたレーンの割当だけが移動先に変わり、他のレーンの割当は保持される', () => {
+    const event: CalendarEvent = {
+      id: 'ev-multi',
+      title: '全体会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceIds: ['room-a', 'room-c'],
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B, ROOM_C],
+      events: [event],
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElementInLane(container, 'r:room-a', 'ev-multi', `${DAY}T10:00`);
+
+    firePointerDown(eventEl, columnCenterX(0), 600); // room-a 列 10:00 を掴む
+    movePointer(columnCenterX(1), 600); // room-b 列へ（時間は不変）
+    releasePointer(columnCenterX(1), 600);
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]?.resourceIds).toEqual(['room-b', 'room-c']);
+    expect(events[0]).not.toHaveProperty('resourceId');
+  });
+
+  it('未割り当て列へドロップするとドラッグしたレーンの割当だけが外れる', () => {
+    const event: CalendarEvent = {
+      id: 'ev-multi-unassign',
+      title: '全体会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceIds: ['room-a', 'room-b'],
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      unassignedLane: 'always',
+      events: [event],
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElementInLane(
+      container,
+      'r:room-b',
+      'ev-multi-unassign',
+      `${DAY}T10:00`,
+    );
+
+    firePointerDown(eventEl, columnCenterX(1), 600); // room-b 列を掴む
+    movePointer(columnCenterX(2), 600); // 未割り当て列へ
+    releasePointer(columnCenterX(2), 600);
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]?.resourceIds).toEqual(['room-a']);
+  });
+
+  it('ArrowRight でフォーカス中のレーンの割当だけが隣の列へ移る', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-multi-key',
+      title: '全体会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceIds: ['room-a', 'room-c'],
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B, ROOM_C],
+      events: [event],
+    });
+    const eventEl = getEventElementInLane(container, 'r:room-a', 'ev-multi-key', `${DAY}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowRight' });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]?.resourceIds).toEqual(['room-b', 'room-c']);
+    // 時間は不変
+    expect(events[0]).toMatchObject({ start: `${DAY}T10:00`, end: `${DAY}T11:00` });
+  });
+
+  it('移動先がすでに割当済みのレーンなら割当が統合される（重複しない）', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-multi-merge',
+      title: '全体会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceIds: ['room-a', 'room-b'],
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+    });
+    const eventEl = getEventElementInLane(container, 'r:room-a', 'ev-multi-merge', `${DAY}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowRight' });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]?.resourceIds).toEqual(['room-b']);
+  });
+});
+
 describe('useResourceGridDrag - 表示時間帯制限（slotMinTime/slotMaxTime）', () => {
   it('空き領域のクリック位置が範囲外でも、作成位置は slotMinTime にクランプされる', () => {
     const { container, sink } = renderHarness({

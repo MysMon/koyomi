@@ -15,7 +15,10 @@
  * 週/日ビューの {@link ./use-time-grid-drag} と同じプロップゲッターパターンだが、
  * 列レジストリは「1 リソース × 1 日 = 1 列」
  * （`Map<columnKey, { element, resourceId, dayStart }>`）で持つ。確定時は時間の変更と
- * `resourceId` の変更を 1 つのパッチに合成して 1 回の `updateEvent` にする。
+ * リソース割当の変更を 1 つのパッチに合成して 1 回の `updateEvent` にする。
+ * 複数リソース割当（`resourceIds`）のオカレンスは割当先の各列に表示され、
+ * レーン間の移動では**操作した列の割当だけ**が移動先に変わる
+ * （{@link resourceLanePatch}。他の列の割当は保持される）。
  * allDay⇔時間指定の越境変換は提供しない（越境変換は週/日ビュー限定の方針。
  * 将来提供する場合も別設計とする）。
  */
@@ -33,6 +36,7 @@ import {
   resolveConstraintRules,
 } from '../core/constraints';
 import { dragPreviewRange, timeAtGridPosition } from '../core/interaction';
+import { resourceLanePatch } from '../core/resource-assignment';
 import {
   addDaysInZone,
   addMinutesInZone,
@@ -64,6 +68,7 @@ import {
   createOverlapBlockerCache,
   type EventNotificationProps,
   eventNotificationProps,
+  laneIdFromEventTarget,
   laneResourceIdOf,
   resolveScopeForRecurring,
 } from './drag-common';
@@ -375,9 +380,20 @@ export function useResourceGridDrag(params: {
     };
   }
 
-  /** オカレンスの現在のレーンのリソース ID（{@link laneResourceIdOf}）。 */
+  /** オカレンスの代表レーンのリソース ID（{@link laneResourceIdOf}）。 */
   function occurrenceLaneId(occurrence: EventOccurrence): string | null {
     return laneResourceIdOf(occurrence, paramsRef.current.calendar.state.resources);
+  }
+
+  /**
+   * 操作元レーンのリソース ID を解決する。操作した DOM 要素の属するレーン
+   * （{@link laneIdFromEventTarget}）を正とし、解決できない場合のみ代表レーン
+   * （{@link occurrenceLaneId}）へフォールバックする。複数リソース割当のオカレンスは
+   * 複数の列に同時に表示されるため、「操作した列」はイベントデータからは特定できない。
+   */
+  function sourceLaneIdFor(occurrence: EventOccurrence, target: EventTarget | null): string | null {
+    const fromDom = laneIdFromEventTarget(target);
+    return fromDom !== undefined ? fromDom : occurrenceLaneId(occurrence);
   }
 
   /** clientX を含む列（なければ中心距離が最も近い列）を探す。 */
@@ -531,6 +547,8 @@ export function useResourceGridDrag(params: {
    * 完結させる（ドラッグ確定直後のネイティブ click 抑制を間に合わせるため）。
    *
    * @param range - 変更後の日時範囲。`null` なら時間は変更しない（リソースのみの変更）
+   * @param sourceLaneId - 操作を開始したレーンのリソース ID。複数リソース割当では
+   *   このレーンの割当だけが `resourceId`（移動先）へ変わる（{@link resourceLanePatch}）
    */
   function applyChange(
     occurrence: EventOccurrence,
@@ -538,16 +556,14 @@ export function useResourceGridDrag(params: {
     range: DateRange | null,
     resourceId: string | null,
     allDay: boolean,
+    sourceLaneId: string | null,
   ): void {
-    const patch: CalendarEventPatch = {};
+    const patch: CalendarEventPatch = {
+      ...resourceLanePatch(occurrence.event, sourceLaneId, resourceId),
+    };
     if (range !== null) {
       patch.start = range.start;
       patch.end = range.end;
-    }
-    if (resourceId !== occurrenceLaneId(occurrence)) {
-      // 未割り当てへの移動は「キーが存在し値が undefined = フィールド削除」の
-      // パッチセマンティクスに従う
-      patch.resourceId = resourceId ?? undefined;
     }
     const changes = paramsRef.current.calendar.api.updateEvent(
       occurrence.eventId,
@@ -626,6 +642,7 @@ export function useResourceGridDrag(params: {
           dayDelta === 0 ? null : shiftedRange,
           session.targetResourceId,
           occurrence.allDay,
+          session.initialResourceId,
         );
         return;
       }
@@ -661,7 +678,14 @@ export function useResourceGridDrag(params: {
         }
         recurringScope = resolved;
       }
-      applyChange(occurrence, recurringScope, range, session.targetResourceId, false);
+      applyChange(
+        occurrence,
+        recurringScope,
+        range,
+        session.targetResourceId,
+        false,
+        session.initialResourceId,
+      );
     } finally {
       paramsRef.current.calendar.api.setDragPreview(null);
     }
@@ -903,7 +927,7 @@ export function useResourceGridDrag(params: {
       mode,
       occurrence,
       anchor,
-      occurrenceLaneId(occurrence),
+      sourceLaneIdFor(occurrence, event.currentTarget),
       initialDayStartFor(occurrence, event.clientX),
     );
   }
@@ -927,7 +951,7 @@ export function useResourceGridDrag(params: {
       edge === 'start' ? 'resize-start' : 'resize',
       occurrence,
       anchor,
-      occurrenceLaneId(occurrence),
+      sourceLaneIdFor(occurrence, event.currentTarget),
       initialDayStartFor(occurrence, event.clientX),
     );
   }
@@ -984,11 +1008,13 @@ export function useResourceGridDrag(params: {
   }
 
   /**
-   * オカレンスが属する列（レーンと開始日が一致する列）のインデックスを返す。
+   * オカレンスが属する列（指定レーンと開始日が一致する列）のインデックスを返す。
    * 見つからなければ `-1`。
+   *
+   * @param laneId - 対象レーンのリソース ID（複数リソース割当ではフォーカス中の
+   *   列のレーン。{@link sourceLaneIdFor} で解決した値）
    */
-  function columnIndexFor(occurrence: EventOccurrence): number {
-    const laneId = occurrenceLaneId(occurrence);
+  function columnIndexFor(occurrence: EventOccurrence, laneId: string | null): number {
     const dayStart = dayStartForDate(occurrence.start);
     return currentColumns().findIndex(
       (column) =>
@@ -1003,6 +1029,7 @@ export function useResourceGridDrag(params: {
     range: DateRange | null,
     resourceId: string | null,
     allDay: boolean,
+    sourceLaneId: string | null,
   ): Promise<void> {
     if (
       !isCandidateValid(
@@ -1037,7 +1064,7 @@ export function useResourceGridDrag(params: {
       }
       recurringScope = resolved;
     }
-    applyChange(occurrence, recurringScope, range, resourceId, allDay);
+    applyChange(occurrence, recurringScope, range, resourceId, allDay, sourceLaneId);
   }
 
   /**
@@ -1070,9 +1097,12 @@ export function useResourceGridDrag(params: {
       }
       // 画面上の隣の列（リソース × 日の並び）へ移動する。複数日表示では
       // 同一リソース内の隣の日、リソース境界では隣のリソースの端の日になり、
-      // 日の差分は開始・終了の日数シフトとして適用する
+      // 日の差分は開始・終了の日数シフトとして適用する。
+      // 基準列はフォーカス中の要素が属するレーン（複数リソース割当では
+      // 表示中の複数の列のうち操作した列だけが移動対象になる）
+      const sourceLaneId = sourceLaneIdFor(occurrence, event.currentTarget);
       const columns = currentColumns();
-      const index = columnIndexFor(occurrence);
+      const index = columnIndexFor(occurrence, sourceLaneId);
       if (index === -1) {
         return;
       }
@@ -1083,14 +1113,21 @@ export function useResourceGridDrag(params: {
       }
       const targetLaneId = target.resource?.id ?? null;
       const dayDelta = target.dayIndex - current.dayIndex;
-      if (dayDelta === 0 && targetLaneId === occurrenceLaneId(occurrence)) {
+      if (dayDelta === 0 && targetLaneId === sourceLaneId) {
         return;
       }
       const range =
         dayDelta === 0
           ? null
           : shiftRangeByDays({ start: occurrence.start, end: occurrence.end }, dayDelta);
-      void commitKeyboardChange(occurrence, 'move', range, targetLaneId, allDay).catch(reportError);
+      void commitKeyboardChange(
+        occurrence,
+        'move',
+        range,
+        targetLaneId,
+        allDay,
+        sourceLaneId,
+      ).catch(reportError);
       return;
     }
 
@@ -1127,12 +1164,15 @@ export function useResourceGridDrag(params: {
     ) {
       return;
     }
+    // 時間のみの操作。レーンは不変（source = target）のため割当パッチは生成されない
+    const laneId = sourceLaneIdFor(occurrence, event.currentTarget);
     void commitKeyboardChange(
       occurrence,
       event.shiftKey ? 'resize' : 'move',
       range,
-      occurrenceLaneId(occurrence),
+      laneId,
       false,
+      laneId,
     ).catch(reportError);
   }
 
