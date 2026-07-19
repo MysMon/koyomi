@@ -41,8 +41,8 @@ import '@koyomi-cal/react/theme.css';
 | `--koyomi-shadow` | 持ち上がり要素（選択中のビューセグメント・ホバー中のチップなど）の影 | 弱い 2 層のドロップシャドウ |
 | `--koyomi-radius` | 角丸の半径（ボタン・イベント共通） | `6px` |
 | `--koyomi-font-size` | 基準フォントサイズ | `13px` |
-| `--koyomi-month-header-height` | 月セルの日番号行の高さ（イベント帯の上端オフセットにも使用） | `24px` |
-| `--koyomi-lane-height` | 帯セグメント 1 レーンの高さ | `24px` |
+| `--koyomi-month-header-height` | 月セルの日番号行の高さ（イベント帯の上端オフセットにも使用）。既定値は日番号ボタンの実表示高（-2px 後）が WCAG 2.2 の最小ターゲットサイズ（24px）を満たす値 | `26px` |
+| `--koyomi-lane-height` | 帯セグメント 1 レーンの高さ。既定値は帯の実表示高（-2px 後）が WCAG 2.2 の最小ターゲットサイズ（24px）を満たす値 | `26px` |
 | `--koyomi-hour-height` | 時間グリッド 1 時間分の高さ | `48px` |
 | `--koyomi-time-axis-width` | 時間グリッドの時刻軸幅（ヘッダー・終日行・本体で揃えるための内部変数） | `56px` |
 | `--koyomi-virtual-list-max-height` | `VirtualListView`（仮想化リスト）のスクロールコンテナの `max-height`。既定は `none`（無制限）で、実際の境界高は利用者が指定する | `none` |
