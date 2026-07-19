@@ -6,7 +6,7 @@
  * 読むため、モックの発火に頼らず検証できる。
  */
 import { act, renderHook } from '@testing-library/react';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVirtualizer } from './use-virtualizer';
 
 /** テスト用の no-op ResizeObserver。 */
@@ -349,5 +349,549 @@ describe('useVirtualizer', () => {
       // start(180) - (60 - 20) / 2 = 180 - 20 = 160
       expect(element.scrollTop).toBe(160);
     });
+  });
+});
+
+/**
+ * テスト用に制御可能な ResizeObserver モック。
+ *
+ * `NoopResizeObserver` と異なり、`trigger` で任意の {@link ResizeObserverEntry} を模した
+ * 通知をコールバックへ即座に届けられる。これにより `sizeFromEntry` の分岐
+ * （`borderBoxSize` の有無・軸ごとの参照先）や、通知受信時の防御的分岐
+ * （実測無効時・未登録要素・サイズ 0）を検証する。
+ */
+class ControlledResizeObserver implements ResizeObserver {
+  static instances: ControlledResizeObserver[] = [];
+  private readonly callback: ResizeObserverCallback;
+  readonly observed = new Set<Element>();
+
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+    ControlledResizeObserver.instances.push(this);
+  }
+
+  observe(target: Element): void {
+    this.observed.add(target);
+  }
+
+  unobserve(target: Element): void {
+    this.observed.delete(target);
+  }
+
+  disconnect(): void {
+    this.observed.clear();
+  }
+
+  /**
+   * `target` を実測した体で、指定サイズのエントリを即座にコールバックへ通知する。
+   * `borderBox` を省略すると `contentRect` のみのエントリになり、フォールバック経路を検証できる。
+   */
+  trigger(
+    target: Element,
+    contentRect: { width: number; height: number },
+    borderBox?: { blockSize: number; inlineSize: number },
+  ): void {
+    // jsdom は ResizeObserverEntry を実装しないため、`sizeFromEntry` が実際に読む
+    // target/contentRect/borderBoxSize だけを持つ最小限のスタブを用意して cast する。
+    const entry = {
+      target,
+      contentRect,
+      borderBoxSize: borderBox !== undefined ? [borderBox] : undefined,
+    } as unknown as ResizeObserverEntry;
+    this.callback([entry], this);
+  }
+}
+
+/** `target` を observe している {@link ControlledResizeObserver} を探す（無ければ例外）。 */
+function findObserverFor(target: Element): ControlledResizeObserver {
+  const found = ControlledResizeObserver.instances.find((observer) =>
+    observer.observed.has(target),
+  );
+  if (found === undefined) {
+    throw new Error('対象要素を observe している ResizeObserver が見つかりません');
+  }
+  return found;
+}
+
+/** clientWidth を固定した横スクロールコンテナ要素を body に用意する（呼び出し側で remove すること）。 */
+function makeHorizontalElement(clientWidth: number): HTMLDivElement {
+  const element = document.createElement('div');
+  Object.defineProperty(element, 'clientWidth', { configurable: true, value: clientWidth });
+  document.body.appendChild(element);
+  return element;
+}
+
+describe('useVirtualizer - ResizeObserver によるアイテム実測の反映', () => {
+  let previousResizeObserver: typeof ResizeObserver;
+  beforeEach(() => {
+    ControlledResizeObserver.instances.length = 0;
+    previousResizeObserver = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = ControlledResizeObserver as unknown as typeof ResizeObserver;
+  });
+  afterEach(() => {
+    globalThis.ResizeObserver = previousResizeObserver;
+  });
+
+  it('borderBoxSize があれば blockSize を実測高として反映する（縦軸）', async () => {
+    const element = scrollElement(100);
+    const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+    const item = document.createElement('section');
+    act(() => {
+      result.current.measureElement('k0')(item);
+    });
+    const observer = findObserverFor(item);
+    await act(async () => {
+      observer.trigger(item, { width: 0, height: 0 }, { blockSize: 120, inlineSize: 40 });
+      await nextFrame();
+    });
+    expect(result.current.totalSize).toBe(120 + 9 * 20); // k0 が実測 120px に更新される
+  });
+
+  it('borderBoxSize が無ければ contentRect.height にフォールバックする（縦軸）', async () => {
+    const element = scrollElement(100);
+    const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+    const item = document.createElement('section');
+    act(() => {
+      result.current.measureElement('k0')(item);
+    });
+    const observer = findObserverFor(item);
+    await act(async () => {
+      observer.trigger(item, { width: 40, height: 130 }); // borderBoxSize 省略
+      await nextFrame();
+    });
+    expect(result.current.totalSize).toBe(130 + 9 * 20);
+  });
+
+  it('横軸（axis="horizontal"）では borderBoxSize の inlineSize、無ければ contentRect.width を使う', async () => {
+    const element = makeHorizontalElement(100);
+    try {
+      const { result } = renderHook(() =>
+        useVirtualizer({ ...baseOptions(element, true), axis: 'horizontal' }),
+      );
+      const item0 = document.createElement('section');
+      act(() => {
+        result.current.measureElement('k0')(item0);
+      });
+      await act(async () => {
+        findObserverFor(item0).trigger(
+          item0,
+          { width: 90, height: 0 },
+          {
+            blockSize: 40,
+            inlineSize: 90,
+          },
+        );
+        await nextFrame();
+      });
+      expect(result.current.totalSize).toBe(90 + 9 * 20);
+
+      const item1 = document.createElement('section');
+      act(() => {
+        result.current.measureElement('k1')(item1);
+      });
+      await act(async () => {
+        // borderBoxSize 省略時は contentRect.width にフォールバックする
+        findObserverFor(item1).trigger(item1, { width: 77, height: 0 });
+        await nextFrame();
+      });
+      expect(result.current.totalSize).toBe(90 + 77 + 8 * 20);
+    } finally {
+      element.remove();
+    }
+  });
+
+  it('横軸の measureElement は登録直後に offsetWidth を即時実測する', async () => {
+    const element = makeHorizontalElement(100);
+    try {
+      const { result } = renderHook(() =>
+        useVirtualizer({ ...baseOptions(element, true), axis: 'horizontal' }),
+      );
+      const item = document.createElement('section');
+      Object.defineProperty(item, 'offsetWidth', { configurable: true, value: 65 });
+      await act(async () => {
+        result.current.measureElement('k0')(item);
+        await nextFrame();
+      });
+      expect(result.current.totalSize).toBe(65 + 9 * 20);
+    } finally {
+      element.remove();
+    }
+  });
+
+  it('measure=false（無効化後）に届いた遅延コールバックは実測を反映しない', async () => {
+    const element = scrollElement(100);
+    const { result, rerender } = renderHook(
+      (props: { measure: boolean }) =>
+        useVirtualizer({ ...baseOptions(element, true), measure: props.measure }),
+      { initialProps: { measure: true } },
+    );
+    const item = document.createElement('section');
+    act(() => {
+      result.current.measureElement('k0')(item);
+    });
+    const observer = findObserverFor(item);
+
+    rerender({ measure: false }); // 実測を無効化する（内部ではオブザーバも破棄される）
+
+    await act(async () => {
+      // 破棄前に保持していた ResizeObserver の参照から、無効化後に届いた遅延通知を模す
+      observer.trigger(item, { width: 0, height: 999 }, { blockSize: 999, inlineSize: 0 });
+      await nextFrame();
+    });
+    expect(result.current.totalSize).toBe(200); // 反映されず推定高のまま
+  });
+
+  it('登録済みでない要素からの通知は無視する', async () => {
+    const element = scrollElement(100);
+    const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+    const registered = document.createElement('section');
+    act(() => {
+      result.current.measureElement('k0')(registered);
+    });
+    const observer = findObserverFor(registered);
+    const stranger = document.createElement('section'); // measureElement で登録していない要素
+
+    await act(async () => {
+      observer.trigger(stranger, { width: 0, height: 500 }, { blockSize: 500, inlineSize: 0 });
+      await nextFrame();
+    });
+    expect(result.current.totalSize).toBe(200); // 未登録要素の通知は無視され推定高のまま
+  });
+
+  it('サイズ 0（不正な実測値）の通知は無視する', async () => {
+    const element = scrollElement(100);
+    const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+    const item = document.createElement('section');
+    act(() => {
+      result.current.measureElement('k0')(item);
+    });
+    const observer = findObserverFor(item);
+
+    await act(async () => {
+      observer.trigger(item, { width: 0, height: 0 }, { blockSize: 0, inlineSize: 0 });
+      await nextFrame();
+    });
+    expect(result.current.totalSize).toBe(200); // 0px は無視され推定高のまま
+  });
+
+  it('同じキーに別要素が登録されると、古い要素の観測を解除する（DOM 差し替え）', async () => {
+    const element = scrollElement(100);
+    const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+    const first = document.createElement('section');
+    act(() => {
+      result.current.measureElement('k0')(first);
+    });
+    const observer = findObserverFor(first);
+    expect(observer.observed.has(first)).toBe(true);
+
+    const second = document.createElement('section');
+    Object.defineProperty(second, 'offsetHeight', { configurable: true, value: 88 });
+    await act(async () => {
+      result.current.measureElement('k0')(second); // 同じキーへ別要素を登録（DOM 差し替え）
+      await nextFrame();
+    });
+    expect(observer.observed.has(first)).toBe(false); // 古い要素の観測は解除される
+    expect(observer.observed.has(second)).toBe(true);
+    expect(result.current.totalSize).toBe(88 + 9 * 20);
+  });
+
+  it('ビューポートの ResizeObserver 通知を受けるとビューポート寸法を再取得する', async () => {
+    const element = scrollElement(100);
+    const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+    const viewportObserver = findObserverFor(element);
+
+    Object.defineProperty(element, 'clientHeight', { configurable: true, value: 300 });
+    await act(async () => {
+      viewportObserver.trigger(element, { width: 0, height: 300 });
+    });
+    // ビューポートが 300px に広がったことで、可視窓（0..14 + overscan）がより多くの
+    // アイテムを含むようになる
+    const indices = result.current.virtualItems.map((item) => item.index);
+    expect(indices.at(-1)).toBe(9); // count=10 のため末尾（index9）まで含まれる
+  });
+});
+
+describe('useVirtualizer - ResizeObserver 自体が存在しない環境', () => {
+  it('グローバルに ResizeObserver が無くても実測をスキップして推定高のまま動作する', () => {
+    const previousResizeObserver = globalThis.ResizeObserver;
+    // jsdom より古いブラウザ相当（ResizeObserver 未実装）を再現するための一時的な cast。
+    globalThis.ResizeObserver = undefined as unknown as typeof ResizeObserver;
+    try {
+      const element = scrollElement(100);
+      let hookResult: ReturnType<typeof useVirtualizer> | undefined;
+      expect(() => {
+        const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+        hookResult = result.current;
+        act(() => {
+          result.current.measureElement('k0')(document.createElement('section'));
+        });
+      }).not.toThrow();
+      expect(hookResult?.totalSize).toBe(200); // 推定高のみで計算される
+    } finally {
+      globalThis.ResizeObserver = previousResizeObserver;
+    }
+  });
+});
+
+describe('useVirtualizer - enabled=false の間に登録された要素の遅延実測', () => {
+  it('enabled=false の間に measureElement で登録した要素は、enabled=true になった時点でまとめて実測される', async () => {
+    const element = scrollElement(100);
+    const { result, rerender } = renderHook(
+      (props: { enabled: boolean }) => useVirtualizer(baseOptions(element, props.enabled)),
+      { initialProps: { enabled: false } },
+    );
+    const item = document.createElement('section');
+    Object.defineProperty(item, 'offsetHeight', { configurable: true, value: 80 });
+    // サイズ 0（無効値）の要素も同時に登録し、まとめ実測時に「変化なし」の分岐も通す
+    const invalidSizeItem = document.createElement('section');
+    act(() => {
+      result.current.measureElement('k0')(item); // enabled=false のうちに登録（観測はまだされない）
+      result.current.measureElement('k1')(invalidSizeItem);
+    });
+    expect(result.current.totalSize).toBe(200); // enabled=false は全件推定表示（実測は反映されない）
+
+    await act(async () => {
+      rerender({ enabled: true });
+      await nextFrame();
+    });
+    // k0 は実測 80 が反映され、offsetHeight=0 の k1 は無視されて推定 20 のまま
+    expect(result.current.totalSize).toBe(80 + 8 * 20 + 20);
+  });
+});
+
+describe('useVirtualizer - count/getItemKey の変化に伴うキャッシュ整理', () => {
+  it('count が減って対象キーが範囲外になると、実測キャッシュ・要素キャッシュから該当キーを削除する', async () => {
+    const element = scrollElement(100);
+    const { result, rerender } = renderHook(
+      (props: { count: number }) =>
+        useVirtualizer({
+          count: props.count,
+          getItemKey: (index: number) => `k${index}`,
+          estimateSize: () => 20,
+          getScrollElement: () => element,
+          enabled: true,
+        }),
+      { initialProps: { count: 10 } },
+    );
+    const item = document.createElement('section');
+    Object.defineProperty(item, 'offsetHeight', { configurable: true, value: 999 });
+    await act(async () => {
+      result.current.measureElement('k9')(item); // 末尾（index9）を実測登録
+      await nextFrame();
+    });
+    expect(result.current.totalSize).toBe(9 * 20 + 999);
+
+    act(() => {
+      rerender({ count: 5 }); // k9（index9）は新しい範囲（0..4）に存在しなくなる
+    });
+    // 該当キーの実測値はキャッシュから削除され、以降は推定高だけで計算される
+    expect(result.current.totalSize).toBe(5 * 20);
+  });
+});
+
+describe('useVirtualizer - スクロール・rAF スロットルの後始末', () => {
+  it('同一フレーム内に複数キーの実測が変化しても、実測フラッシュの rAF は一度だけ予約される', async () => {
+    const element = scrollElement(100);
+    const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+    const itemA = document.createElement('section');
+    Object.defineProperty(itemA, 'offsetHeight', { configurable: true, value: 90 });
+    const itemB = document.createElement('section');
+    Object.defineProperty(itemB, 'offsetHeight', { configurable: true, value: 70 });
+
+    await act(async () => {
+      result.current.measureElement('k0')(itemA); // rAF を予約
+      result.current.measureElement('k1')(itemB); // 直前の rAF が未発火のため二重予約されない
+      await nextFrame();
+    });
+    // 1 回のフラッシュで両方の実測が反映される
+    expect(result.current.totalSize).toBe(90 + 70 + 8 * 20);
+  });
+
+  it('同一フレーム内の連続スクロールイベントは rAF を一度だけ予約する', async () => {
+    const element = scrollElement(100);
+    const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+
+    await act(async () => {
+      element.scrollTop = 40;
+      element.dispatchEvent(new Event('scroll'));
+      element.scrollTop = 80; // 直前の rAF がまだ発火していないため二重予約されない
+      element.dispatchEvent(new Event('scroll'));
+      await nextFrame();
+    });
+    // 最終的な scrollTop（80）を反映した窓になる
+    const indices = result.current.virtualItems.map((item) => item.index);
+    expect(indices).toContain(4); // 80px/20px = index4 が可視の先頭
+  });
+
+  it('スクロール発火で rAF 予約中にアンマウントすると、保留中のフレームをキャンセルする', () => {
+    const element = scrollElement(100);
+    const cancelSpy = vi.spyOn(globalThis, 'cancelAnimationFrame');
+    const { unmount } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+
+    act(() => {
+      element.scrollTop = 50;
+      element.dispatchEvent(new Event('scroll')); // rAF を予約するが発火前
+    });
+    unmount();
+
+    expect(cancelSpy).toHaveBeenCalled();
+    cancelSpy.mockRestore();
+  });
+
+  it('measureElement で rAF 予約中にアンマウントすると、保留中の実測フラッシュをキャンセルする', () => {
+    const element = scrollElement(100);
+    const cancelSpy = vi.spyOn(globalThis, 'cancelAnimationFrame');
+    const { result, unmount } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+    const item = document.createElement('section');
+    Object.defineProperty(item, 'offsetHeight', { configurable: true, value: 999 });
+
+    act(() => {
+      result.current.measureElement('k0')(item); // 実測フラッシュの rAF を予約するが発火前
+    });
+    unmount();
+
+    expect(cancelSpy).toHaveBeenCalled();
+    cancelSpy.mockRestore();
+  });
+});
+
+describe('useVirtualizer - スクロールアンカリングの境界', () => {
+  it('手前のアイテムの実測サイズが変わりアンカーの位置がずれると、スクロール位置を補正する', async () => {
+    const element = scrollElement(100); // viewport 100px
+    const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+
+    await act(async () => {
+      element.scrollTop = 100; // 可視の先頭は index5（100px / 20px）、アンカーの overshoot は 0
+      element.dispatchEvent(new Event('scroll'));
+      await nextFrame();
+    });
+
+    const beforeAnchorItem = document.createElement('section');
+    Object.defineProperty(beforeAnchorItem, 'offsetHeight', { configurable: true, value: 100 });
+    await act(async () => {
+      // アンカー（k5）より手前の k2 が 20px → 100px（+80px）に伸びる
+      result.current.measureElement('k2')(beforeAnchorItem);
+      await nextFrame();
+    });
+
+    // k5 の新しい start は 100 + 80 = 180px。ズレが 1px 以上あるためスクロール位置を補正する
+    expect(element.scrollTop).toBe(180);
+  });
+
+  it('補正実行時にスクロール要素が取得できない場合は何もしない（例外にならない）', async () => {
+    const element = scrollElement(100);
+    let currentElement: HTMLDivElement | null = element;
+    const { result } = renderHook(() =>
+      useVirtualizer({
+        count: 10,
+        getItemKey: (index: number) => `k${index}`,
+        estimateSize: () => 20,
+        getScrollElement: () => currentElement,
+        enabled: true,
+      }),
+    );
+
+    // スクロール要素が失われた状態を模す（アンマウント直後の一瞬等）
+    currentElement = null;
+    const item = document.createElement('section');
+    Object.defineProperty(item, 'offsetHeight', { configurable: true, value: 999 });
+    await expect(
+      act(async () => {
+        result.current.measureElement('k0')(item);
+        await nextFrame();
+      }),
+    ).resolves.not.toThrow();
+    expect(element.scrollTop).toBe(0); // 要素が無いため何も書き換わらない
+  });
+
+  describe('getItemKey が呼び出しごとに異なるキーを返す場合の防御的な挙動', () => {
+    it('アンカーのキーが見失われても例外を投げず、スクロール補正をスキップする', async () => {
+      let counter = 0;
+      const element = scrollElement(100);
+      const { result } = renderHook(() =>
+        useVirtualizer({
+          count: 10,
+          getItemKey: () => `k${counter++}`, // 呼び出すたびに異なるキーを返す（不正な実装を模す）
+          estimateSize: () => 20,
+          getScrollElement: () => element,
+          enabled: true,
+        }),
+      );
+      const item = document.createElement('section');
+      Object.defineProperty(item, 'offsetHeight', { configurable: true, value: 50 });
+      await expect(
+        act(async () => {
+          result.current.measureElement('k0')(item); // 実測フラッシュの rAF を予約する
+          await nextFrame();
+        }),
+      ).resolves.not.toThrow();
+      // マウント時に記録したアンカーのキーが、以後のどの getItemKey 呼び出し結果とも
+      // 一致しないため startForKey が見つからず、スクロール位置は書き換わらない
+      expect(element.scrollTop).toBe(0);
+    });
+
+    it('scrollToIndex はアンカー探索に失敗しても例外を投げず何もしない', () => {
+      let counter = 0;
+      const element = scrollElement(100);
+      const { result } = renderHook(() =>
+        useVirtualizer({
+          count: 10,
+          getItemKey: () => `k${counter++}`,
+          estimateSize: () => 20,
+          getScrollElement: () => element,
+          enabled: true,
+        }),
+      );
+      expect(() => {
+        act(() => {
+          result.current.scrollToIndex(5, { align: 'start' });
+        });
+      }).not.toThrow();
+      expect(element.scrollTop).toBe(0);
+    });
+  });
+});
+
+describe('useVirtualizer - scrollToIndex の防御的な入力', () => {
+  it('範囲外の index（負数・count 以上）を渡しても何もしない', () => {
+    const element = scrollElement(100);
+    const { result } = renderHook(() => useVirtualizer(baseOptions(element, true)));
+
+    act(() => {
+      result.current.scrollToIndex(-1);
+      result.current.scrollToIndex(10); // count=10 のため範囲外
+    });
+    expect(element.scrollTop).toBe(0);
+  });
+
+  it('getScrollElement が null を返す間は scrollToIndex が何もしない', () => {
+    const { result } = renderHook(() =>
+      useVirtualizer({
+        count: 10,
+        getItemKey: (index: number) => `k${index}`,
+        estimateSize: () => 20,
+        getScrollElement: () => null,
+        enabled: true,
+      }),
+    );
+    expect(() => {
+      act(() => {
+        result.current.scrollToIndex(3);
+      });
+    }).not.toThrow();
+  });
+
+  it('measure=false のときは scrollToIndex も実測を使わず推定高で計算する', () => {
+    const element = scrollElement(100);
+    const { result } = renderHook(() =>
+      useVirtualizer({ ...baseOptions(element, true), measure: false }),
+    );
+    const item = document.createElement('section');
+    Object.defineProperty(item, 'offsetHeight', { configurable: true, value: 999 }); // 無視されるはず
+    act(() => {
+      result.current.measureElement('k9')(item);
+      result.current.scrollToIndex(9, { align: 'start' });
+    });
+    expect(element.scrollTop).toBe(180); // 実測(999)ではなく推定(9×20)通りの位置
   });
 });
