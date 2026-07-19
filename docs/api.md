@@ -1526,7 +1526,13 @@ console.log(scrollFractionForTime('07:00', 480, 1200)); // => 0（範囲より�
 ビルトインコンポーネント・フックが表示するすべての文言は、`CalendarOptions.locale` と `CalendarProvider` の `messages` prop から解決される単一の `MessageCatalog` にまとまっています。使い方・具体例は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照してください。
 
 ```ts
-function resolveMessageCatalog(locale: string, overrides?: MessageCatalogOverrides): MessageCatalog
+function resolveMessageCatalog(
+  locale: string,
+  overrides?: MessageCatalogOverrides,
+  fallbackLanguage?: string,
+): MessageCatalog
+
+function createMessageCatalog(base: MessageCatalog, overrides?: MessageCatalogOverrides): MessageCatalog
 
 const jaMessages: MessageCatalog; // CalendarOptions.locale の既定値（'ja'）に対応する同梱カタログ
 const enMessages: MessageCatalog; // 言語サブタグが 'en' のときに選ばれる同梱カタログ
@@ -1534,7 +1540,9 @@ const enMessages: MessageCatalog; // 言語サブタグが 'en' のときに選�
 type EventChangeVerb = 'moved' | 'resized' | 'convertedToAllDay' | 'convertedToTimed';
 ```
 
-`resolveMessageCatalog(locale, overrides?)` は、`locale` の言語サブタグ（`-` より前、大文字小文字は区別しない）で `jaMessages` / `enMessages` のいずれかを選び（同梱にない言語は `jaMessages` にフォールバック）、`overrides`（`MessageCatalogOverrides`）を各グループ単位で浅くマージした完全なカタログを返します。`CalendarProvider` の `messages` prop、`useCalendarAnnouncer` / `useRecurrenceRuleEditor` の `messages` オプションは、いずれも内部でこの関数を使ってカタログを解決します。
+`resolveMessageCatalog(locale, overrides?, fallbackLanguage?)` は、`locale` の言語サブタグ（`-` より前、大文字小文字は区別しない）で `jaMessages` / `enMessages` のいずれかを選び（同梱にない言語は `fallbackLanguage` のカタログへフォールバック。`fallbackLanguage` も省略時・同梱にない場合は `'ja'` へフォールバック）、`overrides`（`MessageCatalogOverrides`）を各グループ単位で浅くマージした完全なカタログを返します。`CalendarProvider` の `messages` prop、`useCalendarAnnouncer` / `useRecurrenceRuleEditor` の `messages` オプションは、いずれも内部でこの関数を使ってカタログを解決します。
+
+`createMessageCatalog(base, overrides?)` は、`resolveMessageCatalog` が内部で使うグループ単位のマージをそのまま公開したヘルパーです。`base` には `jaMessages` / `enMessages` に限らず任意の完全なカタログを渡せるため、既存の言語に近いカタログを `base` にして異なるリーフだけを `overrides` に指定すれば、全リーフを書き直さずに新しい言語のカタログを合成できます。
 
 `MessageCatalog` は次のグループを持つ 2 階層固定（グループ→リーフ）の型です。グループ自体は個別に named export されていないため、`MessageCatalog['グループ名']`（例: `MessageCatalog['toolbar']`）として参照してください。
 
@@ -1554,12 +1562,19 @@ type EventChangeVerb = 'moved' | 'resized' | 'convertedToAllDay' | 'convertedToT
 `EventChangeVerb` は、移動・サイズ変更・終日⇔時間指定変換のいずれかを表す、ロケールに依存しない判定結果です。`messages.announcer.eventChanged` のようなカスタム文言関数の第 2 引数として渡され、`useCalendarAnnouncer` からは `classifyEventChangeVerb` としても公開されています。
 
 ```ts
-import { resolveMessageCatalog } from '@koyomi-cal/react';
+import { createMessageCatalog, enMessages, resolveMessageCatalog } from '@koyomi-cal/react';
 
 resolveMessageCatalog('en-US').toolbar.today; // => 'Today'
 resolveMessageCatalog('fr').toolbar.today; // => '今日'（未対応言語は 'ja' にフォールバック）
+resolveMessageCatalog('fr', undefined, 'en').toolbar.today; // => 'Today'（フォールバック先を 'en' に変更）
 resolveMessageCatalog('ja', { month: { overflow: (count) => `他${count}件` } }).month.overflow(3);
 // => '他3件'（他のグループは既定のまま）
+
+// en に近い独自のカタログを、異なる文言だけ書いて合成する
+const customMessages = createMessageCatalog(enMessages, {
+  toolbar: { today: "Today's schedule" },
+});
+customMessages.toolbar.week; // => 'Week'（enMessages のまま）
 ```
 
 ## 関連ページ

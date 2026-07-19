@@ -233,7 +233,7 @@ export { CalendarProvider, type CalendarProviderProps, useCalendarContext } from
 // React: 中央メッセージカタログ
 export { enMessages } from './react/locales/en';
 export { jaMessages } from './react/locales/ja';
-export { resolveMessageCatalog } from './react/locales/resolve';
+export { createMessageCatalog, resolveMessageCatalog } from './react/locales/resolve';
 export type {
   EventChangeVerb,
   MessageCatalog,

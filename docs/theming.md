@@ -463,6 +463,14 @@ function App() {
 // - locale が同梱していない言語（例: 'fr'）の場合は 'ja' のカタログにフォールバックする
 ```
 
+`CalendarProvider` / `useCalendarAnnouncer` / `useRecurrenceRuleEditor` 経由では常に `'ja'` にフォールバックしますが、`resolveMessageCatalog` を直接呼ぶ場合は第 3 引数 `fallbackLanguage` でフォールバック先を変更できます。
+
+```ts
+import { resolveMessageCatalog } from '@koyomi-cal/react';
+
+resolveMessageCatalog('fr', undefined, 'en').toolbar.today; // => 'Today'（'fr' は同梱していないため 'en' にフォールバック）
+```
+
 ### messages prop での部分上書き
 
 `CalendarProvider` の `messages` prop（`MessageCatalogOverrides` 型）は、`MessageCatalog` の各グループ（`common` / `toolbar` / `list` / `month` / `multiMonth` / `resource` / `timeline` / `year` / `announcer` / `recurrenceEditor`）単位で既定カタログに浅くマージされます。グループ自体を省略すればそのグループ全体が既定のまま、グループの一部のリーフだけを指定すればそのリーフだけが差し替わります。
@@ -532,6 +540,24 @@ const frMessages: MessageCatalog = {
 ```
 
 `locale` オプション自体は同梱カタログを選ぶ言語サブタグとしてのみ使われるため、任意の文字列（例: `'fr'`）を指定して構いません（同梱にない言語は既定では `jaMessages` にフォールバックしますが、`messages` に完全なカタログを渡せばそちらが優先されます）。各グループのリーフの型（`CommonMessages` / `ToolbarMessages` / `ListMessages` / `MonthMessages` / `MultiMonthMessages` / `ResourceMessages` / `TimelineMessages` / `YearMessages` / `AnnouncerMessages` / `RecurrenceEditorMessages`）は `MessageCatalog` の対応するグループとして参照できます。全リーフの一覧は [API リファレンス: 中央メッセージカタログ](./api.md#中央メッセージカタログreactlocales) を参照してください。
+
+### 既存のカタログを土台に差分だけ書く（`createMessageCatalog`）
+
+新しい言語が既存の同梱カタログ（`jaMessages` / `enMessages`）と近い場合、`createMessageCatalog(base, overrides)` で近い方をベースにし、異なるリーフだけを `overrides` に指定すれば、全リーフを書き直さずに完全なカタログを合成できます。`overrides` の型は `messages` prop と同じ `MessageCatalogOverrides`（各グループを `Partial` 化した型）です。
+
+```ts
+import { createMessageCatalog, enMessages } from '@koyomi-cal/react';
+
+// en とほぼ同じだが、toolbar の一部だけ異なる独自ロケール
+const customMessages = createMessageCatalog(enMessages, {
+  toolbar: { today: "Today's schedule" },
+});
+
+customMessages.toolbar.today; // => "Today's schedule"
+customMessages.toolbar.week; // => 'Week'（enMessages のまま。書き直し不要）
+```
+
+`base` に渡すカタログはこの関数の呼び出し前に完成している必要があるため、`frMessages`（自作の完全なカタログ）や `enMessages` を土台に別の言語・方言のカタログを合成する用途にも使えます。
 
 ### Provider に依存しないフックの locale / messages
 
