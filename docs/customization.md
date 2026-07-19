@@ -176,6 +176,14 @@ function App() {
 
 文言（「+N 件」の表記そのもの）だけを変えたい場合は、このスロットではなく中央メッセージカタログ（`messages.month.overflow` / `messages.multiMonth.overflow`）を使ってください。
 
+### 完成形のレシピ（コピー&ペースト用）
+
+ヘッドレスなフック・コールバックの上に UI 一式を組んだ、そのままコピー&ペーストして使える完成形は次の各ページに掲載しています（実装はデモアプリ `apps/demo/src/` に含まれる、実際に動作するコードそのものです）。
+
+- [繰り返しルールエディタ UI（`useRecurrenceRuleEditor` のフォーム一式）](./recurrence.md#完成形-繰り返しルールエディタ-uiコピーペースト用)
+- [繰り返し予定の適用範囲選択ダイアログ（`resolveRecurringScope` の選択 UI）](./interactions.md#完成形-適用範囲選択ダイアログコピーペースト用)
+- [「+N 件」ポップオーバー（`overflowPopoverButtonProps` とフォーカス復帰）](./interactions.md#完成形-外部ライブラリ不要のフォーカス復帰込み実装コピーペースト用)
+
 ### ビューによって情報量を変える
 
 ```tsx

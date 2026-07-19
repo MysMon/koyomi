@@ -271,6 +271,158 @@ async function resolveRecurringScope(): Promise<RecurringEditScope | null> {
 
 適用結果（`rrule` の打ち切りや例外イベントの追加など）の詳細は [繰り返し予定](./recurrence.md) を参照してください。
 
+### 完成形: 適用範囲選択ダイアログ（コピー&ペースト用）
+
+実際に動作する完成形が以下です（デモアプリ `apps/demo/src/ScopeDialog.tsx` で実際に動作しているコードそのものです）。Google カレンダーの「この予定 / これ以降のすべての予定 / すべての予定」に相当する 3 択を、`<dialog>` 要素の `showModal()` で提示します。
+
+```tsx
+import type { EventOccurrence, RecurringEditScope } from '@koyomi-cal/react';
+import { type ReactElement, useEffect, useRef } from 'react';
+
+/** スコープ選択が要求された操作の種類。 */
+export type ScopeAction = 'move' | 'resize' | 'delete' | 'update';
+
+/** `ScopeDialog` が表示すべき要求内容。 */
+export interface ScopeRequest {
+  /** 対象のオカレンス。 */
+  occurrence: EventOccurrence;
+  /** 操作の種類。 */
+  action: ScopeAction;
+}
+
+/** `ScopeDialog` の props。 */
+export interface ScopeDialogProps {
+  /** 表示中の要求。`null` なら非表示。 */
+  request: ScopeRequest | null;
+  /**
+   * 選択結果を通知する。
+   * ユーザーがキャンセル（Esc・背景クリック・キャンセルボタン）した場合は `null`。
+   */
+  onResolve: (scope: RecurringEditScope | null) => void;
+}
+
+/** 操作の種類を日本語の動詞に変換する。 */
+function actionLabel(action: ScopeAction): string {
+  switch (action) {
+    case 'move':
+      return '移動';
+    case 'resize':
+      return '時間の変更';
+    case 'delete':
+      return '削除';
+    case 'update':
+      return '変更';
+  }
+}
+
+/**
+ * 繰り返し予定の適用範囲を選択させるダイアログ。
+ *
+ * `<dialog>` 要素を使い、`request` が非 `null` になると `showModal()` で開く。
+ * Esc キー・背景クリックでキャンセル扱い（`onResolve(null)`）になる。
+ */
+export function ScopeDialog(props: ScopeDialogProps): ReactElement {
+  const { request, onResolve } = props;
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  // 選択ボタン経由で close() した場合に、close イベントでの
+  // 「キャンセル扱い」への二重通知を防ぐためのフラグ。
+  const resolvedRef = useRef(false);
+
+  useEffect(() => {
+    const dialogEl = dialogRef.current;
+    if (dialogEl === null) {
+      return;
+    }
+    if (request !== null && !dialogEl.open) {
+      dialogEl.showModal();
+    } else if (request === null && dialogEl.open) {
+      dialogEl.close();
+    }
+  }, [request]);
+
+  useEffect(() => {
+    const dialogEl = dialogRef.current;
+    if (dialogEl === null) {
+      return undefined;
+    }
+    /** Esc キー・背景クリックによるネイティブな close はキャンセル扱いにする。 */
+    function handleClose(): void {
+      if (!resolvedRef.current) {
+        onResolve(null);
+      }
+      resolvedRef.current = false;
+    }
+    dialogEl.addEventListener('close', handleClose);
+    return () => dialogEl.removeEventListener('close', handleClose);
+  }, [onResolve]);
+
+  /** 選択肢ボタンが押されたときの処理。 */
+  function choose(scope: RecurringEditScope): void {
+    resolvedRef.current = true;
+    onResolve(scope);
+    dialogRef.current?.close();
+  }
+
+  return (
+    <dialog ref={dialogRef}>
+      {request !== null && (
+        <div>
+          <h2>繰り返し予定の{actionLabel(request.action)}</h2>
+          <p>
+            「{request.occurrence.event.title}」は繰り返し予定です。どの範囲に適用しますか？
+          </p>
+          <div>
+            <button type="button" onClick={() => choose('this')}>
+              この予定のみ
+            </button>
+            <button type="button" onClick={() => choose('thisAndFollowing')}>
+              これ以降のすべての予定
+            </button>
+            <button type="button" onClick={() => choose('all')}>
+              すべての予定
+            </button>
+          </div>
+          <div>
+            <button type="button" onClick={() => dialogRef.current?.close()}>
+              キャンセル
+            </button>
+          </div>
+        </div>
+      )}
+    </dialog>
+  );
+}
+
+// 使用例:
+// const [request, setRequest] = useState<ScopeRequest | null>(null);
+// const resolverRef = useRef<((scope: RecurringEditScope | null) => void) | null>(null);
+//
+// async function resolveRecurringScope(occurrence: EventOccurrence, action: ScopeAction) {
+//   return new Promise<RecurringEditScope | null>((resolve) => {
+//     resolverRef.current = resolve;
+//     setRequest({ occurrence, action });
+//   });
+// }
+//
+// <CalendarProvider value={calendar} callbacks={{ resolveRecurringScope }}>
+//   <TimeGridView />
+// </CalendarProvider>
+// <ScopeDialog
+//   request={request}
+//   onResolve={(scope) => {
+//     const resolve = resolverRef.current;
+//     resolverRef.current = null;
+//     setRequest(null);
+//     resolve?.(scope);
+//   }}
+// />
+
+// 期待される動作:
+// - 繰り返し予定をドラッグで移動しようとすると request が設定され、showModal() でダイアログが開く
+// - 「この予定のみ」等のボタンを押すと選択した scope で Promise が解決し、ダイアログが閉じる
+// - Esc キー・背景クリックで閉じた場合は null で解決される（操作全体がキャンセルされる）
+```
+
 ## 宣言的な重なり・配置制約（eventOverlap / eventConstraint）
 
 `CalendarOptions.eventOverlap`（既定 `true`）/ `eventConstraint`（既定は未指定）で、予定の重なりやドロップ先を宣言的に制限できます。イベント個別に `CalendarEvent.overlap` / `constraint` を指定すると、そのイベントについてはオプションの既定値を上書きできます。
@@ -579,6 +731,229 @@ function MonthWithOverflowPopover() {
 // - ポップオーバーが開いている間、対応する「+N 件」ボタンの aria-expanded が true になり、
 //   aria-controls="overflow-popover" でポップオーバー要素に関連付けられる（閉時は付かない）
 ```
+
+### 完成形: 外部ライブラリ不要のフォーカス復帰込み実装（コピー&ペースト用）
+
+位置決めライブラリを増やしたくない場合は、起点ボタンの `getBoundingClientRect` から素朴に座標を計算しても構いません。以下は実際に動作する完成形です（デモアプリ `apps/demo/src/OverflowPopover.tsx` で実際に動作しているコードそのものです）。開閉は `<dialog>` の `show()`（モードレス）で行い、開いたときの最初の focusable 要素へのフォーカス移動と、閉じたとき（Escape・外側クリック・閉じるボタン・予定選択のいずれでも）の起点ボタンへのフォーカス復帰を、`close` イベント 1 箇所に集約して扱います。
+
+```tsx
+import type { EventOccurrence, MonthDay, TimeZoneId } from '@koyomi-cal/react';
+import { getWallClock } from '@koyomi-cal/react';
+import { type ReactElement, useEffect, useLayoutEffect, useRef, useState } from 'react';
+
+/** ポップオーバーの `id`（「+N 件」ボタンの `aria-controls` の参照先）。 */
+export const OVERFLOW_POPOVER_ID = 'demo-overflow-popover';
+
+/** ポップオーバーの想定幅（px）。ビューポート端でのはみ出し防止の位置計算にも使う。 */
+const POPOVER_WIDTH = 260;
+
+/** `OverflowPopover` が表示すべき状態。 */
+export interface OverflowPopoverState {
+  /** 起点になった日。 */
+  day: MonthDay;
+  /** その日の全オカレンス（表示中＋「+N 件」に集約された分、開始時刻順）。 */
+  occurrences: readonly EventOccurrence[];
+}
+
+/** `OverflowPopover` の props。 */
+export interface OverflowPopoverProps {
+  /** 表示中の状態。`null` なら非表示。 */
+  state: OverflowPopoverState | null;
+  /** 現在の表示タイムゾーン。時刻表示に使う。 */
+  timeZone: TimeZoneId;
+  /** 一覧内の予定がクリックされたときに呼ばれる（編集ダイアログを開く想定）。 */
+  onOccurrenceSelect: (occurrence: EventOccurrence) => void;
+  /** ポップオーバーが閉じられたときに呼ばれる（起点ボタン以外の理由すべて共通）。 */
+  onClose: () => void;
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+function formatDayHeading(date: Date, timeZone: TimeZoneId): string {
+  return new Intl.DateTimeFormat('ja', { timeZone, month: 'long', day: 'numeric', weekday: 'short' }).format(date);
+}
+
+function formatOccurrenceTime(occurrence: EventOccurrence, timeZone: TimeZoneId): string {
+  if (occurrence.allDay) {
+    return '終日';
+  }
+  const wall = getWallClock(occurrence.start, timeZone);
+  return `${pad2(wall.hours)}:${pad2(wall.minutes)}`;
+}
+
+/**
+ * 起点になった「+N 件」ボタン（`data-koyomi="month-overflow"`）の DOM 要素を、
+ * 対応する日セル（`[data-koyomi="month-day"][data-koyomi-date]`）から探す。
+ */
+function findOverflowButton(dayKey: string): HTMLElement | null {
+  return document.querySelector<HTMLElement>(
+    `[data-koyomi="month-day"][data-koyomi-date="${dayKey}"] [data-koyomi="month-overflow"]`,
+  );
+}
+
+export function OverflowPopover(props: OverflowPopoverProps): ReactElement {
+  const { state, timeZone, onOccurrenceSelect, onClose } = props;
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  // 起点になった「+N 件」ボタン。閉じたときのフォーカス復帰先として保持する。
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const focusPendingRef = useRef(false);
+
+  // state が非 null になるたびに、起点ボタンの位置から表示座標を計算する。
+  useLayoutEffect(() => {
+    if (state === null) {
+      triggerRef.current = null;
+      setPosition(null);
+      return;
+    }
+    const trigger = findOverflowButton(state.day.key);
+    triggerRef.current = trigger;
+    if (trigger === null) {
+      setPosition(null);
+      return;
+    }
+    const rect = trigger.getBoundingClientRect();
+    const left = Math.min(Math.max(8, rect.left), window.innerWidth - POPOVER_WIDTH - 8);
+    setPosition({ top: rect.bottom + 4, left });
+  }, [state]);
+
+  // state の有無に応じて <dialog> の開閉を同期する。
+  useEffect(() => {
+    const dialogEl = dialogRef.current;
+    if (dialogEl === null) {
+      return;
+    }
+    if (state !== null && !dialogEl.open) {
+      dialogEl.show();
+      focusPendingRef.current = true;
+    } else if (state === null && dialogEl.open) {
+      dialogEl.close();
+    }
+  }, [state]);
+
+  // 位置決めが終わった直後に閉じるボタンへフォーカスする。
+  useEffect(() => {
+    if (state !== null && position !== null && focusPendingRef.current) {
+      focusPendingRef.current = false;
+      closeButtonRef.current?.focus();
+    }
+  }, [state, position]);
+
+  // ネイティブな close（Escape・閉じるボタン・外側クリック・予定選択いずれも close() 経由）で
+  // 起点ボタンへフォーカスを戻しつつ、呼び出し元へ通知する。
+  useEffect(() => {
+    const dialogEl = dialogRef.current;
+    if (dialogEl === null) {
+      return undefined;
+    }
+    function handleClose(): void {
+      const trigger = triggerRef.current;
+      onClose();
+      if (trigger?.isConnected) {
+        trigger.focus();
+      }
+    }
+    dialogEl.addEventListener('close', handleClose);
+    return () => dialogEl.removeEventListener('close', handleClose);
+  }, [onClose]);
+
+  // ポップオーバー外側のポインタ押下で閉じる（起点の「+N 件」ボタン自体への
+  // 押下は、そのクリックが改めて onOverflowClick を呼ぶため対象外にする）。
+  useEffect(() => {
+    if (state === null) {
+      return undefined;
+    }
+    function handlePointerDown(event: PointerEvent): void {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      const dialogEl = dialogRef.current;
+      if (dialogEl?.contains(target)) {
+        return;
+      }
+      if (target instanceof Element && target.closest('[data-koyomi="month-overflow"]') !== null) {
+        return;
+      }
+      dialogRef.current?.close();
+    }
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [state]);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      id={OVERFLOW_POPOVER_ID}
+      aria-label={state !== null ? `${formatDayHeading(state.day.date, timeZone)}の予定一覧` : undefined}
+      style={position !== null ? { position: 'fixed', margin: 0, top: position.top, left: position.left } : undefined}
+      onKeyDown={(keyEvent) => {
+        if (keyEvent.key === 'Escape') {
+          keyEvent.preventDefault();
+          dialogRef.current?.close();
+        }
+      }}
+    >
+      {state !== null && (
+        <div>
+          <div>
+            <span>{formatDayHeading(state.day.date, timeZone)}</span>
+            <button type="button" ref={closeButtonRef} aria-label="閉じる" onClick={() => dialogRef.current?.close()}>
+              ×
+            </button>
+          </div>
+          <ul>
+            {state.occurrences.map((occurrence) => (
+              <li key={occurrence.key}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOccurrenceSelect(occurrence);
+                    dialogRef.current?.close();
+                  }}
+                >
+                  <span>{formatOccurrenceTime(occurrence, timeZone)}</span>
+                  <span>{occurrence.event.title}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </dialog>
+  );
+}
+
+// 使用例（呼び出し元）:
+// <MonthView
+//   overflowButtonProps={(day) =>
+//     overflowPopoverButtonProps({
+//       open: overflowState?.day.key === day.key,
+//       popoverId: OVERFLOW_POPOVER_ID,
+//     })
+//   }
+// />
+// <OverflowPopover
+//   state={overflowState}
+//   timeZone={timeZone}
+//   onOccurrenceSelect={(occurrence) => setDialogMode({ type: 'edit', occurrence })}
+//   onClose={() => setOverflowState(null)}
+// />
+// // onOverflowClick(day, hiddenOccurrences, details) 側で、表示中＋非表示を
+// // 開始時刻順にまとめて setOverflowState({ day, occurrences }) する
+
+// 期待される動作:
+// - 「+N 件」をクリックすると、その日の起点ボタン直下にポップオーバーが開き、
+//   閉じるボタン（一覧内の最初の focusable な要素）へフォーカスが移る
+// - Escape キー・ポップオーバー外クリック・閉じるボタンのいずれで閉じても、
+//   フォーカスが起点の「+N 件」ボタンへ戻る
+// - 一覧内の予定を選択すると編集ダイアログが開く（ポップオーバー自体は閉じる）
+```
+
+複数月ビュー（`MultiMonthView`）は同じ日が隣接するミニ月グリッドに重複して現れうるため、`data-koyomi-date` による起点ボタンの一意な特定ができません。この完成形は月ビュー限定です。
 
 ## Escape / pointercancel でのドラッグキャンセル
 
