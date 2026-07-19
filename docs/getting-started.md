@@ -179,6 +179,27 @@ console.log(calendar.getViewModel().type); // => 'month'
 
 `react` / `react-dom` は `package.json` の `peerDependencies` ですが、`@koyomi-cal/react/core` のみを使う場合は未インストールでも実行時エラーにはなりません（インストール時のピア依存の警告は無視できます。pnpm の `strict-peer-dependencies=true` 設定下ではエラーになるため、その場合は設定の緩和か react のインストールが必要です）。詳細は [API リファレンス](./api.md#koyomi-calreactcorereact-非依存の単体エントリ) を参照してください。
 
+## 初期値としてのみ有効な props
+
+Koyomi のフックの一部の props は、**マウント時の初期値としてのみ**使われます。後から
+異なる値を渡し続けても再レンダリングには反映されません（マウント後に変更した場合、
+開発ビルドでは一度だけ警告が表示されます）。動的に変更したい場合は、それぞれ対応する
+命令的な API を使ってください。
+
+| フック | 初期値専用の props | 動的に変更する方法 |
+| --- | --- | --- |
+| `useCalendar` | `events` / `resources`（`CalendarOptions` の他のオプション全般も同様） | `calendar.api.setEvents(nextEvents)` / `calendar.api.setResources(nextResources)`。ビュー・基準日・タイムゾーンは `calendar.api.setView` / `goTo` / `setTimeZone`、その他のオプションは `calendar.api.updateOptions(patch)` |
+| `useRecurrenceRuleEditor` | `start` / `timeZone` / `rrule` | 編集対象を切り替える場合は、このフックを使うコンポーネントに一意な `key` を指定して再マウントする |
+| `useCalendarHistory` | `limit`（`createEventHistory` の `options.limit` も同様） | 動的な変更方法はない。上限を変えたい場合はコンポーネントを再マウントする（`key` を変える等） |
+
+なぜ初期値専用なのか: `useCalendar` の `events`/`resources` はカレンダーエンジン内部の
+可変な状態（イベントストア）の**種**としてのみ使われ、以後はエンジン自身が管理する
+状態が正になります。React の props を毎レンダー同期させる設計にすると、外部の
+`setEvents` による変更と props 経由の変更が競合し、どちらが優先されるか不定になって
+しまうため、あえて「初期値のみ」という規約にしています。`useRecurrenceRuleEditor` の
+`start`/`timeZone`/`rrule` も同様に、編集セッションの起点をフック内部の状態として
+一度確定させるためのものです。
+
 ## 次に読む
 
 - [ビュー（月・週・日・リスト・年・複数月・リソース・タイムライン）](./views.md)
