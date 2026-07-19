@@ -59,6 +59,12 @@ jobs:
         if: matrix.id == 'main'
         run: pnpm build
 
+      # ビルド済み dist を利用側の立場でバンドルし、tree-shaking の実効性
+      # （未使用ビューの除外・ライブラリ寄与分の gzip サイズ閾値）を検証する
+      - name: バンドルサイズ検証（main レグのみ）
+        if: matrix.id == 'main'
+        run: pnpm bundle:check
+
       - name: デモのビルド（main レグのみ）
         if: matrix.id == 'main'
         run: pnpm --filter @koyomi-cal/demo build
