@@ -23,6 +23,8 @@ import type {
   CalendarResource,
   EventOccurrence,
   PositionedOccurrence,
+  ResourceColumn,
+  ResourceViewModel,
   TimeSlot,
   TimeZoneId,
 } from '../../core/types';
@@ -30,7 +32,7 @@ import type { CommonMessages } from '../locales/types';
 import type { EventContentContext } from '../types';
 import type { ResourcePreviewSegment } from '../use-resource-grid-drag';
 import { timedTextEventContentContext, titleOnlyEventContentContext } from './event-content';
-import { formatClockRangeLabel } from './format';
+import { formatClockRangeLabel, formatDayHeader } from './format';
 import { formatOccurrenceRangeLabel } from './month-view-parts';
 
 /** 1 日の分（24:00 = 1440 分）。 */
@@ -50,6 +52,90 @@ export function toDivRef(ref: Ref<HTMLElement>): (element: HTMLDivElement | null
       ref.current = element;
     }
   };
+}
+
+/**
+ * リソースビューが複数日表示（{@link CalendarOptions.resourceViewDays} が 2 以上）か
+ * どうかを判定する。`ResourceView` / `VirtualResourceView` の列見出し・aria-label の
+ * 日ラベル付与の分岐に使う（単日表示では日ラベルを付けず、従来の内容のままにする）。
+ */
+export function isMultiDayResourceView(viewModel: ResourceViewModel): boolean {
+  return viewModel.days.length > 1;
+}
+
+/**
+ * 列見出しの既定内容を組み立てる。
+ *
+ * 単日表示（`multiDay: false`）ではベースラベル（リソース名、未割り当て列は
+ * `messages.resource.unassigned`）のみ。複数日表示では「ベースラベル + 日ラベル」
+ * （例: `'会議室A 15 (水)'`。日ラベルは {@link formatDayHeader} と同じ形式）になる。
+ *
+ * @param baseLabel - リソース名または未割り当てラベル
+ * @param column - 対象の列（`column.date` から日ラベルを整形する）
+ * @param multiDay - 複数日表示かどうか（{@link isMultiDayResourceView}）
+ * @param timeZone - 表示タイムゾーン
+ * @param locale - ロケール
+ */
+export function resourceColumnHeaderContent(
+  baseLabel: ReactNode,
+  column: ResourceColumn,
+  multiDay: boolean,
+  timeZone: TimeZoneId,
+  locale: string,
+): ReactNode {
+  if (!multiDay) {
+    return baseLabel;
+  }
+  const dayLabel = formatDayHeader(column.date, timeZone, locale);
+  if (typeof baseLabel === 'string') {
+    return `${baseLabel} ${dayLabel}`;
+  }
+  return (
+    <>
+      {baseLabel} {dayLabel}
+    </>
+  );
+}
+
+/**
+ * 終日セル・列の aria-label を組み立てる。
+ *
+ * 単日表示ではベースラベル（リソース名、未割り当て列は
+ * `messages.resource.unassigned`）のみ、複数日表示では列見出しと同じ
+ * 「ベースラベル + 日ラベル」（{@link resourceColumnHeaderContent}）になる。
+ * `aria-label` は文字列しか受け付けないため、ベースラベルが文字列でない
+ * （JSX 等の）場合は `undefined`（属性自体を省略）を返す。
+ *
+ * @param baseLabel - リソース名または未割り当てラベル
+ * @param column - 対象の列
+ * @param multiDay - 複数日表示かどうか
+ * @param timeZone - 表示タイムゾーン
+ * @param locale - ロケール
+ */
+export function resourceColumnAriaLabel(
+  baseLabel: ReactNode,
+  column: ResourceColumn,
+  multiDay: boolean,
+  timeZone: TimeZoneId,
+  locale: string,
+): string | undefined {
+  const base = ariaLabelText(baseLabel);
+  if (base === undefined) {
+    return undefined;
+  }
+  return multiDay ? `${base} ${formatDayHeader(column.date, timeZone, locale)}` : base;
+}
+
+/**
+ * 列の日に対応する営業時間内フラグを返す（{@link ResourceViewDay.businessHourSlots}）。
+ * `dayIndex` は必ず `days` の範囲内だが、`noUncheckedIndexedAccess` の防御として
+ * 見つからない場合は先頭日の `viewModel.businessHourSlots` を返す。
+ */
+export function businessHourSlotsForColumn(
+  viewModel: ResourceViewModel,
+  column: ResourceColumn,
+): readonly BusinessHourSlot[] {
+  return viewModel.days[column.dayIndex]?.businessHourSlots ?? viewModel.businessHourSlots;
 }
 
 /**

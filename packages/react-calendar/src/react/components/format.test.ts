@@ -193,6 +193,16 @@ describe('formatViewTitle', () => {
     );
   });
 
+  it('resource: 複数日表示（range が複数日分）なら timeline と同じ範囲形式になる', () => {
+    const range: DateRange = {
+      start: new Date('2026-07-14T15:00:00Z'), // 東京 2026-07-15 0:00
+      end: new Date('2026-07-16T15:00:00Z'), // 東京 2026-07-17 0:00（排他）
+    };
+    expect(formatViewTitle('resource', currentDate, range, 'Asia/Tokyo', 'ja', '〜')).toBe(
+      '7月15日〜7月16日',
+    );
+  });
+
   it('week / list は formatRangeTitle と同じ「M月D日〜M月D日」になる', () => {
     const range: DateRange = {
       start: new Date('2026-07-04T15:00:00Z'), // 東京 2026-07-05 0:00

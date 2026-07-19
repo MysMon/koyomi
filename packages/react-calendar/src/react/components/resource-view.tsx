@@ -1,7 +1,7 @@
 /**
  * @packageDocumentation
- * `ResourceView` — リソースビュー（1 日、列 = リソース × 縦 = 時間）を描画する
- * ヘッドレスコンポーネント。
+ * `ResourceView` — リソースビュー（列 = リソース × 日、縦 = 時間）を描画する
+ * ヘッドレスコンポーネント。表示日数は `CalendarOptions.resourceViewDays`（既定 1）。
  *
  * DOM 構造・`data-koyomi-*` 属性の仕様は `docs/internal/components-dom.md` の
  * 「リソースビュー（ResourceView）」節を参照。イベントブロック・リサイズハンドル・
@@ -43,10 +43,13 @@ import {
   withTimegridHoursStyle,
 } from './month-view-parts';
 import {
-  ariaLabelText,
   ariaLabelWithResource,
+  businessHourSlotsForColumn,
+  isMultiDayResourceView,
   MINUTES_PER_DAY,
   resourceAllDayContentContext,
+  resourceColumnAriaLabel,
+  resourceColumnHeaderContent,
   resourceTimedContentContext,
   sameBusinessHourSlots,
   sameEventOccurrence,
@@ -236,9 +239,11 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
     return null;
   }
 
-  const { columns, slots, nowIndicatorMinutes, isToday, isEmpty, businessHourSlots } = viewModel;
+  const { columns, slots, nowIndicatorMinutes, isEmpty } = viewModel;
   const { timeZone, options } = state;
   const { locale } = options;
+  // 複数日表示（resourceViewDays >= 2）では列見出し・終日セルの aria-label に日ラベルを付ける
+  const multiDay = isMultiDayResourceView(viewModel);
 
   if (isEmpty) {
     return (
@@ -265,13 +270,20 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
               所有関係を透過させる（row の required owned elements 違反を避ける） */}
           <div data-koyomi="resource-headers" role="presentation">
             {columns.map((column) => {
-              const defaultContent = column.resource?.title ?? resourceMessages.unassigned;
+              const defaultContent = resourceColumnHeaderContent(
+                column.resource?.title ?? resourceMessages.unassigned,
+                column,
+                multiDay,
+                timeZone,
+                locale,
+              );
               return (
                 // biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA columnheader
                 // biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない（ネイティブ <th> も単体ではタブ移動対象にならない）
                 <div
                   key={column.key}
                   data-koyomi="resource-header-cell"
+                  data-koyomi-date={column.dayKey}
                   role="columnheader"
                   {...(column.resource !== null
                     ? { 'data-koyomi-resource-id': column.resource.id }
@@ -303,7 +315,13 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
                   {...drag.getAllDayCellProps(column)}
                   data-koyomi="resource-allday-cell"
                   role="gridcell"
-                  aria-label={column.resource?.title ?? ariaLabelText(resourceMessages.unassigned)}
+                  aria-label={resourceColumnAriaLabel(
+                    column.resource?.title ?? resourceMessages.unassigned,
+                    column,
+                    multiDay,
+                    timeZone,
+                    locale,
+                  )}
                   data-koyomi-preview-target={isPreviewTarget ? 'true' : undefined}
                   data-koyomi-invalid={
                     isPreviewTarget && (state.dragPreview?.invalid ?? false) ? 'true' : undefined
@@ -354,12 +372,12 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
               key={column.key}
               column={column}
               slots={slots}
-              businessHourSlots={businessHourSlots}
+              businessHourSlots={businessHourSlotsForColumn(viewModel, column)}
               timeZone={timeZone}
               locale={locale}
               slotMinTimeMinutes={slotMinTimeMinutes}
               slotMaxTimeMinutes={slotMaxTimeMinutes}
-              isToday={isToday}
+              isToday={column.isToday}
               nowIndicatorMinutes={nowIndicatorMinutes}
               renderEvent={renderEvent}
               renderEventContent={renderEventContent}
@@ -472,7 +490,7 @@ const AllDayItemButton = memo(AllDayItemButtonImpl, (prev, next) => {
 interface ResourceColumnBodyProps {
   column: ResourceColumn;
   slots: readonly TimeSlot[];
-  /** {@link ResourceViewModel.businessHourSlots}（全列共通の 1 本）。 */
+  /** この列の日の営業時間内フラグ（{@link ResourceViewDay.businessHourSlots}）。 */
   businessHourSlots: readonly BusinessHourSlot[];
   timeZone: TimeZoneId;
   locale: string;
@@ -480,6 +498,7 @@ interface ResourceColumnBodyProps {
   slotMinTimeMinutes: number;
   /** 表示時間帯の終了（分）。既定（`slotMaxTime` 未指定）は `1440`。 */
   slotMaxTimeMinutes: number;
+  /** この列の日が今日かどうか（{@link ResourceColumn.isToday}。現在時刻線の描画対象の判定）。 */
   isToday: boolean;
   nowIndicatorMinutes: number | null;
   renderEvent: ((item: PositionedOccurrence, ctx: EventContentContext) => ReactNode) | undefined;
@@ -632,6 +651,8 @@ function sameResourceColumnForBody(a: ResourceColumn, b: ResourceColumn): boolea
   }
   return (
     a.key === b.key &&
+    // 単日表示では日が変わってもキーが変わらないため、日付キーも比較する
+    a.dayKey === b.dayKey &&
     sameResource(a.resource, b.resource) &&
     samePositionedOccurrences(a.items, b.items)
   );
