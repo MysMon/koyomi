@@ -13,6 +13,7 @@
 | 予定の移動・リサイズに対応する | [`useDayDrag`](#usedaydrag)・[`useTimeGridDrag`](#usetimegriddrag)・[`useResourceGridDrag`](#useresourcegriddrag)・[`useTimelineDrag`](#usetimelinedrag)・`moveOccurrenceIn`・`eventOverlap`/`eventConstraint` | [インタラクション](./interactions.md) |
 | 繰り返し予定に対応する | `CalendarEvent.rrule`/`rdates`/`exdates`・[`useRecurrenceRuleEditor`](#userecurrenceruleeditor)・`updateEvent`/`deleteEvent` の `scope` | [繰り返し予定](./recurrence.md) |
 | undo/redo を実装する | [`createEventHistory`](#createeventhistory)・[`useCalendarHistory`](#usecalendarhistory)・`onEventChange`/`onEventDelete` の `changes` | [予定の管理: undo（元に戻す）を実装する](./events.md#undo元に戻すを実装する) |
+| 予定を複製・コピー&ペーストする | [`useCalendarClipboard`](#usecalendarclipboard)・`buildOccurrenceCopy`・`pasteEventIn`・`duplicateEventIn` | [予定の管理: 複製とコピー&ペースト](./events.md#複製とコピーペースト) |
 | リソース・タイムラインを表示する | `CalendarResource`・`resources` オプション・[`ResourceView`](#resourceview)・[`TimelineView`](#timelineview) | [ビュー](./views.md) |
 | 大量の予定・リソースを描画する（仮想化） | `dayMaxEvents`・`slotMinTime`/`slotMaxTime`・[`VirtualListView`](#virtuallistview)・[`VirtualResourceView`](#virtualresourceview)・[`VirtualTimelineView`](#virtualtimelineview)・[`useVirtualizer`](#usevirtualizer) | [パフォーマンス](./performance.md) |
 | 多言語対応・読み上げ文言をカスタマイズする | `CalendarOptions.locale`・`CalendarProvider` の `messages`・[`useCalendarAnnouncer`](#usecalendarannouncer) | [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) |

@@ -57,7 +57,8 @@
 - **テーマ**: CSS 変数 `--koyomi-now-color`（現在時刻線の色。既定 `#ea4335`）を追加。週/日ビューの曜日ラベルに `data-koyomi="timegrid-weekday"` を追加（月・年ビューの曜日ラベルと同様のスタイルフック）。ボタン/見出しのブラウザ既定リセットのセレクタを `data-koyomi` 属性を持つ要素に限定し、`renderDayCell` 等でユーザーが差し込む独自の button/見出し要素へ波及しないようにした（見た目・詳細度は変更なし）
 - **複数タイムゾーン軸**: `timeAxisZones` オプションで週/日ビューにセカンダリタイムゾーンの時間軸を並べて表示（Google カレンダー相当。DST 切替日も日単位で正確）
 - **「+N 件」のポップオーバー基盤**: `onOverflowClick` に表示中オカレンス一覧（第 3 引数）を追加、`overflowButtonProps` で `aria-haspopup` / `aria-expanded` 等を付与可能に（ポップオーバー UI 自体はアプリ側実装）
-- **外部ドラッグ受け入れ**: `useExternalDrag` フックと `ExternalDropInfo` 型を追加。カレンダー外の DOM 要素からのドラッグを日時・リソースへ解決して `onExternalDrop` で通知（FullCalendar の Draggable 相当。イベント作成はアプリ側）
+- **外部ドラッグ受け入れ**: `useExternalDrag` フックと `ExternalDropInfo` 型を追加。カレンダー外の DOM 要素からのドラッグを日時・リソースへ解決して `onExternalDrop` で通知（FullCalendar の Draggable 相当。イベント作成はアプリ側）。対応ビューは月・週/日（時間グリッド＋終日行）・リスト（日セクション）・複数月（日セル）・リソース・タイムライン（年ビューのみ非対応）
+- **イベントの複製とコピー&ペースト**: core の純粋関数 `buildOccurrenceCopy`（コピー）/ `placeEventInputAt`（貼り付け先日時への配置）/ `pasteEventIn`（貼り付け）/ `duplicateEventIn`（複製）と `WithChanges` 変種（`CreateEventMutationResult`。undo 用の `EventChangeEntry` 付き）、および `Ctrl/Cmd+C`（フォーカス中の予定をコピー）・`Ctrl/Cmd+V`（フォーカス中の日付セルへ貼り付け）を opt-in で配線する `useCalendarClipboard` フックを追加。繰り返しイベントのコピーはシリーズ全体ではなく当該オカレンスの単発化（Google カレンダーのコピーと同じ扱い）。`history` オプションに `useCalendarHistory` の戻り値を渡すと貼り付けが undo/redo の対象になる
 - **リソース/タイムラインの仮想化**: `VirtualResourceView` / `VirtualTimelineView` を追加（可視レーンのみ描画、フォーカス保持、`scrollToResource` / `scrollToRow`）。`useVirtualizer` を水平軸・`viewportPadding` 対応に拡張
 - **ISO 週番号**: `showWeekNumbers` オプションで月・週ビューに `data-koyomi-week-number` 属性を出力（`isoWeekNumberInZone` / `isoWeekNumberOfWeek` / `parseTimeOfDay` を公開）
 - **営業時間**: `businessHours` オプションで週/日・リソースビューのスロットに `data-koyomi-business-hours` 属性、タイムラインに `timeline-business-hours` 帯を出力
