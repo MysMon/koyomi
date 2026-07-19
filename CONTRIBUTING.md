@@ -78,6 +78,46 @@ pnpm check
   「監査対応」のような、経緯や指摘元だけで内容が分からない件名は避けてください
 - 変更の経緯・検証結果・関連 Issue へのリンクは本文に書きます
 
+## ロケール（言語）を追加する
+
+同梱の中央メッセージカタログ（`src/react/locales/`）は現在 `ja`（既定）・`en` の 2 言語です。
+新しい言語を追加する場合は、次の手順で進めてください。
+
+1. **既存のカタログを 1 つ選び、型を確認する**: `src/react/locales/types.ts` の
+   `MessageCatalog` が、埋めるべき全グループ・全リーフの型です。`ja.ts` / `en.ts`
+   のどちらかを参考実装として読むと、各リーフに何を渡せばよいか（固定文字列か、
+   `occurrence` 等のドメインオブジェクトを受け取って文言を組み立てる関数か）が
+   分かります
+2. **`src/react/locales/<言語サブタグ>.ts` を作る**: `MessageCatalog` 型を満たす
+   完全なカタログを 1 つ export します。既存言語と近い言語（例: 英語圏の別方言）
+   を追加する場合は、全リーフを書き直す必要はありません。`createMessageCatalog`
+   （`src/react/locales/resolve.ts` が公開するグループ単位のマージ関数）を使い、
+   近い言語のカタログを `base` にして異なるリーフだけ `overrides` に渡せば
+   完全なカタログを合成できます
+
+   ```ts
+   import { createMessageCatalog } from './resolve';
+   import { enMessages } from './en';
+
+   export const enGbMessages = createMessageCatalog(enMessages, {
+     // en と異なるリーフだけを書く
+   });
+   ```
+3. **`<言語サブタグ>.test.ts` を同階層に書く（TDD）**: `en.test.ts` を到達水準の
+   目安にしてください。最低限、次を満たすこと
+   - `describeRule` は頻度（DAILY/WEEKLY/MONTHLY/YEARLY）× interval の 1/2 以上 ×
+     パターン有無の組み合わせ、および `end`（`never`/`count`/`until`）を網羅する
+   - `validationMessage` / `unsupportedReason` は全 `code`（`ja.test.ts` /
+     `en.test.ts` の `it.each` 一覧を参照）に対して文言を返すことを検証する
+   - 既存カタログ（`jaMessages` 等）とのグループ名・リーフ名の集合が一致することを
+     検証する（`en.test.ts` の「キー整合性」テストを参照。型システムでも保証されるが、
+     実行時の回帰検知として置く）
+4. **`resolve.ts` の `BUILTIN_CATALOGS` に登録する**: 言語サブタグ（小文字）を
+   キーにして追加します
+5. **`src/index.ts` から export する**: 追加したカタログの named export を追加します
+6. **ドキュメントを更新する**: `docs/api.md`（中央メッセージカタログの節）と
+   `docs/theming.md`（多言語対応の節）に、対応言語を追記します
+
 ## プルリクエスト
 
 - 1 つの PR は 1 つの意味単位の変更にまとめてください（無関係な変更を混在させない）
