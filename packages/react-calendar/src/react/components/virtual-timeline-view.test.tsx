@@ -633,6 +633,105 @@ describe('VirtualTimelineView - 時間軸（横方向）の仮想化', () => {
   });
 });
 
+describe('VirtualTimelineView - onVisibleRangeChange（可視範囲の変更通知）', () => {
+  it('マウント後に現在の可視範囲（行・日・日付範囲・リソース）が通知される', async () => {
+    const onVisibleRangeChange = vi.fn();
+    const { container } = render(
+      <Harness
+        resources={makeResources(5)}
+        timelineDays={5}
+        viewProps={{ onVisibleRangeChange }}
+      />,
+    );
+    await setViewport(container, 1000, 0);
+
+    expect(onVisibleRangeChange).toHaveBeenCalled();
+    const info = onVisibleRangeChange.mock.calls.at(-1)?.[0];
+    // 行: 境界高 1000px に全 5 行（各 28px）が収まる
+    expect(info.rows).toEqual({ startIndex: 0, endIndex: 4, startKey: 'r:r0', endKey: 'r:r4' });
+    // 日: 横の境界幅が無いため全 5 日が可視扱い
+    expect(info.days).toEqual({
+      startIndex: 0,
+      endIndex: 4,
+      startKey: '2026-07-15',
+      endKey: '2026-07-19',
+    });
+    // 日付範囲: 表示タイムゾーン（Asia/Tokyo）の日境界。end は排他（7/20 の 0:00）
+    expect(info.rangeStart.toISOString()).toBe('2026-07-14T15:00:00.000Z');
+    expect(info.rangeEnd.toISOString()).toBe('2026-07-19T15:00:00.000Z');
+    // リソース: 可視行の順に並ぶ
+    expect(info.resources.map((r: CalendarResource | null) => r?.id ?? null)).toEqual([
+      'r0',
+      'r1',
+      'r2',
+      'r3',
+      'r4',
+    ]);
+  });
+
+  it('縦スクロールで可視行が変わると通知され、同じ範囲では再通知されない', async () => {
+    const onVisibleRangeChange = vi.fn();
+    const { container } = render(
+      <Harness resources={makeResources(200)} viewProps={{ onVisibleRangeChange }} />,
+    );
+    await setViewport(container, 100, 0);
+    const callsAtTop = onVisibleRangeChange.mock.calls.length;
+
+    // 100 行分（100 × 28px = 2800px）スクロール → 可視行 100〜103
+    await setViewport(container, 100, 2800);
+    expect(onVisibleRangeChange.mock.calls.length).toBeGreaterThan(callsAtTop);
+    const info = onVisibleRangeChange.mock.calls.at(-1)?.[0];
+    expect(info.rows.startIndex).toBe(100);
+    expect(info.rows.startKey).toBe('r:r100');
+    expect(info.resources[0]?.id).toBe('r100');
+
+    // 同じスクロール位置の scroll イベントでは再通知しない
+    const callsAfterScroll = onVisibleRangeChange.mock.calls.length;
+    await setViewport(container, 100, 2800);
+    expect(onVisibleRangeChange.mock.calls.length).toBe(callsAfterScroll);
+  });
+
+  it('横スクロールで可視日が変わると days と日付範囲が更新される', async () => {
+    const restore = mockTimelineWidths(3600);
+    try {
+      const onVisibleRangeChange = vi.fn();
+      const { container } = render(
+        <Harness
+          resources={makeResources(2)}
+          timelineDays={5}
+          viewProps={{ onVisibleRangeChange }}
+        />,
+      );
+      // 末尾（day4 の先頭 = 2880px）まで横スクロール → 可視日は 7/19 のみ
+      await setHorizontalViewport(container, 720, 2880);
+
+      const info = onVisibleRangeChange.mock.calls.at(-1)?.[0];
+      expect(info.days).toEqual({
+        startIndex: 4,
+        endIndex: 4,
+        startKey: '2026-07-19',
+        endKey: '2026-07-19',
+      });
+      expect(info.rangeStart.toISOString()).toBe('2026-07-18T15:00:00.000Z');
+      expect(info.rangeEnd.toISOString()).toBe('2026-07-19T15:00:00.000Z');
+    } finally {
+      restore();
+    }
+  });
+
+  it('viewModel が timeline 以外のときは通知しない', () => {
+    const onVisibleRangeChange = vi.fn();
+    render(
+      <Harness
+        initialView="month"
+        resources={makeResources(3)}
+        viewProps={{ onVisibleRangeChange }}
+      />,
+    );
+    expect(onVisibleRangeChange).not.toHaveBeenCalled();
+  });
+});
+
 describe('VirtualTimelineView - timelineScale（ズーム粒度）', () => {
   it("既定（省略時）は data-koyomi-scale='hour' で、日ヘッダー DOM は TimelineView と同一", () => {
     const { container } = render(<Harness resources={makeResources(2)} timelineDays={3} />);

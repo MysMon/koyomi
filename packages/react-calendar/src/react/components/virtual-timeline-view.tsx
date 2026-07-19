@@ -44,7 +44,19 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { BusinessHourRange, TimelineItem, TimelineRow, TimeZoneId } from '../../core/types';
+import { addDaysInZone } from '../../core/timezone';
+import type {
+  BusinessHourRange,
+  CalendarResource,
+  TimelineItem,
+  TimelineRow,
+  TimeZoneId,
+} from '../../core/types';
+import {
+  sameVisibleWindowRange,
+  type VisibleWindowRange,
+  visibleWindowRange,
+} from '../../core/virtualization';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
 import type { CommonMessages, TimelineMessages } from '../locales/types';
@@ -109,11 +121,47 @@ export interface VirtualTimelineViewProps {
    */
   overscanDays?: number;
   /**
+   * 可視ウィンドウ（行・日の可視範囲）が変わったときに呼ばれるコールバック。
+   *
+   * `CalendarOptions.onRangeChange` と同じ流儀で、可視範囲の計算結果
+   * （行・日それぞれのインデックス範囲とキー範囲）が直前の通知内容と 1 つでも
+   * 異なる場合のみ 1 回発火する。マウント直後にも現在の可視範囲を 1 回通知する
+   * （初回の増分データ取得に使えるようにするため）。スクロール・表示範囲の移動・
+   * 行一覧の変更など発火の契機は問わず、内容が同じ間は再通知しない。
+   * ビューモデルが `'timeline'` 以外のときは発火しない。
+   */
+  onVisibleRangeChange?: (info: TimelineVisibleRangeChangeInfo) => void;
+  /**
    * {@link VirtualTimelineViewHandle}（スクロール操作などの命令的 API）を受け取る ref。
    */
   // React 本体の RefAttributes と同じく明示的な undefined を許容する
   // （exactOptionalPropertyTypes 下で `ref={maybeUndefined}` を書けるようにするため）
   ref?: Ref<VirtualTimelineViewHandle> | undefined;
+}
+
+/**
+ * {@link VirtualTimelineViewProps.onVisibleRangeChange} に渡される、変更後の可視ウィンドウ。
+ *
+ * 行（縦方向）× 日（横方向）の二軸それぞれの可視範囲（overscan を含まない、
+ * 実際に見えている範囲）と、そこから導出した日付範囲・リソース一覧を持つ。
+ * 可視範囲のデータだけを増分取得する遅延読込（`docs/performance.md` のレシピ参照）の
+ * 入力に使う。
+ */
+export interface TimelineVisibleRangeChangeInfo {
+  /**
+   * 行（縦方向）の可視ウィンドウ。キーは {@link TimelineRow.key}
+   * （`r:${リソース ID}` / 未割り当て行は `'unassigned'`）。行が 0 件なら
+   * インデックスは `-1`・キーは `null`。
+   */
+  rows: VisibleWindowRange;
+  /** 日（横方向）の可視ウィンドウ。キーは `'YYYY-MM-DD'`（表示タイムゾーン基準）。 */
+  days: VisibleWindowRange;
+  /** 可視範囲の先頭日の開始（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
+  rangeStart: Date;
+  /** 可視範囲の末尾日の翌日 0:00（排他。{@link CalendarRangeChangeInfo.rangeEnd} と同じ流儀）。 */
+  rangeEnd: Date;
+  /** 可視行のリソース（行順。未割り当て行は `null`）。 */
+  resources: readonly (CalendarResource | null)[];
 }
 
 /** {@link VirtualTimelineView} が `ref` 経由で公開する命令的 API。 */
@@ -416,7 +464,15 @@ const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
  * ```
  */
 export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactElement | null {
-  const { renderEvent, renderRowHeader, estimateRowHeight, overscan, overscanDays, ref } = props;
+  const {
+    renderEvent,
+    renderRowHeader,
+    estimateRowHeight,
+    overscan,
+    overscanDays,
+    onVisibleRangeChange,
+    ref,
+  } = props;
   const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const timelineMessages = messages.timeline;
   const commonMessages = messages.common;
@@ -590,6 +646,69 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
       endMinutes: (last.index + 1) * MINUTES_PER_DAY,
     };
   }, [timeAxisEnabled, dayItems, days.length]);
+
+  // 可視ウィンドウの変更通知（onVisibleRangeChange）。
+  // 行・日それぞれの可視範囲（overscan を含まない）を core の純粋計算
+  // （visibleWindowRange / sameVisibleWindowRange）でキー付きスナップショットにし、
+  // 直前の通知内容と異なるときだけ 1 回発火する（onRangeChange と同じ流儀）。
+  // 比較基準の更新はコールバックの登録有無に関わらず常に行う（未登録で作成 →
+  // 後から登録、という順序でも誤発火しないようにするため）。
+  // virtualizer / dayVirtualizer はレンダーごとに新しいオブジェクトのため、
+  // 可視範囲のフィールドだけを取り出して useMemo の依存にする。
+  const { startIndex: rowStartIndex, endIndex: rowEndIndex } = virtualizer;
+  const { startIndex: dayStartIndex, endIndex: dayEndIndex } = dayVirtualizer;
+  const rowsRange = useMemo(
+    () => visibleWindowRange({ startIndex: rowStartIndex, endIndex: rowEndIndex }, getItemKey),
+    [rowStartIndex, rowEndIndex, getItemKey],
+  );
+  const daysRange = useMemo(() => {
+    // 横仮想化が無効（トラック幅未実測など）の間は全日を描画しているため、
+    // 可視範囲も全日として扱う（未実測の日幅 0 による退化した範囲を使わない）。
+    if (!timeAxisEnabled) {
+      return visibleWindowRange(
+        { startIndex: days.length > 0 ? 0 : -1, endIndex: days.length - 1 },
+        getDayKey,
+      );
+    }
+    return visibleWindowRange({ startIndex: dayStartIndex, endIndex: dayEndIndex }, getDayKey);
+  }, [timeAxisEnabled, days, dayStartIndex, dayEndIndex, getDayKey]);
+  const isTimeline = viewModel.type === 'timeline';
+  const timeZoneId = state.timeZone;
+  const lastNotifiedWindowRef = useRef<{
+    rows: VisibleWindowRange;
+    days: VisibleWindowRange;
+  } | null>(null);
+  useEffect(() => {
+    if (!enabled || !isTimeline) {
+      return;
+    }
+    const next = { rows: rowsRange, days: daysRange };
+    const last = lastNotifiedWindowRef.current;
+    const changed =
+      last === null ||
+      !sameVisibleWindowRange(last.rows, next.rows) ||
+      !sameVisibleWindowRange(last.days, next.days);
+    lastNotifiedWindowRef.current = next;
+    if (!changed || onVisibleRangeChange === undefined) {
+      return;
+    }
+    const firstDay = days[Math.max(0, daysRange.startIndex)];
+    const lastDay = days[Math.max(0, daysRange.endIndex)];
+    if (firstDay === undefined || lastDay === undefined) {
+      return;
+    }
+    const visibleRows =
+      rowsRange.startIndex >= 0 ? rows.slice(rowsRange.startIndex, rowsRange.endIndex + 1) : [];
+    onVisibleRangeChange({
+      rows: rowsRange,
+      days: daysRange,
+      // 公開境界での複製（呼び出し側が rangeStart を変更しても内部状態に影響しない
+      // ようにするため。onRangeChange の currentDate と同じ扱い）
+      rangeStart: new Date(firstDay.date.getTime()),
+      rangeEnd: addDaysInZone(lastDay.date, 1, timeZoneId),
+      resources: visibleRows.map((row) => row.resource),
+    });
+  }, [enabled, isTimeline, rowsRange, daysRange, onVisibleRangeChange, days, rows, timeZoneId]);
 
   useImperativeHandle(
     ref,

@@ -239,6 +239,7 @@ export {
   type VirtualResourceViewProps,
 } from './react/components/virtual-resource-view';
 export {
+  type TimelineVisibleRangeChangeInfo,
   VirtualTimelineView,
   type VirtualTimelineViewHandle,
   type VirtualTimelineViewProps,
