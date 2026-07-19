@@ -458,5 +458,75 @@ describe('useCalendar', () => {
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]?.[0]).toContain('#ffff00');
     });
+
+    it("eventConstraint: 'businessHours' なのに businessHours が未設定（空）だと console.warn で一度だけ警告する", () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { rerender } = renderHook(() =>
+        useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          eventConstraint: 'businessHours',
+        }),
+      );
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain('businessHours');
+
+      rerender();
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it("eventConstraint: 'businessHours' でも businessHours が設定されていれば警告しない", () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      renderHook(() =>
+        useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          eventConstraint: 'businessHours',
+          businessHours: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' }],
+        }),
+      );
+
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('eventConstraint 未指定なら businessHours が空でも警告しない', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      renderHook(() => useCalendar({ timeZone: 'Asia/Tokyo', now: () => NOW, initialDate: NOW }));
+
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('eventConstraint に BusinessHoursRule の配列を直接渡す場合は businessHours が空でも警告しない', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      renderHook(() =>
+        useCalendar({
+          timeZone: 'Asia/Tokyo',
+          now: () => NOW,
+          initialDate: NOW,
+          eventConstraint: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' }],
+        }),
+      );
+
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("マウント後の api.updateOptions で eventConstraint: 'businessHours' × 空の businessHours の組み合わせになった場合も警告する", () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { result } = renderHook(() =>
+        useCalendar({ timeZone: 'Asia/Tokyo', now: () => NOW, initialDate: NOW }),
+      );
+
+      expect(warn).not.toHaveBeenCalled();
+
+      act(() => {
+        result.current.api.updateOptions({ eventConstraint: 'businessHours' });
+      });
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain('businessHours');
+    });
   });
 });
