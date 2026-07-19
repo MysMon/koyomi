@@ -271,6 +271,54 @@ test('VirtualTimelineView の縦スクロールで表示行の窓が追従し、
   await expect(timeline.locator('[data-koyomi-resource-id="member-1"]').first()).toBeVisible();
 });
 
+test('VirtualTimelineView の横スクロールで時間軸の窓が追従し、可視範囲通知が更新される', async ({
+  page,
+}) => {
+  await page.getByRole('link', { name: /チーム/ }).click();
+  await page.getByRole('button', { name: 'タイムライン' }).click();
+  const timeline = page.locator('[data-koyomi="timeline"][data-koyomi-virtualized="true"]');
+  await expect(timeline).toBeVisible();
+  const body = timeline.locator('[data-koyomi="timeline-body"]');
+
+  // 初期状態: 5 日分（トラック幅 720px × 5）のうち、可視窓＋overscan の日だけが
+  // 描画される（時刻目盛りは全 120 件 = 5 日 × 24 より少ない）
+  const slotLabels = timeline.locator('[data-koyomi="timeline-slot-label"]');
+  await expect(slotLabels.first()).toBeVisible();
+  expect(await slotLabels.count()).toBeLessThan(120);
+  const dayHeaders = timeline.locator('[data-koyomi="timeline-day-header"]');
+  expect(await dayHeaders.count()).toBeLessThan(5);
+  // 窓の後方の日はヘッダーの % 幅スペーサに置き換わる
+  const beforeSpacer = timeline.locator(
+    '[data-koyomi="timeline-header-spacer"][data-edge="before"]',
+  );
+  const afterSpacer = timeline.locator('[data-koyomi="timeline-header-spacer"][data-edge="after"]');
+  await expect(beforeSpacer).toHaveCount(0);
+  await expect(afterSpacer).toHaveCount(1);
+
+  // onVisibleRangeChange の通知内容（可視の日キー範囲・行範囲）が表示されている
+  const visibleRange = page.locator('.team-timeline-visible');
+  await expect(visibleRange).toContainText('可視範囲:');
+  const initialRangeText = await visibleRange.textContent();
+
+  // 末尾まで横スクロール → 窓が追従して前スペーサへ切り替わり、通知内容も更新される
+  await body.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(beforeSpacer).toHaveCount(1);
+  await expect(afterSpacer).toHaveCount(0);
+  await expect(visibleRange).not.toHaveText(initialRangeText ?? '');
+
+  // 先頭へ戻ると往復後も窓・通知内容が初期状態に戻る（境界の往復で破綻しない）
+  await body.evaluate((element) => {
+    element.scrollLeft = 0;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(beforeSpacer).toHaveCount(0);
+  await expect(afterSpacer).toHaveCount(1);
+  await expect(visibleRange).toHaveText(initialRangeText ?? '');
+});
+
 /** axe の検査対象タグ（WCAG 2.0 / 2.1 / 2.2 の A・AA）。 */
 const AXE_WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
