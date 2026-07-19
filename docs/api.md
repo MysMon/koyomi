@@ -1256,9 +1256,19 @@ Google カレンダーの編集・削除操作（繰り返しの「この予定�
 | `updateEventInWithChanges(events, id, patch, target, context): EventMutationResult` | `updateEventIn` の拡張版。影響を受けた各イベントの before/after（`changes`）も返す（undo 用途） |
 | `deleteEventInWithChanges(events, id, target, context): EventMutationResult` | `deleteEventIn` の拡張版。`changes` も返す |
 | `moveOccurrenceInWithChanges(events, id, params, context): EventMutationResult` | `moveOccurrenceIn` の拡張版。`changes` も返す |
+| `buildOccurrenceCopy(events, id, params, context): CalendarEventInput` | イベント（またはオカレンス）のコピーを新規作成の入力として構築する（イベント一覧は変更しない）。単発イベントは `id` を取り除いた複製、繰り返しイベント + `params.occurrenceStart` は当該オカレンスを**単発化**した複製（`rrule` / `exdates` / `rdates` は引き継がない。オーバーライド済みのオカレンスはオーバーライドの現在の内容）になる。繰り返しイベントで `occurrenceStart` 省略は `Error` |
+| `placeEventInputAt(input, params, context): CalendarEventInput` | 新規作成の入力を貼り付け先の日時（`params.newStart`）へ配置した入力を返す。長さは元の入力の長さを維持し、`params.allDay` で時間指定 ⇔ 終日を変換できる（変換時の長さは `moveOccurrenceIn` と同じ規則）。入力の `id` は取り除かれる |
+| `pasteEventIn(events, input, params, context): CreateEventResult` | 入力を貼り付け先の日時へ配置してイベント一覧に追加する（`placeEventInputAt` + `createEventIn`）。入力の `id` は無視して常に採番するため、同じクリップボード内容を複数回貼り付けられる |
+| `pasteEventInWithChanges(events, input, params, context): CreateEventMutationResult` | `pasteEventIn` の拡張版。`changes`（`after` のみのエントリ 1 件）も返す（undo 用途） |
+| `duplicateEventIn(events, id, params, context): CreateEventResult` | イベント（またはオカレンス）を同じ日時のまま複製する（`buildOccurrenceCopy` + `createEventIn`）。繰り返しイベントは当該オカレンスの単発化した複製になる |
+| `duplicateEventInWithChanges(events, id, params, context): CreateEventMutationResult` | `duplicateEventIn` の拡張版。`changes`（`after` のみのエントリ 1 件）も返す（undo 用途） |
 | `MutationContext`（型） | `{ displayTimeZone: TimeZoneId; defaultEventMinutes: number; generateId: () => EventId }` |
+| `MutationReadContext`（型） | `Omit<MutationContext, 'generateId'>`。ID 採番を伴わない純粋関数（`buildOccurrenceCopy` / `placeEventInputAt`）が受け取るコンテキスト。`MutationContext` はそのまま渡せる |
 | `RecurringTarget`（型） | `{ occurrenceStart: Date; scope: RecurringEditScope }` |
+| `OccurrenceCopyParams`（型） | `{ occurrenceStart?: Date }`。コピー対象オカレンスの本来の開始時刻。繰り返しイベントでは必須、単発イベント・オーバーライドでは省略する |
+| `PasteEventParams`（型） | `{ newStart: Date; allDay?: boolean }`。貼り付け先の開始時刻と、貼り付け先が終日枠かどうか（省略時はコピー元の `allDay` を維持） |
 | `CreateEventResult`（型） | `{ events: CalendarEvent[]; created: CalendarEvent }` |
+| `CreateEventMutationResult`（型） | `EventMutationResult & { created: CalendarEvent }`。貼り付け・複製の作成結果と before/after 一覧 |
 | `EventMutationResult`（型） | `{ events: CalendarEvent[]; changes: EventChangeEntry[] }` |
 | `EventChangeEntry`（型） | `{ before?: CalendarEvent; after?: CalendarEvent; index?: number }`。`before` のみは削除、`after` のみは新規作成、両方ありは変更を表す。`index` は挿入位置の復元に使う位置情報 |
 | `applyEventChangeEntries(events, changes, direction): CalendarEvent[]` | `changes` の各エントリを `direction`（`'before'` = 取り消し／`'after'` = やり直し・再現）の方向へ適用する。対象イベントが想定と食い違うエントリ（presence-only のドリフト検出）は安全にスキップする。現在の一覧に存在しない id を新たに書き込む場合（削除の取り消し・作成のやり直し）は `index` が指す位置に挿入する（省略時は末尾）。undo/redo の実装に使う（詳細は [予定の管理: undo（元に戻す）を実装する](./events.md#undo元に戻すを実装する) を参照） |

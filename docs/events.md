@@ -246,6 +246,75 @@ const events = calendar.getEvents();
 // events.map((e) => e.id) は ['x1', 'x2']
 ```
 
+## 複製とコピー&ペースト
+
+イベントの複製・コピー&ペーストは `core/mutations` の純粋関数として提供されます
+（`CalendarApi` のメソッドではありません）。
+
+- `buildOccurrenceCopy(events, id, params, context)` — コピー。イベント（またはオカレンス）の
+  複製を新規作成の入力（`CalendarEventInput`。`id` を持たない）として構築する
+- `placeEventInputAt(input, params, context)` — 配置。入力を貼り付け先の日時
+  （`params.newStart`）へ移した入力を返す（長さは維持）
+- `pasteEventIn(events, input, params, context)` — 貼り付け。配置した入力をイベント一覧に
+  追加する（`id` は常に採番。同じクリップボード内容を複数回貼り付けられる）
+- `duplicateEventIn(events, id, params, context)` — 複製。同じ日時のまま新しいイベントとして
+  追加する
+
+**繰り返しイベントのコピーは、シリーズ全体ではなく当該オカレンスの単発化です**
+（Google カレンダーのコピーと同じ扱い）。`params.occurrenceStart` で指定したオカレンスの
+日時に配置された、`rrule` / `exdates` / `rdates` を持たない単発イベントの複製になります。
+対象オカレンスがオーバーライド済みの場合（またはオーバーライドの `id` を直接渡した場合）は、
+オーバーライドの現在の内容（移動後の日時・変更後のタイトル等）がコピーされ、
+`recurringEventId` / `originalStart` は引き継がれません。シリーズ全体を複製したい場合は、
+`getEvents()` から取得したイベントの `rrule` を含むフィールドを自前で組み立てて
+`createEvent` に渡してください。
+
+`pasteEventInWithChanges` / `duplicateEventInWithChanges` は、追加後の一覧に加えて
+影響を受けたイベントの before/after 一覧（`changes`）も返します。これを
+[undo/redo 履歴](#undo元に戻すを実装する)（`createEventHistory` / `useCalendarHistory` の
+`push`）へ渡すと、貼り付け・複製も取り消し（undo）・やり直し（redo）の対象になります。
+
+```ts
+import { buildOccurrenceCopy, pasteEventInWithChanges } from '@koyomi-cal/react';
+import type { MutationContext } from '@koyomi-cal/react';
+
+const context: MutationContext = {
+  displayTimeZone: 'Asia/Tokyo',
+  defaultEventMinutes: 60,
+  generateId: () => 'copy-1',
+};
+const events = [
+  {
+    id: 'master-1',
+    title: '朝会',
+    start: new Date('2026-07-01T00:00:00Z'), // 東京 9:00
+    end: new Date('2026-07-01T01:00:00Z'),
+    rrule: 'FREQ=DAILY;COUNT=10',
+  },
+];
+
+// 7/3 のオカレンスをコピー（単発化。copy.rrule は undefined）
+const copy = buildOccurrenceCopy(
+  events,
+  'master-1',
+  { occurrenceStart: new Date('2026-07-03T00:00:00Z') },
+  context,
+);
+
+// 7/20 9:00 に貼り付け
+const result = pasteEventInWithChanges(
+  events,
+  copy,
+  { newStart: new Date('2026-07-20T00:00:00Z') },
+  context,
+);
+// result.created.id === 'copy-1'、result.changes は after のみのエントリ 1 件
+```
+
+キーボードショートカット（`Ctrl/Cmd+C` / `Ctrl/Cmd+V`）でこれらを配線する React フック
+`useCalendarClipboard` は [インタラクション](./interactions.md#コピーペーストctrlcmdc--v) を
+参照してください。
+
 ## パッチ規則（applyPatch）
 
 `updateEvent` の `patch` は部分更新（`CalendarEventPatch`）です。適用規則は

@@ -17,19 +17,25 @@ import {
   applyEventChangeEntries,
   applyEventChangeEntriesWithApplied,
   applyPatch,
+  buildOccurrenceCopy,
   createEventIn,
   deleteEventIn,
   deleteEventInWithChanges,
+  duplicateEventIn,
+  duplicateEventInWithChanges,
   type EventChangeEntry,
   type MutationContext,
   moveOccurrenceIn,
   moveOccurrenceInWithChanges,
+  pasteEventIn,
+  pasteEventInWithChanges,
+  placeEventInputAt,
   updateEventIn,
   updateEventInWithChanges,
 } from './mutations';
 import { expandRecurrence } from './recurrence';
 import { getWallClock } from './timezone';
-import type { CalendarEvent, CalendarEventPatch } from './types';
+import type { CalendarEvent, CalendarEventInput, CalendarEventPatch } from './types';
 
 const TOKYO = 'Asia/Tokyo';
 const NY = 'America/New_York';
@@ -2912,5 +2918,335 @@ describe('applyEventChangeEntriesWithApplied', () => {
 
     expect(result.events).toEqual([ev('c'), b]);
     expect(result.applied).toEqual([{ after: b, index: 1 }]);
+  });
+});
+
+describe('buildOccurrenceCopy', () => {
+  it('単発イベントのコピーは id を持たず、他のフィールドをそのまま引き継ぐ（元イベントは変更しない）', () => {
+    const single: CalendarEvent = {
+      id: 'single-1',
+      title: '打ち合わせ',
+      start: new Date('2026-07-01T05:00:00Z'),
+      end: new Date('2026-07-01T06:00:00Z'),
+      timeZone: TOKYO,
+      color: '#ef4444',
+      location: '会議室B',
+      description: '単発の予定',
+      resourceId: 'room-a',
+      extendedProps: { team: 'sales' },
+    };
+    const events = [single];
+    const copy = buildOccurrenceCopy(events, 'single-1', {}, makeContext());
+    expect(copy).toEqual({
+      title: '打ち合わせ',
+      start: new Date('2026-07-01T05:00:00Z'),
+      end: new Date('2026-07-01T06:00:00Z'),
+      timeZone: TOKYO,
+      color: '#ef4444',
+      location: '会議室B',
+      description: '単発の予定',
+      resourceId: 'room-a',
+      extendedProps: { team: 'sales' },
+    });
+    expect('id' in copy).toBe(false);
+    expect(events[0]).toEqual(single); // 純粋関数（入力は変更しない）
+  });
+
+  it('繰り返しマスター + occurrenceStart のコピーは、当該オカレンスを単発化する（rrule を引き継がない）', () => {
+    const copy = buildOccurrenceCopy(
+      [makeMaster()],
+      'master-1',
+      { occurrenceStart: new Date('2026-07-03T00:00:00Z') },
+      makeContext(),
+    );
+    // 7/3 のオカレンスの絶対時刻に配置され、繰り返し関連フィールドを持たない
+    expect(copy.start).toEqual(new Date('2026-07-03T00:00:00Z'));
+    expect(copy.end).toEqual(new Date('2026-07-03T01:00:00Z'));
+    expect(copy.title).toBe('朝会');
+    expect(copy.color).toBe('#3b82f6');
+    expect('rrule' in copy).toBe(false);
+    expect('recurringEventId' in copy).toBe(false);
+    expect('originalStart' in copy).toBe(false);
+    expect('id' in copy).toBe(false);
+  });
+
+  it('exdates / rdates を持つマスターのコピーにも exdates / rdates は引き継がれない', () => {
+    const master = makeMaster({
+      exdates: [new Date('2026-07-02T00:00:00Z')],
+      rdates: [new Date('2026-07-20T00:00:00Z')],
+    });
+    const copy = buildOccurrenceCopy(
+      [master],
+      'master-1',
+      { occurrenceStart: new Date('2026-07-03T00:00:00Z') },
+      makeContext(),
+    );
+    expect('exdates' in copy).toBe(false);
+    expect('rdates' in copy).toBe(false);
+  });
+
+  it('オーバーライドの id のコピーは recurringEventId / originalStart を持たない単発コピーになる', () => {
+    const copy = buildOccurrenceCopy([makeMaster(), makeOverride()], 'ov-3', {}, makeContext());
+    expect(copy.title).toBe('朝会（変更済み）');
+    expect(copy.start).toEqual(new Date('2026-07-03T02:00:00Z')); // 移動済みの現在位置
+    expect(copy.end).toEqual(new Date('2026-07-03T03:00:00Z'));
+    expect('recurringEventId' in copy).toBe(false);
+    expect('originalStart' in copy).toBe(false);
+    expect('id' in copy).toBe(false);
+  });
+
+  it('マスターの id + オーバーライド済みオカレンスの occurrenceStart は、オーバーライドの内容をコピーする', () => {
+    const copy = buildOccurrenceCopy(
+      [makeMaster(), makeOverride()],
+      'master-1',
+      { occurrenceStart: new Date('2026-07-03T00:00:00Z') }, // 本来の開始（originalStart）
+      makeContext(),
+    );
+    expect(copy.title).toBe('朝会（変更済み）');
+    expect(copy.start).toEqual(new Date('2026-07-03T02:00:00Z'));
+    expect('recurringEventId' in copy).toBe(false);
+  });
+
+  it('終日の繰り返しマスターのコピーは対象日の日付キーになり、日数を維持する', () => {
+    const master: CalendarEvent = {
+      id: 'master-allday',
+      title: '合宿',
+      start: '2026-07-01',
+      end: '2026-07-03', // 2 日間（排他的）
+      allDay: true,
+      timeZone: TOKYO,
+      rrule: 'FREQ=WEEKLY;COUNT=4',
+    };
+    // 2 回目のオカレンス（東京 7/8 0:00 = 2026-07-07T15:00:00Z）
+    const copy = buildOccurrenceCopy(
+      [master],
+      'master-allday',
+      { occurrenceStart: new Date('2026-07-07T15:00:00Z') },
+      makeContext(),
+    );
+    expect(copy.start).toBe('2026-07-08');
+    expect(copy.end).toBe('2026-07-10'); // 2 暦日分を維持
+    expect(copy.allDay).toBe(true);
+    expect('rrule' in copy).toBe(false);
+  });
+
+  it('end 省略の繰り返しマスターのコピーは defaultEventMinutes の長さになる', () => {
+    const master: CalendarEvent = {
+      id: 'master-noend',
+      title: '朝会',
+      start: new Date('2026-07-01T00:00:00Z'),
+      timeZone: TOKYO,
+      rrule: 'FREQ=DAILY;COUNT=5',
+    };
+    const copy = buildOccurrenceCopy(
+      [master],
+      'master-noend',
+      { occurrenceStart: new Date('2026-07-02T00:00:00Z') },
+      makeContext({ defaultEventMinutes: 90 }),
+    );
+    expect(copy.start).toEqual(new Date('2026-07-02T00:00:00Z'));
+    expect(copy.end).toEqual(new Date('2026-07-02T01:30:00Z'));
+  });
+
+  it('繰り返しイベントで occurrenceStart 省略は例外を投げる', () => {
+    expect(() => buildOccurrenceCopy([makeMaster()], 'master-1', {}, makeContext())).toThrow(
+      /occurrenceStart/,
+    );
+  });
+
+  it('存在しない id は例外を投げる', () => {
+    expect(() => buildOccurrenceCopy([], 'missing', {}, makeContext())).toThrow(/missing/);
+  });
+});
+
+describe('placeEventInputAt', () => {
+  /** 10:00〜11:30 JST の時間指定入力。 */
+  function timedInput(): CalendarEventInput {
+    return {
+      title: '打ち合わせ',
+      start: new Date('2026-07-01T01:00:00Z'),
+      end: new Date('2026-07-01T02:30:00Z'),
+      color: '#ef4444',
+    };
+  }
+
+  it('時間指定の入力を newStart に配置し、元の長さを維持する', () => {
+    const placed = placeEventInputAt(
+      timedInput(),
+      { newStart: new Date('2026-07-05T03:00:00Z') },
+      makeContext(),
+    );
+    expect(placed.start).toEqual(new Date('2026-07-05T03:00:00Z'));
+    expect(placed.end).toEqual(new Date('2026-07-05T04:30:00Z')); // 90 分を維持
+    expect(placed.title).toBe('打ち合わせ');
+    expect(placed.color).toBe('#ef4444');
+  });
+
+  it('入力に id があっても配置結果は id を持たない（貼り付けは常に新しいイベントになる）', () => {
+    const placed = placeEventInputAt(
+      { ...timedInput(), id: 'src-1' },
+      { newStart: new Date('2026-07-05T03:00:00Z') },
+      makeContext(),
+    );
+    expect('id' in placed).toBe(false);
+  });
+
+  it('終日の入力は表示タイムゾーンの日付キーに配置され、日数を維持する', () => {
+    const placed = placeEventInputAt(
+      { title: '合宿', start: '2026-07-01', end: '2026-07-03', allDay: true },
+      // 東京 7/10 0:00 = 2026-07-09T15:00:00Z
+      { newStart: new Date('2026-07-09T15:00:00Z') },
+      makeContext(),
+    );
+    expect(placed.start).toBe('2026-07-10');
+    expect(placed.end).toBe('2026-07-12'); // 2 暦日分を維持
+    expect(placed.allDay).toBe(true);
+  });
+
+  it('allDay: true への変換（時間指定 → 終日）はちょうど 1 日になる', () => {
+    const placed = placeEventInputAt(
+      timedInput(),
+      { newStart: new Date('2026-07-09T15:00:00Z'), allDay: true },
+      makeContext(),
+    );
+    expect(placed.start).toBe('2026-07-10');
+    expect(placed.end).toBe('2026-07-11');
+    expect(placed.allDay).toBe(true);
+  });
+
+  it('allDay: false への変換（終日 → 時間指定）は defaultEventMinutes の長さになる', () => {
+    const placed = placeEventInputAt(
+      { title: '合宿', start: '2026-07-01', end: '2026-07-03', allDay: true },
+      { newStart: new Date('2026-07-05T03:00:00Z'), allDay: false },
+      makeContext({ defaultEventMinutes: 45 }),
+    );
+    expect(placed.start).toEqual(new Date('2026-07-05T03:00:00Z'));
+    expect(placed.end).toEqual(new Date('2026-07-05T03:45:00Z'));
+    expect(placed.allDay).toBe(false);
+  });
+
+  it('end 省略の時間指定入力は defaultEventMinutes の長さで配置される', () => {
+    const placed = placeEventInputAt(
+      { title: '打ち合わせ', start: new Date('2026-07-01T01:00:00Z') },
+      { newStart: new Date('2026-07-05T03:00:00Z') },
+      makeContext({ defaultEventMinutes: 30 }),
+    );
+    expect(placed.end).toEqual(new Date('2026-07-05T03:30:00Z'));
+  });
+
+  it('allDay を指定しない時間指定入力の配置結果には allDay キーを追加しない', () => {
+    const placed = placeEventInputAt(
+      timedInput(),
+      { newStart: new Date('2026-07-05T03:00:00Z') },
+      makeContext(),
+    );
+    expect('allDay' in placed).toBe(false);
+  });
+});
+
+describe('pasteEventIn / pasteEventInWithChanges', () => {
+  it('配置した入力を新しい id で末尾に追加する', () => {
+    const events = [makeMaster()];
+    const result = pasteEventIn(
+      events,
+      {
+        title: '貼り付け',
+        start: new Date('2026-07-01T01:00:00Z'),
+        end: new Date('2026-07-01T02:00:00Z'),
+      },
+      { newStart: new Date('2026-07-05T03:00:00Z') },
+      makeContext(),
+    );
+    expect(result.events).toHaveLength(2);
+    expect(result.created.id).toBe('gen-1');
+    expect(result.created.start).toEqual(new Date('2026-07-05T03:00:00Z'));
+    expect(result.events.at(-1)).toBe(result.created);
+    expect(events).toHaveLength(1); // 入力配列は変更しない
+  });
+
+  it('入力の id は無視して常に新しい id を採番する（同じクリップボードを 2 回貼り付けできる）', () => {
+    const context = makeContext();
+    const first = pasteEventIn(
+      [],
+      { id: 'src-1', title: '貼り付け', start: new Date('2026-07-01T01:00:00Z') },
+      { newStart: new Date('2026-07-05T03:00:00Z') },
+      context,
+    );
+    const second = pasteEventIn(
+      first.events,
+      { id: 'src-1', title: '貼り付け', start: new Date('2026-07-01T01:00:00Z') },
+      { newStart: new Date('2026-07-06T03:00:00Z') },
+      context,
+    );
+    expect(second.events).toHaveLength(2);
+    expect(second.events.map((event) => event.id)).toEqual(['gen-1', 'gen-2']);
+  });
+
+  it('WithChanges は after のみのエントリ（新規作成）と挿入位置を返す', () => {
+    const events = [makeMaster()];
+    const result = pasteEventInWithChanges(
+      events,
+      {
+        title: '貼り付け',
+        start: new Date('2026-07-01T01:00:00Z'),
+        end: new Date('2026-07-01T02:00:00Z'),
+      },
+      { newStart: new Date('2026-07-05T03:00:00Z') },
+      makeContext(),
+    );
+    expect(result.changes).toEqual([{ after: result.created, index: 1 }]);
+    // undo（'before' 方向）で貼り付け前に戻せる
+    expect(applyEventChangeEntries(result.events, result.changes, 'before')).toEqual(events);
+  });
+});
+
+describe('duplicateEventIn / duplicateEventInWithChanges', () => {
+  it('単発イベントを同じ日時のまま新しい id で複製し、末尾に追加する', () => {
+    const single: CalendarEvent = {
+      id: 'single-1',
+      title: '打ち合わせ',
+      start: new Date('2026-07-01T05:00:00Z'),
+      end: new Date('2026-07-01T06:00:00Z'),
+    };
+    const result = duplicateEventIn([single], 'single-1', {}, makeContext());
+    expect(result.events).toHaveLength(2);
+    expect(result.created).toEqual({
+      id: 'gen-1',
+      title: '打ち合わせ',
+      start: new Date('2026-07-01T05:00:00Z'),
+      end: new Date('2026-07-01T06:00:00Z'),
+    });
+  });
+
+  it('繰り返しマスター + occurrenceStart は当該オカレンスを単発化した複製を追加する（マスターは変更しない）', () => {
+    const result = duplicateEventIn(
+      [makeMaster()],
+      'master-1',
+      { occurrenceStart: new Date('2026-07-03T00:00:00Z') },
+      makeContext(),
+    );
+    expect(findById(result.events, 'master-1')).toEqual(makeMaster());
+    expect(result.created.rrule).toBeUndefined();
+    expect(result.created.start).toEqual(new Date('2026-07-03T00:00:00Z'));
+    // 展開すると元の 10 オカレンス + 複製 1 件になる
+    const occurrences = expandEvents({
+      events: result.events,
+      range: JULY_RANGE,
+      displayTimeZone: TOKYO,
+      defaultEventMinutes: 60,
+    });
+    expect(occurrences).toHaveLength(11);
+  });
+
+  it('WithChanges の changes を undo（before 方向）へ適用すると複製前に戻る', () => {
+    const events = [makeMaster()];
+    const result = duplicateEventInWithChanges(
+      events,
+      'master-1',
+      { occurrenceStart: new Date('2026-07-03T00:00:00Z') },
+      makeContext(),
+    );
+    expect(result.changes).toEqual([{ after: result.created, index: 1 }]);
+    expect(applyEventChangeEntries(result.events, result.changes, 'before')).toEqual(events);
   });
 });

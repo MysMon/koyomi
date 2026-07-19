@@ -58,6 +58,14 @@ export interface MutationContext {
 }
 
 /**
+ * ID 採番を伴わない操作のコンテキスト（{@link MutationContext} の部分型）。
+ *
+ * {@link buildOccurrenceCopy} / {@link placeEventInputAt} のようにイベント配列へ
+ * 追加を行わない純粋関数が受け取る。`MutationContext` はそのまま渡せる。
+ */
+export type MutationReadContext = Omit<MutationContext, 'generateId'>;
+
+/**
  * 繰り返しイベントの操作対象を指定する。
  */
 export interface RecurringTarget {
@@ -162,7 +170,7 @@ function findEventOrThrow(events: readonly CalendarEvent[], id: EventId): Calend
  */
 function resolveTimeZone(
   event: CalendarEvent,
-  context: MutationContext,
+  context: MutationReadContext,
   master?: CalendarEvent,
 ): TimeZoneId {
   return event.timeZone ?? master?.timeZone ?? context.displayTimeZone;
@@ -179,7 +187,7 @@ function allDayKeyFromValue(value: Date | string, timeZone: TimeZoneId): string 
 }
 
 /** 表示中の終日オカレンスの絶対時刻を、表示上の日付キーへ変換する。 */
-function targetAllDayKey(occurrenceStart: Date, context: MutationContext): string {
+function targetAllDayKey(occurrenceStart: Date, context: MutationReadContext): string {
   return dateKeyInZone(occurrenceStart, context.displayTimeZone);
 }
 
@@ -194,7 +202,7 @@ function addDaysToKey(key: string, amount: number): string {
 /** 終日イベント 1 オカレンス分の日数を返す。 */
 function occurrenceDayCount(
   event: CalendarEvent,
-  context: MutationContext,
+  context: MutationReadContext,
   master?: CalendarEvent,
 ): number {
   if (event.end === undefined) {
@@ -211,7 +219,11 @@ function occurrenceDayCount(
 }
 
 /** イベントの開始を絶対時刻として解釈する。 */
-function parseStart(event: CalendarEvent, context: MutationContext, master?: CalendarEvent): Date {
+function parseStart(
+  event: CalendarEvent,
+  context: MutationReadContext,
+  master?: CalendarEvent,
+): Date {
   return parseDateValue(
     event.start,
     resolveTimeZone(event, context, master),
@@ -225,7 +237,7 @@ function parseStart(event: CalendarEvent, context: MutationContext, master?: Cal
  */
 function parseOriginalStart(
   event: CalendarEvent,
-  context: MutationContext,
+  context: MutationReadContext,
   master?: CalendarEvent,
 ): Date | null {
   if (event.originalStart === undefined) {
@@ -247,7 +259,7 @@ function parseOriginalStart(
  */
 function overrideAllDayAnchorKey(
   event: CalendarEvent,
-  context: MutationContext,
+  context: MutationReadContext,
   master: CalendarEvent,
 ): string {
   if (event.originalStart instanceof Date) {
@@ -271,7 +283,7 @@ function overrideAllDayAnchorKey(
  */
 function overrideAnchor(
   event: CalendarEvent,
-  context: MutationContext,
+  context: MutationReadContext,
   master?: CalendarEvent,
 ): Date {
   if (master?.allDay === true) {
@@ -288,7 +300,7 @@ function overrideAnchor(
  */
 function occurrenceDurationMs(
   event: CalendarEvent,
-  context: MutationContext,
+  context: MutationReadContext,
   master?: CalendarEvent,
 ): number {
   const timeZone = resolveTimeZone(event, context, master);
@@ -347,7 +359,7 @@ function findOverrideFor(
   events: readonly CalendarEvent[],
   master: CalendarEvent,
   occurrenceStart: Date,
-  context: MutationContext,
+  context: MutationReadContext,
 ): CalendarEvent | undefined {
   if (master.allDay === true) {
     const key = targetAllDayKey(occurrenceStart, context);
@@ -1337,6 +1349,267 @@ export function moveOccurrenceInWithChanges(
 ): EventMutationResult {
   const next = moveOccurrenceIn(events, id, params, context);
   return { events: next, changes: diffEventChanges(events, next) };
+}
+
+/**
+ * before/after 情報付きのイベント作成操作の結果
+ * （{@link pasteEventInWithChanges} / {@link duplicateEventInWithChanges} の戻り値）。
+ */
+export interface CreateEventMutationResult extends EventMutationResult {
+  /** 作成されたイベント（`id` 確定済み）。 */
+  created: CalendarEvent;
+}
+
+/**
+ * {@link buildOccurrenceCopy} / {@link duplicateEventIn} のパラメータ。
+ */
+export interface OccurrenceCopyParams {
+  /**
+   * コピー対象オカレンスの本来の開始時刻。繰り返しイベント（RRULE / RDATE を持つ
+   * イベント）では必須。単発イベント・オーバーライドでは省略する（指定しても無視される）。
+   * オーバーライド済みのオカレンスを指すマスター ID + `occurrenceStart` の組み合わせでは、
+   * そのオーバーライドの現在の内容がコピーされる。
+   */
+  occurrenceStart?: Date;
+}
+
+/**
+ * {@link placeEventInputAt} / {@link pasteEventIn} の貼り付け先を指定するパラメータ。
+ */
+export interface PasteEventParams {
+  /** 貼り付け先の開始時刻（絶対時刻）。終日イベントは表示タイムゾーンの日付キーへ変換される。 */
+  newStart: Date;
+  /**
+   * 貼り付け先が終日枠かどうか（時間指定 ⇔ 終日の変換に使用。省略時はコピー元の
+   * `allDay` を維持する）。変換を伴う場合の長さは {@link moveOccurrenceIn} と同じ規則
+   * （終日化はちょうど 1 日、時間指定化は `defaultEventMinutes`）になる。
+   */
+  allDay?: boolean;
+}
+
+/**
+ * イベントから `id` と繰り返し・オーバーライド関連のフィールドを取り除いた
+ * 複製用の入力を返す（{@link buildOccurrenceCopy} の共通処理）。
+ */
+function stripEventIdentity(event: CalendarEvent): CalendarEventInput {
+  const {
+    id: _id,
+    rrule: _rrule,
+    exdates: _exdates,
+    rdates: _rdates,
+    recurringEventId: _recurringEventId,
+    originalStart: _originalStart,
+    ...rest
+  } = event;
+  return rest;
+}
+
+/**
+ * イベント（またはオカレンス）のコピーを、新規作成の入力（{@link CalendarEventInput}）
+ * として構築する。コピー＆ペーストの「コピー」に相当する純粋関数で、イベント一覧は
+ * 変更しない。
+ *
+ * - **単発イベント** — `id` を取り除いた複製を返す（`start` / `end` は元の値のまま）
+ * - **繰り返しイベント + `occurrenceStart`** — 当該オカレンスを **単発化** した複製を
+ *   返す（Google カレンダーのコピーと同じ扱い）。`start` / `end` はそのオカレンスの
+ *   日時になり、`rrule` / `exdates` / `rdates` は引き継がない。対象オカレンスが
+ *   オーバーライド済みの場合は、オーバーライドの現在の内容（移動後の日時・変更後の
+ *   タイトル等）をコピーする
+ * - **オーバーライドの ID** — オーバーライドの内容を単発イベントとして複製する
+ *   （`recurringEventId` / `originalStart` は引き継がない）
+ *
+ * 戻り値をそのまま {@link createEventIn}（または `CalendarApi.createEvent`）に渡すと
+ * 同じ日時への複製に、{@link placeEventInputAt} / {@link pasteEventIn} に渡すと
+ * 別の日時への貼り付けになる。
+ *
+ * @param events - 現在のイベント一覧
+ * @param id - コピー対象イベントの ID（オーバーライドの ID でもよい）
+ * @param params - コピー対象オカレンスの指定（{@link OccurrenceCopyParams}）
+ * @param context - 変更コンテキスト（ID 採番は行わないため {@link MutationReadContext} で足りる）
+ * @returns 新規作成の入力として使える複製（`id` を持たない）
+ * @throws 対象 ID のイベントが存在しない場合、または繰り返しイベントで
+ *   `occurrenceStart` が省略された場合は `Error`
+ * @example
+ * ```ts
+ * // 繰り返しの 7/3 のオカレンスを単発イベントとしてコピーする
+ * const copy = buildOccurrenceCopy(events, 'master-1', {
+ *   occurrenceStart: new Date('2026-07-03T00:00:00Z'),
+ * }, context);
+ * // copy.rrule は undefined（シリーズ全体はコピーされない）
+ * ```
+ */
+export function buildOccurrenceCopy(
+  events: readonly CalendarEvent[],
+  id: EventId,
+  params: OccurrenceCopyParams,
+  context: MutationReadContext,
+): CalendarEventInput {
+  const event = findEventOrThrow(events, id);
+
+  // 単発イベント・オーバーライドは現在の内容をそのまま複製する
+  if (!hasRecurrence(event)) {
+    return stripEventIdentity(event);
+  }
+
+  const occurrenceStart = params.occurrenceStart;
+  if (occurrenceStart === undefined) {
+    throw new Error(`繰り返しイベントのコピーには occurrenceStart の指定が必要です: '${id}'`);
+  }
+
+  // オーバーライド済みのオカレンスは、オーバーライドの現在の内容をコピーする
+  const override = findOverrideFor(events, event, occurrenceStart, context);
+  if (override !== undefined) {
+    return stripEventIdentity(override);
+  }
+
+  if (event.allDay === true) {
+    const startKey = targetAllDayKey(occurrenceStart, context);
+    return {
+      ...stripEventIdentity(event),
+      start: startKey,
+      end: addDaysToKey(startKey, occurrenceDayCount(event, context)),
+    };
+  }
+  return {
+    ...stripEventIdentity(event),
+    start: new Date(occurrenceStart.getTime()),
+    end: new Date(occurrenceStart.getTime() + occurrenceDurationMs(event, context)),
+  };
+}
+
+/**
+ * 新規作成の入力を貼り付け先の日時へ配置した入力を返す。コピー＆ペーストの
+ * 「貼り付け先日時への配置」に相当する純粋関数で、イベント一覧には触れない。
+ *
+ * - 長さは元の入力の長さを維持する（`end` 省略時は終日 1 日／時間指定
+ *   `defaultEventMinutes` 分とみなす）
+ * - `params.allDay` で時間指定 ⇔ 終日を変換できる。変換を伴う場合の長さは
+ *   {@link moveOccurrenceIn} と同じ規則（終日化はちょうど 1 日、時間指定化は
+ *   `defaultEventMinutes`）になる
+ * - 入力の `id` は取り除かれる（貼り付けは常に新しいイベントの作成になる）
+ *
+ * @param input - 配置する入力（{@link buildOccurrenceCopy} の戻り値など）
+ * @param params - 貼り付け先の指定（{@link PasteEventParams}）
+ * @param context - 変更コンテキスト（ID 採番は行わないため {@link MutationReadContext} で足りる）
+ * @returns 貼り付け先へ配置した新しい入力（`id` を持たない）
+ */
+export function placeEventInputAt(
+  input: CalendarEventInput,
+  params: PasteEventParams,
+  context: MutationReadContext,
+): CalendarEventInput {
+  const { id: _dropped, ...rest } = input;
+  // 長さの算出ヘルパー（occurrenceDurationMs / occurrenceDayCount）は CalendarEvent を
+  // 受け取るが `id` は参照しないため、仮の ID を付けた一時イベントとして扱う
+  const source: CalendarEvent = { ...rest, id: '(paste-source)' };
+  const sourceAllDay = input.allDay ?? false;
+  const destinationAllDay = params.allDay ?? sourceAllDay;
+  const allDayChanges = destinationAllDay !== sourceAllDay;
+
+  if (destinationAllDay) {
+    const startKey = targetAllDayKey(params.newStart, context);
+    const dayCount = allDayChanges ? 1 : occurrenceDayCount(source, context);
+    return { ...rest, start: startKey, end: addDaysToKey(startKey, dayCount), allDay: true };
+  }
+  const durationMs = allDayChanges
+    ? context.defaultEventMinutes * MINUTE_MS
+    : occurrenceDurationMs(source, context);
+  const placed: CalendarEventInput = {
+    ...rest,
+    start: new Date(params.newStart.getTime()),
+    end: new Date(params.newStart.getTime() + durationMs),
+  };
+  if (allDayChanges) {
+    // 終日 → 時間指定の変換のみ allDay を明示する（元から時間指定なら元の値を維持）
+    placed.allDay = false;
+  }
+  return placed;
+}
+
+/**
+ * 入力を貼り付け先の日時へ配置してイベント一覧に追加する
+ * （{@link placeEventInputAt} + {@link createEventIn}）。
+ *
+ * 入力の `id` は無視して常に `context.generateId()` で採番するため、同じ
+ * クリップボード内容を複数回貼り付けられる。
+ *
+ * @param events - 現在のイベント一覧
+ * @param input - 貼り付ける入力（{@link buildOccurrenceCopy} の戻り値など）
+ * @param params - 貼り付け先の指定（{@link PasteEventParams}）
+ * @param context - 変更コンテキスト
+ * @returns 追加後のイベント一覧と作成されたイベント
+ */
+export function pasteEventIn(
+  events: readonly CalendarEvent[],
+  input: CalendarEventInput,
+  params: PasteEventParams,
+  context: MutationContext,
+): CreateEventResult {
+  return createEventIn(events, placeEventInputAt(input, params, context), context);
+}
+
+/**
+ * イベントを貼り付け、影響を受けたイベントの before/after も返す
+ * （{@link pasteEventIn} の拡張版）。`changes` は作成されたイベント 1 件
+ * （`after` のみのエントリ）になり、undo（元に戻す）UI の実装に使える。
+ *
+ * @param events - 現在のイベント一覧
+ * @param input - 貼り付ける入力（{@link pasteEventIn} と同じ）
+ * @param params - 貼り付け先の指定（{@link PasteEventParams}）
+ * @param context - 変更コンテキスト
+ * @returns 追加後のイベント一覧・作成されたイベント・before/after 一覧
+ */
+export function pasteEventInWithChanges(
+  events: readonly CalendarEvent[],
+  input: CalendarEventInput,
+  params: PasteEventParams,
+  context: MutationContext,
+): CreateEventMutationResult {
+  const result = pasteEventIn(events, input, params, context);
+  return { ...result, changes: diffEventChanges(events, result.events) };
+}
+
+/**
+ * イベント（またはオカレンス）を同じ日時のまま複製する
+ * （{@link buildOccurrenceCopy} + {@link createEventIn}）。
+ *
+ * 繰り返しイベントでは当該オカレンスの **単発化** した複製になる
+ * （{@link buildOccurrenceCopy} のコピー規則を参照）。
+ *
+ * @param events - 現在のイベント一覧
+ * @param id - 複製対象イベントの ID（オーバーライドの ID でもよい）
+ * @param params - 複製対象オカレンスの指定（{@link OccurrenceCopyParams}）
+ * @param context - 変更コンテキスト
+ * @returns 追加後のイベント一覧と作成されたイベント
+ */
+export function duplicateEventIn(
+  events: readonly CalendarEvent[],
+  id: EventId,
+  params: OccurrenceCopyParams,
+  context: MutationContext,
+): CreateEventResult {
+  return createEventIn(events, buildOccurrenceCopy(events, id, params, context), context);
+}
+
+/**
+ * イベントを複製し、影響を受けたイベントの before/after も返す
+ * （{@link duplicateEventIn} の拡張版）。`changes` は作成されたイベント 1 件
+ * （`after` のみのエントリ）になり、undo（元に戻す）UI の実装に使える。
+ *
+ * @param events - 現在のイベント一覧
+ * @param id - 複製対象イベントの ID（{@link duplicateEventIn} と同じ）
+ * @param params - 複製対象オカレンスの指定（{@link OccurrenceCopyParams}）
+ * @param context - 変更コンテキスト
+ * @returns 追加後のイベント一覧・作成されたイベント・before/after 一覧
+ */
+export function duplicateEventInWithChanges(
+  events: readonly CalendarEvent[],
+  id: EventId,
+  params: OccurrenceCopyParams,
+  context: MutationContext,
+): CreateEventMutationResult {
+  const result = duplicateEventIn(events, id, params, context);
+  return { ...result, changes: diffEventChanges(events, result.events) };
 }
 
 /**
