@@ -402,6 +402,237 @@ describe('VirtualTimelineView', () => {
   });
 });
 
+/**
+ * 時間軸（横方向）の窓計算が参照する実測幅（`timeline-axis` のトラック幅・
+ * `timeline-corner` の行見出し列幅）をモックする。戻り値は解除関数。
+ */
+function mockTimelineWidths(axisWidth: number, cornerWidth = 0): () => void {
+  const original = HTMLElement.prototype.getBoundingClientRect;
+  // biome-ignore lint/suspicious/noExplicitAny: DOMRect 相当を簡易に用意するためのテスト専用モック
+  HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement): any {
+    const kind = this.getAttribute('data-koyomi');
+    const width =
+      kind === 'timeline-axis' ? axisWidth : kind === 'timeline-corner' ? cornerWidth : 0;
+    return { width, height: 0, top: 0, left: 0, right: width, bottom: 0, x: 0, y: 0 };
+  };
+  return () => {
+    HTMLElement.prototype.getBoundingClientRect = original;
+  };
+}
+
+/** 描画済みコンテナに clientWidth を定義し、scroll を発火して横スクロールを同期させる。 */
+async function setHorizontalViewport(
+  container: HTMLElement,
+  clientWidth: number,
+  scrollLeft = 0,
+): Promise<void> {
+  const body = container.querySelector('[data-koyomi="timeline-body"]');
+  if (!(body instanceof HTMLElement)) {
+    throw new Error('timeline-body コンテナが見つかりません');
+  }
+  Object.defineProperty(body, 'clientWidth', { configurable: true, value: clientWidth });
+  await act(async () => {
+    body.scrollLeft = scrollLeft;
+    body.dispatchEvent(new Event('scroll'));
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+  });
+}
+
+describe('VirtualTimelineView - 時間軸（横方向）の仮想化', () => {
+  /** timelineDays=5（2026-07-15〜19）。先頭日と末尾日に 1 件ずつ帯を置く。 */
+  const HORIZONTAL_EVENTS: readonly CalendarEvent[] = [
+    {
+      id: 'e-first',
+      title: '初日',
+      start: '2026-07-15T09:00',
+      end: '2026-07-15T10:00',
+      resourceId: 'r0',
+    },
+    {
+      id: 'e-last',
+      title: '末日',
+      start: '2026-07-19T09:00',
+      end: '2026-07-19T10:00',
+      resourceId: 'r0',
+    },
+  ];
+
+  it('横の境界幅を与えると、可視の日の範囲だけ目盛り・日ヘッダー・帯が描画される', async () => {
+    // トラック幅 3600px（720px × 5 日）・ビューポート 720px → 可視は初日のみ、
+    // 前後 overscan 1 日（既定）で 2 日分が窓に入る
+    const restore = mockTimelineWidths(3600);
+    try {
+      const { container } = render(
+        <Harness resources={makeResources(2)} timelineDays={5} events={HORIZONTAL_EVENTS} />,
+      );
+      await setHorizontalViewport(container, 720, 0);
+
+      // 日ヘッダー: 5 日中 2 日のみ
+      const dayHeaders = container.querySelectorAll('[data-koyomi="timeline-day-header"]');
+      expect(dayHeaders).toHaveLength(2);
+      expect(dayHeaders[0]?.textContent).toContain('15');
+      // 時刻目盛り: 全 5 日 × 24 件（1 時間刻み）中、窓内 2 日分の 48 件のみ
+      expect(container.querySelectorAll('[data-koyomi="timeline-slot-label"]')).toHaveLength(48);
+      // 帯: 初日の帯のみ描画され、末日（窓外）の帯は DOM から外れる
+      expect(container.querySelector('[data-koyomi-occurrence^="e-first@"]')).not.toBeNull();
+      expect(container.querySelector('[data-koyomi-occurrence^="e-last@"]')).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it('窓の後方に日が残る場合、日ヘッダーの後スペーサが残りの日数分の % 幅を持つ', async () => {
+    const restore = mockTimelineWidths(3600);
+    try {
+      const { container } = render(
+        <Harness resources={makeResources(2)} timelineDays={5} events={HORIZONTAL_EVENTS} />,
+      );
+      await setHorizontalViewport(container, 720, 0);
+
+      // 窓は先頭 2 日 → 前スペーサなし・後スペーサ 3 日分（3/5 = 60%）
+      expect(
+        container.querySelector('[data-koyomi="timeline-header-spacer"][data-edge="before"]'),
+      ).toBeNull();
+      const after = container.querySelector(
+        '[data-koyomi="timeline-header-spacer"][data-edge="after"]',
+      );
+      expect(after).toHaveAttribute('aria-hidden', 'true');
+      expect((after as HTMLElement).style.flexBasis).toBe('60%');
+    } finally {
+      restore();
+    }
+  });
+
+  it('横スクロールで窓が追従し、末尾の日が現れて先頭の日が窓の外へ出る', async () => {
+    const restore = mockTimelineWidths(3600);
+    try {
+      const { container } = render(
+        <Harness resources={makeResources(2)} timelineDays={5} events={HORIZONTAL_EVENTS} />,
+      );
+      // 末尾（day4 の先頭 = 2880px）までスクロール → 窓は day3..day4
+      await setHorizontalViewport(container, 720, 2880);
+
+      const dayHeaders = container.querySelectorAll('[data-koyomi="timeline-day-header"]');
+      expect(dayHeaders).toHaveLength(2);
+      expect(dayHeaders[dayHeaders.length - 1]?.textContent).toContain('19');
+      expect(container.querySelector('[data-koyomi-occurrence^="e-last@"]')).not.toBeNull();
+      expect(container.querySelector('[data-koyomi-occurrence^="e-first@"]')).toBeNull();
+
+      // 前スペーサ 3 日分（60%）・後スペーサなし
+      const before = container.querySelector(
+        '[data-koyomi="timeline-header-spacer"][data-edge="before"]',
+      );
+      expect((before as HTMLElement).style.flexBasis).toBe('60%');
+      expect(
+        container.querySelector('[data-koyomi="timeline-header-spacer"][data-edge="after"]'),
+      ).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it('行見出し列（timeline-corner）の実測幅が横の実効ビューポートから差し引かれる', async () => {
+    // corner 幅 720px を差し引くと実効ビューポートは 720px になり、
+    // corner 幅 0・ビューポート 720px の場合と同じ 2 日窓になる
+    const restore = mockTimelineWidths(3600, 720);
+    try {
+      const { container } = render(
+        <Harness resources={makeResources(2)} timelineDays={5} events={HORIZONTAL_EVENTS} />,
+      );
+      await setHorizontalViewport(container, 1440, 0);
+
+      expect(container.querySelectorAll('[data-koyomi="timeline-day-header"]')).toHaveLength(2);
+    } finally {
+      restore();
+    }
+  });
+
+  it('overscanDays で横 overscan の日数を変えられる', async () => {
+    const restore = mockTimelineWidths(3600);
+    try {
+      const { container } = render(
+        <Harness
+          resources={makeResources(2)}
+          timelineDays={5}
+          events={HORIZONTAL_EVENTS}
+          viewProps={{ overscanDays: 0 }}
+        />,
+      );
+      await setHorizontalViewport(container, 720, 0);
+
+      expect(container.querySelectorAll('[data-koyomi="timeline-day-header"]')).toHaveLength(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it('トラック幅の実測が無い（幅 0）ときは全日を描画へフォールバックする', async () => {
+    const { container } = render(
+      <Harness resources={makeResources(2)} timelineDays={5} events={HORIZONTAL_EVENTS} />,
+    );
+    await setHorizontalViewport(container, 720, 0);
+
+    expect(container.querySelectorAll('[data-koyomi="timeline-day-header"]')).toHaveLength(5);
+    expect(container.querySelectorAll('[data-koyomi="timeline-slot-label"]')).toHaveLength(120);
+    expect(container.querySelector('[data-koyomi-occurrence^="e-first@"]')).not.toBeNull();
+    expect(container.querySelector('[data-koyomi-occurrence^="e-last@"]')).not.toBeNull();
+    expect(container.querySelectorAll('[data-koyomi="timeline-header-spacer"]')).toHaveLength(0);
+  });
+
+  it('フォーカス中の帯は横窓外へスクロールしても DOM に残り、blur で解除される', async () => {
+    const restore = mockTimelineWidths(3600);
+    try {
+      const { container } = render(
+        <Harness resources={makeResources(2)} timelineDays={5} events={HORIZONTAL_EVENTS} />,
+      );
+      await setHorizontalViewport(container, 720, 0);
+
+      const firstItem = container.querySelector('[data-koyomi-occurrence^="e-first@"]');
+      if (firstItem === null) {
+        throw new Error('初日の帯が見つかりません');
+      }
+      await act(async () => {
+        fireEvent.focus(firstItem);
+      });
+
+      // 末尾へスクロールしても、フォーカス中の帯は横窓の外でも描画され続ける
+      await setHorizontalViewport(container, 720, 2880);
+      const kept = container.querySelector('[data-koyomi-occurrence^="e-first@"]');
+      expect(kept).not.toBeNull();
+
+      await act(async () => {
+        fireEvent.blur(kept as HTMLElement, { relatedTarget: document.body });
+      });
+      expect(container.querySelector('[data-koyomi-occurrence^="e-first@"]')).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it('week スケールではグループ見出しも横 windowing され、窓外のグループ分は % 幅スペーサになる', async () => {
+    // timelineDays=84・週スケール → トラック幅 84 × 96px = 8064px
+    const restore = mockTimelineWidths(8064);
+    try {
+      const { container } = render(
+        <Harness resources={makeResources(2)} timelineDays={84} timelineScale="week" />,
+      );
+      // ビューポート 960px → 可視 10 日 ＋ overscan 前後 1 日
+      await setHorizontalViewport(container, 960, 0);
+
+      const groups = container.querySelectorAll('[data-koyomi="timeline-group-header"]');
+      expect(groups.length).toBeGreaterThan(0);
+      // 84 日 ＝ 13 週前後のうち、可視 11 日に重なる 2〜3 グループのみ
+      expect(groups.length).toBeLessThan(5);
+      const after = container.querySelector(
+        '[data-koyomi="timeline-header-spacer"][data-edge="after"]',
+      );
+      expect(after).not.toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe('VirtualTimelineView - timelineScale（ズーム粒度）', () => {
   it("既定（省略時）は data-koyomi-scale='hour' で、日ヘッダー DOM は TimelineView と同一", () => {
     const { container } = render(<Harness resources={makeResources(2)} timelineDays={3} />);

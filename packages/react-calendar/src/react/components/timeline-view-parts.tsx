@@ -16,7 +16,9 @@
  * 完全には一致しない。無理に統合せずそれぞれのファイルに残している。
  *
  * ヘッダー軸（日ヘッダー or 週/月グループヘッダー ＋ 時刻/日番号の目盛り）は
- * 両ビューで完全に同一の DOM のため、{@link TimelineAxisHeader} として統合する。
+ * 両ビューで同一の DOM のため、{@link TimelineAxisHeader} として統合する。
+ * 仮想化版だけが使う時間軸（横方向）の windowing は `timeWindow`（省略可能）で
+ * opt-in し、省略時（`TimelineView`）は全範囲を描画する（DOM 出力は不変）。
  */
 
 import type { CSSProperties, ReactElement, Ref } from 'react';
@@ -151,6 +153,50 @@ export function useStableTimelineDrag(drag: TimelineDragHandlers): TimelineRowDr
     getResizeHandleProps: (item, edge) => dragRef.current.getResizeHandleProps(item, edge),
   }));
   return stable;
+}
+
+/**
+ * 時間軸（横方向）の可視ウィンドウ（表示分。overscan 込み）。
+ *
+ * `VirtualTimelineView` が横スクロール位置から算出し、時間軸セル（日ヘッダー・
+ * グループ見出し・時刻目盛り）と帯（`timeline-item`）の横 windowing に使う。
+ * `undefined`（未指定）は「全範囲を描画する」（非仮想化の `TimelineView`、および
+ * 横の境界幅が無く横仮想化が無効なとき）。
+ */
+export interface TimelineTimeWindow {
+  /** ウィンドウの開始（表示分）。 */
+  startMinutes: number;
+  /** ウィンドウの終了（表示分、排他）。 */
+  endMinutes: number;
+}
+
+/** `TimelineTimeWindow` の内容が等しいかどうかを比較する（`memo` 用）。 */
+export function sameTimeWindow(
+  a: TimelineTimeWindow | undefined,
+  b: TimelineTimeWindow | undefined,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a === undefined || b === undefined) {
+    return false;
+  }
+  return a.startMinutes === b.startMinutes && a.endMinutes === b.endMinutes;
+}
+
+/**
+ * 帯・営業時間帯などの表示分区画がウィンドウに重なるかどうかを判定する。
+ * ウィンドウ未指定（`undefined`）は常に重なる（全範囲を描画する）扱い。
+ */
+export function overlapsTimeWindow(
+  startMinutes: number,
+  endMinutes: number,
+  timeWindow: TimelineTimeWindow | undefined,
+): boolean {
+  if (timeWindow === undefined) {
+    return true;
+  }
+  return endMinutes > timeWindow.startMinutes && startMinutes < timeWindow.endMinutes;
 }
 
 /** `CalendarResource | null` の、表示に影響する内容が等しいかどうかを比較する。 */
@@ -340,6 +386,37 @@ interface TimelineAxisHeaderProps {
    *（{@link MessageCatalog.common.rangeSeparator}）。
    */
   rangeSeparator: string;
+  /**
+   * 時間軸（横方向）の可視ウィンドウ。指定時は日ヘッダー・グループ見出し・
+   * 時刻目盛りをウィンドウに重なる範囲だけ描画し、窓外の日ヘッダー/グループ
+   * 見出し分は % 幅のスペーサ（`timeline-header-spacer`）へ置き換える。
+   * 省略時は全範囲を描画する（`TimelineView` と同一の DOM）。
+   */
+  timeWindow?: TimelineTimeWindow | undefined;
+  /**
+   * 時間軸ルート（`timeline-axis`）へ渡す ref。`VirtualTimelineView` が
+   * トラック幅の実測（1 日分の幅の算出）に使う。
+   */
+  axisRef?: Ref<HTMLDivElement> | undefined;
+}
+
+/**
+ * 窓外の日ヘッダー/グループ見出し分を置き換える % 幅スペーサ。
+ * 幅 0 のときは描画しない（ウィンドウが先頭/末尾に接しているとき、
+ * `:first-child` 基準の罫線など非仮想化版の見た目を保つ）。
+ */
+function headerSpacer(edge: 'before' | 'after', percent: number): ReactElement | null {
+  if (percent <= 0) {
+    return null;
+  }
+  return (
+    <div
+      data-koyomi="timeline-header-spacer"
+      data-edge={edge}
+      aria-hidden="true"
+      style={{ flexGrow: 0, flexShrink: 0, flexBasis: `${percent}%` }}
+    />
+  );
 }
 
 /**
@@ -352,15 +429,53 @@ interface TimelineAxisHeaderProps {
  * 目盛り（`timeline-slots`）は常に描画し、内容のみ `slots` に従う。
  */
 function TimelineAxisHeaderImpl(props: TimelineAxisHeaderProps): ReactElement {
-  const { days, slots, headerGroups, scale, totalMinutes, timeZone, locale, rangeSeparator } =
-    props;
+  const {
+    days,
+    slots,
+    headerGroups,
+    scale,
+    totalMinutes,
+    timeZone,
+    locale,
+    rangeSeparator,
+    timeWindow,
+    axisRef,
+  } = props;
+  // 日ヘッダーの描画範囲（日インデックス、両端含む）。ウィンドウ未指定なら全日。
+  let firstDayIndex = 0;
+  let lastDayIndex = days.length - 1;
+  if (timeWindow !== undefined && days.length > 0) {
+    firstDayIndex = Math.min(
+      days.length - 1,
+      Math.max(0, Math.floor(timeWindow.startMinutes / MINUTES_PER_DAY)),
+    );
+    lastDayIndex = Math.min(
+      days.length - 1,
+      Math.max(firstDayIndex, Math.ceil(timeWindow.endMinutes / MINUTES_PER_DAY) - 1),
+    );
+  }
+  // グループ見出しの描画対象（ウィンドウに重なるものだけ）。
+  const visibleGroups =
+    headerGroups === null
+      ? null
+      : headerGroups.filter((group) =>
+          overlapsTimeWindow(group.startMinutes, group.endMinutes, timeWindow),
+        );
+  const visibleSlots =
+    timeWindow === undefined
+      ? slots
+      : slots.filter(
+          (slot) => slot.minutes >= timeWindow.startMinutes && slot.minutes < timeWindow.endMinutes,
+        );
   return (
     // biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA columnheader（TimelineView と同じ方針。日ヘッダー・時刻目盛りをまとめた1セル）
     // biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない（ネイティブ <th> も単体ではタブ移動対象にならない）
-    <div data-koyomi="timeline-axis" role="columnheader">
-      {headerGroups === null ? (
+    <div ref={axisRef} data-koyomi="timeline-axis" role="columnheader">
+      {visibleGroups === null ? (
         <div data-koyomi="timeline-day-headers">
-          {days.map((day) => (
+          {timeWindow !== undefined &&
+            headerSpacer('before', ((firstDayIndex * MINUTES_PER_DAY) / totalMinutes) * 100)}
+          {days.slice(firstDayIndex, lastDayIndex + 1).map((day) => (
             <div
               key={day.key}
               data-koyomi="timeline-day-header"
@@ -371,10 +486,17 @@ function TimelineAxisHeaderImpl(props: TimelineAxisHeaderProps): ReactElement {
               {formatDayHeader(day.date, timeZone, locale)}
             </div>
           ))}
+          {timeWindow !== undefined &&
+            headerSpacer(
+              'after',
+              (((days.length - 1 - lastDayIndex) * MINUTES_PER_DAY) / totalMinutes) * 100,
+            )}
         </div>
       ) : (
         <div data-koyomi="timeline-group-headers">
-          {headerGroups.map((group) => (
+          {timeWindow !== undefined &&
+            headerSpacer('before', ((visibleGroups[0]?.startMinutes ?? 0) / totalMinutes) * 100)}
+          {visibleGroups.map((group) => (
             <div
               key={group.key}
               data-koyomi="timeline-group-header"
@@ -395,10 +517,16 @@ function TimelineAxisHeaderImpl(props: TimelineAxisHeaderProps): ReactElement {
                   )}
             </div>
           ))}
+          {timeWindow !== undefined &&
+            headerSpacer(
+              'after',
+              ((totalMinutes - (visibleGroups.at(-1)?.endMinutes ?? totalMinutes)) / totalMinutes) *
+                100,
+            )}
         </div>
       )}
       <div data-koyomi="timeline-slots">
-        {slots.map((slot) => (
+        {visibleSlots.map((slot) => (
           <div
             key={slot.minutes}
             data-koyomi="timeline-slot-label"
@@ -428,6 +556,8 @@ export const TimelineAxisHeader = memo(TimelineAxisHeaderImpl, (prev, next) => {
     prev.totalMinutes === next.totalMinutes &&
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
-    prev.rangeSeparator === next.rangeSeparator
+    prev.rangeSeparator === next.rangeSeparator &&
+    sameTimeWindow(prev.timeWindow, next.timeWindow) &&
+    prev.axisRef === next.axisRef
   );
 });

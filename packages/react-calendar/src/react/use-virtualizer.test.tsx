@@ -109,7 +109,9 @@ describe('useVirtualizer', () => {
 
   it('count=0 のとき startIndex/endIndex は -1 になる', () => {
     const element = scrollElement(100);
-    const { result } = renderHook(() => useVirtualizer({ ...baseOptions(element, true), count: 0 }));
+    const { result } = renderHook(() =>
+      useVirtualizer({ ...baseOptions(element, true), count: 0 }),
+    );
 
     expect(result.current.startIndex).toBe(-1);
     expect(result.current.endIndex).toBe(-1);
