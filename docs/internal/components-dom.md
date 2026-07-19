@@ -302,7 +302,8 @@ div[data-koyomi="multimonth"]
 
 ## リソースビュー（ResourceView）
 
-1 日固定、列 = リソース。イベントブロック・リサイズハンドル・現在時刻線・プレビューは
+列 = リソース × 日（表示日数は `resourceViewDays`、既定 1。複数日はリソース優先で日が
+昇順に並ぶ）。イベントブロック・リサイズハンドル・現在時刻線・プレビューは
 週/日ビュー（`timegrid-event` / `timegrid-resize` / `now-indicator` / `timegrid-preview`）と
 **同じ部位名**を使い、デフォルトテーマのスタイルを共有する（列ごとに `layoutTimeGridItems` を
 実行した結果を、週/日ビューの日列と同じ描画で表示するだけのため）。
@@ -316,14 +317,16 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"] (style: --koyomi-tim
     div[data-koyomi="resource-header"] (role="row")
       div[data-koyomi="timegrid-axis-gutter"] (role="presentation")   … 左上の空き（時間軸幅の確保）
       div[data-koyomi="resource-headers"] (role="presentation")  … row→columnheader 間の透過ラッパ
-        div[data-koyomi="resource-header-cell"][data-koyomi-resource-id]? (role="columnheader") × columns
-           … リソース名（renderColumnHeader で差し替え可）。未割り当て列は data-koyomi-resource-id なし。
+        div[data-koyomi="resource-header-cell"][data-koyomi-date][data-koyomi-resource-id]? (role="columnheader") × columns
+           … リソース名（複数日表示では「リソース名 + 日ラベル」。renderColumnHeader で差し替え可）。
+             未割り当て列は data-koyomi-resource-id なし。data-koyomi-date は列の日付キー。
              style: --koyomi-event-color（resource.color 指定時のみ）
     div[data-koyomi="allday-row"] (role="row")
       div[data-koyomi="timegrid-axis-gutter"] (role="presentation")
       div[data-koyomi="resource-allday-cells"] (role="presentation")  … position: relative の基準（row→gridcell 間の透過ラッパ）
-        div[data-koyomi="resource-allday-cell"][data-koyomi-resource][data-koyomi-preview-target?][data-koyomi-invalid?] (role="gridcell", aria-label=リソース名/未割り当て) × columns
-           … getAllDayCellProps（クリックで当日 1 日分の終日イベント作成。キーボードでの直接作成には未対応 = 既知の制限）。
+        div[data-koyomi="resource-allday-cell"][data-koyomi-resource][data-koyomi-date][data-koyomi-preview-target?][data-koyomi-invalid?] (role="gridcell", aria-label=リソース名/未割り当て。複数日表示では日ラベル付き) × columns
+           … getAllDayCellProps（クリックでその列の日 1 日分の終日イベント作成。キーボードでの直接作成には未対応 = 既知の制限）。
+             data-koyomi-resource はレーンキー（r:${id} / 'unassigned'）、data-koyomi-date は列の日付キー。
              data-koyomi-invalid は data-koyomi-preview-target="true" の列かつ宣言的制約違反時のみ 'true'
           button[data-koyomi="allday-event"] × n             … getAllDayItemProps（列間移動のみ）
              style: --koyomi-event-color（event.color ?? resource.color）
@@ -332,14 +335,16 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"] (style: --koyomi-tim
     div[data-koyomi="time-axis"]
       div[data-koyomi="time-slot-label"] × slots           … 'HH:mm'
     div[data-koyomi="resource-columns"]
-      div[data-koyomi="resource-column"][data-koyomi-resource][data-today?] × columns
-         … getColumnProps を展開。position: relative の基準
+      div[data-koyomi="resource-column"][data-koyomi-resource][data-koyomi-date][data-today?] × columns
+         … getColumnProps を展開。position: relative の基準。
+           data-koyomi-resource はレーンキー、data-koyomi-date は列の日付キー、
+           data-today はその列の日が今日の列のみ
         div[data-koyomi="timegrid-slot"][data-koyomi-business-hours]? × slots
                                                       … 罫線。style: top %。
                                                         data-koyomi-business-hours は
                                                         businessHours 該当スロットのみ付き、
                                                         その場合 style に height（次スロットまで）も追加
-                                                        （表示日の曜日基準で判定し全列共通。週/日ビューと同じ規則）
+                                                        （列の日の曜日基準で判定。週/日ビューと同じ規則）
         button[data-koyomi="timegrid-event"] × n           … getEventProps を展開
            [data-continues-before?][data-continues-after?][data-koyomi-dragging?]
            style: top/height/left/width すべて %
@@ -351,7 +356,7 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"] (style: --koyomi-tim
         div[data-koyomi="timegrid-preview"][data-kind="create|move|resize"]?[data-koyomi-invalid]? (aria-hidden)
            … previewFor(column) のその列に該当する区間。style: top/height %。
              data-koyomi-invalid は宣言的制約違反時のみ 'true'
-        div[data-koyomi="now-indicator"]? (aria-hidden)    … style: top %（表示日が今日の列のみ）
+        div[data-koyomi="now-indicator"]? (aria-hidden)    … style: top %（その列の日が今日の列のみ）
   div[data-koyomi="resource-empty"]?                        … isEmpty のとき messages.resource.empty（既定「リソースがありません」）
 ```
 

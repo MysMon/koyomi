@@ -496,7 +496,7 @@ function useResourceGridDrag(params: {
 }): ResourceGridDragHandlers
 ```
 
-リソースビュー（列 = リソース × 縦 = 時間）のドラッグインタラクション（新規作成・移動・リサイズ・列間のリソース移動）を提供する低レベルフックです。`ResourceView` が内部で使用しています。確定時は時間の変更と `resourceId` の変更を 1 つのパッチに合成し、1 回の `updateEvent` を呼びます。
+リソースビュー（列 = リソース × 日、縦 = 時間）のドラッグインタラクション（新規作成・移動・リサイズ・列間の移動）を提供する低レベルフックです。`ResourceView` が内部で使用しています。確定時は時間・日付の変更と `resourceId` の変更を 1 つのパッチに合成し、1 回の `updateEvent` を呼びます（複数日表示では別の日の列への移動が日数シフトになります）。
 
 **戻り値 `ResourceGridDragHandlers`**
 
@@ -515,8 +515,8 @@ function useResourceGridDrag(params: {
 
 | 型 | フィールド |
 | --- | --- |
-| `ResourceColumnProps` | `ref`, `onPointerDown`, `'data-koyomi-resource'` |
-| `ResourceAllDayCellProps` | `onClick`, `onKeyDown`, `tabIndex`, `'data-koyomi-resource'` |
+| `ResourceColumnProps` | `ref`, `onPointerDown`, `'data-koyomi-resource'`（レーンキー）, `'data-koyomi-date'`（列の日付キー） |
+| `ResourceAllDayCellProps` | `onClick`, `onKeyDown`, `tabIndex`, `'data-koyomi-resource'`（レーンキー）, `'data-koyomi-date'`（列の日付キー） |
 | `ResourceEventProps` | `onPointerDown`, `onClick`, `onKeyDown`, `tabIndex`, `'data-koyomi-occurrence'`, `'data-koyomi-dragging'?` |
 | `ResourceResizeHandleProps` | `onPointerDown`, `onClick`, `'data-koyomi-resize-handle': 'start' \| 'end'` |
 | `ResourcePreviewSegment` | `kind: 'create' | 'move' | 'resize'`, `startMinutes: number`, `endMinutes: number`, `invalid?: boolean`（宣言的制約違反時のみ `true`） |
@@ -995,6 +995,7 @@ interface ToolbarProps {
 | `listDays?` | `number` | `30` |
 | `multiMonthCount?` | `number` | `3` |
 | `timelineDays?` | `number` | `1` |
+| `resourceViewDays?` | `number` | `1`（リソースビューが表示する日数。`2` 以上で列がリソース × 日の直積になる。詳細は [ビュー: リソースビュー](./views.md#リソースビューresource) を参照） |
 | `timelineScale?` | `TimelineScale`（`'hour' \| 'day' \| 'week' \| 'month'`） | `'hour'`（タイムラインビューの横軸のズーム粒度。詳細は [ビュー: タイムラインのズーム粒度](./views.md#タイムラインのズーム粒度timelinescale) を参照） |
 | `unassignedLane?` | `'auto' \| 'always'` | `'auto'` |
 | `locale?` | `string` | `'ja'` |
@@ -1015,9 +1016,9 @@ interface ToolbarProps {
 
 `resources` は `events` と完全に同型の扱いです（状態の初期値。`ResolvedCalendarOptions` には含まれません）。動的な変更には `getResources` / `setResources`（[予定の管理: リソース](./events.md#リソース)を参照）を使います。
 
-`timelineDays` はタイムラインビューの表示日数、`unassignedLane` はリソース/タイムラインビューの未割り当てレーンの生成規則です（`'auto'` = 該当する予定があるときのみ末尾に生成、`'always'` = 常に生成。詳細は [ビュー](./views.md#年複数月リソースタイムラインビューを有効にするopt-in) を参照）。
+`timelineDays` はタイムラインビュー、`resourceViewDays` はリソースビューの表示日数（いずれも `next()`/`prev()` の移動単位を兼ねる）、`unassignedLane` はリソース/タイムラインビューの未割り当てレーンの生成規則です（`'auto'` = 該当する予定があるときのみ末尾に生成、`'always'` = 常に生成。詳細は [ビュー](./views.md#年複数月リソースタイムラインビューを有効にするopt-in) を参照）。
 
-`ResolvedCalendarOptions` は、表示・展開に使う既定値適用後のオプションだけを持つ型です（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `timeAxisZones` / `defaultEventMinutes` / `listDays` / `multiMonthCount` / `timelineDays` / `timelineScale` / `unassignedLane` / `locale` / `hiddenWeekdays` / `showWeekNumbers` / `businessHours` / `eventOverlap` / `eventConstraint`（未指定は `null`） / `slotMinTime` / `slotMaxTime` / `now`。コールバック類や `initialView` / `initialDate` / `resources` / `initialCollapsedResourceIds` は含みません）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' | 'resource' | 'timeline'` です。
+`ResolvedCalendarOptions` は、表示・展開に使う既定値適用後のオプションだけを持つ型です（`weekStartsOn` / `dayMaxEvents` / `snapMinutes` / `slotMinutes` / `timeAxisZones` / `defaultEventMinutes` / `listDays` / `multiMonthCount` / `timelineDays` / `resourceViewDays` / `timelineScale` / `unassignedLane` / `locale` / `hiddenWeekdays` / `showWeekNumbers` / `businessHours` / `eventOverlap` / `eventConstraint`（未指定は `null`） / `slotMinTime` / `slotMaxTime` / `now`。コールバック類や `initialView` / `initialDate` / `resources` / `initialCollapsedResourceIds` は含みません）。`CalendarViewType` は `'month' | 'week' | 'day' | 'list' | 'year' | 'multiMonth' | 'resource' | 'timeline'` です。
 
 `BusinessHoursRule` は `{ daysOfWeek: readonly Weekday[]; startTime: string; endTime: string }`（`startTime` / `endTime` は `'HH:mm'` 形式。`endTime` のみ日の終端を表す `'24:00'` も指定可。`startTime` が `endTime` 以降、または形式が不正だと `Error`）です。
 
@@ -1046,8 +1047,9 @@ interface ToolbarProps {
 | `YearDay` | `{ date; key; inCurrentMonth; isToday; eventCount }`。前後月の日付（`inCurrentMonth: false`）は常に `eventCount: 0` |
 | `MultiMonthViewModel` | `{ type: 'multiMonth'; anchor: Date; months: readonly MultiMonthMonth[]; weekdays: readonly Weekday[] }` |
 | `MultiMonthMonth` | `{ anchor: Date; key: string; weeks: readonly MonthWeek[] }`。`weeks` は月ビューと同じ `MonthWeek` だが、前後月の日付セルにはセグメントを配置しない |
-| `ResourceViewModel` | `{ type: 'resource'; date: Date; dateKey: string; isToday: boolean; columns: readonly ResourceColumn[]; isEmpty: boolean; slots: readonly TimeSlot[]; slotMinTimeMinutes: number; slotMaxTimeMinutes: number; nowIndicatorMinutes: number \| null; businessHourSlots: readonly BusinessHourSlot[] }`。`businessHourSlots` は `slots` と同じ並びの営業時間内フラグ（表示日の曜日基準で判定した 1 本を全列で共有。`businessHours` 未指定時はすべて `false`）。`slotMinTimeMinutes`/`slotMaxTimeMinutes` は `TimeGridViewModel` と同じ意味 |
-| `ResourceColumn` | `{ resource: CalendarResource \| null; key: string; items: readonly PositionedOccurrence[]; allDayItems: readonly EventOccurrence[] }`。`resource: null` は未割り当て列。`key` は `` `r:${id}` `` または `'unassigned'` |
+| `ResourceViewModel` | `{ type: 'resource'; date: Date; dateKey: string; isToday: boolean; days: readonly ResourceViewDay[]; columns: readonly ResourceColumn[]; isEmpty: boolean; slots: readonly TimeSlot[]; slotMinTimeMinutes: number; slotMaxTimeMinutes: number; nowIndicatorMinutes: number \| null; businessHourSlots: readonly BusinessHourSlot[] }`。`date`/`dateKey`/`isToday` は先頭日、`days` は `resourceViewDays` 日分の表示日一覧。`columns` はリソース × 日の直積（リソース優先で日が昇順に並ぶ）。`businessHourSlots` は先頭日の営業時間内フラグ（日ごとの値は `days[].businessHourSlots`）。`nowIndicatorMinutes` は表示範囲に今日が含まれない場合 `null`。`slotMinTimeMinutes`/`slotMaxTimeMinutes` は `TimeGridViewModel` と同じ意味 |
+| `ResourceViewDay` | `{ date: Date; key: string; isToday: boolean; businessHourSlots: readonly BusinessHourSlot[] }`。リソースビューの表示日 1 日分のメタデータ（`businessHourSlots` はその日の曜日基準） |
+| `ResourceColumn` | `{ resource: CalendarResource \| null; key: string; date: Date; dayKey: string; isToday: boolean; dayIndex: number; items: readonly PositionedOccurrence[]; allDayItems: readonly EventOccurrence[] }`。`resource: null` は未割り当て列。`key` は単日表示では `` `r:${id}` `` または `'unassigned'`、複数日表示（`resourceViewDays` が `2` 以上）では `` `r:${id}@YYYY-MM-DD` `` / `` `unassigned@YYYY-MM-DD` ``。`date`/`dayKey`/`isToday`/`dayIndex` は列が表す日の情報 |
 | `TimelineViewModel` | `{ type: 'timeline'; days: readonly TimelineDay[]; slots: readonly TimelineSlot[]; rows: readonly TimelineRow[]; isEmpty: boolean; totalMinutes: number; nowIndicatorMinutes: number \| null; businessHourRanges: readonly BusinessHourRange[]; scale: TimelineScale; headerGroups: readonly TimelineHeaderGroup[] \| null }`。`businessHourRanges` は営業時間を表示分座標系へ変換し、隣接・重複をマージした区間一覧（開始分昇順。`businessHours` 未指定時は `[]`）。`scale` は適用中のズーム粒度、`headerGroups` は `scale` が `'week'`/`'month'` のときのみ配列（それ以外は `null`） |
 | `TimelineScale` | `'hour' \| 'day' \| 'week' \| 'month'`。タイムラインビューの横軸のズーム粒度 |
 | `TimelineHeaderGroup` | `{ start: Date; end: Date; key: string; startMinutes: number; endMinutes: number; containsToday: boolean }`。`TimelineViewModel.headerGroups` の要素（週/月単位のヘッダー見出し 1 本分）。`start`/`end` は表示範囲でクランプ済み |
@@ -1473,6 +1475,8 @@ const resourceModel = buildResourceViewModel({
 });
 console.log(resourceModel.type); // => 'resource'
 console.log(resourceModel.columns[0]?.key); // => 'r:room-a'
+// resourceViewDays: 2 を渡すと columns はリソース × 日の直積になり、
+// キーは 'r:room-a@2026-07-15' / 'r:room-a@2026-07-16' の形式になる
 ```
 
 ```ts
@@ -1523,7 +1527,7 @@ console.log(tree.map((entry) => entry.depth)); // => [0, 1]
 | `formatMonthTitle(date, timeZone, locale): string` | 月ビューのタイトル（例: `'2026年7月'`） |
 | `formatDayTitle(date, timeZone, locale): string` | 日ビューのタイトル（例: `'2026年7月15日(水)'`） |
 | `formatRangeTitle(range, timeZone, locale, rangeSeparator): string` | 週/リストビューのタイトル（例: `'7月5日〜7月11日'`）。`rangeSeparator` は開始側・終了側を連結する区切り記号（ビルトインコンポーネントは `messages.common.rangeSeparator` を渡す） |
-| `formatViewTitle(view, currentDate, range, timeZone, locale, rangeSeparator): string` | 現在のビューに応じたタイトル。月/日/年は `formatMonthTitle` / `formatDayTitle` / `formatYearTitle` に、週/リスト/複数日タイムラインは `formatRangeTitle` に委譲し、複数月は開始月・終了月を `rangeSeparator` で連結する（`Toolbar` のタイトルと同じ整形） |
+| `formatViewTitle(view, currentDate, range, timeZone, locale, rangeSeparator): string` | 現在のビューに応じたタイトル。月/日/年は `formatMonthTitle` / `formatDayTitle` / `formatYearTitle` に、週/リスト/複数日表示のリソース・タイムラインは `formatRangeTitle` に委譲し、複数月は開始月・終了月を `rangeSeparator` で連結する（`Toolbar` のタイトルと同じ整形） |
 | `formatYearTitle(date, timeZone, locale): string` | 年ビューのタイトル（例: `'2026年'`） |
 | `formatWeekday(weekday, locale): string` | 曜日の短縮ラベル（例: `'日'`） |
 | `formatDayHeader(date, timeZone, locale): string` | 時間グリッドの日ヘッダー用ラベル（例: `'15 (水)'`） |

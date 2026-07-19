@@ -34,11 +34,11 @@ Koyomi は月・週・日・リスト（スケジュール）・年・複数月�
 
 ### リソースビュー（resource）
 
-`ResourceView` が描画します。1 日の時間グリッドを「列 = リソース」で描きます（週/日ビューの「列 = 日」をリソースに置き換えたもの。Google カレンダーの会議室日表示相当）。表示日は常に 1 日固定で、`hiddenWeekdays` は日ビューと同じく無視されます。
+`ResourceView` が描画します。時間グリッドを「列 = リソース」で描きます（週/日ビューの「列 = 日」をリソースに置き換えたもの。Google カレンダーの会議室日表示相当）。表示日数は `resourceViewDays`（既定 `1`）で指定でき、`2` 以上にすると列が**リソース × 日の直積**になります。グルーピング順は**リソース優先**（各リソースの中に日が昇順で並ぶ。FullCalendar の resourceTimeGrid の既定 `datesAboveResources: false` と同じ一般的な並び）です。`hiddenWeekdays` は日ビューと同じく無視され、常に `resourceViewDays` 日の連続した並びになります。
 
-構成は週/日ビューに準じます。上部にリソース列見出し行（`resources` の並び順。列見出しにはリソースの `color` が反映されます）、その下に終日行、本体には時間軸と各リソースの時間指定イベント列が並びます。`resourceId` を持たない予定、または `resources` に存在しない ID を指す予定（参照先のない `resourceId`）は「未割り当て」列に表示されます。未割り当て列は既定（`unassignedLane: 'auto'`）では該当する予定があるときだけ末尾に現れ、`unassignedLane: 'always'` を指定すると常に表示されます（詳細は下記の[関連オプション](#関連オプション)）。
+構成は週/日ビューに準じます。上部にリソース列見出し行（`resources` の並び順。列見出しにはリソースの `color` が反映され、複数日表示では「リソース名 + 日ラベル」（例: `会議室A 15 (水)`）になります）、その下に終日行、本体には時間軸と各リソースの時間指定イベント列が並びます。`resourceId` を持たない予定、または `resources` に存在しない ID を指す予定（参照先のない `resourceId`）は「未割り当て」列に表示されます。未割り当て列は既定（`unassignedLane: 'auto'`）では該当する予定があるときだけ末尾に現れ、`unassignedLane: 'always'` を指定すると常に表示されます（詳細は下記の[関連オプション](#関連オプション)）。
 
-インタラクションは `useResourceGridDrag` が提供します。縦方向（時間）は週/日ビューと同じ操作、横方向（リソース）はドラッグで別のリソース列へ移動できます。予定の作成・移動・リサイズが確定すると、時間の変更と `resourceId` の変更が 1 回の更新にまとめて適用されます。キーボードは `↑`/`↓` が時間の移動・`Shift+↑`/`Shift+↓` がリサイズ、**`←`/`→` が隣のリソース列への移動**です（画面上の視覚軸に対応する操作。詳細は [インタラクション](./interactions.md) を参照）。終日 ⇔ 時間指定の変換ドラッグは提供しません。
+インタラクションは `useResourceGridDrag` が提供します。縦方向（時間）は週/日ビューと同じ操作、横方向はドラッグで別の列へ移動できます。複数日表示では別の日の列への移動が日付の変更（日数シフト）になり、予定の作成・移動・リサイズが確定すると、時間・日付の変更と `resourceId` の変更が 1 回の更新にまとめて適用されます（作成・リサイズの対象日は開始列の日に固定されます）。キーボードは `↑`/`↓` が時間の移動・`Shift+↑`/`Shift+↓` がリサイズ、**`←`/`→` が隣の列への移動**です（画面上の視覚軸に対応する操作。複数日表示では同一リソース内の隣の日 → リソース境界では隣のリソースの端の日、の順に移ります。詳細は [インタラクション](./interactions.md) を参照）。終日 ⇔ 時間指定の変換ドラッグは提供しません。
 
 `CalendarResource.parentId` はリソースビューには影響しません。列順は常に `resources` 配列の順（フラット）で、ツリー表示・折りたたみはタイムラインビュー専用です。
 
@@ -175,7 +175,7 @@ const calendar = useCalendar({
 | `list` | ±`listDays` 日 |
 | `year` | ±1 年（基準日は年初に正規化される） |
 | `multiMonth` | ±`multiMonthCount` ヶ月（基準日は月初に正規化される） |
-| `resource` | ±1 日（`day` と同一） |
+| `resource` | ±`resourceViewDays` 日（既定 `1` = `day` と同一） |
 | `timeline` | ±`timelineDays` 日 |
 
 ```ts
@@ -198,7 +198,8 @@ calendar.today(); // now() が指す日（この例では 2026-07-15）に戻る
 // - week ビューでは next()/prev() が ±7日、day ビューでは ±1日、
 //   list ビューでは ±listDays 日（既定 30）、year ビューでは ±1 年、
 //   multiMonth ビューでは ±multiMonthCount ヶ月（既定 3）、
-//   resource ビューでは ±1 日、timeline ビューでは ±timelineDays 日（既定 1）で
+//   resource ビューでは ±resourceViewDays 日（既定 1）、
+//   timeline ビューでは ±timelineDays 日（既定 1）で
 //   currentDate（および getVisibleRange()）が動く
 ```
 
@@ -213,10 +214,10 @@ calendar.today(); // now() が指す日（この例では 2026-07-15）に戻る
 | `ListViewModel` | `'list'` | `days`（予定がある日だけの `ListDay[]`）、`isEmpty` |
 | `YearViewModel` | `'year'` | `anchor`（表示対象年の1月1日）、`months`（`YearMonth[]`、12件）、`weekdays`（曜日の並び） |
 | `MultiMonthViewModel` | `'multiMonth'` | `anchor`（先頭月の1日）、`months`（`MultiMonthMonth[]`、`multiMonthCount` 件）、`weekdays`（曜日の並び） |
-| `ResourceViewModel` | `'resource'` | `date`（表示日）、`columns`（`ResourceColumn[]`。`resources` の並び順＋末尾に未割り当て列）、`isEmpty`、`slots`（時間軸の目盛り）、`nowIndicatorMinutes` |
+| `ResourceViewModel` | `'resource'` | `date`（先頭日）、`days`（`ResourceViewDay[]`、`resourceViewDays` 日分）、`columns`（`ResourceColumn[]`。リソース × 日の直積。リソースは `resources` の並び順＋末尾に未割り当て列）、`isEmpty`、`slots`（時間軸の目盛り）、`nowIndicatorMinutes` |
 | `TimelineViewModel` | `'timeline'` | `days`（`timelineDays` 日分）、`rows`（`TimelineRow[]`。`resources` の並び順＋末尾に未割り当て行）、`isEmpty`、`slots`（`TimelineSlot[]`）、`totalMinutes`、`nowIndicatorMinutes` |
 
-`MonthWeek.days` は `MonthDay[]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `overflowCount` など）、`TimeGridDay.items` は `PositionedOccurrence[]`（`startMinutes` / `endMinutes` / `left` / `width` など割合ベースの配置情報）を持ちます。`YearMonth.weeks` は `YearDay[][]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `eventCount` を持ち、前後月の日付は `eventCount: 0` に固定）です。`MultiMonthMonth.weeks` は月ビューと同じ `MonthWeek[]` です（前後月の日付セルにはセグメントを配置しない点だけが月ビューと異なります）。`ResourceColumn`（`resource` / `key` / `items`（`PositionedOccurrence[]`）/ `allDayItems`）は週/日ビューと同じ配置計算を列ごとに行った結果です。`TimelineRow`（`resource` / `key` / `items`（`TimelineItem[]`）/ `laneCount`）の `TimelineItem` は `startMinutes` / `endMinutes` が「表示分」（範囲先頭からの分。全日を等幅 1440 分として扱う座標系）で表され、`lane` で行内の縦位置を示します。詳細なフィールドは各型の TSDoc を参照してください。
+`MonthWeek.days` は `MonthDay[]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `overflowCount` など）、`TimeGridDay.items` は `PositionedOccurrence[]`（`startMinutes` / `endMinutes` / `left` / `width` など割合ベースの配置情報）を持ちます。`YearMonth.weeks` は `YearDay[][]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `eventCount` を持ち、前後月の日付は `eventCount: 0` に固定）です。`MultiMonthMonth.weeks` は月ビューと同じ `MonthWeek[]` です（前後月の日付セルにはセグメントを配置しない点だけが月ビューと異なります）。`ResourceColumn`（`resource` / `key` / `date` / `dayKey` / `isToday` / `dayIndex` / `items`（`PositionedOccurrence[]`）/ `allDayItems`）は週/日ビューと同じ配置計算を列（リソース × 日）ごとに行った結果です。`TimelineRow`（`resource` / `key` / `items`（`TimelineItem[]`）/ `laneCount`）の `TimelineItem` は `startMinutes` / `endMinutes` が「表示分」（範囲先頭からの分。全日を等幅 1440 分として扱う座標系）で表され、`lane` で行内の縦位置を示します。詳細なフィールドは各型の TSDoc を参照してください。
 
 `type` で分岐すれば、ビューごとの情報を型安全に扱えます。
 
@@ -291,6 +292,7 @@ function BareMonthGrid() {
 | `multiMonthCount` | `number` | `3` | 複数月ビューが表示する月数。`next()`/`prev()` の移動単位にもなる |
 | `hiddenWeekdays` | `readonly Weekday[]` | `[]` | 月・週・複数月ビューの列から除外する曜日（下記参照）。年・日・リソース・タイムラインビューは無視する。リストビューは対象外（そもそも受け取らない） |
 | `resources` | `readonly CalendarResource[]` | `[]` | リソースビュー・タイムラインビューの列/行になるリソース一覧（表示順）。他ビューには影響しない。詳細は [予定の管理: リソース](./events.md#リソース) を参照 |
+| `resourceViewDays` | `number` | `1` | リソースビューが表示する日数。`2` 以上で列がリソース × 日の直積（リソース優先のグルーピング順）になる。`next()`/`prev()` の移動単位にもなる |
 | `timelineDays` | `number` | `1` | タイムラインビューが表示する日数。`next()`/`prev()` の移動単位にもなる |
 | `timelineScale` | `'hour' \| 'day' \| 'week' \| 'month'` | `'hour'` | タイムラインビューの横軸のズーム粒度。詳細は [タイムラインのズーム粒度](#タイムラインのズーム粒度timelinescale) を参照 |
 | `unassignedLane` | `'auto' \| 'always'` | `'auto'` | リソース/タイムラインビューの未割り当てレーンの生成規則。`'auto'` は該当する予定があるときのみ末尾に生成、`'always'` は常に生成する（「未割り当てへ戻す」D&D を使う場合に必要。詳細は [対象ビューを有効にする](#年複数月リソースタイムラインビューを有効にするopt-in) を参照） |
@@ -319,7 +321,8 @@ calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
 // - 日ビューは hiddenWeekdays を無視する（土曜へ goTo すれば表示される）
 // - 年ビューも hiddenWeekdays を無視する（ミニ月グリッドは常に 7 列のまま）
 // - 複数月ビューは月ビューと同じく列が除外される（各月グリッドが月〜金の 5 列になる）
-// - リソースビューも hiddenWeekdays を無視する（日ビューと同じく表示日は 1 日固定）
+// - リソースビューも hiddenWeekdays を無視する（日ビューと同じ扱い。
+//   常に resourceViewDays 日の連続した並びになる）
 // - タイムラインビューも hiddenWeekdays を無視する（比例スケールの歪みを避けるため。
 //   常に timelineDays 日の連続した並びになる）
 // - リストビューは hiddenWeekdays を受け取らない（対象外）ため、非表示曜日にしか
@@ -556,7 +559,7 @@ businessHours: [
 
 ### リソースビュー（ResourceView / VirtualResourceView）
 
-リソースビューは表示日が単日のため、その日の曜日を基準に判定した 1 本のスロット列（`ResourceViewModel.businessHourSlots`）を全列で共有します。DOM 上は週/日ビューと同じ `[data-koyomi="timegrid-slot"][data-koyomi-business-hours]` が各列に描画され、デフォルトテーマの見た目も共通です。
+リソースビューは表示日ごとにその日の曜日を基準に判定したスロット列（`ResourceViewDay.businessHourSlots`）を持ち、各列にはその列の日のものが適用されます（`ResourceViewModel.businessHourSlots` は先頭日の値です。既定の単日表示では全列共通の 1 本になります）。DOM 上は週/日ビューと同じ `[data-koyomi="timegrid-slot"][data-koyomi-business-hours]` が各列に描画され、デフォルトテーマの見た目も共通です。
 
 ### タイムラインビュー（TimelineView / VirtualTimelineView）
 
