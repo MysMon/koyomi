@@ -1522,6 +1522,31 @@ console.log(scrollFractionForTime('07:00', 480, 1200)); // => 0（範囲より�
 
 詳細は [ビュー: 初期スクロール位置](./views.md#初期スクロール位置initialscrolltime--scrolltotime) を参照してください。
 
+### `overflowPopoverButtonProps`
+
+```ts
+function overflowPopoverButtonProps(options: OverflowPopoverButtonOptions): MonthOverflowButtonProps
+
+interface OverflowPopoverButtonOptions {
+  open: boolean; // ポップオーバーの開閉状態（aria-expanded にそのまま反映）
+  popoverId?: string; // ポップオーバー要素の id。開いている間だけ aria-controls として付与
+  haspopup?: MonthOverflowButtonProps['aria-haspopup']; // 既定 'dialog'
+}
+```
+
+月ビュー・複数月ビューの「+N 件」ボタンに、自前ポップオーバーの開閉状態を伝える ARIA 属性一式（`aria-haspopup` / `aria-expanded` / `aria-controls`）を組み立てる純関数です。`MonthView` / `MultiMonthView` の `overflowButtonProps` から戻り値をそのまま返す用途を想定しています。`aria-controls` は `open: true` かつ `popoverId` 指定時のみ付与されます（閉じている間はポップオーバー要素が DOM に存在しない前提のため）。
+
+```ts
+import { overflowPopoverButtonProps } from '@koyomi-cal/react';
+
+console.log(overflowPopoverButtonProps({ open: false, popoverId: 'popover' }));
+// => { 'aria-haspopup': 'dialog', 'aria-expanded': false }
+console.log(overflowPopoverButtonProps({ open: true, popoverId: 'popover' }));
+// => { 'aria-haspopup': 'dialog', 'aria-expanded': true, 'aria-controls': 'popover' }
+```
+
+フォーカス復帰の規約などポップオーバー実装時の指針は [アクセシビリティ: 「+N 件」ポップオーバーの ARIA 属性とフォーカス復帰](./accessibility.md#n-件ポップオーバーの-aria-属性とフォーカス復帰) を、開閉状態の配線例は [インタラクション: 「+N 件」のポップオーバーを自前で組む](./interactions.md#n-件のポップオーバーを自前で組む) を参照してください。
+
 ## 中央メッセージカタログ（`react/locales`）
 
 ビルトインコンポーネント・フックが表示するすべての文言は、`CalendarOptions.locale` と `CalendarProvider` の `messages` prop から解決される単一の `MessageCatalog` にまとまっています。使い方・具体例は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照してください。

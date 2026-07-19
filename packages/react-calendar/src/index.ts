@@ -239,6 +239,11 @@ export type {
   MessageCatalog,
   MessageCatalogOverrides,
 } from './react/locales/types';
+// React: 「+N 件」ポップオーバーの a11y props
+export {
+  type OverflowPopoverButtonOptions,
+  overflowPopoverButtonProps,
+} from './react/overflow-popover-props';
 // React: スクロールユーティリティ（initialScrollTime/scrollToTime）
 export { scrollContainerToTime, scrollFractionForTime } from './react/scroll-to-time';
 // React: 型

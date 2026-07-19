@@ -453,13 +453,19 @@ useCalendarShortcuts({
 Koyomi はポップオーバー・ダイアログなどの UI を提供しません（ヘッドレスの方針）。月ビュー・複数月ビューの「+N 件」ボタンは、隠れた予定を一覧表示するポップオーバーの起点になるよう `onOverflowClick` と `overflowButtonProps` を提供しており、[Floating UI](https://floating-ui.com/) 等の位置決めライブラリと組み合わせて自前の UI を構築できます。
 
 - `onOverflowClick(day, hiddenOccurrences, details)` — `hiddenOccurrences` が「+N 件」に集約された非表示のオカレンス一覧、`details.visibleOccurrences` がその日で表示中のオカレンス一覧（いずれも開始時刻順）。両方を合わせるとその日の全オカレンスを取得できる
-- `overflowButtonProps?: (day, hiddenOccurrences) => { 'aria-haspopup'?, 'aria-expanded'?, 'aria-controls'? }` — 「+N 件」ボタンに追加する ARIA 属性を返す。ポップオーバーの開閉状態を `aria-expanded` で示す用途に使う
+- `overflowButtonProps?: (day, hiddenOccurrences) => { 'aria-haspopup'?, 'aria-expanded'?, 'aria-controls'? }` — 「+N 件」ボタンに追加する ARIA 属性を返す。ポップオーバーの開閉状態を `aria-expanded` で示す用途に使う。属性一式は `overflowPopoverButtonProps({ open, popoverId })` ヘルパーで組み立てられる
 - ボタンは `Enter` / `Space` でもクリック相当が発火する（フォーカス済みの状態でキーボードのみでも開ける）
+- ポップオーバーを閉じたときは「+N 件」ボタンへフォーカスを戻す（規約の詳細は [アクセシビリティ: 「+N 件」ポップオーバーの ARIA 属性とフォーカス復帰](./accessibility.md#n-件ポップオーバーの-aria-属性とフォーカス復帰) 参照）
 
 ```tsx
 import { useState } from 'react';
 import { useFloating, offset, flip, shift } from '@floating-ui/react';
-import { CalendarProvider, MonthView, useCalendar } from '@koyomi-cal/react';
+import {
+  CalendarProvider,
+  MonthView,
+  overflowPopoverButtonProps,
+  useCalendar,
+} from '@koyomi-cal/react';
 import type { EventOccurrence, MonthDay } from '@koyomi-cal/react';
 
 function MonthWithOverflowPopover() {
@@ -486,10 +492,12 @@ function MonthWithOverflowPopover() {
       }}
     >
       <MonthView
-        overflowButtonProps={(day) => ({
-          'aria-haspopup': 'dialog',
-          'aria-expanded': openDay?.key === day.key,
-        })}
+        overflowButtonProps={(day) =>
+          overflowPopoverButtonProps({
+            open: openDay?.key === day.key,
+            popoverId: 'overflow-popover',
+          })
+        }
         renderDayCell={(day, ctx) =>
           day.key === openDay?.key ? (
             <div ref={refs.setReference}>{ctx.defaultContent}</div>
@@ -499,7 +507,7 @@ function MonthWithOverflowPopover() {
         }
       />
       {openDay !== null && (
-        <div ref={refs.setFloating} style={floatingStyles} role="dialog">
+        <div ref={refs.setFloating} style={floatingStyles} role="dialog" id="overflow-popover">
           {occurrences.map((occurrence) => (
             <div key={occurrence.key}>{occurrence.event.title}</div>
           ))}
@@ -512,7 +520,8 @@ function MonthWithOverflowPopover() {
 // 期待される動作:
 // - 「+N 件」をクリック（または Enter/Space）すると、その日の全予定
 //   （表示中＋非表示）が Floating UI で位置決めされたポップオーバーに一覧表示される
-// - ポップオーバーが開いている間、対応する「+N 件」ボタンの aria-expanded が true になる
+// - ポップオーバーが開いている間、対応する「+N 件」ボタンの aria-expanded が true になり、
+//   aria-controls="overflow-popover" でポップオーバー要素に関連付けられる（閉時は付かない）
 ```
 
 ## Escape / pointercancel でのドラッグキャンセル

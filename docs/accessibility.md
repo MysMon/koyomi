@@ -102,11 +102,40 @@ function App() {
 
 undo/redo 操作自体の通知文言は `useCalendarAnnouncer` の対象外です（`announcer.announce` を [undo/redo 履歴マネージャ](./events.md#undo元に戻すを実装する)側から呼ぶことは可能です）。
 
+## 「+N 件」ポップオーバーの ARIA 属性とフォーカス復帰
+
+月ビュー・複数月ビューの「+N 件」ボタンから開く自前のポップオーバー（[インタラクション: 「+N 件」のポップオーバーを自前で組む](./interactions.md#n-件のポップオーバーを自前で組む)）では、ボタンに次の ARIA 属性を付与します。`overflowPopoverButtonProps` ヘルパーが開閉状態から一式を組み立てるので、`MonthView` / `MultiMonthView` の `overflowButtonProps` から戻り値をそのまま返せます。
+
+- `aria-haspopup` — ボタンがポップアップを持つことを示す。既定は `'dialog'`（`haspopup` オプションで `'menu'` / `'listbox'` 等に変更できる）
+- `aria-expanded` — 開閉状態（`open` オプションがそのまま反映される）
+- `aria-controls` — 開いたポップオーバー要素の `id`（`popoverId` オプション）。閉じている間はポップオーバー要素が DOM に存在しない前提のため、開いている間だけ付与される
+
+```tsx
+import { MonthView, overflowPopoverButtonProps } from '@koyomi-cal/react';
+
+<MonthView
+  overflowButtonProps={(day) =>
+    overflowPopoverButtonProps({
+      open: openDay?.key === day.key,
+      popoverId: 'koyomi-overflow-popover',
+    })
+  }
+/>;
+
+// 期待される動作:
+// - 閉時: 「+N 件」ボタンは aria-haspopup="dialog" aria-expanded="false" になる
+//   （aria-controls は付かない）
+// - openDay の日の開時: そのボタンだけ aria-expanded="true"
+//   aria-controls="koyomi-overflow-popover" になる
+```
+
+**フォーカス復帰の規約**: ポップオーバーを閉じたときは、開く起点になった「+N 件」ボタンへフォーカスを戻してください（WAI-ARIA の dialog パターンと同じ規約）。Escape キーやポップオーバー外のクリックで閉じた場合も同様です。フォーカスを戻さないと、キーボード利用者のフォーカスが閉じたポップオーバーとともに失われ、閉じた位置から操作を再開できません。ポップオーバー要素には `id`（`aria-controls` の参照先）と `aria-haspopup` に対応する role（既定なら `role="dialog"`）を付け、開いたらポップオーバー内の最初の focusable な要素へフォーカスを移すのが基本形です。
+
 ## 既知の制限
 
 - **矢印キーによる grid 内セル間移動（roving tabindex）は実装していません。** `role="grid"` は視覚的・論理的な構造を支援技術に伝えるためのものですが、Google カレンダー等のネイティブアプリのようにフォーカス中のセルから矢印キーで隣のセルへ移動する操作は提供していません（フォーカス移動は Tab 順のみ）。フォーカス中の予定要素に対する矢印キーは、セル移動ではなく「予定の移動・リサイズ」という異なる意味で割り当てられています
 - **リソースビューの列見出し・列全体には `aria-current` を付けません。** リソースビューは常に 1 日固定で、列はリソースを表すため、月・週/日ビューのような「日付としての現在」を表す対象が列見出しには存在しません。「今日」であること自体は現在時刻線（`now-indicator`）と列の `data-today` 属性で表現します
-- **「+N 件」ポップオーバーは自前実装が前提です。** ヘッドレスの方針上、開閉状態の `aria-expanded` 等は `overflowButtonProps` で利用側が付与する必要があります。詳細は [インタラクション: 「+N 件」のポップオーバーを自前で組む](./interactions.md#n-件のポップオーバーを自前で組む) を参照してください
+- **「+N 件」ポップオーバーは自前実装が前提です。** ヘッドレスの方針上、開閉状態の `aria-expanded` 等は `overflowButtonProps` で利用側が付与する必要があります（属性一式は `overflowPopoverButtonProps` ヘルパーで組み立てられます。[「+N 件」ポップオーバーの ARIA 属性とフォーカス復帰](#n-件ポップオーバーの-aria-属性とフォーカス復帰) 参照）。詳細は [インタラクション: 「+N 件」のポップオーバーを自前で組む](./interactions.md#n-件のポップオーバーを自前で組む) を参照してください
 - **色だけに依存した情報伝達はありません。** イベントの色（`event.color` / `resource.color`）は視覚的な区別のためのみに使い、色分けの内容（タイトル・時刻・リソース名等）は常に `aria-label` のテキストとしても提供します
 - **カスタム予定色のコントラストはテーマ側で確認してください。** `event.color` / `resource.color` は任意の CSS 色を受け付けるため、背景色と `--koyomi-event-fg` の組み合わせが WCAG AA（通常文字は 4.5:1 以上）を満たすように選んでください。デモの色パレットは白文字との組み合わせでこの基準を満たす濃色に限定しています。開発ビルドでは、16 進カラーコード（`#rgb` / `#rrggbb`）で指定した色が既定の明るいテーマの前景色（白）との組み合わせで WCAG AA を満たさない場合に `console.warn` で警告します（同じ色は 1 度だけ警告します。ダークテーマや色名・`rgb()` 等の他の CSS 色表記、カスタムテーマの `--koyomi-event-fg` は判定対象外なので、最終的な確認は実際のテーマで行ってください）
 
