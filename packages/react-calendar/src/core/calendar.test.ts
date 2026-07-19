@@ -1642,6 +1642,22 @@ describe('createCalendar', () => {
       expect(() => calendar.toggleResourceCollapsed('ghost')).not.toThrow();
     });
 
+    it('toggleResourceCollapsed はリソースビューの列にも反映される（子孫の列が隠れる）', () => {
+      const calendar = makeCalendar({
+        resources: [ROOM, { id: 'room-2', title: '会議室B', parentId: 'room-1' }],
+      });
+      calendar.setView('resource');
+      const before = calendar.getViewModel();
+      if (before.type !== 'resource') throw new Error('unreachable');
+      expect(before.columns.map((c) => c.key)).toEqual(['r:room-1', 'r:room-2']);
+
+      calendar.toggleResourceCollapsed('room-1');
+      const collapsed = calendar.getViewModel();
+      if (collapsed.type !== 'resource') throw new Error('unreachable');
+      expect(collapsed.columns.map((c) => c.key)).toEqual(['r:room-1']);
+      expect(collapsed.columns[0]?.collapsed).toBe(true);
+    });
+
     it('initialCollapsedResourceIds を指定すると、タイムラインの初回ビューモデルが該当行を隠す', () => {
       const calendar = makeCalendar({
         resources: [ROOM, { id: 'room-2', title: '会議室B', parentId: 'room-1' }],

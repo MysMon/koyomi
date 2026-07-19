@@ -615,6 +615,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           slotMaxTime: resolvedOptions.slotMaxTime,
           resourceViewDays: resolvedOptions.resourceViewDays,
           now,
+          collapsedResourceIds,
         });
       case 'timeline':
         return buildTimelineViewModel({
@@ -879,7 +880,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
         next.add(resourceId);
       }
       collapsedResourceIds = next;
-      // タイムラインビューモデルの行構成に影響するため、キャッシュを破棄する
+      // リソース/タイムラインビューモデルの列・行構成に影響するため、キャッシュを破棄する
       commit(true);
     },
   };

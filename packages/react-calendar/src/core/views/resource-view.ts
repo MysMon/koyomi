@@ -31,11 +31,17 @@ import type {
   CalendarResource,
   EventOccurrence,
   ResourceColumn,
+  ResourceColumnGroupCell,
   ResourceViewDay,
   ResourceViewModel,
   TimeZoneId,
 } from '../types';
 import { laneDayColumnKey, laneKeyForResource, UNASSIGNED_LANE_KEY } from './lane-key';
+import {
+  buildResourceTree,
+  filterVisibleResourceTree,
+  type VisibleResourceTreeEntry,
+} from './resource-hierarchy';
 import {
   belongsToAllDayRow,
   buildBusinessHourSlots,
@@ -45,6 +51,111 @@ import {
 
 /** 未割り当て列のキー（{@link UNASSIGNED_LANE_KEY} の別名。既存コードの可読性のため）。 */
 const UNASSIGNED_KEY = UNASSIGNED_LANE_KEY;
+
+/**
+ * `collapsedResourceIds` 未指定時に共有する空集合。
+ * 呼び出しのたびに新しい `Set` を割り当てないよう、モジュールで 1 本だけ保持する
+ * （{@link ./timeline-view} の同名定数と同じ短絡方針）。
+ */
+const EMPTY_COLLAPSED_RESOURCE_IDS: ReadonlySet<string> = new Set();
+
+/**
+ * 子を持つリソースが 1 件もない（フラット構成の）場合に共有する空のグループ行一覧。
+ * 呼び出しのたびに新しい配列を割り当てないよう、モジュールで 1 本だけ保持する。
+ */
+const EMPTY_COLUMN_GROUP_ROWS: readonly (readonly ResourceColumnGroupCell[])[] = [];
+
+/**
+ * 可視ツリーから列グループ見出しの行（{@link ResourceViewModel.columnGroupRows}）を構築する。
+ *
+ * 行は深さ 0 から「子を持つ可視エントリの最大深さ」まで。各行では、可視エントリを
+ * 先頭から走査し、その深さにおける「グループ所有者」（深さが一致し子を持つエントリ
+ * 自身、またはその深さの祖先）が同じ連続区間を 1 つのグループセルにまとめる。
+ * 所有者のない区間（フラットなリソース・グループより浅い列・末尾の未割り当て列）は
+ * スペーサーセル（`resource: null`）にまとめ、各行が全列を隙間なく覆うようにする。
+ *
+ * @param visibleTree - 折りたたみ適用後の可視エントリ一覧（列の並びと同順）
+ * @param dayCount - 表示日数（1 リソースあたりの列数）
+ * @param totalColumnCount - 未割り当て列を含む全列数
+ * @returns グループ見出しの行一覧。子を持つリソースがなければ空配列
+ */
+function buildColumnGroupRows(
+  visibleTree: readonly VisibleResourceTreeEntry[],
+  dayCount: number,
+  totalColumnCount: number,
+): readonly (readonly ResourceColumnGroupCell[])[] {
+  const maxGroupDepth = visibleTree.reduce(
+    (max, entry) => (entry.hasChildren ? Math.max(max, entry.depth) : max),
+    -1,
+  );
+  if (maxGroupDepth < 0) {
+    return EMPTY_COLUMN_GROUP_ROWS;
+  }
+
+  const rows: (readonly ResourceColumnGroupCell[])[] = [];
+  for (let depth = 0; depth <= maxGroupDepth; depth += 1) {
+    const cells: ResourceColumnGroupCell[] = [];
+    /** 連続する同一所有者（またはスペーサー）の区間。 */
+    let run: { owner: VisibleResourceTreeEntry | null; startColumnIndex: number } | null = null;
+
+    /** 現在の区間を `endColumnIndex`（排他）までのセルとして確定する。 */
+    function flushRun(endColumnIndex: number): void {
+      if (run === null || endColumnIndex <= run.startColumnIndex) {
+        return;
+      }
+      const owner = run.owner;
+      cells.push({
+        resource: owner?.resource ?? null,
+        key: owner !== null ? laneKeyForResource(owner.resource.id) : `gap:${run.startColumnIndex}`,
+        startColumnIndex: run.startColumnIndex,
+        columnCount: endColumnIndex - run.startColumnIndex,
+        collapsed: owner?.collapsed ?? false,
+        depth,
+      });
+    }
+
+    // 各エントリのこの深さでの所有者を、祖先スタック（深さ順の直近の祖先）で求める。
+    // ツリー順（深さ優先の行き掛け順）のため、深さ d のエントリの直前には必ず
+    // 深さ d-1 以下の祖先が現れている
+    const ancestorStack: VisibleResourceTreeEntry[] = [];
+    // forEach ではなく for ループにする（コールバック内での `run` への代入は
+    // TypeScript の制御フロー解析に反映されず、ループ後の絞り込みが壊れるため）
+    for (let entryIndex = 0; entryIndex < visibleTree.length; entryIndex += 1) {
+      const entry = visibleTree[entryIndex];
+      if (entry === undefined) {
+        continue;
+      }
+      ancestorStack.length = entry.depth;
+      ancestorStack.push(entry);
+      let owner: VisibleResourceTreeEntry | null = null;
+      if (entry.depth === depth) {
+        owner = entry.hasChildren ? entry : null;
+      } else if (entry.depth > depth) {
+        owner = ancestorStack[depth] ?? null;
+      }
+      const columnIndex = entryIndex * dayCount;
+      if (run === null) {
+        run = { owner, startColumnIndex: columnIndex };
+      } else if (run.owner !== owner) {
+        flushRun(columnIndex);
+        run = { owner, startColumnIndex: columnIndex };
+      }
+    }
+    // 末尾の未割り当て列（存在する場合）はどのグループにも属さないスペーサーで覆う
+    const resourceColumnCount = visibleTree.length * dayCount;
+    if (totalColumnCount > resourceColumnCount) {
+      if (run === null) {
+        run = { owner: null, startColumnIndex: resourceColumnCount };
+      } else if (run.owner !== null) {
+        flushRun(resourceColumnCount);
+        run = { owner: null, startColumnIndex: resourceColumnCount };
+      }
+    }
+    flushRun(totalColumnCount);
+    rows.push(cells);
+  }
+  return rows;
+}
 
 /**
  * リソース列のキーを組み立てる（{@link laneKeyForResource} の別名）。
@@ -86,11 +197,16 @@ function allDayItemOverlapsDay(occurrence: EventOccurrence, dayStart: Date, dayE
  * 処理内容:
  * - 表示日は `currentDate` の属する日（{@link startOfDayInZone}）から
  *   `resourceViewDays` 日分（既定 1）。`hiddenWeekdays` は日ビューと同じく適用しない
- * - リソース一覧を先頭から走査し、**ID 重複は先勝ち**で列にする
- *   （2 つ目以降の同 ID リソースは列を作らない。開発ビルドの警告は React 層の責務）
+ * - リソース一覧は {@link buildResourceTree} でツリー順（**ID 重複は先勝ち**、
+ *   {@link CalendarResource.parentId} による深さ優先の行き掛け順）に並べ、
+ *   {@link filterVisibleResourceTree} で `collapsedResourceIds` に含まれる祖先を持つ
+ *   列（折りたたみ中の子孫）を除外する（{@link ./timeline-view} と同じ規則。
+ *   `parentId` 未使用時は `resources` の並び順のフラットな列になる）
  * - 列はリソース × 日の直積（リソース優先。各リソースの中に表示日が昇順で並ぶ）。
  *   表示日数 1 の列キーは `` `r:${id}` `` / `'unassigned'`、2 以上は
  *   {@link laneDayColumnKey} による日付キー付きの形式になる
+ * - 子を持つリソースがある場合、{@link buildColumnGroupRows} で列グループ見出しの
+ *   行（{@link ResourceViewModel.columnGroupRows}）を構築する
  * - オカレンスを割当リソース ID（{@link assignedLaneIds}。`resourceIds` が優先、
  *   未指定時は `resourceId`）で 1 パスのバケット分けする。複数リソース割当の
  *   オカレンスは割当先の各レーンに同一オカレンスとして入る。割当がない、または
@@ -117,6 +233,8 @@ function allDayItemOverlapsDay(occurrence: EventOccurrence, dayStart: Date, dayE
  * @param params.slotMaxTime - 表示する時間帯の終了（`'HH:mm'` 形式、排他的。`'24:00'` も可）。
  *   省略時は `'24:00'`
  * @param params.resourceViewDays - 表示日数。省略時は `1`。0 以下・非整数は 1 日へ正規化する
+ * @param params.collapsedResourceIds - 折りたたみ中のリソース ID の集合
+ *   （{@link CalendarState.collapsedResourceIds}）。省略時は `[]`（全展開）扱い
  * @returns リソースビューのビューモデル
  * @example
  * ```ts
@@ -146,6 +264,7 @@ export function buildResourceViewModel(params: {
   slotMinTime?: string;
   slotMaxTime?: string;
   resourceViewDays?: number;
+  collapsedResourceIds?: ReadonlySet<string>;
 }): ResourceViewModel {
   const {
     currentDate,
@@ -160,6 +279,7 @@ export function buildResourceViewModel(params: {
     slotMinTime = '00:00',
     slotMaxTime = '24:00',
     resourceViewDays = 1,
+    collapsedResourceIds = EMPTY_COLLAPSED_RESOURCE_IDS,
   } = params;
   const slotMinTimeMinutes = parseSlotBoundaryTime(slotMinTime);
   const slotMaxTimeMinutes = parseSlotBoundaryTime(slotMaxTime);
@@ -196,15 +316,15 @@ export function buildResourceViewModel(params: {
     throw new Error('リソースビューの表示日が構築できません');
   }
 
-  // ID 重複を先勝ちで除いたリソース列の並び
-  const uniqueResources: CalendarResource[] = [];
-  const resourceById = new Map<string, CalendarResource>();
-  for (const entry of resources) {
-    if (!resourceById.has(entry.id)) {
-      resourceById.set(entry.id, entry);
-      uniqueResources.push(entry);
-    }
-  }
+  // ID 重複を先勝ちで除いたうえで parentId によるツリー順に並べる（可視・非可視を問わず全件）
+  const tree = buildResourceTree(resources);
+  // resourceById は「重複除去後に実在する ID か」の判定に使う（可視性とは無関係。
+  // 折りたたみで非表示中の列に割り当てられたオカレンスも、未割り当てへは合流させない）
+  const resourceById = new Map<string, CalendarResource>(
+    tree.map((entry) => [entry.resource.id, entry.resource]),
+  );
+  // 折りたたみ中の祖先を持つ列（非表示の子孫）を除いた、実際に列を生成する対象
+  const visibleTree = filterVisibleResourceTree(tree, collapsedResourceIds);
 
   // オカレンス → レーン ID（リソース ID または null = 未割り当て）の 1 パスのバケット分け。
   // 複数リソース割当（resourceIds）のオカレンスは割当先の各レーンに入る
@@ -220,11 +340,16 @@ export function buildResourceViewModel(params: {
     }
   }
 
-  /** 1 レーン分のオカレンスから、表示日ごとの列（リソース × 日）を構築する。 */
+  /**
+   * 1 レーン分のオカレンスから、表示日ごとの列（リソース × 日）を構築する。
+   * @param hierarchy - 階層情報（ツリー内の深さ・子の有無・折りたたみ状態）。
+   *   未割り当てレーンは常に `depth: 0` / `hasChildren: false` / `collapsed: false`
+   */
   function buildLaneColumns(
     resource: CalendarResource | null,
     laneKey: string,
     laneOccurrences: readonly EventOccurrence[],
+    hierarchy: Pick<ResourceColumn, 'depth' | 'hasChildren' | 'collapsed'>,
   ): ResourceColumn[] {
     // 終日行行きと時間指定の振り分けはレーンにつき 1 回だけ行う
     const allDay: EventOccurrence[] = [];
@@ -257,17 +382,30 @@ export function buildResourceViewModel(params: {
           displayEndMinutes: slotMaxTimeMinutes,
         }),
         allDayItems,
+        ...hierarchy,
       };
     });
   }
 
-  const columns: ResourceColumn[] = uniqueResources.flatMap((entry) =>
-    buildLaneColumns(entry, resourceColumnKey(entry.id), bucket.get(entry.id) ?? []),
+  const columns: ResourceColumn[] = visibleTree.flatMap((entry) =>
+    buildLaneColumns(
+      entry.resource,
+      resourceColumnKey(entry.resource.id),
+      bucket.get(entry.resource.id) ?? [],
+      { depth: entry.depth, hasChildren: entry.hasChildren, collapsed: entry.collapsed },
+    ),
   );
 
   const unassignedOccurrences = bucket.get(null) ?? [];
   if (unassignedLane === 'always' || unassignedOccurrences.length > 0) {
-    columns.push(...buildLaneColumns(null, UNASSIGNED_KEY, unassignedOccurrences));
+    // 未割り当て列はツリーの対象にしないため、階層に関する各フィールドは常に固定値
+    columns.push(
+      ...buildLaneColumns(null, UNASSIGNED_KEY, unassignedOccurrences, {
+        depth: 0,
+        hasChildren: false,
+        collapsed: false,
+      }),
+    );
   }
 
   // 現在時刻線: 表示範囲に今日が含まれ、かつ現在時刻が表示時間帯
@@ -287,6 +425,7 @@ export function buildResourceViewModel(params: {
     isToday: firstDayInfo.isToday,
     days,
     columns,
+    columnGroupRows: buildColumnGroupRows(visibleTree, dayCount, columns.length),
     isEmpty: columns.length === 0,
     slots,
     slotMinTimeMinutes,

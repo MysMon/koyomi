@@ -56,10 +56,10 @@ export interface CalendarResource {
    */
   color?: string;
   /**
-   * 親リソースの ID。指定するとタイムラインビューでこのリソースを子として
-   * ツリー内に配置する（深さは任意段）。参照先のない ID・循環参照（自己参照含む）は
-   * 孤立したルート（深さ 0）として扱う。リソースビューの列順には影響しない
-   * （常にフラット）。省略時（既定）はルート。
+   * 親リソースの ID。指定するとリソース/タイムラインビューでこのリソースを子として
+   * ツリー内に配置する（深さは任意段。タイムラインは行のツリー、リソースビューは
+   * ツリー順の列＋列グループ見出し行）。参照先のない ID・循環参照（自己参照含む）は
+   * 孤立したルート（深さ 0）として扱う。省略時（既定）はルート。
    */
   parentId?: string;
   /** 利用者定義の任意データ。ライブラリは内容に関知しない。 */
@@ -657,6 +657,50 @@ export interface ResourceColumn {
    * 列 = 1 日のため帯の水平スパンは常に 1 で、レーン割当は単純な縦積みでよい。
    */
   allDayItems: readonly EventOccurrence[];
+  /**
+   * ツリー内の深さ（0 起点）。{@link CalendarResource.parentId} を使わない場合・
+   * 未割り当て列は常に `0`（{@link TimelineRow.depth} と同じ規則）。
+   */
+  depth: number;
+  /**
+   * 子リソースを持つか。`true` のときのみ折りたたみ可能（トグルボタンの描画対象）。
+   * {@link CalendarResource.parentId} を使わない場合・未割り当て列は常に `false`。
+   */
+  hasChildren: boolean;
+  /**
+   * 折りたたみ状態（{@link CalendarState.collapsedResourceIds} に基づく）。
+   * `hasChildren` が `false` のときは常に `false`。
+   */
+  collapsed: boolean;
+}
+
+/**
+ * リソースビューの列グループ見出し行の 1 セル分（{@link ResourceViewModel.columnGroupRows}）。
+ *
+ * 親リソースのグループセル（`resource` 非 `null`）は、その親自身の列と可視の
+ * 子孫の列を覆う。どのグループにも属さない列の区間（フラットなリソースの列・
+ * 未割り当て列）はスペーサーセル（`resource: null`）で覆われ、行全体で
+ * {@link ResourceViewModel.columns} の全列を隙間なく覆う。
+ */
+export interface ResourceColumnGroupCell {
+  /** グループの親リソース。グループに属さない区間のスペーサーは `null`。 */
+  resource: CalendarResource | null;
+  /**
+   * セルを一意に識別するキー。グループセルは `` `r:${resource.id}` ``、
+   * スペーサーは `` `gap:${startColumnIndex}` ``。
+   */
+  key: string;
+  /** このセルが覆う先頭の列の {@link ResourceViewModel.columns} 内でのインデックス。 */
+  startColumnIndex: number;
+  /** このセルが覆う列数（複数日表示では日数分に広がる）。 */
+  columnCount: number;
+  /**
+   * グループの折りたたみ状態（{@link CalendarState.collapsedResourceIds} に基づく）。
+   * 折りたたみ中のグループセルは親自身の列だけを覆う。スペーサーは常に `false`。
+   */
+  collapsed: boolean;
+  /** この行の深さ（0 起点。{@link ResourceColumn.depth} と同じ座標系）。 */
+  depth: number;
 }
 
 /** リソースビューの表示日 1 日分のメタデータ。 */
@@ -690,12 +734,22 @@ export interface ResourceViewModel {
    */
   days: readonly ResourceViewDay[];
   /**
-   * リソース列（リソース × 日の直積。リソースは {@link CalendarOptions.resources} の
-   * 並び順で、各リソースの中に表示日が昇順で並ぶ。
+   * リソース列（リソース × 日の直積。リソースは {@link CalendarResource.parentId} による
+   * ツリー順（深さ優先の行き掛け順。`parentId` 未使用時は
+   * {@link CalendarOptions.resources} の並び順そのまま）で、折りたたみ中の親の
+   * 子孫は除外される。各リソースの中に表示日が昇順で並ぶ。
    * {@link CalendarOptions.unassignedLane} の規則で末尾に未割り当て列（の日別の並び）が
    * 付くことがある）。
    */
   columns: readonly ResourceColumn[];
+  /**
+   * 列グループ見出しの行（深さの浅い順）。親リソースのグループセルが親自身と
+   * 可視の子孫の列を覆い、どのグループにも属さない列はスペーサーセルで覆われる
+   * （各行は {@link ResourceViewModel.columns} の全列を隙間なく覆う）。
+   * {@link CalendarResource.parentId} を使わない（子を持つリソースがない）場合は
+   * 空配列。
+   */
+  columnGroupRows: readonly (readonly ResourceColumnGroupCell[])[];
   /** 列が 1 つもないか（リソース未設定かつ未割り当て列も生成されない場合）。 */
   isEmpty: boolean;
   /**
@@ -915,7 +969,7 @@ export interface CalendarState {
   /** ドラッグ操作のプレビュー。操作中でなければ `null`。 */
   dragPreview: DragPreview | null;
   /**
-   * 折りたたみ中のリソース ID の集合（タイムラインビューのみが参照）。
+   * 折りたたみ中のリソース ID の集合（リソース/タイムラインビューが参照）。
    * {@link CalendarApi.toggleResourceCollapsed} で変更する。
    */
   collapsedResourceIds: ReadonlySet<string>;
@@ -1351,13 +1405,13 @@ export interface CalendarApi {
   // --- リソースの階層グルーピング ---
 
   /**
-   * リソースの折りたたみ状態をトグルする（タイムラインビューのみに影響する）。
+   * リソースの折りたたみ状態をトグルする（リソース/タイムラインビューに影響する）。
    *
    * 対象リソースが現在の {@link CalendarApi.getResources} に存在しない ID でも
    * 例外を投げず、内部の折りたたみ集合の要素として追加/削除する（後で同じ ID の
    * リソースが追加された場合に備える）。子を持たないリソースを指定しても状態は
-   * 変わるが表示への影響はない（トグルボタン自体は {@link TimelineRow.hasChildren}
-   * が `true` の行にのみ描画されるため）。
+   * 変わるが表示への影響はない（トグルボタン自体は {@link TimelineRow.hasChildren} /
+   * {@link ResourceColumn.hasChildren} が `true` の行/列にのみ描画されるため）。
    */
   toggleResourceCollapsed(resourceId: string): void;
 }

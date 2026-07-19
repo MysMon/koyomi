@@ -60,6 +60,11 @@ function resource(id: string, title?: string): CalendarResource {
   return { id, title: title ?? `リソース ${id}` };
 }
 
+/** テスト用のリソースを parentId 付きで作る。 */
+function resourceWithParent(id: string, parentId?: string): CalendarResource {
+  return { id, title: `リソース ${id}`, ...(parentId !== undefined ? { parentId } : {}) };
+}
+
 /** 既定パラメータでビューモデルを構築するヘルパ。 */
 function build(params: {
   occurrences?: readonly EventOccurrence[];
@@ -74,6 +79,7 @@ function build(params: {
   slotMinTime?: string;
   slotMaxTime?: string;
   resourceViewDays?: number;
+  collapsedResourceIds?: ReadonlySet<string>;
 }) {
   return buildResourceViewModel({
     currentDate: params.currentDate ?? at('2026-07-10T09:00'),
@@ -88,6 +94,9 @@ function build(params: {
     ...(params.slotMinTime !== undefined ? { slotMinTime: params.slotMinTime } : {}),
     ...(params.slotMaxTime !== undefined ? { slotMaxTime: params.slotMaxTime } : {}),
     ...(params.resourceViewDays !== undefined ? { resourceViewDays: params.resourceViewDays } : {}),
+    ...(params.collapsedResourceIds !== undefined
+      ? { collapsedResourceIds: params.collapsedResourceIds }
+      : {}),
   });
 }
 
@@ -169,6 +178,186 @@ describe('buildResourceViewModel', () => {
       expect(vm.columns.map((column) => column.key)).toEqual(['r:unassigned', 'unassigned']);
       expect(vm.columns[0]?.resource?.title).toBe('会議室U');
       expect(vm.columns[1]?.resource).toBeNull();
+    });
+  });
+
+  describe('リソースの階層グルーピング（parentId・折りたたみ）', () => {
+    /** 「拠点 > フロア > 会議室」の 2 段階層＋フラットな 1 件のフィクスチャ。 */
+    const TREE_RESOURCES: readonly CalendarResource[] = [
+      resourceWithParent('site'),
+      resourceWithParent('floor-1', 'site'),
+      resourceWithParent('room-a', 'floor-1'),
+      resourceWithParent('room-b', 'floor-1'),
+      resourceWithParent('floor-2', 'site'),
+      resourceWithParent('room-c', 'floor-2'),
+      resourceWithParent('other'),
+    ];
+
+    it('parentId 未使用時は列が depth=0・hasChildren=false・collapsed=false で、columnGroupRows は空になる（既存挙動の回帰確認）', () => {
+      const vm = build({ resources: [resource('r1'), resource('r2')] });
+      expect(vm.columns.map((column) => column.depth)).toEqual([0, 0]);
+      expect(vm.columns.map((column) => column.hasChildren)).toEqual([false, false]);
+      expect(vm.columns.map((column) => column.collapsed)).toEqual([false, false]);
+      expect(vm.columnGroupRows).toEqual([]);
+    });
+
+    it('parentId 併用時に列がツリー順＋深さで並び、未割り当て列は常に末尾になる', () => {
+      const vm = build({
+        resources: TREE_RESOURCES,
+        occurrences: [
+          makeOccurrence({ start: at('2026-07-10T10:00'), end: at('2026-07-10T11:00') }),
+        ],
+      });
+      expect(vm.columns.map((column) => column.key)).toEqual([
+        'r:site',
+        'r:floor-1',
+        'r:room-a',
+        'r:room-b',
+        'r:floor-2',
+        'r:room-c',
+        'r:other',
+        'unassigned',
+      ]);
+      expect(vm.columns.map((column) => column.depth)).toEqual([0, 1, 2, 2, 1, 2, 0, 0]);
+      expect(vm.columns.map((column) => column.hasChildren)).toEqual([
+        true,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+      ]);
+    });
+
+    it('親リソース自身に割り当てた予定が親の列の items に現れる', () => {
+      const vm = build({
+        resources: TREE_RESOURCES,
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceId: 'floor-1',
+          }),
+        ],
+      });
+      const floorColumn = vm.columns.find((column) => column.key === 'r:floor-1');
+      expect(floorColumn?.items).toHaveLength(1);
+    });
+
+    it('親を折りたたむと子孫の列が除外され、親の列は collapsed=true で残る', () => {
+      const vm = build({
+        resources: TREE_RESOURCES,
+        collapsedResourceIds: new Set(['floor-1']),
+      });
+      expect(vm.columns.map((column) => column.key)).toEqual([
+        'r:site',
+        'r:floor-1',
+        'r:floor-2',
+        'r:room-c',
+        'r:other',
+      ]);
+      expect(vm.columns.find((column) => column.key === 'r:floor-1')?.collapsed).toBe(true);
+    });
+
+    it('折りたたみで非表示の子リソースに割り当てた予定は未割り当て列へ合流しない（表示されないだけ）', () => {
+      const vm = build({
+        resources: TREE_RESOURCES,
+        collapsedResourceIds: new Set(['site']),
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceId: 'room-a',
+          }),
+        ],
+      });
+      // room-a の列は非表示、未割り当て列も生成されない
+      expect(vm.columns.map((column) => column.key)).toEqual(['r:site', 'r:other']);
+    });
+
+    it('columnGroupRows は深さごとの行で、親のグループセルが自身＋可視の子孫の列数を覆う', () => {
+      const vm = build({ resources: TREE_RESOURCES });
+      expect(vm.columnGroupRows).toHaveLength(2);
+      // 深さ 0 の行: site が自身 + 子孫 5 列 = 6 列、other はグループなしのスペーサー
+      expect(
+        vm.columnGroupRows[0]?.map((cell) => ({
+          id: cell.resource?.id ?? null,
+          start: cell.startColumnIndex,
+          count: cell.columnCount,
+        })),
+      ).toEqual([
+        { id: 'site', start: 0, count: 6 },
+        { id: null, start: 6, count: 1 },
+      ]);
+      // 深さ 1 の行: floor-1 / floor-2 のグループと、その外側のスペーサー
+      expect(
+        vm.columnGroupRows[1]?.map((cell) => ({
+          id: cell.resource?.id ?? null,
+          start: cell.startColumnIndex,
+          count: cell.columnCount,
+        })),
+      ).toEqual([
+        { id: null, start: 0, count: 1 },
+        { id: 'floor-1', start: 1, count: 3 },
+        { id: 'floor-2', start: 4, count: 2 },
+        { id: null, start: 6, count: 1 },
+      ]);
+      expect(vm.columnGroupRows[0]?.[0]?.depth).toBe(0);
+      expect(vm.columnGroupRows[1]?.[1]?.depth).toBe(1);
+    });
+
+    it('折りたたみ中の親はグループセルが自身の列だけを覆い、collapsed=true になる', () => {
+      const vm = build({
+        resources: TREE_RESOURCES,
+        collapsedResourceIds: new Set(['floor-1']),
+      });
+      // 可視列: site, floor-1(折りたたみ), floor-2, room-c, other
+      expect(
+        vm.columnGroupRows[1]?.map((cell) => ({
+          id: cell.resource?.id ?? null,
+          start: cell.startColumnIndex,
+          count: cell.columnCount,
+          collapsed: cell.collapsed,
+        })),
+      ).toEqual([
+        { id: null, start: 0, count: 1, collapsed: false },
+        { id: 'floor-1', start: 1, count: 1, collapsed: true },
+        { id: 'floor-2', start: 2, count: 2, collapsed: false },
+        { id: null, start: 4, count: 1, collapsed: false },
+      ]);
+    });
+
+    it('未割り当て列はどのグループにも属さないスペーサーで覆われる', () => {
+      const vm = build({
+        resources: [resourceWithParent('site'), resourceWithParent('room-a', 'site')],
+        unassignedLane: 'always',
+      });
+      expect(
+        vm.columnGroupRows[0]?.map((cell) => ({
+          id: cell.resource?.id ?? null,
+          start: cell.startColumnIndex,
+          count: cell.columnCount,
+        })),
+      ).toEqual([
+        { id: 'site', start: 0, count: 2 },
+        { id: null, start: 2, count: 1 },
+      ]);
+    });
+
+    it('複数日表示（resourceViewDays: 2）ではグループの列数が日数分に広がる', () => {
+      const vm = build({
+        resources: [resourceWithParent('site'), resourceWithParent('room-a', 'site')],
+        resourceViewDays: 2,
+      });
+      // 列はリソース優先の直積: site×2 日, room-a×2 日
+      expect(vm.columns).toHaveLength(4);
+      expect(vm.columnGroupRows[0]).toHaveLength(1);
+      expect(vm.columnGroupRows[0]?.[0]).toMatchObject({
+        startColumnIndex: 0,
+        columnCount: 4,
+      });
     });
   });
 

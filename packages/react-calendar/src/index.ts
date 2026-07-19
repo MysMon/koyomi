@@ -157,6 +157,7 @@ export type {
   RecurringEditScope,
   ResolvedCalendarOptions,
   ResourceColumn,
+  ResourceColumnGroupCell,
   ResourceViewDay,
   ResourceViewModel,
   TimeAxis,
