@@ -84,7 +84,7 @@ unsubscribe();
 | `getVisibleRange` | `(): DateRange` | 現在のビューが表示している日時範囲を返す |
 | `getOccurrences` | `(range: DateRange): readonly EventOccurrence[]` | 指定範囲のオカレンス一覧を開始時刻順で返す |
 | `setDragPreview` | `(preview: DragPreview | null): void` | ドラッグ操作のプレビューを設定する（`null` で解除） |
-| `toggleResourceCollapsed` | `(resourceId: string): void` | リソースの折りたたみ状態をトグルする（タイムラインビューのみに影響）。対象が現在のリソース一覧に存在しない ID でも例外を投げない |
+| `toggleResourceCollapsed` | `(resourceId: string): void` | リソースの折りたたみ状態をトグルする（リソース/タイムラインビューに影響）。対象が現在のリソース一覧に存在しない ID でも例外を投げない |
 
 `next` / `prev` の移動幅はビューごとに異なります。
 
@@ -496,7 +496,7 @@ function useResourceGridDrag(params: {
 }): ResourceGridDragHandlers
 ```
 
-リソースビュー（列 = リソース × 日、縦 = 時間）のドラッグインタラクション（新規作成・移動・リサイズ・列間の移動）を提供する低レベルフックです。`ResourceView` が内部で使用しています。確定時は時間・日付の変更と `resourceId` の変更を 1 つのパッチに合成し、1 回の `updateEvent` を呼びます（複数日表示では別の日の列への移動が日数シフトになります）。
+リソースビュー（列 = リソース × 日、縦 = 時間）のドラッグインタラクション（新規作成・移動・リサイズ・列間の移動）を提供する低レベルフックです。`ResourceView` が内部で使用しています。確定時は時間・日付の変更とリソース割当の変更を 1 つのパッチに合成し、1 回の `updateEvent` を呼びます（複数日表示では別の日の列への移動が日数シフトになります）。複数リソース割当（`resourceIds`）の予定では、操作した列の割当だけが移動先に変わります（`resourceLanePatch` の規則）。
 
 **戻り値 `ResourceGridDragHandlers`**
 
@@ -530,7 +530,7 @@ function useTimelineDrag(params: {
 }): TimelineDragHandlers
 ```
 
-タイムラインビュー（横 = 時間 × 行 = リソース）のドラッグインタラクション（新規作成・移動・リサイズ・行間のリソース移動）を提供する低レベルフックです。`TimelineView` が内部で使用しています。横位置は「表示分」（`timeAtTimelineOffset` の座標系）で扱い、確定時は `useResourceGridDrag` と同じく時間と `resourceId` の変更を 1 回の `updateEvent` に合成します。
+タイムラインビュー（横 = 時間 × 行 = リソース）のドラッグインタラクション（新規作成・移動・リサイズ・行間のリソース移動）を提供する低レベルフックです。`TimelineView` が内部で使用しています。横位置は「表示分」（`timeAtTimelineOffset` の座標系）で扱い、確定時は `useResourceGridDrag` と同じく時間とリソース割当の変更を 1 回の `updateEvent` に合成します（複数リソース割当の予定では操作した行の割当だけが移動先に変わります）。
 
 **戻り値 `TimelineDragHandlers`**
 
@@ -821,7 +821,7 @@ function ResourceView(props: ResourceViewProps): ReactElement | null
 | `initialScrollTime` | `string`（`'HH:mm'`） | マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置。事後の変更は再適用されない |
 | `ref` | `Ref<ResourceViewHandle>` | `scrollToTime(time: string): void` を公開する命令的 API（`[data-koyomi="resource-body"]` を対象にスクロール） |
 
-未割り当て列の見出しラベル（既定 `messages.resource.unassigned`）、空状態（列が 1 つもない）のメッセージ（既定 `messages.resource.empty`）、イベントブロックの aria-label（`messages.common.eventAriaLabel`。日時＋リソース名）は `CalendarProvider` の `messages` prop で差し替えます。イベントブロック・リサイズハンドル・現在時刻線・プレビューは週/日ビューと同じ部位名（`timegrid-event` 等）を使い、デフォルトテーマのスタイルを共有します。列見出し行と終日行は `resource-grid` の `role="grid"` 内で `row` / `columnheader` / `gridcell` を構成し、連続時間軸の本文は grid の外に置きます。操作要素は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
+未割り当て列の見出しラベル（既定 `messages.resource.unassigned`）、空状態（列が 1 つもない）のメッセージ（既定 `messages.resource.empty`）、折りたたみトグルボタン（`ResourceColumn.hasChildren` が `true` の列のみ）の aria-label（`messages.resource.resourceToggleAriaLabel`）、イベントブロックの aria-label（`messages.common.eventAriaLabel`。日時＋リソース名）は `CalendarProvider` の `messages` prop で差し替えます。イベントブロック・リサイズハンドル・現在時刻線・プレビューは週/日ビューと同じ部位名（`timegrid-event` 等）を使い、デフォルトテーマのスタイルを共有します。列見出し行と終日行（`parentId` 使用時は列グループ見出し行も）は `resource-grid` の `role="grid"` 内で `row` / `columnheader` / `gridcell` を構成し（グループセルは `aria-colspan` で覆う列数を示す）、連続時間軸の本文は grid の外に置きます。操作要素は `<button>` + 完全な `aria-label`（日時＋リソース名）です。
 
 ### `TimelineView`
 
@@ -957,7 +957,7 @@ interface ToolbarProps {
 | `id` | `string` | 一意な ID。重複時は先頭のリソースが優先される（先勝ち） |
 | `title` | `string` | 表示名 |
 | `color?` | `string` | 表示色（CSS の color 値）。リソース/タイムラインビューの列/行見出しと既定色に使用（イベント自身の `color` が優先） |
-| `parentId?` | `string` | 親リソースの ID。タイムラインビューでこのリソースを子としてツリー内に配置する（深さは任意段）。参照先のない ID・循環参照（自己参照含む）は孤立したルート（深さ 0）として扱う。リソースビューの列順には影響しない（常にフラット） |
+| `parentId?` | `string` | 親リソースの ID。リソース/タイムラインビューでこのリソースを子としてツリー内に配置する（深さは任意段。タイムラインは行のツリー、リソースビューはツリー順の列＋列グループ見出し行）。参照先のない ID・循環参照（自己参照含む）は孤立したルート（深さ 0）として扱う |
 | `extendedProps?` | `Record<string, unknown>` | 利用者定義の任意データ |
 
 **`EventOccurrence` のフィールド**
@@ -1029,7 +1029,7 @@ interface ToolbarProps {
 
 | 型 | 説明 |
 | --- | --- |
-| `CalendarState` | `{ view; currentDate; timeZone; events; resources; dragPreview; collapsedResourceIds: ReadonlySet<string>; options: ResolvedCalendarOptions }`。`getState()` の戻り値。`collapsedResourceIds` は折りたたみ中のリソース ID の集合（タイムラインビューのみが参照。`toggleResourceCollapsed` で変更） |
+| `CalendarState` | `{ view; currentDate; timeZone; events; resources; dragPreview; collapsedResourceIds: ReadonlySet<string>; options: ResolvedCalendarOptions }`。`getState()` の戻り値。`collapsedResourceIds` は折りたたみ中のリソース ID の集合（リソース/タイムラインビューが参照。`toggleResourceCollapsed` で変更） |
 | `CalendarViewModel` | `MonthViewModel | TimeGridViewModel | ListViewModel | YearViewModel | MultiMonthViewModel | ResourceViewModel | TimelineViewModel`。`getViewModel()` の戻り値 |
 | `MonthViewModel` | `{ type: 'month'; anchor: Date; weeks: readonly MonthWeek[]; weekdays: readonly Weekday[] }` |
 | `MonthWeek` | `{ days: readonly MonthDay[]; segments: readonly EventSegment[]; laneCount: number; weekNumber: number \| null }`。`weekNumber` は `showWeekNumbers: true` のときだけ ISO 8601 週番号が入る（既定 `null`） |
@@ -1048,9 +1048,10 @@ interface ToolbarProps {
 | `YearDay` | `{ date; key; inCurrentMonth; isToday; eventCount }`。前後月の日付（`inCurrentMonth: false`）は常に `eventCount: 0` |
 | `MultiMonthViewModel` | `{ type: 'multiMonth'; anchor: Date; months: readonly MultiMonthMonth[]; weekdays: readonly Weekday[] }` |
 | `MultiMonthMonth` | `{ anchor: Date; key: string; weeks: readonly MonthWeek[] }`。`weeks` は月ビューと同じ `MonthWeek` だが、前後月の日付セルにはセグメントを配置しない |
-| `ResourceViewModel` | `{ type: 'resource'; date: Date; dateKey: string; isToday: boolean; days: readonly ResourceViewDay[]; columns: readonly ResourceColumn[]; isEmpty: boolean; slots: readonly TimeSlot[]; slotMinTimeMinutes: number; slotMaxTimeMinutes: number; nowIndicatorMinutes: number \| null; businessHourSlots: readonly BusinessHourSlot[] }`。`date`/`dateKey`/`isToday` は先頭日、`days` は `resourceViewDays` 日分の表示日一覧。`columns` はリソース × 日の直積（リソース優先で日が昇順に並ぶ）。`businessHourSlots` は先頭日の営業時間内フラグ（日ごとの値は `days[].businessHourSlots`）。`nowIndicatorMinutes` は表示範囲に今日が含まれない場合 `null`。`slotMinTimeMinutes`/`slotMaxTimeMinutes` は `TimeGridViewModel` と同じ意味 |
+| `ResourceViewModel` | `{ type: 'resource'; date: Date; dateKey: string; isToday: boolean; days: readonly ResourceViewDay[]; columns: readonly ResourceColumn[]; columnGroupRows: readonly (readonly ResourceColumnGroupCell[])[]; isEmpty: boolean; slots: readonly TimeSlot[]; slotMinTimeMinutes: number; slotMaxTimeMinutes: number; nowIndicatorMinutes: number \| null; businessHourSlots: readonly BusinessHourSlot[] }`。`date`/`dateKey`/`isToday` は先頭日、`days` は `resourceViewDays` 日分の表示日一覧。`columns` はリソース × 日の直積（リソースは `parentId` によるツリー順、リソース優先で日が昇順に並ぶ。折りたたみ中の親の子孫は除外）。`columnGroupRows` は列グループ見出しの行（子を持つリソースがなければ空配列）。`businessHourSlots` は先頭日の営業時間内フラグ（日ごとの値は `days[].businessHourSlots`）。`nowIndicatorMinutes` は表示範囲に今日が含まれない場合 `null`。`slotMinTimeMinutes`/`slotMaxTimeMinutes` は `TimeGridViewModel` と同じ意味 |
 | `ResourceViewDay` | `{ date: Date; key: string; isToday: boolean; businessHourSlots: readonly BusinessHourSlot[] }`。リソースビューの表示日 1 日分のメタデータ（`businessHourSlots` はその日の曜日基準） |
-| `ResourceColumn` | `{ resource: CalendarResource \| null; key: string; date: Date; dayKey: string; isToday: boolean; dayIndex: number; items: readonly PositionedOccurrence[]; allDayItems: readonly EventOccurrence[] }`。`resource: null` は未割り当て列。`key` は単日表示では `` `r:${id}` `` または `'unassigned'`、複数日表示（`resourceViewDays` が `2` 以上）では `` `r:${id}@YYYY-MM-DD` `` / `` `unassigned@YYYY-MM-DD` ``。`date`/`dayKey`/`isToday`/`dayIndex` は列が表す日の情報 |
+| `ResourceColumn` | `{ resource: CalendarResource \| null; key: string; date: Date; dayKey: string; isToday: boolean; dayIndex: number; items: readonly PositionedOccurrence[]; allDayItems: readonly EventOccurrence[]; depth: number; hasChildren: boolean; collapsed: boolean }`。`resource: null` は未割り当て列。`key` は単日表示では `` `r:${id}` `` または `'unassigned'`、複数日表示（`resourceViewDays` が `2` 以上）では `` `r:${id}@YYYY-MM-DD` `` / `` `unassigned@YYYY-MM-DD` ``。`date`/`dayKey`/`isToday`/`dayIndex` は列が表す日の情報。`depth`/`hasChildren`/`collapsed` は `CalendarResource.parentId` によるツリー内の情報（`parentId` 未使用時・未割り当て列は常に `depth: 0`/`hasChildren: false`/`collapsed: false`） |
+| `ResourceColumnGroupCell` | `{ resource: CalendarResource \| null; key: string; startColumnIndex: number; columnCount: number; collapsed: boolean; depth: number }`。`ResourceViewModel.columnGroupRows` の 1 セル分。`resource` 非 `null` は親リソースのグループセル（親自身＋可視の子孫の列を覆う）、`null` はグループに属さない列の区間のスペーサー。各行は全列を隙間なく覆う |
 | `TimelineViewModel` | `{ type: 'timeline'; days: readonly TimelineDay[]; slots: readonly TimelineSlot[]; rows: readonly TimelineRow[]; isEmpty: boolean; totalMinutes: number; nowIndicatorMinutes: number \| null; businessHourRanges: readonly BusinessHourRange[]; scale: TimelineScale; headerGroups: readonly TimelineHeaderGroup[] \| null }`。`businessHourRanges` は営業時間を表示分座標系へ変換し、隣接・重複をマージした区間一覧（開始分昇順。`businessHours` 未指定時は `[]`）。`scale` は適用中のズーム粒度、`headerGroups` は `scale` が `'week'`/`'month'` のときのみ配列（それ以外は `null`） |
 | `TimelineScale` | `'hour' \| 'day' \| 'week' \| 'month'`。タイムラインビューの横軸のズーム粒度 |
 | `TimelineHeaderGroup` | `{ start: Date; end: Date; key: string; startMinutes: number; endMinutes: number; containsToday: boolean }`。`TimelineViewModel.headerGroups` の要素（週/月単位のヘッダー見出し 1 本分）。`start`/`end` は表示範囲でクランプ済み |
@@ -1431,7 +1432,7 @@ console.log(valid); // => true（重なり・配置制約とも対象がない�
 | `buildListViewModel(params): ListViewModel` | リストビューのビューモデル（日付ごとのオカレンス一覧）を構築する |
 | `buildYearViewModel(params): YearViewModel` | 年ビューのビューモデル（12 ヶ月分のミニ月グリッド・日ごとの予定件数）を構築する。`hiddenWeekdays` は無視する |
 | `buildMultiMonthViewModel(params): MultiMonthViewModel` | 複数月ビューのビューモデル（`multiMonthCount` ヶ月分の月グリッド）を構築する。内部で月ごとに `buildMonthViewModel` を呼び、`segmentRange` を各月本体にクランプすることで前後月の日付セルに予定を出さない |
-| `buildResourceViewModel(params): ResourceViewModel` | リソースビューのビューモデル（列 = リソース、列ごとの時間グリッド配置）を構築する。`hiddenWeekdays` は無視する。`params.resources` / `params.unassignedLane` で未割り当て列の生成規則を制御し、`params.businessHours`（省略時 `[]`）で全列共通の `businessHourSlots` を算出する。`params.slotMinTime`/`slotMaxTime`（省略時 `'00:00'`/`'24:00'`）で表示時間帯を制限する |
+| `buildResourceViewModel(params): ResourceViewModel` | リソースビューのビューモデル（列 = リソース、列ごとの時間グリッド配置）を構築する。`hiddenWeekdays` は無視する。リソース一覧は内部で `buildResourceTree`/`filterVisibleResourceTree` によりツリー順・折りたたみ済みに整形され、列グループ見出しの行（`columnGroupRows`）も算出される（`params.collapsedResourceIds`、省略時 `[]`）。`params.resources` / `params.unassignedLane` で未割り当て列の生成規則を制御し、`params.businessHours`（省略時 `[]`）で全列共通の `businessHourSlots` を算出する。`params.slotMinTime`/`slotMaxTime`（省略時 `'00:00'`/`'24:00'`）で表示時間帯を制限する |
 | `buildTimelineViewModel(params): TimelineViewModel` | タイムラインビューのビューモデル（`params.timelineDays` 日分の「表示分」座標系、行 = リソース、区間レーン割当）を構築する。`hiddenWeekdays` は無視する。`params.businessHours`（省略時 `[]`）で `businessHourRanges`（表示分の区間・マージ済み）を算出する。リソース一覧は内部で `buildResourceTree`/`filterVisibleResourceTree` によりツリー順・折りたたみ済みに整形される（`params.collapsedResourceIds`、省略時 `[]`）。`params.timelineScale`（省略時 `'hour'`）でズーム粒度を切り替える |
 
 ```ts
@@ -1517,7 +1518,7 @@ console.log(timelineModel.totalMinutes); // => 10080（7 日 × 1440 分）
 
 ### リソースの階層グルーピング（`core/views/resource-hierarchy`）
 
-`CalendarResource.parentId` によるツリー構築・折りたたみ表示の絞り込みを行う純粋関数です。タイムラインビュー（`buildTimelineViewModel`）のみが内部で使用します（リソースビューは常にフラットのため参照しません）。
+`CalendarResource.parentId` によるツリー構築・折りたたみ表示の絞り込みを行う純粋関数です。リソースビュー（`buildResourceViewModel`）とタイムラインビュー（`buildTimelineViewModel`）が内部で使用します。
 
 | 関数 / 型 | 説明 |
 | --- | --- |
@@ -1635,7 +1636,7 @@ type EventChangeVerb = 'moved' | 'resized' | 'convertedToAllDay' | 'convertedToT
 | `list` | `ListView` / `VirtualListView` | `allDay`（終日ラベル）、`empty`（空状態）、`dayAriaLabel(day, dateLabel)`（日セクションの aria-label） |
 | `month` | `MonthView` | `overflow(count)`（「+N 件」の表示内容） |
 | `multiMonth` | `MultiMonthView` | `overflow(count)`（「+N 件」の表示内容） |
-| `resource` | `ResourceView` / `VirtualResourceView` | `unassigned`（未割り当て列ラベル）、`empty`（空状態） |
+| `resource` | `ResourceView` / `VirtualResourceView` | `unassigned`（未割り当て列ラベル）、`empty`（空状態）、`resourceToggleAriaLabel(resource, collapsed)`（列見出しの折りたたみボタンの aria-label。`ResourceView` のみ） |
 | `timeline` | `TimelineView` / `VirtualTimelineView` | `unassigned`（未割り当て行ラベル）、`empty`（空状態）、`corner`（角セルの aria-label）、`resourceToggleAriaLabel(resource, collapsed)`（折りたたみボタンの aria-label） |
 | `year` | `YearView` | `dayCount(count)`（件数文言「予定N件」部分）、`dayAriaLabel(day, parts)`（日セルの aria-label 全体。`parts.dateLabel`・`parts.countLabel`（`dayCount` の結果、0 件の日は `null`）） |
 | `announcer` | `useCalendarAnnouncer` | `unassignedResource`、`eventChanged(change, verb, rangeLabel, resourceLabel)`、`eventCreated(event, selection, rangeLabel, resourceLabel)`、`eventDeleted(deletion)`、`viewChanged(info, title)` |

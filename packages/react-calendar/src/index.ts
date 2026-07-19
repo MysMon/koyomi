@@ -181,7 +181,7 @@ export type {
 export { buildListViewModel } from './core/views/list-view';
 export { buildMonthViewModel } from './core/views/month-view';
 export { buildMultiMonthViewModel } from './core/views/multi-month-view';
-// リソースの階層グルーピング（タイムラインビューのみが利用する）
+// リソースの階層グルーピング（リソース/タイムラインビューが利用する）
 export {
   buildResourceTree,
   filterVisibleResourceTree,

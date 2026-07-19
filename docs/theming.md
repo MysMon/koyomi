@@ -103,7 +103,7 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 
 ## motion の削減（prefers-reduced-motion）
 
-デフォルトテーマは `prefers-color-scheme` と同様に `prefers-reduced-motion: reduce` にも自動で追従します。OS/ブラウザで「視差効果を減らす」等の設定を有効にしているユーザーには、ボタンの配色変化やタイムラインの折りたたみトグルの回転といった `transition` がすべて無効化されます（瞬時に切り替わります）。この対応はデフォルトテーマの CSS のみで完結しており、追加の設定は不要です。
+デフォルトテーマは `prefers-color-scheme` と同様に `prefers-reduced-motion: reduce` にも自動で追従します。OS/ブラウザで「視差効果を減らす」等の設定を有効にしているユーザーには、ボタンの配色変化や折りたたみトグル（リソース/タイムラインビュー）の回転といった `transition` がすべて無効化されます（瞬時に切り替わります）。この対応はデフォルトテーマの CSS のみで完結しており、追加の設定は不要です。
 
 ## data-koyomi 属性の一覧
 
@@ -194,7 +194,9 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 | --- | --- |
 | リソースビュー本体 | `resource`（`data-koyomi-columns="N"`） |
 | 空状態（列が 1 つもない）の表示 | `resource-empty` |
-| 列見出し行（role="row"） / 各見出しセル | `resource-header` / `resource-header-cell`（`role="columnheader"`。リソースに対応する列のみ `data-koyomi-resource-id`） |
+| 列見出し行（role="row"） / 各見出しセル | `resource-header` / `resource-header-cell`（`role="columnheader"`。リソースに対応する列のみ `data-koyomi-resource-id`。階層の深さを示す `data-koyomi-depth` も付く） |
+| 列グループ見出し行（`parentId` で子を持つリソースがある場合のみ） / グループセル / スペーサー | `resource-group-header-row` / `resource-group-header-cell`（`role="columnheader"`、`aria-colspan`、`data-koyomi-resource-id`、`data-koyomi-depth`） / `resource-group-header-gap` |
+| 列見出しの折りたたみトグルボタン（`ResourceColumn.hasChildren` が `true` の列の先頭日のみ） | `resource-column-toggle`（`aria-expanded`） |
 | 終日イベント行 / セル | `allday-row` / `resource-allday-cell`（`data-koyomi-resource`、終日ドラッグプレビューの対象列は `data-koyomi-preview-target="true"`、宣言的制約違反時は `data-koyomi-invalid="true"` も付く） |
 | 終日アイテム | `allday-event` |
 | 本体 / 時刻軸ラベル | `resource-body` / `time-slot-label` |
