@@ -71,6 +71,13 @@ jobs:
         if: matrix.id == 'main'
         run: pnpm test:e2e
 
+      # 意図的に粗い閾値（手元実測の約 10 倍）との比較のみ行い、ランナーの
+      # 速度差・負荷変動で flaky にならない範囲で、計算量が悪化するような
+      # 明確な性能リグレッションだけを検出する（bench/regression.spec.ts）
+      - name: 性能リグレッション検出（粗い閾値、main レグのみ）
+        if: matrix.id == 'main'
+        run: pnpm bench:ci
+
       - name: パッケージ検査（publint / arethetypeswrong、main レグのみ）
         if: matrix.id == 'main'
         working-directory: packages/react-calendar
