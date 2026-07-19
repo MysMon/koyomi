@@ -250,6 +250,74 @@ describe('useResourceGridDrag - 作成', () => {
       resourceId: 'room-b',
     });
   });
+
+  it('終日セルはフォーカス可能で、Enter を押すと allDay: true・当日 1 日・選択列の resourceId 付きのイベントが作成される', () => {
+    const { container, sink } = renderHarness({ resources: [ROOM_A, ROOM_B] });
+    const allDayCells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
+    const roomBCell = allDayCells[1];
+    if (roomBCell === undefined) {
+      throw new Error('room-b の終日セルが見つかりません');
+    }
+    expect(roomBCell).toHaveAttribute('tabindex', '0');
+
+    fireEvent.keyDown(roomBCell, { key: 'Enter' });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      allDay: true,
+      start: at(`${DAY}T00:00`),
+      end: at('2026-07-16T00:00'),
+      resourceId: 'room-b',
+    });
+  });
+
+  it('終日セルで Space キーを押しても同様にイベントが作成される', () => {
+    const { container, sink } = renderHarness({ resources: [ROOM_A, ROOM_B] });
+    const allDayCells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
+    const roomBCell = allDayCells[1];
+    if (roomBCell === undefined) {
+      throw new Error('room-b の終日セルが見つかりません');
+    }
+
+    fireEvent.keyDown(roomBCell, { key: ' ' });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      allDay: true,
+      start: at(`${DAY}T00:00`),
+      end: at('2026-07-16T00:00'),
+      resourceId: 'room-b',
+    });
+  });
+
+  it('終日アイテムのボタンで Enter を押しても、セル（終日セル）の作成は二重発火しない', () => {
+    const event: CalendarEvent = {
+      id: 'ev-allday-keep',
+      title: '休暇',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-a',
+    };
+    const onEventClick = vi.fn();
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { onEventClick },
+    });
+    const allDayItemEl = container.querySelector('[data-koyomi="allday-event"]');
+    if (allDayItemEl === null) {
+      throw new Error('終日アイテムが見つかりません');
+    }
+
+    fireEvent.keyDown(allDayItemEl, { key: 'Enter' });
+
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+    // セル側の作成が二重発火していれば room-a に当日分の新規イベントが増える
+    expect(sink.current?.api.getEvents()).toHaveLength(1);
+  });
 });
 
 describe('useResourceGridDrag - 移動・リサイズ', () => {

@@ -297,7 +297,7 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
               const isPreviewTarget = drag.isAllDayPreviewTarget(column);
               return (
                 // biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA gridcell
-                // biome-ignore lint/a11y/useFocusableInteractive: 現状クリック専用でキーボード操作に未対応（既知の制限。docs/accessibility.md 参照）
+                // biome-ignore lint/a11y/useFocusableInteractive: tabIndex は drag.getAllDayCellProps（useResourceGridDrag）のスプレッド経由で付与済み。静的解析ではスプレッド元を検出できないための誤検知
                 <div
                   key={column.key}
                   {...drag.getAllDayCellProps(column)}

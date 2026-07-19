@@ -446,7 +446,7 @@ useCalendarShortcuts({
 
 移動・リサイズは最小長（時間グリッドは `snapMinutes` 分、帯は 1 日）を下回る操作を無視します。繰り返し予定では `resolveRecurringScope` が呼ばれ、適用後に `onEventChange`（削除は `onEventDelete`）が通知されます。
 
-**日セルにフォーカスした状態（月ビュー・終日行）:** `Enter` または `Space` でその日 1 日分の範囲選択（`onSelectRange`、`allDay: true`）が発火します。リストビューの予定行は Enter・Space によるクリックのみに対応します。
+**日セル・終日セルにフォーカスした状態（月ビュー・終日行・リソースビューの終日セル）:** `Enter` または `Space` でその日 1 日分の範囲選択（`onSelectRange`、`allDay: true`）が発火します。リソースビューの終日セル（`resource-allday-cell`）ではフォーカス中の列の `resourceId` が付きます。リストビューの予定行は Enter・Space によるクリックのみに対応します。
 
 ## 「+N 件」のポップオーバーを自前で組む
 

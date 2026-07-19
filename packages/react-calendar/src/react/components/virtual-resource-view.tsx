@@ -314,7 +314,7 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
   };
   return (
     // biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA gridcell（ResourceView と同じ方針）
-    // biome-ignore lint/a11y/useFocusableInteractive: 現状クリック専用でキーボード操作に未対応（既知の制限。docs/accessibility.md 参照）
+    // biome-ignore lint/a11y/useFocusableInteractive: tabIndex は drag.getAllDayCellProps（useResourceGridDrag）のスプレッド経由で付与済み。静的解析ではスプレッド元を検出できないための誤検知
     <div
       {...drag.getAllDayCellProps(column)}
       data-koyomi="resource-allday-cell"

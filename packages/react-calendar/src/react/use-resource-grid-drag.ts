@@ -81,6 +81,10 @@ export interface ResourceColumnProps {
 export interface ResourceAllDayCellProps {
   /** クリックで当日 1 日の終日イベントを作成する。 */
   onClick: (event: ReactMouseEvent<HTMLElement>) => void;
+  /** キーボード操作（Enter・Space = 当日 1 日の終日イベントを作成）。 */
+  onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
+  /** フォーカス可能にする。 */
+  tabIndex: number;
   /** 列キー（スタイルフック用）。 */
   'data-koyomi-resource': string;
 }
@@ -1012,6 +1016,21 @@ export function useResourceGridDrag(params: {
     void commitCreateRange(range, true, column.resource?.id ?? null).catch(reportError);
   }
 
+  /**
+   * セルへバブルしてきたイベントが、セル内にネストされた終日アイテムのボタン
+   * （`data-koyomi-occurrence` 属性を持つ要素）由来かどうかを判定する。
+   *
+   * 終日アイテムのボタンは ARIA 上の所有関係の要請でセルの子として描画される
+   * （`use-day-drag.ts` の `originatesFromSegment` と同じ理由）。ボタンの
+   * `onKeyDown`（Enter/Space = クリック相当）は伝播を止めないため、セル側で
+   * イベントの由来を確認して終日セルの作成キー操作と二重発火しないようにする。
+   */
+  function originatesFromAllDayItem(event: { target: EventTarget }): boolean {
+    return (
+      event.target instanceof Element && event.target.closest('[data-koyomi-occurrence]') !== null
+    );
+  }
+
   function getColumnProps(column: ResourceColumn): ResourceColumnProps {
     return {
       ref: (element: HTMLElement | null) => {
@@ -1036,6 +1055,19 @@ export function useResourceGridDrag(params: {
       onClick: () => {
         handleAllDayCellClick(column);
       },
+      onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
+        // 終日アイテムのボタン由来のキー操作（Enter/Space 等）をセルの作成として
+        // 二重処理しない（pointerdown/click と同じ理由）
+        if (originatesFromAllDayItem(event)) {
+          return;
+        }
+        if (event.key !== 'Enter' && event.key !== ' ') {
+          return;
+        }
+        event.preventDefault();
+        handleAllDayCellClick(column);
+      },
+      tabIndex: 0,
       'data-koyomi-resource': column.key,
     };
   }

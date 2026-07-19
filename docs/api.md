@@ -514,7 +514,7 @@ function useResourceGridDrag(params: {
 | 型 | フィールド |
 | --- | --- |
 | `ResourceColumnProps` | `ref`, `onPointerDown`, `'data-koyomi-resource'` |
-| `ResourceAllDayCellProps` | `onClick`, `'data-koyomi-resource'` |
+| `ResourceAllDayCellProps` | `onClick`, `onKeyDown`, `tabIndex`, `'data-koyomi-resource'` |
 | `ResourceEventProps` | `onPointerDown`, `onClick`, `onKeyDown`, `tabIndex`, `'data-koyomi-occurrence'`, `'data-koyomi-dragging'?` |
 | `ResourceResizeHandleProps` | `onPointerDown`, `onClick`, `'data-koyomi-resize-handle': 'start' \| 'end'` |
 | `ResourcePreviewSegment` | `kind: 'create' | 'move' | 'resize'`, `startMinutes: number`, `endMinutes: number`, `invalid?: boolean`（宣言的制約違反時のみ `true`） |
