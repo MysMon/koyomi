@@ -13,6 +13,7 @@
     "bench:ci": "playwright test --config=playwright.bench.config.ts regression.spec.ts",
     "bundle:check": "node scripts/check-bundle-size.mjs",
     "test:pairs": "node scripts/check-test-pairs.mjs",
+    "docs:en-pairs": "node scripts/check-docs-translation-pairs.mjs",
     "test:watch": "pnpm --filter @koyomi-cal/react test:watch",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
@@ -20,7 +21,7 @@
     "format": "biome format --write .",
     "demo": "pnpm --filter @koyomi-cal/demo dev",
     "terms": "node scripts/check-terms.mjs",
-    "check": "pnpm terms && pnpm test:pairs && pnpm lint && pnpm typecheck && pnpm test"
+    "check": "pnpm terms && pnpm test:pairs && pnpm docs:en-pairs && pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
