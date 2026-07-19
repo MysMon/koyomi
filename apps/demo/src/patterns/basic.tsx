@@ -11,11 +11,12 @@
  * `editable: false` を含む多様なイベントを揃え、これらの挙動が最初から
  * 画面上で確認できるようにしている。
  * カレンダー本体上の操作のうち、範囲選択・予定クリックは `EventDialog`
- * （モードレス表示）に、繰り返し予定の編集スコープ選択は `ScopeDialog` に委譲する。
- * 範囲選択時は選択範囲に下書き予定を仮置きしてから作成ダイアログを開き、
- * ダイアログを開いたままカレンダー上のドラッグで日時を調整できるようにする。
- * ドラッグ移動/リサイズによる変更は `handleEventChange` が直接適用し、変更ログへ
- * 記録する。
+ * （モードレス表示）に、繰り返し予定の編集スコープ選択は `ScopeDialog` に、月ビューの
+ * 「+N 件」ボタンからの一覧表示は `OverflowPopover` に委譲する。範囲選択時は選択範囲に
+ * 下書き予定を仮置きしてから作成ダイアログを開き、ダイアログを開いたままカレンダー上の
+ * ドラッグで日時を調整できるようにする。ドラッグ移動/リサイズによる変更は
+ * `handleEventChange` が直接適用し、変更ログへ記録する。「+N 件」ボタンには
+ * `overflowPopoverButtonProps` で開閉状態の ARIA 属性を付与する。
  *
  * `useCalendarAnnouncer` の aria-live 通知（{@link https://developer.mozilla.org/ja/docs/Web/Accessibility/ARIA/Attributes/aria-live | live region}）を
  * `announcer.wrapCallbacks` で `callbacks` に組み込む。このパターンは `onSelectRange` を
@@ -36,6 +37,7 @@ import type {
   EventDelete,
   EventId,
   EventOccurrence,
+  MonthDay,
   RangeSelection,
   RecurringEditScope,
   TimeZoneId,
@@ -46,6 +48,7 @@ import {
   CalendarView,
   dateFromKey,
   dateKeyInZone,
+  overflowPopoverButtonProps,
   Toolbar,
   useCalendar,
   useCalendarAnnouncer,
@@ -58,6 +61,11 @@ import {
   EventDialog,
   type EventDialogMode,
 } from '../EventDialog';
+import {
+  OVERFLOW_POPOVER_ID,
+  OverflowPopover,
+  type OverflowPopoverState,
+} from '../OverflowPopover';
 import { type ScopeAction, ScopeDialog, type ScopeRequest } from '../ScopeDialog';
 import { sampleEvents, sampleResources } from '../sample-data';
 import './basic.css';
@@ -151,6 +159,7 @@ export function BasicPattern(): ReactElement {
   const [hideWeekends, setHideWeekends] = useState(false);
   const [dialogMode, setDialogMode] = useState<EventDialogMode | null>(null);
   const [scopeRequest, setScopeRequest] = useState<ScopeRequest | null>(null);
+  const [overflowState, setOverflowState] = useState<OverflowPopoverState | null>(null);
   const [logEntries, setLogEntries] = useState<readonly LogEntry[]>([]);
   const scopeResolverRef = useRef<((scope: RecurringEditScope | null) => void) | null>(null);
   const previousAnnounceRef = useRef('');
@@ -250,6 +259,32 @@ export function BasicPattern(): ReactElement {
     );
   }, []);
 
+  /**
+   * 月ビューの「+N 件」クリックで、その日の全オカレンス（表示中＋非表示）を
+   * 開始時刻順にまとめてポップオーバーへ渡す。
+   */
+  const handleOverflowClick = useCallback(
+    (
+      day: MonthDay,
+      hiddenOccurrences: readonly EventOccurrence[],
+      details: { visibleOccurrences: readonly EventOccurrence[] },
+    ) => {
+      const occurrences = [...details.visibleOccurrences, ...hiddenOccurrences].sort(
+        (a, b) => a.start.getTime() - b.start.getTime(),
+      );
+      setOverflowState({ day, occurrences });
+    },
+    [],
+  );
+
+  // 月ビュー以外へ切り替わったら「+N 件」ポップオーバーを閉じる（起点のボタンが
+  // DOM から失われ、位置決めの基準を失うため）。
+  useEffect(() => {
+    if (state.view !== 'month' && overflowState !== null) {
+      setOverflowState(null);
+    }
+  }, [state.view, overflowState]);
+
   /** インタラクション中の想定外エラーをログに出す。 */
   const handleError = useCallback((error: unknown) => {
     setLogEntries((prev) =>
@@ -276,9 +311,17 @@ export function BasicPattern(): ReactElement {
       resolveRecurringScope,
       onEventChange: handleEventChange,
       onEventDelete: handleEventDelete,
+      onOverflowClick: handleOverflowClick,
       onError: handleError,
     }),
-    [openCreateDialog, resolveRecurringScope, handleEventChange, handleEventDelete, handleError],
+    [
+      openCreateDialog,
+      resolveRecurringScope,
+      handleEventChange,
+      handleEventDelete,
+      handleOverflowClick,
+      handleError,
+    ],
   );
 
   useCalendarShortcuts({
@@ -391,7 +434,16 @@ export function BasicPattern(): ReactElement {
           <Toolbar views={ALL_VIEWS} />
           {/* 週/日・リソースビューは 0:00 起点だと営業時間帯が画面外になるため、
               初期スクロール位置を 8:00 に合わせる */}
-          <CalendarView timeGridInitialScrollTime="08:00" resourceInitialScrollTime="08:00" />
+          <CalendarView
+            timeGridInitialScrollTime="08:00"
+            resourceInitialScrollTime="08:00"
+            monthOverflowButtonProps={(day) =>
+              overflowPopoverButtonProps({
+                open: overflowState?.day.key === day.key,
+                popoverId: OVERFLOW_POPOVER_ID,
+              })
+            }
+          />
         </CalendarProvider>
       </main>
 
@@ -424,6 +476,12 @@ export function BasicPattern(): ReactElement {
         announce={announcer.announce}
       />
       <ScopeDialog request={scopeRequest} onResolve={handleScopeResolve} />
+      <OverflowPopover
+        state={overflowState}
+        timeZone={state.timeZone}
+        onOccurrenceSelect={(occurrence) => setDialogMode({ type: 'edit', occurrence })}
+        onClose={() => setOverflowState(null)}
+      />
     </div>
   );
 }
