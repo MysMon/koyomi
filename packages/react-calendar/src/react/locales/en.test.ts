@@ -426,6 +426,12 @@ describe('enMessages.resource / timeline', () => {
     expect(enMessages.timeline.corner).toBe('Resources');
   });
 
+  it('resource.resourceToggleAriaLabel は collapsed に応じて Expand/Collapse になる（タイムラインと同文）', () => {
+    const resource = { id: 'room-a', title: 'Room A' };
+    expect(enMessages.resource.resourceToggleAriaLabel(resource, false)).toBe('Collapse Room A');
+    expect(enMessages.resource.resourceToggleAriaLabel(resource, true)).toBe('Expand Room A');
+  });
+
   it('resourceToggleAriaLabel は collapsed に応じて Expand/Collapse になる', () => {
     const resource = { id: 'room-a', title: 'Room A' };
     expect(enMessages.timeline.resourceToggleAriaLabel(resource, false)).toBe('Collapse Room A');

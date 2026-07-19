@@ -21,12 +21,13 @@
  */
 
 import type { ReactElement, ReactNode, Ref } from 'react';
-import { memo, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import type {
   BusinessHourSlot,
   EventOccurrence,
   PositionedOccurrence,
   ResourceColumn,
+  ResourceColumnGroupCell,
   TimeSlot,
   TimeZoneId,
 } from '../../core/types';
@@ -158,6 +159,19 @@ function useStableResourceDrag(drag: ResourceGridDragHandlers): ResourceColumnDr
 }
 
 /**
+ * 列グループ見出しセル（{@link ResourceColumnGroupCell}）の列スパンに応じた幅スタイルを返す。
+ *
+ * 列見出しセルはテーマ CSS で `flex: 1 1 var(--koyomi-resource-column-width)` の等幅
+ * 配分になるため、`columnCount` 列を覆うセルには同じ列幅変数の `columnCount` 倍を
+ * 与えて下の列見出し行と水平位置を揃える（位置決めの数値のみを inline で出力する
+ * 既存方針に従う）。
+ */
+function groupCellSpanStyle(columnCount: number): { flex: string; minWidth: string } {
+  const width = `calc(${columnCount} * var(--koyomi-resource-column-width, 160px))`;
+  return { flex: `${columnCount} ${columnCount} ${width}`, minWidth: width };
+}
+
+/**
  * リソースビュー（`ResourceView`）を描画する。
  *
  * `useCalendarContext()` からビューモデルを取得し、`viewModel.type !== 'resource'`
@@ -188,6 +202,14 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
   // `drag` は毎レンダー新しいオブジェクトになるため、列・終日アイテムの
   // memo 化が効くよう、参照が変わらないラッパー経由で渡す（詳細は関数コメント参照）。
   const stableDrag = useStableResourceDrag(drag);
+  // api の参照は再レンダリングを跨いで安定するため、onToggleCollapse も安定する
+  // （TimelineView の同名コールバックと同じ狙い）。
+  const onToggleCollapse = useCallback(
+    (resourceId: string) => {
+      api.toggleResourceCollapsed(resourceId);
+    },
+    [api],
+  );
 
   // viewModel.type !== 'resource'（早期 return 前）でもフックは無条件に呼ぶ必要があるため、
   // スクロール計算に使う表示時間帯（分）は安全な既定値へフォールバックする
@@ -239,7 +261,7 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
     return null;
   }
 
-  const { columns, slots, nowIndicatorMinutes, isEmpty } = viewModel;
+  const { columns, columnGroupRows, slots, nowIndicatorMinutes, isEmpty } = viewModel;
   const { timeZone, options } = state;
   const { locale } = options;
   // 複数日表示（resourceViewDays >= 2）では列見出し・終日セルの aria-label に日ラベルを付ける
@@ -262,6 +284,50 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
     >
       {/* biome-ignore lint/a11y/useSemanticElements: DOM 仕様が定める div ベースの ARIA grid（TimeGridView と同じ方針。<table> はテーマ CSS と噛み合わないため不採用） */}
       <div data-koyomi="resource-grid" role="grid">
+        {/* 列グループ見出し行（parentId で子を持つリソースがある場合のみ）。
+            親リソースのグループセルが自身＋可視の子孫の列を覆い、グループに属さない
+            区間は空の columnheader（スペーサー）で覆う。グループ関係は各セルの
+            aria-colspan で列見出し行と対応づける */}
+        {columnGroupRows.map((groupCells) => (
+          // biome-ignore lint/a11y/useSemanticElements: 下の見出し行と同様、div ベースの ARIA row
+          // biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない
+          <div key={groupCells[0]?.depth ?? 0} data-koyomi="resource-group-header-row" role="row">
+            <div data-koyomi="timegrid-axis-gutter" role="presentation" />
+            {/* row と columnheader の間に挟まるレイアウト用ラッパー（見出し行と同構造） */}
+            <div data-koyomi="resource-headers" role="presentation">
+              {groupCells.map((cell) =>
+                cell.resource === null ? (
+                  // biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA columnheader
+                  // biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない
+                  <div
+                    key={cell.key}
+                    data-koyomi="resource-group-header-gap"
+                    role="columnheader"
+                    aria-colspan={cell.columnCount}
+                    style={groupCellSpanStyle(cell.columnCount)}
+                  />
+                ) : (
+                  // biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA columnheader
+                  // biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない
+                  <div
+                    key={cell.key}
+                    data-koyomi="resource-group-header-cell"
+                    role="columnheader"
+                    aria-colspan={cell.columnCount}
+                    data-koyomi-resource-id={cell.resource.id}
+                    data-koyomi-depth={String(cell.depth)}
+                    style={withEventColorStyle(
+                      groupCellSpanStyle(cell.columnCount),
+                      cell.resource.color,
+                    )}
+                  >
+                    {cell.resource.title}
+                  </div>
+                ),
+              )}
+            </div>
+          </div>
+        ))}
         {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA row */}
         {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない（フォーカスは各 columnheader/gridcell が担う） */}
         <div data-koyomi="resource-header" role="row">
@@ -284,12 +350,33 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
                   key={column.key}
                   data-koyomi="resource-header-cell"
                   data-koyomi-date={column.dayKey}
+                  data-koyomi-depth={String(column.depth)}
                   role="columnheader"
                   {...(column.resource !== null
                     ? { 'data-koyomi-resource-id': column.resource.id }
                     : {})}
                   style={withEventColorStyle({}, column.resource?.color)}
                 >
+                  {/* 折りたたみトグルは子を持つリソースの先頭日の列にのみ描画する
+                      （複数日表示で同じリソースの列が日ごとに並んでも 1 つに絞る） */}
+                  {column.hasChildren && column.resource !== null && column.dayIndex === 0 && (
+                    <button
+                      type="button"
+                      data-koyomi="resource-column-toggle"
+                      aria-expanded={!column.collapsed}
+                      aria-label={resourceMessages.resourceToggleAriaLabel(
+                        column.resource,
+                        column.collapsed,
+                      )}
+                      onClick={() => {
+                        if (column.resource !== null) {
+                          onToggleCollapse(column.resource.id);
+                        }
+                      }}
+                    >
+                      ▸
+                    </button>
+                  )}
                   {renderColumnHeader
                     ? renderColumnHeader(column, { defaultContent })
                     : defaultContent}

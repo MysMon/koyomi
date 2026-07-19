@@ -433,6 +433,105 @@ describe('ResourceView - カスタム描画 props', () => {
   });
 });
 
+describe('ResourceView - リソースの階層グルーピング（parentId・折りたたみ）', () => {
+  /** 「拠点 > フロア > 会議室」の階層フィクスチャ。 */
+  const SITE: CalendarResource = { id: 'site', title: '本社' };
+  const FLOOR_1: CalendarResource = { id: 'floor-1', title: '1F', parentId: 'site' };
+  const ROOM_X: CalendarResource = { id: 'room-x', title: '会議室X', parentId: 'floor-1' };
+  const ROOM_Y: CalendarResource = { id: 'room-y', title: '会議室Y', parentId: 'floor-1' };
+  const TREE = [SITE, FLOOR_1, ROOM_X, ROOM_Y];
+
+  it('parentId 未使用時はグループ見出し行もトグルボタンも描画されない（既存挙動の回帰確認）', () => {
+    const { container } = render(<Harness resources={[ROOM_A, ROOM_B]} />);
+    expect(container.querySelector('[data-koyomi="resource-group-header-row"]')).toBeNull();
+    expect(container.querySelector('[data-koyomi="resource-column-toggle"]')).toBeNull();
+  });
+
+  it('親リソースのグループ見出し行が深さごとに描画され、role="row"・aria-colspan 付きの columnheader になる', () => {
+    const { container } = render(<Harness resources={TREE} />);
+    const rows = container.querySelectorAll('[data-koyomi="resource-group-header-row"]');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.getAttribute('role')).toBe('row');
+
+    // 深さ 0 の行: site が自身 + 子孫の 4 列を覆う
+    const level0Cells = rows[0]?.querySelectorAll('[data-koyomi="resource-group-header-cell"]');
+    expect(level0Cells).toHaveLength(1);
+    expect(level0Cells?.[0]?.textContent).toBe('本社');
+    expect(level0Cells?.[0]?.getAttribute('role')).toBe('columnheader');
+    expect(level0Cells?.[0]?.getAttribute('aria-colspan')).toBe('4');
+    expect(level0Cells?.[0]?.getAttribute('data-koyomi-resource-id')).toBe('site');
+
+    // 深さ 1 の行: site の列を覆うスペーサー + floor-1 のグループ（3 列）
+    const level1Row = rows[1];
+    const gap = level1Row?.querySelector('[data-koyomi="resource-group-header-gap"]');
+    expect(gap).not.toBeNull();
+    expect(gap?.getAttribute('role')).toBe('columnheader');
+    expect(gap?.getAttribute('aria-colspan')).toBe('1');
+    const level1Cell = level1Row?.querySelector('[data-koyomi="resource-group-header-cell"]');
+    expect(level1Cell?.textContent).toBe('1F');
+    expect(level1Cell?.getAttribute('aria-colspan')).toBe('3');
+  });
+
+  it('子を持つリソースの列見出しに aria-expanded 付きのトグルボタンが描画され、子を持たない列にはない', () => {
+    const { container } = render(<Harness resources={TREE} />);
+    const headerCells = container.querySelectorAll('[data-koyomi="resource-header-cell"]');
+    expect(headerCells).toHaveLength(4);
+    const toggles = container.querySelectorAll('[data-koyomi="resource-column-toggle"]');
+    expect(toggles).toHaveLength(2); // site と floor-1
+    expect(toggles[0]?.getAttribute('aria-expanded')).toBe('true');
+    expect(toggles[0]?.getAttribute('aria-label')).toBe('本社 を折りたたむ');
+  });
+
+  it('トグルボタンのクリックで子孫の列が隠れ、再クリックで戻る', () => {
+    const { container } = render(<Harness resources={TREE} />);
+    const columnKeys = () =>
+      Array.from(container.querySelectorAll('[data-koyomi="resource-column"]')).map((element) =>
+        element.getAttribute('data-koyomi-resource'),
+      );
+    expect(columnKeys()).toEqual(['r:site', 'r:floor-1', 'r:room-x', 'r:room-y']);
+
+    const floorToggle = container.querySelector(
+      '[data-koyomi="resource-header-cell"][data-koyomi-resource-id="floor-1"] [data-koyomi="resource-column-toggle"]',
+    );
+    if (floorToggle === null) {
+      throw new Error('floor-1 のトグルボタンが見つかりません');
+    }
+    act(() => {
+      (floorToggle as HTMLElement).click();
+    });
+    expect(columnKeys()).toEqual(['r:site', 'r:floor-1']);
+    const collapsedToggle = container.querySelector(
+      '[data-koyomi="resource-header-cell"][data-koyomi-resource-id="floor-1"] [data-koyomi="resource-column-toggle"]',
+    );
+    expect(collapsedToggle?.getAttribute('aria-expanded')).toBe('false');
+    expect(collapsedToggle?.getAttribute('aria-label')).toBe('1F を展開する');
+
+    act(() => {
+      (collapsedToggle as HTMLElement).click();
+    });
+    expect(columnKeys()).toEqual(['r:site', 'r:floor-1', 'r:room-x', 'r:room-y']);
+  });
+
+  it('列見出しに data-koyomi-depth が付く', () => {
+    const { container } = render(<Harness resources={TREE} />);
+    const depths = Array.from(
+      container.querySelectorAll('[data-koyomi="resource-header-cell"]'),
+    ).map((element) => element.getAttribute('data-koyomi-depth'));
+    expect(depths).toEqual(['0', '1', '2', '2']);
+  });
+
+  it('複数日表示ではトグルボタンがリソースの先頭日の列見出しにのみ描画される', () => {
+    const { container } = render(<Harness resources={[SITE, FLOOR_1]} resourceViewDays={2} />);
+    // site×2 日 + floor-1×2 日 = 4 見出しのうち、トグルは site の 1 日目のみ
+    // （floor-1 は子を持たないため対象外）
+    const headerCells = container.querySelectorAll('[data-koyomi="resource-header-cell"]');
+    expect(headerCells).toHaveLength(4);
+    const toggles = container.querySelectorAll('[data-koyomi="resource-column-toggle"]');
+    expect(toggles).toHaveLength(1);
+    expect(headerCells[0]?.contains(toggles[0] ?? null)).toBe(true);
+  });
+});
+
 describe('ResourceView - 現在時刻線', () => {
   it('表示日が今日のときのみ now-indicator が描画される', () => {
     const { container: todayContainer } = render(

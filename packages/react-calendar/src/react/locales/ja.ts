@@ -323,6 +323,8 @@ const multiMonth: MessageCatalog['multiMonth'] = {
 const resource: MessageCatalog['resource'] = {
   unassigned: '未割り当て',
   empty: 'リソースがありません',
+  resourceToggleAriaLabel: (toggleTarget, collapsed) =>
+    collapsed ? `${toggleTarget.title} を展開する` : `${toggleTarget.title} を折りたたむ`,
 };
 
 const timeline: MessageCatalog['timeline'] = {

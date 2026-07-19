@@ -314,13 +314,26 @@ div[data-koyomi="multimonth"]
 div[data-koyomi="resource"][data-koyomi-columns="<列数>"] (style: --koyomi-timegrid-hours=時間数)
   div[data-koyomi="resource-grid"] (role="grid")            … 列見出し行・終日行だけをまとめる a11y 用ラッパー
                                                                 （row/rowgroup 以外を子孫に持たないよう本文はこの外側に置く）
+    div[data-koyomi="resource-group-header-row"] (role="row") × 深さ数
+                                                              … 列グループ見出し行（parentId で子を持つリソースがある場合のみ。深さの浅い順）
+      div[data-koyomi="timegrid-axis-gutter"] (role="presentation")
+      div[data-koyomi="resource-headers"] (role="presentation")
+        div[data-koyomi="resource-group-header-cell"][data-koyomi-resource-id][data-koyomi-depth] (role="columnheader", aria-colspan=覆う列数)
+           … 親リソースのグループセル（親自身＋可視の子孫の列を覆う）。
+             style: 列幅変数 × 列数の flex/min-width、--koyomi-event-color（resource.color 指定時のみ）
+        div[data-koyomi="resource-group-header-gap"] (role="columnheader", aria-colspan=覆う列数)
+           … グループに属さない列の区間（フラットなリソース・未割り当て列など）のスペーサー
     div[data-koyomi="resource-header"] (role="row")
       div[data-koyomi="timegrid-axis-gutter"] (role="presentation")   … 左上の空き（時間軸幅の確保）
       div[data-koyomi="resource-headers"] (role="presentation")  … row→columnheader 間の透過ラッパ
-        div[data-koyomi="resource-header-cell"][data-koyomi-date][data-koyomi-resource-id]? (role="columnheader") × columns
+        div[data-koyomi="resource-header-cell"][data-koyomi-date][data-koyomi-depth][data-koyomi-resource-id]? (role="columnheader") × columns
            … リソース名（複数日表示では「リソース名 + 日ラベル」。renderColumnHeader で差し替え可）。
              未割り当て列は data-koyomi-resource-id なし。data-koyomi-date は列の日付キー。
+             data-koyomi-depth はツリー内の深さ（parentId 未使用時は常に '0'）。
              style: --koyomi-event-color（resource.color 指定時のみ）
+          button[data-koyomi="resource-column-toggle"][aria-expanded] … 折りたたみトグル。
+             子を持つリソースの先頭日（dayIndex 0）の列にのみ描画。
+             aria-label は messages.resource.resourceToggleAriaLabel
     div[data-koyomi="allday-row"] (role="row")
       div[data-koyomi="timegrid-axis-gutter"] (role="presentation")
       div[data-koyomi="resource-allday-cells"] (role="presentation")  … position: relative の基準（row→gridcell 間の透過ラッパ）

@@ -1303,6 +1303,54 @@
   padding-inline-start: 14px;
 }
 
+/* 列グループ見出し行（parentId で子を持つリソースがある場合のみ描画される）。
+   見出し行と同じ 2 段構造（row 直下に gutter + resource-headers ラッパー）のため、
+   行の伸ばし方も見出し行と同じ規則で指定する */
+[data-koyomi="resource-grid"] > [data-koyomi="resource-group-header-row"] {
+  display: flex;
+  min-width: max-content;
+  border-bottom: 1px solid var(--koyomi-border);
+}
+
+[data-koyomi="resource-group-header-cell"],
+[data-koyomi="resource-group-header-gap"] {
+  padding: 4px;
+  border-inline-start: 1px solid var(--koyomi-border);
+}
+
+[data-koyomi="resource-group-header-cell"] {
+  color: var(--koyomi-event-color, var(--koyomi-muted));
+  font-size: 0.85em;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-koyomi="resource-group-header-cell"]:first-child,
+[data-koyomi="resource-group-header-gap"]:first-child {
+  /* 見出し行の先頭列と同じ理由で、幅は保ったまま線だけを消す */
+  border-inline-start-color: transparent;
+}
+
+/* 列見出しの折りたたみトグル（タイムラインの行トグルと同じ回転表現） */
+[data-koyomi="resource-column-toggle"] {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-inline-end: 4px;
+  font-size: 0.8em;
+  transition: transform 0.15s ease;
+}
+
+[data-koyomi="resource-column-toggle"][aria-expanded="true"] {
+  transform: rotate(90deg);
+}
+
 /* リソースの色（未設定なら既定アクセント色）を示す色ドット */
 [data-koyomi="resource-header-cell"]::before {
   content: "";
