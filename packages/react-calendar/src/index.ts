@@ -39,6 +39,8 @@ export {
   type CalendarEventHistoryOptions,
   createEventHistory,
 } from './core/history';
+// iCalendar（ICS）入出力
+export { type EventsToIcsOptions, eventsFromIcs, eventsToIcs } from './core/ics';
 // インタラクションの純粋計算
 export {
   type CalendarShortcut,
