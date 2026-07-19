@@ -238,6 +238,20 @@ export const sampleEvents: CalendarEvent[] = [
     description: 'ニューヨークオフィスとの定例ミーティング（NY時間 21:00 開始）。',
   },
   {
+    // America/New_York のタイムゾーンで毎日 9:00〜9:30 に繰り返される定例。
+    // DST（夏時間）の切替日をまたいでも、表示タイムゾーンを America/New_York に
+    // すると常に現地時刻 9:00 に表示される（現地時刻を保った繰り返し展開）ことを
+    // 確認できる。3 週間前開始のため、任意の切替日の前後にオカレンスが並ぶ。
+    id: 'sample-dst-daily',
+    title: 'NY デイリー定例',
+    start: `${dayKey(-21)}T09:00:00`,
+    end: `${dayKey(-21)}T09:30:00`,
+    timeZone: 'America/New_York',
+    rrule: 'FREQ=DAILY',
+    color: '#315da8',
+    description: 'ニューヨーク時間 9:00 開始の毎日の定例（DST 切替日をまたいでも現地 9:00）。',
+  },
+  {
     // editable: false のイベント。ドラッグ移動・リサイズができないことを確認できる。
     id: 'sample-readonly',
     title: '全社総会（予定変更不可）',
