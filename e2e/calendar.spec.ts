@@ -271,7 +271,13 @@ test('VirtualTimelineView の縦スクロールで表示行の窓が追従し、
   await expect(timeline.locator('[data-koyomi-resource-id="member-1"]').first()).toBeVisible();
 });
 
-test('主要画面に WCAG 2.0 A/AA の自動検出違反がない', async ({ page }) => {
+/** axe の検査対象タグ（WCAG 2.0 / 2.1 / 2.2 の A・AA）。 */
+const AXE_WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+
+test('主要画面に WCAG 2.0/2.1/2.2 A/AA の自動検出違反がない', async ({ page }) => {
+  // 5 タグ分の走査（特に target-size の近接ターゲット判定）はイベント数に比例して
+  // 時間がかかり、ライト・ダークの 2 回で既定の 30 秒を超えるため延長する
+  test.setTimeout(120_000);
   // CSS transition を無効化してから走査する。テーマ切替直後は background-color の
   // 遷移中で、axe が「切替後の文字色 × 遷移途中の背景色」という実在しない
   // 組み合わせのコントラストを検出してしまうため、確定後の配色のみを検査対象にする
@@ -279,14 +285,14 @@ test('主要画面に WCAG 2.0 A/AA の自動検出違反がない', async ({ pa
     content: '*, *::before, *::after { transition: none !important; }',
   });
   const lightResults = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa'])
+    .withTags(AXE_WCAG_TAGS)
     .exclude('[data-koyomi="timegrid-now-indicator"]')
     .analyze();
   expect(lightResults.violations).toEqual([]);
 
   await page.getByRole('button', { name: /ダークモード/ }).click();
   const darkResults = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa'])
+    .withTags(AXE_WCAG_TAGS)
     .exclude('[data-koyomi="timegrid-now-indicator"]')
     .analyze();
   expect(darkResults.violations).toEqual([]);
