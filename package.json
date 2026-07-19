@@ -9,6 +9,8 @@
     "build": "pnpm --filter @koyomi-cal/react build",
     "test": "pnpm --filter @koyomi-cal/react test",
     "test:e2e": "playwright test",
+    "bench": "playwright test --config=playwright.bench.config.ts stress-bench.spec.ts",
+    "bench:ci": "playwright test --config=playwright.bench.config.ts regression.spec.ts",
     "test:pairs": "node scripts/check-test-pairs.mjs",
     "test:watch": "pnpm --filter @koyomi-cal/react test:watch",
     "typecheck": "pnpm -r typecheck",
