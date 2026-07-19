@@ -1,11 +1,14 @@
 # 変更履歴
 
-このプロジェクトは [セマンティックバージョニング](https://semver.org/lang/ja/) に従います。
-0.x の間は API が破壊的に変わる可能性があります。
+このファイルの形式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、
+バージョン番号は [セマンティックバージョニング](https://semver.org/lang/ja/) に従います。
+0.x の間は API が破壊的に変わる可能性があります。バージョニングの運用方針の詳細は
+[docs/versioning.md](./docs/versioning.md) を参照してください。
 
-## @koyomi-cal/react 0.2.0（未リリース）
+## [Unreleased]
 
-全面監査（8 観点の並列レビューと逆説的検証）に基づく修正・拡張。
+`@koyomi-cal/react` 0.2.0 に向けた、全面監査（8 観点の並列レビューと逆説的検証）に
+基づく修正・拡張。
 
 ### 修正
 
@@ -107,8 +110,25 @@
 - カバレッジに下限（全体と `src/core/` の個別下限）を設定し、CI で強制
 - CI を Node 20.19.0（下限）と Node 24（最新 LTS）の 2 レグ構成に拡張。用語チェック・デモのビルド・CJS `require()` を含む pack スモークテストを追加し、publint / arethetypeswrong のバージョンを固定
 - 開発時ビルドに使う esbuild を 0.28.1 以上へ固定（GHSA-g7r4-m6w7-qqqr の解消。配布物への影響はない）
+- `publishConfig.provenance` を `true` に変更し、npm 公開物に provenance 証明（ビルド元の
+  リポジトリ・ワークフローの検証可能な来歴）を添付する
 
-## @koyomi-cal/react 0.1.0（2026-07-08）
+### ドキュメント
+
+- 採用判断に必要な情報を整備: 競合比較（[docs/comparison.md](./docs/comparison.md)）、
+  バージョニング運用ポリシー（[docs/versioning.md](./docs/versioning.md)）、パフォーマンス
+  指針（[docs/performance.md](./docs/performance.md)）、コントリビューションガイド
+  （[CONTRIBUTING.md](./CONTRIBUTING.md)）、セキュリティポリシー
+  （[SECURITY.md](./SECURITY.md)）、Issue テンプレートを新設
+- 繰り返し予定（[docs/recurrence.md](./docs/recurrence.md)）に EXRULE・複数 RRULE
+  （RRULESET 相当）が非対応であることと、代替手段（`exdates` への事前展開）を明記
+- API リファレンス（[docs/api.md](./docs/api.md)）冒頭にユースケース別の導入マップを追加
+- はじめに（[docs/getting-started.md](./docs/getting-started.md)）に「初期値としてのみ
+  有効な props」の一覧表を追加
+- スクリーンリーダー実機検証（NVDA/VoiceOver）の計画書を追加
+  （[docs/internal/a11y-screen-reader-verification.md](./docs/internal/a11y-screen-reader-verification.md)）
+
+## [0.1.0] - 2026-07-08
 
 初回リリース。
 
