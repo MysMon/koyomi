@@ -533,14 +533,18 @@ div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"][data-koyomi-scale
 ### 仮想化（VirtualTimelineView）— opt-in 時の DOM 拡張
 
 `VirtualTimelineView` は上記の非仮想化 DOM を**壊さず拡張**する（`TimelineView` の DOM は不変）。
-行（`timeline-row-group`）の中身自体は共通のため、変わるのは可視行だけを描画する点と、
-スペーサ・pinned 行（フォーカス保持）の追加だけ。
+行（`timeline-row-group`）の中身自体は共通のため、変わるのは可視範囲だけを描画する点と、
+スペーサ・pinned 行（フォーカス保持）の追加だけ。仮想化は行（縦方向）× 時間軸（横方向）の
+二軸で、時間軸は「1 日 = 1 アイテム」の windowing になる。
 
 ```
 div[data-koyomi="timeline"][data-koyomi-virtualized="true"][data-koyomi-days="<表示日数>"] (role="grid")
   div[data-koyomi="timeline-body"] (role="presentation")
     div[data-koyomi="timeline-header-row"] (role="row")             … sticky（実測高を viewportPadding に使う）
-      ( … 角セル・日ヘッダー・時刻目盛り。「タイムラインビュー」節と同一 … )
+      ( … 角セル・日ヘッダー・時刻目盛り。「タイムラインビュー」節と同一。ただし横窓の外の日は
+          描画されず、day/group ヘッダー列の窓外の分は次のスペーサに置き換わる … )
+      div[data-koyomi="timeline-header-spacer"][data-edge="before|after"][aria-hidden]? × 0〜2
+                                                                       … 横窓外の日/グループ分（inline: flex-basis %。幅 0 のとき出力しない）
     div[data-koyomi="timeline-rows"] (role="presentation")          … row/rowgroup 以外の中間ラッパー
       div[data-koyomi="timeline-row-spacer"][data-edge="before"][aria-hidden]  … 上スペーサ（inline: height）
       div[data-koyomi="timeline-row-group"] (role="row") × 可視行数           … 窓内の行（中身は非仮想化版と同一）
@@ -569,6 +573,21 @@ div[data-koyomi="timeline"][data-koyomi-virtualized="true"][data-koyomi-days="<�
   「前」に同居する固定表示行のため）
 - ルート `[data-koyomi="timeline"]` に `data-koyomi-virtualized="true"` が付く（縦スクロールで
   境界高を確保するのは利用者 CSS の責務。境界高が無ければ全件描画へ無害に縮退する）
+- **時間軸（横方向）の仮想化**: 横スクロールの可視範囲＋overscan（`overscanDays`、既定 1 日）に
+  重なる日だけを描画する。帯（`timeline-item`）・時刻目盛り（`timeline-slot-label`）・
+  営業時間帯（`timeline-business-hours`）はトラックに対する % 座標の絶対配置のため、
+  スペーサを挟まず「窓に重なるものだけを描画対象にする」フィルタになる（DOM から外れるだけで
+  座標系は不変）。フロー配置の `timeline-day-header` / `timeline-group-header` のみ、窓外の分を
+  `timeline-header-spacer`（% 幅）へ置き換える。1 日分の幅は `timeline-axis` のトラック実測幅 ÷
+  表示日数（`measure: false` の固定日幅）で、行見出し列（`timeline-corner` の実測幅）を横方向の
+  `viewportPadding` として差し引く。トラック幅が実測できない環境では全日描画へ無害に縮退する
+- フォーカス中の帯は横窓の外へスクロールしても描画対象に残る（`pinnedItemKey`。% 座標の
+  絶対配置なので pinned 行のような位置決めスタイルの追加は不要）。行の pinned（縦）と
+  独立して機能する
+- `onVisibleRangeChange`（可視範囲の変更通知）は行・日それぞれの可視範囲（overscan を
+  含まない `startIndex`/`endIndex`）を core の `visibleWindowRange` でキー付きスナップショットに
+  し、`sameVisibleWindowRange` による差分比較で内容が変わったときだけ発火する
+  （`onRangeChange` と同じ「比較基準は登録有無に関わらず更新」の流儀）
 
 ## CalendarView
 

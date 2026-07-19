@@ -427,9 +427,10 @@ function CraneSchedule() {
 }
 ```
 
-- **`VirtualTimelineView`** はリソース行を縦方向に仮想化します（`TimelineView` の行と同じ `role="row"`/`rowheader`/`gridcell` 構造）。行 1 件分の推定高は `estimateRowHeight`（既定はレーン数 × 28px）。
+- **`VirtualTimelineView`** はリソース行（縦方向）と時間軸（横方向）の二軸で仮想化します（`TimelineView` の行と同じ `role="row"`/`rowheader`/`gridcell` 構造）。行 1 件分の推定高は `estimateRowHeight`（既定はレーン数 × 28px）。時間軸は「1 日 = 1 単位」の windowing で、横スクロールの可視範囲＋overscan（`overscanDays`、既定 1 日）に重なる日の日ヘッダー・時刻目盛り・帯だけを描画します。帯の位置・幅・スクロール位置は仮想化の有無で変わりません。
+- **`VirtualTimelineView` の可視範囲通知**: `onVisibleRangeChange` に、行・日それぞれの可視範囲（キー範囲）と日付範囲・リソース一覧が、内容が変わったときだけ通知されます。可視範囲のデータだけを増分取得する遅延読込に使えます（レシピは [パフォーマンス](./performance.md#増分データ取得遅延読込) を参照）。
 - **`VirtualResourceView`** はリソース列を横方向に仮想化します（`ResourceView` の列と同じ `role="columnheader"`/`gridcell` 構造）。`ResourceView` 自体は列数が多いと横スクロールに任せる方針（`docs/internal/components-dom.md` 参照）ですが、数百列規模の極端なケース向けに `VirtualResourceView` が windowing を提供します。列幅は固定（`columnWidth`、既定 160px = `--koyomi-resource-column-width` の既定値と同じ）です。 `estimateRowHeight` / `columnWidth` に負数・`0`・`NaN` 等の不正な値を渡した場合も、窓の計算内では `0` として扱われ安全側にクランプされます（`VirtualListView` の `estimateDayHeight` と同じ規則）。ただし `columnWidth` は列の inline style（`flex` / `min-width`）にもそのまま使われるため、不正な値は描画される列幅自体にも影響します。
-- どちらも **境界寸法は CSS で指定します**。`VirtualTimelineView` は `[data-koyomi="timeline-body"]` の `max-height`（既定テーマは 640px）、`VirtualResourceView` はルート `[data-koyomi="resource"]` の境界幅（横スクロールを担う要素）です。境界寸法が無い環境では仮想化は無害に無効化され、全件描画へフォールバックします（開発ビルドで一度警告します）。
+- どちらも **境界寸法は CSS で指定します**。`VirtualTimelineView` は `[data-koyomi="timeline-body"]` の `max-height`（既定テーマは 640px）、`VirtualResourceView` はルート `[data-koyomi="resource"]` の境界幅（横スクロールを担う要素）です。境界寸法が無い環境では仮想化は無害に無効化され、全件描画へフォールバックします（開発ビルドで一度警告します）。`VirtualTimelineView` の時間軸（横方向）は、横スクロールを担う `[data-koyomi="timeline-body"]` の幅がそのまま境界幅になるため追加の指定は不要です（トラック幅は既定テーマの 1 日 720px、`'hour'` 以外のズーム粒度では 1 日 96px の `min-width` が決めます）。
 - フォーカス中のリソース（行・列）は、スクロールで可視窓の外に出ても DOM を保持し続けます（`VirtualListView` の pinned 日セクションと同じ方式）。`VirtualResourceView` は列見出し・終日セル・本文列の 3 箇所がまとめて保持されます。 pinned 状態の行・列に含まれるイベントボタン等の操作要素は `tabIndex={-1}` になりタブ順から外れます（窓内へ戻ると既定の `tabIndex` に戻ります。列見出し・行見出し自体はもともと操作対象ではないため対象外）。
 - `ref` 経由で `scrollToResource(resourceId, options?)`（`resourceId` は未割り当てへは `null`、`options.align` は `'auto' | 'start' | 'center'`）を呼べます。
 - `CalendarView` を使っている場合は、`<CalendarView virtualizeResource />` / `<CalendarView virtualizeTimeline />` でリソース・タイムラインビューだけを仮想化に切り替えられます。`renderResourceEvent` / `renderResourceAllDayItem` / `renderTimelineEvent` などの既存のカスタマイズ props はそのまま転送されます（`virtualizeList` と同じ方式）。

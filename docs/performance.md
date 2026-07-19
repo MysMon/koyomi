@@ -52,7 +52,7 @@ useCalendar({ slotMinTime: '07:00', slotMaxTime: '21:00' });
 | --- | --- | --- | --- |
 | `VirtualListView` | リストビュー | 縦方向（日セクション） | 数ヶ月〜数年分の予定を一覧するリスト画面で、日セクション数が多く DOM が肥大する場合 |
 | `VirtualResourceView` | リソースビュー | 横方向（リソース列） | 数十〜数百件のリソース（会議室・設備・担当者等）を列として同時表示する場合 |
-| `VirtualTimelineView` | タイムラインビュー | 縦方向（リソース行） | 数十〜数百件のリソースを行として同時表示するタイムライン（ガントチャート的な画面）の場合 |
+| `VirtualTimelineView` | タイムラインビュー | 縦方向（リソース行）× 横方向（時間軸） | 数十〜数百件のリソースを行として同時表示する、または `timelineDays` が大きく横に長いタイムライン（ガントチャート的な画面）の場合 |
 
 3 つとも共通する設計です。
 
@@ -91,6 +91,71 @@ function App() {
 詳細な props・DOM 構造は [ビュー](./views.md) と [API リファレンス](./api.md) を
 参照してください。
 
+## 増分データ取得（遅延読込）
+
+サーバーに大量のイベントがあり全件を渡せない場合は、表示に必要な範囲のデータだけを
+段階的に取得して `setEvents` で渡します。検知の手段は 2 段階あります。
+
+- **表示範囲の変化**（ビュー切替・前後移動・`goTo`）は `onRangeChange`
+  （`useCalendar` のオプション）で検知します。詳細は
+  [API リファレンス](./api.md#オプション) を参照してください
+- **仮想化ウィンドウの変化**（スクロールによる可視範囲の移動）は、
+  `VirtualTimelineView` の `onVisibleRangeChange` で検知します。表示範囲全体では
+  なく「いま実際に見えている行（リソース）× 日」だけが分かるため、表示範囲が
+  広い・リソースが多い画面でも可視範囲のデータだけを増分取得できます
+
+`onVisibleRangeChange` は可視ウィンドウの内容（行・日それぞれのキー範囲）が変わった
+ときだけ 1 回発火し、マウント直後にも現在の可視範囲を 1 回通知します（初回取得に
+使えます）。通知には可視の日付範囲（`rangeStart`〜`rangeEnd`、`rangeEnd` は排他）と
+可視行のリソース一覧が含まれます。
+
+```tsx
+import { useCallback, useRef } from 'react';
+import type { TimelineVisibleRangeChangeInfo } from '@koyomi-cal/react';
+import { CalendarProvider, VirtualTimelineView, useCalendar } from '@koyomi-cal/react';
+
+function LazyTimeline() {
+  const calendar = useCalendar({ initialView: 'timeline', resources, timelineDays: 30 });
+  const { api } = calendar;
+  // 取得済みの範囲キー（日キー × リソース）を覚えておき、同じ範囲の再取得を防ぐ
+  const loadedKeys = useRef(new Set<string>());
+
+  const handleVisibleRangeChange = useCallback(
+    async (info: TimelineVisibleRangeChangeInfo) => {
+      const key = `${info.days.startKey}..${info.days.endKey}:${info.rows.startKey}..${info.rows.endKey}`;
+      if (loadedKeys.current.has(key)) {
+        return;
+      }
+      loadedKeys.current.add(key);
+      // 可視範囲（日付範囲 × 可視リソース）のイベントだけをサーバーから取得する
+      const fetched = await fetchEvents({
+        from: info.rangeStart,
+        to: info.rangeEnd, // 排他（可視末尾日の翌日 0:00）
+        resourceIds: info.resources.flatMap((r) => (r === null ? [] : [r.id])),
+      });
+      // 取得済みイベントとマージして反映する（id で重複排除）
+      const current = api.getEvents();
+      const known = new Set(current.map((event) => event.id));
+      api.setEvents([...current, ...fetched.filter((event) => !known.has(event.id))]);
+    },
+    [api],
+  );
+
+  return (
+    <CalendarProvider value={calendar}>
+      <VirtualTimelineView onVisibleRangeChange={handleVisibleRangeChange} />
+    </CalendarProvider>
+  );
+}
+```
+
+- 通知は「可視範囲そのもの」です。先読みしたい場合は `rangeStart`/`rangeEnd` の
+  前後へ任意の日数を足して取得してください（描画の overscan とは独立です）
+- スクロール中の発火は可視範囲が実際に変わったときだけですが、取得処理は上記の
+  ように取得済み管理・デバウンスなどで重複を抑えることを推奨します
+- 前後移動などで表示範囲自体が変わったときは `onRangeChange` も併用できます
+  （`onVisibleRangeChange` も日キーの変化として発火します）
+
 ## 判断の目安
 
 | 規模の目安 | 推奨する対策 |
@@ -100,7 +165,7 @@ function App() {
 | 表示する時間帯が業務時間に限定される | `slotMinTime`/`slotMaxTime` で表示時間帯を絞る |
 | リストビューで数ヶ月〜数年分を一覧する | `VirtualListView` に切り替える |
 | 数十〜数百件のリソースを同時に列/行表示する | `VirtualResourceView` / `VirtualTimelineView` に切り替える |
-| サーバーに大量のイベントが存在する | `onRangeChange` で表示範囲を検知し、その範囲のイベントだけを `setEvents` で渡す |
+| サーバーに大量のイベントが存在する | `onRangeChange` で表示範囲を検知し、その範囲のイベントだけを `setEvents` で渡す。仮想化タイムラインでは `onVisibleRangeChange` で可視範囲だけを増分取得する（[増分データ取得（遅延読込）](#増分データ取得遅延読込)） |
 
 ## 関連ページ
 

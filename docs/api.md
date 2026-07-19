@@ -591,7 +591,7 @@ function useExternalDrag<TPayload>(params: {
 function useVirtualizer(options: UseVirtualizerOptions): Virtualizer
 ```
 
-縦・横方向のリストを仮想化する、ビュー非依存のヘッドレスなプリミティブです。`VirtualListView` / `VirtualTimelineView`（縦）・`VirtualResourceView`（横）が内部で使用します。DOM・スタイルは持たず、コア（`computeWindow` / `startForKey`）の純粋計算に、スクロール位置の購読・寸法の実測（`ResizeObserver`）・スクロールアンカリングを結び付けて「描画すべきアイテムと寸法」だけを返します。独自 UI で仮想化したいときに使います。
+縦・横方向のリストを仮想化する、ビュー非依存のヘッドレスなプリミティブです。`VirtualListView`（縦）・`VirtualResourceView`（横）・`VirtualTimelineView`（縦横の二軸で 2 インスタンス）が内部で使用します。DOM・スタイルは持たず、コア（`computeWindow` / `startForKey`）の純粋計算に、スクロール位置の購読・寸法の実測（`ResizeObserver`）・スクロールアンカリングを結び付けて「描画すべきアイテムと寸法」だけを返します。独自 UI で仮想化したいときに使います。
 
 **オプション `UseVirtualizerOptions`**
 
@@ -616,6 +616,7 @@ function useVirtualizer(options: UseVirtualizerOptions): Virtualizer
 | `pinnedItems` | `readonly VirtualItem[]` | 窓外で保持する pinned（絶対配置。通常 0〜1 件） |
 | `beforeSize` / `afterSize` | `number` | 前後スペーサの高さ/幅（px） |
 | `totalSize` | `number` | 全アイテムの合計高/幅（px） |
+| `startIndex` / `endIndex` | `number` | 可視範囲の先頭/末尾インデックス（overscan を含まない、実際に見えている範囲。両端含む）。`count === 0` のときは `-1`。可視範囲の変更通知（[`visibleWindowRange`](#仮想化の可視範囲corevirtualization) と組み合わせた遅延読込など）の基準に使う |
 | `measureElement` | `(key: string) => (el: HTMLElement \| null) => void` | アイテム DOM の実測登録 ref コールバック |
 | `scrollToIndex` | `(index, opts?) => void` | 指定インデックスを可視域へスクロール |
 
@@ -873,7 +874,7 @@ function VirtualResourceView(props: VirtualResourceViewProps): ReactElement | nu
 function VirtualTimelineView(props: VirtualTimelineViewProps): ReactElement | null
 ```
 
-`TimelineView` の行（リソース行）を縦方向に仮想化した opt-in の別コンポーネントです（`TimelineView` 自体は変更しません）。可視範囲のリソース行だけを描画し、数百行規模の DOM 肥大を抑えます。DOM 構造・ARIA（`role="grid"` / `row` / `rowheader` / `gridcell`）は `TimelineView` と同じです。内部で `useVirtualizer` を使用します。`ref` 経由で `VirtualTimelineViewHandle` を公開します。
+`TimelineView` を行（縦方向）× 時間軸（横方向）の二軸で仮想化した opt-in の別コンポーネントです（`TimelineView` 自体は変更しません）。可視範囲のリソース行と、横スクロールの可視範囲に重なる日の時間軸セル（日ヘッダー・グループ見出し・時刻目盛り）・帯だけを描画し、数百行 × 長期間の DOM 肥大を抑えます。DOM 構造・ARIA（`role="grid"` / `row` / `rowheader` / `gridcell`）は `TimelineView` と同じです。内部で `useVirtualizer` を縦横 2 インスタンス使用します。`ref` 経由で `VirtualTimelineViewHandle` を公開します。
 
 `TimelineView` の props（`renderEvent` / `renderRowHeader`）に加えて次を受け付けます。
 
@@ -881,6 +882,17 @@ function VirtualTimelineView(props: VirtualTimelineViewProps): ReactElement | nu
 | --- | --- | --- |
 | `estimateRowHeight` | `number \| ((row: TimelineRow, index: number) => number)` | 行の推定高（既定はレーン数 × 28px）。実測が入るまでの暫定値 |
 | `overscan` | `number` | 前後の追加描画行数（既定 3） |
+| `overscanDays` | `number` | 時間軸（横方向）の前後 overscan 日数（既定 1） |
+| `onVisibleRangeChange` | `(info: TimelineVisibleRangeChangeInfo) => void` | 可視ウィンドウ（行・日の可視範囲）が変わったときに呼ばれる。内容が直前の通知と異なる場合のみ 1 回発火し、マウント直後にも現在の可視範囲を 1 回通知する。可視範囲のデータだけを増分取得する遅延読込に使う（[パフォーマンス: 増分データ取得](./performance.md#増分データ取得遅延読込)） |
+
+**`TimelineVisibleRangeChangeInfo`**（`onVisibleRangeChange` の引数）
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `rows` | `VisibleWindowRange` | 行（縦方向）の可視範囲。キーは `TimelineRow.key`（`r:${リソース ID}` / `'unassigned'`）。行 0 件ならインデックス `-1`・キー `null` |
+| `days` | `VisibleWindowRange` | 日（横方向）の可視範囲。キーは `'YYYY-MM-DD'`（表示タイムゾーン基準） |
+| `rangeStart` / `rangeEnd` | `Date` | 可視範囲の先頭日の 0:00 〜 末尾日の翌日 0:00（表示タイムゾーン基準、`rangeEnd` は排他） |
+| `resources` | `readonly (CalendarResource \| null)[]` | 可視行のリソース（行順。未割り当て行は `null`） |
 
 **`VirtualTimelineViewHandle`**（`ref` で取得）
 
@@ -888,7 +900,7 @@ function VirtualTimelineView(props: VirtualTimelineViewProps): ReactElement | nu
 | --- | --- | --- |
 | `scrollToResource` | `(resourceId: string \| null, options?: { align?: 'auto' \| 'start' \| 'center' }) => void` | 指定リソースの行を可視域へスクロールする（`resourceId: null` は未割り当て行） |
 
-**境界高は CSS で指定（必須）**。スクロールコンテナは `[data-koyomi="timeline-body"]`（非仮想化版と同じ、既定テーマは `max-height: 640px`）です。境界高が無いと仮想化は無害に無効化されます（開発ビルドで一度警告）。ヘッダー行（日ヘッダー・時刻目盛り）は sticky でスクロールコンテナの先頭に同居するため、`useVirtualizer` の `viewportPadding` にヘッダーの実測高を渡して可視ビューポートから差し引きます。詳細は [ビュー: レーンの仮想化](./views.md#レーンの仮想化リソースタイムラインビュー) を参照してください。
+**境界高は CSS で指定（必須）**。スクロールコンテナは `[data-koyomi="timeline-body"]`（非仮想化版と同じ、既定テーマは `max-height: 640px`）です。境界高が無いと仮想化は無害に無効化されます（開発ビルドで一度警告）。ヘッダー行（日ヘッダー・時刻目盛り）は sticky でスクロールコンテナの先頭に同居するため、`useVirtualizer` の `viewportPadding` にヘッダーの実測高を渡して可視ビューポートから差し引きます。時間軸（横方向）は同じスクロールコンテナの幅がそのまま境界幅になるため追加の指定は不要で、帯・目盛りは % 座標のまま可視の日だけが描画され、日ヘッダー・グループ見出しの窓外の分は % 幅スペーサ（`timeline-header-spacer`）に置き換わります（スクロール位置・帯の位置は仮想化の有無で変わりません）。フォーカス中の帯は横窓の外でも DOM に保持されます。詳細は [ビュー: レーンの仮想化](./views.md#レーンの仮想化リソースタイムラインビュー) を参照してください。
 
 ### `Toolbar`
 
@@ -1537,6 +1549,25 @@ const tree = buildResourceTree([
   { id: 'floor-1', title: '1F', parentId: 'site' },
 ]);
 console.log(tree.map((entry) => entry.depth)); // => [0, 1]
+```
+
+### 仮想化の可視範囲（`core/virtualization`）
+
+仮想化ウィンドウの可視範囲（overscan を含まない、実際に見えている範囲）をキー付きで扱う純粋関数です。`VirtualTimelineView` の `onVisibleRangeChange` が内部で使用します。`useVirtualizer` の `startIndex`/`endIndex` と組み合わせると、独自 UI の仮想化でも同じ流儀の可視範囲通知（遅延読込のトリガーなど）を組めます。
+
+| 関数 / 型 | 説明 |
+| --- | --- |
+| `visibleWindowRange(result, getKey): VisibleWindowRange` | `startIndex`/`endIndex`（`useVirtualizer` の戻り値、または `computeWindow` の結果）からキー付きの可視範囲を組み立てる。`startIndex` が負（0 件）のときはキーが `null` |
+| `sameVisibleWindowRange(a, b): boolean` | 2 つの可視範囲（`null` は「まだ記録していない」）が同じ内容かを判定する。変更通知の発火判定（内容が変わったときだけ通知する）に使う |
+| `VisibleWindowRange`（型） | `{ startIndex: number; endIndex: number; startKey: string \| null; endKey: string \| null }`。インデックスは両端含む・0 件なら `-1` |
+
+```ts
+import { sameVisibleWindowRange, visibleWindowRange } from '@koyomi-cal/react/core';
+
+const range = visibleWindowRange({ startIndex: 2, endIndex: 5 }, (i) => days[i].key);
+if (!sameVisibleWindowRange(lastNotified, range)) {
+  notify(range); // 内容が変わったときだけ通知する
+}
 ```
 
 ### 日時ラベル整形（`react/components/format`）
