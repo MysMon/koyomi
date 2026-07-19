@@ -610,7 +610,7 @@ function useExternalDrag<TPayload>(params: {
 }): ExternalDragHandlers<TPayload>
 ```
 
-カレンダー外部の DOM 要素からのドラッグを受け入れるフックです（FullCalendar の `Draggable` 相当）。対応ビュー（月・週/日の時間グリッド＋終日行・リソース・タイムライン）が描画されている前提で、ポインタ直下の（`containerRef` の内側にある）カレンダー要素から日時・（リソース/タイムラインビューでは）リソース ID を解決し、既存のプレビュー機構（`api.setDragPreview`）で表示します。イベントの作成自体は行わず、ドロップ確定時に `onExternalDrop` を呼ぶだけです（ヘッドレス原則）。`callbacks`（`CalendarInteractionCallbacks`）は使わず、`onExternalDrop` / `onError` を直接パラメータとして受け取ります（`payload` の型はドラッグ元ごとに異なりうるため）。
+カレンダー外部の DOM 要素からのドラッグを受け入れるフックです（FullCalendar の `Draggable` 相当）。対応ビュー（月・週/日の時間グリッド＋終日行・リスト・複数月・リソース・タイムライン）が描画されている前提で、ポインタ直下の（`containerRef` の内側にある）カレンダー要素から日時・（リソース/タイムラインビューでは）リソース ID を解決し、既存のプレビュー機構（`api.setDragPreview`）で表示します。イベントの作成自体は行わず、ドロップ確定時に `onExternalDrop` を呼ぶだけです（ヘッドレス原則）。`callbacks`（`CalendarInteractionCallbacks`）は使わず、`onExternalDrop` / `onError` を直接パラメータとして受け取ります（`payload` の型はドラッグ元ごとに異なりうるため）。
 
 `containerRef` は、そのカレンダーインスタンス（`CalendarProvider` とビューコンポーネント）を描画している DOM のルート要素への ref です。ドロップ先のヒットテストはこの要素の内側に限定されるため、ページ上に同じビュー種別のカレンダーが複数存在しても、ドラッグ元とは別のカレンダーの DOM 上へのドロップを誤って受理しません。`current` が `null` の間（マウント前など）はキャンセル扱いになります。
 

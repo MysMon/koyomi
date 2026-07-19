@@ -25,8 +25,9 @@
  * `document.elementsFromPoint`（手前から奥へ）を使い、セルに到達するまで候補を
  * 順に見る（{@link resolveExternalDrop} 参照）。
  *
- * 対応ビュー: 月・週/日（時間グリッド本体＋終日行）・リソース・タイムライン。
- * リスト・年・複数月ビューは対象外（ドロップ先が解決できず常にキャンセル扱いになる）。
+ * 対応ビュー: 月・週/日（時間グリッド本体＋終日行）・リスト（日セクション）・
+ * 複数月（日セル）・リソース・タイムライン。年ビューは対象外
+ * （ドロップ先が解決できず常にキャンセル扱いになる）。
  *
  * Escape キー・`pointercancel`、およびドロップ先が解決できなかった場合は
  * 既存のドラッグ系フックと同じ流儀でコールバックを発火させずに中断する。
@@ -204,12 +205,16 @@ function closestAmong(elements: readonly Element[], selector: string): HTMLEleme
   return null;
 }
 
-/** 月ビューでの解決（日セル → 終日 1 日分の範囲）。対象セルが見つからなければ `null`。 */
-function resolveMonthDrop(
+/**
+ * 日単位のセル/セクション要素から終日 1 日分の範囲を解決する共通処理。
+ * `selector` にマッチし `data-koyomi-date` を持つ要素が見つからなければ `null`。
+ */
+function resolveDayDrop(
   elements: readonly Element[],
+  selector: string,
   timeZone: TimeZoneId,
 ): ExternalDropResolution | null {
-  const cell = closestAmong(elements, '[data-koyomi="month-day"]');
+  const cell = closestAmong(elements, selector);
   if (cell === null) {
     return null;
   }
@@ -219,6 +224,32 @@ function resolveMonthDrop(
   }
   const start = dateFromKey(dateKey, timeZone);
   return { range: { start, end: addDaysInZone(start, 1, timeZone) }, allDay: true };
+}
+
+/**
+ * 月ビュー・複数月ビューでの解決（日セル → 終日 1 日分の範囲）。
+ * 対象セルが見つからなければ `null`。複数月ビューの日セルは月ビューと同じ
+ * `month-day`（`data-koyomi-date` 付き）のため共通で解決できる（複数月ビューの
+ * 前後月の日付は `data-koyomi-date` を持たないため解決対象にならない）。
+ */
+function resolveMonthDrop(
+  elements: readonly Element[],
+  timeZone: TimeZoneId,
+): ExternalDropResolution | null {
+  return resolveDayDrop(elements, '[data-koyomi="month-day"]', timeZone);
+}
+
+/**
+ * リストビューでの解決（日セクション → 終日 1 日分の範囲）。
+ * リストビューは予定がある日だけを日セクション（`list-day`）として描画するため、
+ * ドロップを受け付けるのもその日セクションの上に限られる（予定のない日の領域では
+ * ドロップ先が解決できずキャンセル扱いになる）。
+ */
+function resolveListDrop(
+  elements: readonly Element[],
+  timeZone: TimeZoneId,
+): ExternalDropResolution | null {
+  return resolveDayDrop(elements, '[data-koyomi="list-day"]', timeZone);
 }
 
 /**
@@ -376,7 +407,7 @@ function elementsWithinContainer(
  * ポインタ位置の直下の要素（{@link elementsAtPoint}）から、現在のビューに
  * 応じたドロップ先（日時範囲・終日か・リソース ID）を解決する。
  * `document.elementFromPoint` / `elementsFromPoint` のいずれも使えない環境、
- * 対応ビューでない場合（リスト・年・複数月ビュー等）、`container` の内側に
+ * 対応ビューでない場合（年ビュー等）、`container` の内側に
  * 対応する要素が見つからない場合は `null`。
  *
  * @param container - ヒットテストの対象を限定するカレンダーインスタンスの DOM
@@ -402,7 +433,10 @@ function resolveExternalDrop(
   };
   switch (viewModel.type) {
     case 'month':
+    case 'multiMonth':
       return resolveMonthDrop(elements, timeZone);
+    case 'list':
+      return resolveListDrop(elements, timeZone);
     case 'timeGrid':
       return resolveTimeGridDrop(elements, clientY, context);
     case 'resource':
