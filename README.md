@@ -1,5 +1,7 @@
 # Koyomi（@koyomi-cal/react）
 
+日本語（正式なドキュメント） ・ **[English README](./README.en.md)**
+
 ヘッドレスな TypeScript/React カレンダーライブラリ。
 
 - 📅 **8 つのビュー** — 月・週・日・リストに加え、年・複数月・リソース・タイムライン（後者 4 つは opt-in）を切り替え可能（`hiddenWeekdays` で週末非表示も）。リソースは `parentId` で階層グルーピング・折りたたみ、タイムラインは `timelineScale` で時刻/日/週/月のズーム粒度を切替
@@ -29,6 +31,7 @@
 - [テーマとスタイリング](./docs/theming.md)
 - [カスタマイズガイド](./docs/customization.md)
 - [API リファレンス](./docs/api.md)
+- [English documentation (docs/en/)](./docs/en/README.md)
 
 ## インストール
 
