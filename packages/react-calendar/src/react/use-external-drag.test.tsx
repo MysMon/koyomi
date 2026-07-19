@@ -77,6 +77,7 @@ interface HarnessProps {
   eventOverlap?: boolean;
   eventConstraint?: 'businessHours' | readonly BusinessHoursRule[];
   businessHours?: readonly BusinessHoursRule[];
+  resourceViewDays?: number;
   onExternalDrop: (info: ExternalDropInfo<Payload>) => void;
   onError?: (error: unknown) => void;
   calendarSink?: { current: UseCalendarResult | null };
@@ -102,6 +103,7 @@ function Harness(props: HarnessProps): ReactElement {
     ...(props.eventOverlap !== undefined ? { eventOverlap: props.eventOverlap } : {}),
     ...(props.eventConstraint !== undefined ? { eventConstraint: props.eventConstraint } : {}),
     ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
+    ...(props.resourceViewDays !== undefined ? { resourceViewDays: props.resourceViewDays } : {}),
   });
   if (props.calendarSink) {
     props.calendarSink.current = calendar;
@@ -526,6 +528,72 @@ describe('useExternalDrag - リソースビュー', () => {
 
     expect(onExternalDrop).toHaveBeenCalledWith({
       range: { start: at('2026-07-15T00:00'), end: at('2026-07-16T00:00') },
+      allDay: true,
+      resourceId: 'room-a',
+      payload: { title: '外部の予定' },
+    });
+  });
+
+  it('複数日表示（resourceViewDays: 2）では、2 日目の列へのドロップがその列の日の時刻に解決される', () => {
+    const onExternalDrop = vi.fn();
+    const { container } = render(
+      <Harness
+        view="resource"
+        resources={[ROOM_A]}
+        resourceViewDays={2}
+        onExternalDrop={onExternalDrop}
+        snapMinutes={15}
+        defaultEventMinutes={30}
+      />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    // 2 日目（2026-07-16）の列
+    const column = container.querySelector(
+      '[data-koyomi="resource-column"][data-koyomi-date="2026-07-16"]',
+    );
+    if (!(source instanceof HTMLElement) || !(column instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockRect(column, { left: 100, top: 0, width: 100, height: 1440 });
+    mockElementsFromPoint([column]);
+
+    firePointerDown(source);
+    movePointer(150, 540); // 540 分 = 9:00
+    releasePointer(150, 540);
+
+    expect(onExternalDrop).toHaveBeenCalledWith({
+      range: { start: at('2026-07-16T09:00'), end: at('2026-07-16T09:30') },
+      allDay: false,
+      resourceId: 'room-a',
+      payload: { title: '外部の予定' },
+    });
+  });
+
+  it('複数日表示（resourceViewDays: 2）では、2 日目の終日セルへのドロップがその列の日の終日範囲に解決される', () => {
+    const onExternalDrop = vi.fn();
+    const { container } = render(
+      <Harness
+        view="resource"
+        resources={[ROOM_A]}
+        resourceViewDays={2}
+        onExternalDrop={onExternalDrop}
+      />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const alldayCell = container.querySelector(
+      '[data-koyomi="resource-allday-cell"][data-koyomi-date="2026-07-16"]',
+    );
+    if (!(source instanceof HTMLElement) || !(alldayCell instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockElementsFromPoint([alldayCell]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+    releasePointer(10, 10);
+
+    expect(onExternalDrop).toHaveBeenCalledWith({
+      range: { start: at('2026-07-16T00:00'), end: at('2026-07-17T00:00') },
       allDay: true,
       resourceId: 'room-a',
       payload: { title: '外部の予定' },

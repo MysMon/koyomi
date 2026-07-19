@@ -269,6 +269,9 @@ function resolveTimeGridDrop(
  * 終日行のセル（`resource-allday-cell`）なら終日 1 日分の範囲＋リソース ID、
  * 列（`resource-column`）ならポインタの縦位置から算出した時間指定の範囲＋
  * リソース ID を返す。どちらにも該当しなければ `null`。
+ *
+ * 対象の日は要素の `data-koyomi-date`（列の日付キー。複数日表示で列ごとに異なる）
+ * から求め、属性が無い場合は表示範囲の先頭日（`context.day`）にフォールバックする。
  */
 function resolveResourceDrop(
   elements: readonly Element[],
@@ -276,11 +279,17 @@ function resolveResourceDrop(
   context: { timeZone: TimeZoneId; snap: number; defaultEventMinutes: number; day: Date },
 ): ExternalDropResolution | null {
   const { timeZone, snap, defaultEventMinutes, day } = context;
+  /** 要素の `data-koyomi-date` から列の日を求める（無ければ先頭日）。 */
+  function columnDay(element: Element): Date {
+    const dateKey = element.getAttribute('data-koyomi-date');
+    return dateKey === null ? day : dateFromKey(dateKey, timeZone);
+  }
   const alldayCell = closestAmong(elements, '[data-koyomi="resource-allday-cell"]');
   if (alldayCell !== null) {
     const resourceId = resourceIdFromLaneKey(alldayCell.getAttribute('data-koyomi-resource'));
+    const cellDay = columnDay(alldayCell);
     return {
-      range: { start: day, end: addDaysInZone(day, 1, timeZone) },
+      range: { start: cellDay, end: addDaysInZone(cellDay, 1, timeZone) },
       allDay: true,
       resourceId,
     };
@@ -292,7 +301,7 @@ function resolveResourceDrop(
   const resourceId = resourceIdFromLaneKey(column.getAttribute('data-koyomi-resource'));
   const rect = column.getBoundingClientRect();
   const start = timeAtGridPosition({
-    day,
+    day: columnDay(column),
     fractionY: fractionAlong(rect.top, rect.height, clientY),
     timeZone,
     snap,
