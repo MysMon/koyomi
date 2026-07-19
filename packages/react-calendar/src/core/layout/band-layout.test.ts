@@ -193,6 +193,93 @@ describe('layoutBandItems', () => {
     });
   });
 
+  describe('大列数（数百列）', () => {
+    it('500 列で互い違いに重なる帯（[i, i+2)）が 2 レーンに交互に割り当てられる', () => {
+      // 隣同士（[i, i+2) と [i+1, i+3)）は重なるため、貪欲割当でレーンは 0/1 の交互になる
+      const items = Array.from({ length: 499 }, (_, i) =>
+        band(`item-${String(i).padStart(3, '0')}`, i, 2, i, 2),
+      );
+      const result = layoutBandItems(items, 500);
+      for (const [i, item] of items.entries()) {
+        expect(byKey(result, item.key).lane).toBe(i % 2);
+      }
+      expect(result.laneCount).toBe(2);
+      expect(result.overflowByCol).toHaveLength(500);
+    });
+
+    it('300 列を覆う長い帯の下で、離れた短い帯が同一レーンを再利用する', () => {
+      const result = layoutBandItems(
+        [
+          band('long', 0, 300, 0, 300),
+          band('a', 0, 100, 0, 100),
+          band('b', 100, 100, 100, 100),
+          band('c', 250, 50, 250, 50),
+        ],
+        300,
+      );
+      expect(byKey(result, 'long').lane).toBe(0);
+      // a / b / c は互いに重ならない（[0,100) / [100,200) / [250,300)）ためレーン 1 を共有する
+      expect(byKey(result, 'a').lane).toBe(1);
+      expect(byKey(result, 'b').lane).toBe(1);
+      expect(byKey(result, 'c').lane).toBe(1);
+      expect(result.laneCount).toBe(2);
+    });
+
+    it('400 列で hidden の帯が覆っている列にのみ overflowByCol が計上される', () => {
+      const result = layoutBandItems(
+        [band('base', 0, 400, 0, 400), band('over', 250, 100, 1, 100)],
+        400,
+        1,
+      );
+      expect(byKey(result, 'base')).toEqual({ key: 'base', lane: 0, hidden: false });
+      expect(byKey(result, 'over')).toEqual({ key: 'over', lane: 1, hidden: true });
+      const expected = Array.from({ length: 400 }, (_, col) => (col >= 250 && col < 350 ? 1 : 0));
+      expect(result.overflowByCol).toEqual(expected);
+      expect(result.laneCount).toBe(1);
+    });
+
+    it('数百件の帯でも同一レーン内の帯は互いに重ならない（レーン割当の不変条件）', () => {
+      // 決定的な擬似乱数（LCG）で startCol / span を生成する。
+      // sortStart は startCol と同じ値にして、ソート順と列の並びが
+      // 一致するという入力の前提（ビュー側の呼び出しと同じ形）を保つ
+      let seed = 123456789;
+      const nextRandom = (): number => {
+        seed = (seed * 1103515245 + 12345) % 2147483648;
+        return seed / 2147483648;
+      };
+      const columnCount = 365;
+      const items = Array.from({ length: 400 }, (_, i) => {
+        const startCol = Math.floor(nextRandom() * (columnCount - 10));
+        const span = 1 + Math.floor(nextRandom() * 10);
+        return band(`item-${String(i).padStart(3, '0')}`, startCol, span, startCol, span);
+      });
+      const result = layoutBandItems(items, columnCount);
+
+      // レーンごとに列区間を集め、同一レーン内で [start, end) が重ならないことを確認する
+      const lanes = new Map<number, { start: number; end: number }[]>();
+      for (const [i, placement] of result.placements.entries()) {
+        const item = items[i];
+        if (item === undefined) {
+          throw new Error('placements は入力と同数のはず');
+        }
+        const intervals = lanes.get(placement.lane) ?? [];
+        intervals.push({ start: item.startCol, end: item.startCol + item.span });
+        lanes.set(placement.lane, intervals);
+      }
+      for (const intervals of lanes.values()) {
+        intervals.sort((a, b) => a.start - b.start);
+        for (let i = 1; i < intervals.length; i += 1) {
+          const prev = intervals[i - 1];
+          const current = intervals[i];
+          if (prev === undefined || current === undefined) {
+            throw new Error('unreachable');
+          }
+          expect(current.start).toBeGreaterThanOrEqual(prev.end);
+        }
+      }
+    });
+  });
+
   describe('TSDoc の @example', () => {
     it('@example のとおりの結果を返す', () => {
       const result = layoutBandItems(

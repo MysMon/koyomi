@@ -18,6 +18,11 @@ export interface BandItemInput {
   /**
    * ソート用の開始時刻（エポックミリ秒など単調な数値）。
    * 小さいほど先（上のレーン）に配置される。
+   *
+   * `startCol` と同じ時間軸から導出した値であること（ソート順で並べたときに
+   * `startCol` が単調非減少になること）。開始時刻が早いほど開始列も先（以左）に
+   * なるという対応は、開始時刻と列を同じ表示範囲から導出するビュー側の呼び出しでは
+   * 常に成立し、レーン割当の衝突判定（レーン末尾の終了列との比較）が前提とする。
    */
   sortStart: number;
   /**
@@ -57,8 +62,11 @@ export interface BandLayoutResult {
  * アルゴリズム:
  * 1. `sortStart` 昇順 → `sortDuration` 降順 → `key` 辞書順でソートする
  *    （Google カレンダーと同様、早く始まり長く続くイベントが上に来る）
- * 2. 各アイテムを、列区間 `[startCol, startCol + span)` が既存アイテムと
- *    重ならない最小のレーンに配置する
+ * 2. 各アイテムを、レーン末尾（そのレーンに最後に置いた帯の終了列）が
+ *    `startCol` 以下である最小のレーンに配置する。処理順で `startCol` が
+ *    単調に進む（{@link BandItemInput.sortStart} の入力条件）ため、これは
+ *    「列区間 `[startCol, startCol + span)` が既存アイテムと重ならない
+ *    最小のレーン」と一致する（{@link ../layout/interval-lane-layout} と同じ方式）
  * 3. `maxLanes` が指定された場合、レーン番号が `maxLanes` 以上になった
  *    アイテムは `hidden: true` とし、覆っている各列のあふれ数に加算する
  *
@@ -115,64 +123,30 @@ export function layoutBandItems(
     .map((item, index) => ({ item, index }))
     .sort((a, b) => compareBandItems(a.item, b.item));
 
-  // 各レーンの列占有状況を、実列座標へのオフセット付き真偽値配列で保持する。
-  //
-  // 元の実装はレーンごとに区間リスト `{ start, end }[]` を持ち、新規アイテムを
-  // 置けるか毎回 `lanes[i].some(...)` で列内の全区間と逐一比較していた。
-  // time-grid-layout.ts の列割当と違い、ここでの処理順（sortStart 昇順など
-  // 時刻ベース）とレーン内の列区間は無関係な軸なので（同じレーンに時刻順で
-  // 追加されても列位置が単調に伸びるとは限らない）、「直近の終端 1 個だけ
-  // 追跡する」簡略化はできない。一方 `columnCount`（週の日数など）は実務上
-  // 高々 7 程度に頭打ちであるため、区間リストの代わりに列ごとの占有フラグを
-  // 直接引けば、レーン内アイテム数 n に依存せず O(columnCount) で衝突判定できる。
-  //
-  // startCol/span は columnCount の範囲に収まらない値（防御的な呼び出し）も
-  // 許容するため、実データの最小開始列・最大終了列からオフセットを求めて
-  // 配列の添字にする（columnCount 自体は overflowByCol のサイズにのみ使う）。
-  let minCol = 0;
-  let maxCol = 0;
-  for (const item of items) {
-    minCol = Math.min(minCol, item.startCol);
-    maxCol = Math.max(maxCol, item.startCol + item.span);
-  }
-  const occupancyWidth = maxCol - minCol;
-
-  const laneOccupied: boolean[][] = [];
+  // 各レーンの「最後に置いた帯の終了列（排他）」。処理順（sortStart 昇順）と
+  // 列の並びが揃っている（BandItemInput.sortStart の入力条件）ため、
+  // 新しい帯はレーン末尾の帯とだけ比較すればよく、列ごとの占有状況を持たずに
+  // レーン数に比例するコストで衝突判定できる（interval-lane-layout.ts と同じ方式。
+  // レーンに置くのは末尾の終了列が開始列以下のときだけなので、この値はレーン内で
+  // 単調増加し、常にそのレーンの最大の終了列と一致する）
+  const laneEnds: number[] = [];
   let laneCount = 0;
 
   for (const { item, index } of ordered) {
     const start = item.startCol;
     const end = item.startCol + item.span;
-    const occStart = start - minCol;
-    const occEnd = end - minCol;
 
-    // 既存アイテムと重ならない最小のレーンを探す（見つからなければ新規レーン）
-    let lane = laneOccupied.length;
-    for (let i = 0; i < laneOccupied.length; i += 1) {
-      const occupied = laneOccupied[i];
-      let conflicts = false;
-      if (occupied !== undefined) {
-        for (let col = occStart; col < occEnd; col += 1) {
-          if (occupied[col] === true) {
-            conflicts = true;
-            break;
-          }
-        }
-      }
-      if (!conflicts) {
+    // 既存アイテムと重ならない（= レーン末尾の終了列 <= この帯の開始列）
+    // 最小のレーンを探す（見つからなければ新規レーン）
+    let lane = laneEnds.length;
+    for (let i = 0; i < laneEnds.length; i += 1) {
+      const laneEnd = laneEnds[i];
+      if (laneEnd !== undefined && laneEnd <= start) {
         lane = i;
         break;
       }
     }
-
-    let occupied = laneOccupied[lane];
-    if (occupied === undefined) {
-      occupied = new Array(occupancyWidth).fill(false);
-      laneOccupied[lane] = occupied;
-    }
-    for (let col = occStart; col < occEnd; col += 1) {
-      occupied[col] = true;
-    }
+    laneEnds[lane] = end;
 
     const hidden = maxLanes !== undefined && lane >= maxLanes;
     if (hidden) {
