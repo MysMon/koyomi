@@ -11,6 +11,7 @@
     "test:e2e": "playwright test",
     "bench": "playwright test --config=playwright.bench.config.ts stress-bench.spec.ts",
     "bench:ci": "playwright test --config=playwright.bench.config.ts regression.spec.ts",
+    "bundle:check": "node scripts/check-bundle-size.mjs",
     "test:pairs": "node scripts/check-test-pairs.mjs",
     "test:watch": "pnpm --filter @koyomi-cal/react test:watch",
     "typecheck": "pnpm -r typecheck",
@@ -25,6 +26,7 @@
     "@axe-core/playwright": "^4.12.1",
     "@biomejs/biome": "^2.5.3",
     "@playwright/test": "^1.61.1",
+    "esbuild": "0.28.1",
     "typescript": "^5.9.0"
   },
   "pnpm": {
