@@ -103,23 +103,21 @@ describe('createEventHistory: push', () => {
     expect(undoCount).toBe(100);
   });
 
-  it.each([
-    0,
-    -1,
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-  ])('limit に %s を指定すると 1 にクランプされる（2 回目の push で最古のエントリが破棄される）', (limit) => {
-    // undo（'before' 方向）が creation-only エントリを正しく適用できるよう、
-    // 対象イベントを実際に存在する状態から始める
-    const api = makeApi([ev('a'), ev('b')]);
-    const history = createEventHistory({ api, limit });
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'limit に %s を指定すると 1 にクランプされる（2 回目の push で最古のエントリが破棄される）',
+    (limit) => {
+      // undo（'before' 方向）が creation-only エントリを正しく適用できるよう、
+      // 対象イベントを実際に存在する状態から始める
+      const api = makeApi([ev('a'), ev('b')]);
+      const history = createEventHistory({ api, limit });
 
-    history.push([{ after: ev('a') }]);
-    history.push([{ after: ev('b') }]);
+      history.push([{ after: ev('a') }]);
+      history.push([{ after: ev('b') }]);
 
-    expect(history.undo()).toBe(true);
-    expect(history.undo()).toBe(false);
-  });
+      expect(history.undo()).toBe(true);
+      expect(history.undo()).toBe(false);
+    },
+  );
 });
 
 describe('createEventHistory: undo/redo', () => {

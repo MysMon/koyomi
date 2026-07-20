@@ -125,20 +125,21 @@ describe('default.css のカスケード不変条件', () => {
       expect(resetRules.length).toBeGreaterThanOrEqual(2);
     });
 
-    it.each(resetRules)('$selector の各セレクタは属性 1 個分より弱い詳細度を持つ', ({
-      selector,
-    }) => {
-      for (const part of splitTopLevel(selector)) {
-        const [ids, classLike, types] = specificity(part);
-        expect(ids).toBe(0);
-        // (0,1,0) の部位セレクタが常に勝てるよう、リセット本体は (0,0,0) を要求する。
-        // 例外として、フォーカスリング用の :focus-visible 1 個分（0,1,0）までは許容する
-        // （outline は部位スタイルと競合しないため）。
-        const pseudoAllowance = /:focus-visible/.test(part) ? 1 : 0;
-        expect(classLike).toBeLessThanOrEqual(pseudoAllowance);
-        expect(types).toBe(0);
-      }
-    });
+    it.each(resetRules)(
+      '$selector の各セレクタは属性 1 個分より弱い詳細度を持つ',
+      ({ selector }) => {
+        for (const part of splitTopLevel(selector)) {
+          const [ids, classLike, types] = specificity(part);
+          expect(ids).toBe(0);
+          // (0,1,0) の部位セレクタが常に勝てるよう、リセット本体は (0,0,0) を要求する。
+          // 例外として、フォーカスリング用の :focus-visible 1 個分（0,1,0）までは許容する
+          // （outline は部位スタイルと競合しないため）。
+          const pseudoAllowance = /:focus-visible/.test(part) ? 1 : 0;
+          expect(classLike).toBeLessThanOrEqual(pseudoAllowance);
+          expect(types).toBe(0);
+        }
+      },
+    );
   });
 
   describe('CSS 変数の定義スコープはスタンドアロン配置の Toolbar にも届く', () => {

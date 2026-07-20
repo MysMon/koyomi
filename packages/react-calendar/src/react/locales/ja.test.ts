@@ -251,11 +251,12 @@ describe('jaMessages.recurrenceEditor.unsupportedReason', () => {
       { code: 'invalidRRuleSyntax', detail: 'unexpected token' },
       'RRULE の解析に失敗しました（unexpected token）',
     ],
-  ] satisfies ReadonlyArray<
-    [RecurrenceUnsupportedReason, string]
-  >)('%j → %s', (reason, expected) => {
-    expect(unsupportedReason(reason)).toBe(expected);
-  });
+  ] satisfies ReadonlyArray<[RecurrenceUnsupportedReason, string]>)(
+    '%j → %s',
+    (reason, expected) => {
+      expect(unsupportedReason(reason)).toBe(expected);
+    },
+  );
 });
 
 /** テスト用の最小限の妥当な `EventOccurrence` を作る。 */

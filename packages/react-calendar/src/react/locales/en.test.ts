@@ -198,17 +198,18 @@ describe('enMessages.recurrenceEditor.describeRule', () => {
     ['2026-10-05T00:00:00Z', 'Oct 5, 2026'],
     ['2026-11-05T00:00:00Z', 'Nov 5, 2026'],
     ['2026-12-05T00:00:00Z', 'Dec 5, 2026'],
-  ] satisfies ReadonlyArray<
-    [string, string]
-  >)('end.type=until の日付整形が全 12 か月の略称を正しく使う（%s → %s）', (untilIso, expectedDate) => {
-    expect(
-      describeRule({
-        freq: 'daily',
-        interval: 1,
-        end: { type: 'until', until: new Date(untilIso) },
-      }),
-    ).toBe(`Daily (until ${expectedDate})`);
-  });
+  ] satisfies ReadonlyArray<[string, string]>)(
+    'end.type=until の日付整形が全 12 か月の略称を正しく使う（%s → %s）',
+    (untilIso, expectedDate) => {
+      expect(
+        describeRule({
+          freq: 'daily',
+          interval: 1,
+          end: { type: 'until', until: new Date(untilIso) },
+        }),
+      ).toBe(`Daily (until ${expectedDate})`);
+    },
+  );
 
   it('end.type=never は末尾に何も付加しない', () => {
     expect(describeRule({ freq: 'daily', interval: 1, end: { type: 'never' } })).toBe('Daily');
@@ -312,11 +313,12 @@ describe('enMessages.recurrenceEditor.unsupportedReason', () => {
       { code: 'invalidRRuleSyntax', detail: 'unexpected token' },
       'Failed to parse RRULE (unexpected token).',
     ],
-  ] satisfies ReadonlyArray<
-    [RecurrenceUnsupportedReason, string]
-  >)('%j → %s', (reason, expected) => {
-    expect(unsupportedReason(reason)).toBe(expected);
-  });
+  ] satisfies ReadonlyArray<[RecurrenceUnsupportedReason, string]>)(
+    '%j → %s',
+    (reason, expected) => {
+      expect(unsupportedReason(reason)).toBe(expected);
+    },
+  );
 });
 
 /** テスト用の最小限の妥当な `EventOccurrence` を作る。 */
@@ -532,9 +534,10 @@ describe('enMessages と jaMessages のキー整合性', () => {
     expect(Object.keys(enMessages).sort()).toEqual(Object.keys(jaMessages).sort());
   });
 
-  it.each(
-    Object.keys(jaMessages) as ReadonlyArray<keyof typeof jaMessages>,
-  )('%s グループのリーフ名の集合が一致する', (group) => {
-    expect(Object.keys(enMessages[group]).sort()).toEqual(Object.keys(jaMessages[group]).sort());
-  });
+  it.each(Object.keys(jaMessages) as ReadonlyArray<keyof typeof jaMessages>)(
+    '%s グループのリーフ名の集合が一致する',
+    (group) => {
+      expect(Object.keys(enMessages[group]).sort()).toEqual(Object.keys(jaMessages[group]).sort());
+    },
+  );
 });
