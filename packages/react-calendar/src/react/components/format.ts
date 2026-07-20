@@ -117,7 +117,7 @@ export function formatClockLabel(minutes: number, locale: string): string {
 }
 
 /**
- * 時間指定ブロックの時刻範囲ラベル（`'10:00〜11:00'`）を組み立てる。
+ * 時間指定ブロックの時刻範囲ラベル（例: `'10:00〜11:00'`）を組み立てる。
  *
  * 週/日ビュー・リソースビューの時間指定ブロック（`timegrid-event`）の
  * 既定内容と `parts.timeText` が使う（両ビューで同じ形式になることを保証する）。
@@ -125,14 +125,17 @@ export function formatClockLabel(minutes: number, locale: string): string {
  * @param startMinutes - 開始の分（1 日の中の分）
  * @param endMinutes - 終了の分（1 日の中の分）
  * @param locale - ロケール
- * @returns 例: `'10:00〜11:00'`
+ * @param rangeSeparator - 開始側・終了側を連結する区切り記号
+ *   （{@link MessageCatalog.common.rangeSeparator}）
+ * @returns 例: `'10:00〜11:00'`（`ja` + `'〜'`）、`'10:00 AM–11:00 AM'`（`en-US` + `'–'`）
  */
 export function formatClockRangeLabel(
   startMinutes: number,
   endMinutes: number,
   locale: string,
+  rangeSeparator: string,
 ): string {
-  return `${formatClockLabel(startMinutes, locale)}〜${formatClockLabel(endMinutes, locale)}`;
+  return `${formatClockLabel(startMinutes, locale)}${rangeSeparator}${formatClockLabel(endMinutes, locale)}`;
 }
 
 /**

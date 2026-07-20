@@ -183,17 +183,19 @@ export function ariaLabelWithResource(
 
 /**
  * リソースビューの時間指定イベント（`timegrid-event`）のイベント内容コンテキストを
- * 組み立てる。既定内容は時刻範囲 + タイトル（`'H:mm〜H:mm タイトル'`。
+ * 組み立てる。既定内容は時刻範囲 + タイトル（例: `'H:mm〜H:mm タイトル'`。区切り記号は
+ * `rangeSeparator` = {@link MessageCatalog.common.rangeSeparator}。
  * 週/日ビューの時間指定ブロックと同じ形式）。
  */
 export function resourceTimedContentContext(
   item: PositionedOccurrence,
   locale: string,
+  rangeSeparator: string,
 ): EventContentContext {
   return timedTextEventContentContext(
     'timegrid-event',
     'resource',
-    formatClockRangeLabel(item.startMinutes, item.endMinutes, locale),
+    formatClockRangeLabel(item.startMinutes, item.endMinutes, locale, rangeSeparator),
     item.occurrence.event.title,
   );
 }

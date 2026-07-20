@@ -639,7 +639,7 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
                 renderEventContent,
                 item,
                 item.occurrence,
-                resourceTimedContentContext(item, locale),
+                resourceTimedContentContext(item, locale, commonMessages.rangeSeparator),
               )}
             </div>
             {isEditable && !item.continuesBefore && (

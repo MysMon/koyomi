@@ -42,9 +42,12 @@ describe('formatClockLabel', () => {
 });
 
 describe('formatClockRangeLabel', () => {
-  it('開始・終了の分を「開始〜終了」の範囲ラベルにする', () => {
-    expect(formatClockRangeLabel(600, 660, 'ja')).toBe('10:00〜11:00');
-    expect(formatClockRangeLabel(600, 660, 'en-US')).toBe('10:00 AM〜11:00 AM');
+  it('開始・終了の分を rangeSeparator で連結した範囲ラベルにする（ja カタログの区切りは 〜）', () => {
+    expect(formatClockRangeLabel(600, 660, 'ja', '〜')).toBe('10:00〜11:00');
+  });
+
+  it('en では en カタログの区切り（–）になり、時刻はロケールの慣習（12 時間制）に従う', () => {
+    expect(formatClockRangeLabel(600, 660, 'en-US', '–')).toBe('10:00 AM–11:00 AM');
   });
 });
 

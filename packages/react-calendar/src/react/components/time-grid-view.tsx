@@ -132,17 +132,19 @@ export interface TimeGridViewHandle {
 
 /**
  * 時間指定イベント（`timegrid-event`）のイベント内容コンテキストを組み立てる。
- * 既定内容は `'H:mm〜H:mm タイトル'`。
+ * 既定内容は時刻範囲 + タイトル（例: `'H:mm〜H:mm タイトル'`。区切り記号は
+ * `rangeSeparator` = {@link MessageCatalog.common.rangeSeparator}）。
  */
 function timegridEventContentContext(
   item: PositionedOccurrence,
   locale: string,
+  rangeSeparator: string,
   view: CalendarViewType,
 ): EventContentContext {
   return timedTextEventContentContext(
     'timegrid-event',
     view,
-    formatClockRangeLabel(item.startMinutes, item.endMinutes, locale),
+    formatClockRangeLabel(item.startMinutes, item.endMinutes, locale, rangeSeparator),
     item.occurrence.event.title,
   );
 }
@@ -1055,7 +1057,7 @@ function TimeGridEventButtonImpl(props: {
           renderEventContent,
           item,
           occurrence,
-          timegridEventContentContext(item, locale, view),
+          timegridEventContentContext(item, locale, commonMessages.rangeSeparator, view),
         )}
       </div>
       {isEditable && !item.continuesBefore && (
