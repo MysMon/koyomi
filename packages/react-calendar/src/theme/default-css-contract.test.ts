@@ -110,17 +110,18 @@ describe('default.css の data-koyomi 属性はソースに実在する', () => 
     expect(sourceDataKoyomiValues.size).toBeGreaterThan(50);
   });
 
-  it.each(
-    cssSelectors.filter((s) => !CONSUMER_SUPPLIED_ATTRIBUTE_NAMES.has(s.name)),
-  )('$name$value は src/react に実在する', ({ name, value }) => {
-    expect(sourceAttributeNames.has(name)).toBe(true);
+  it.each(cssSelectors.filter((s) => !CONSUMER_SUPPLIED_ATTRIBUTE_NAMES.has(s.name)))(
+    '$name$value は src/react に実在する',
+    ({ name, value }) => {
+      expect(sourceAttributeNames.has(name)).toBe(true);
 
-    // `data-koyomi="<部位名>"` はリテラル値（部位名）そのものが CSS のフックなので、
-    // 値まで実在するかを確認する。それ以外の属性（真偽フラグ的な data-koyomi-dragging
-    // 等の列挙値）は、動的に付け外しされる値の一致まで固定すると過剰に脆くなるため、
-    // 属性名レベルの照合にとどめる。
-    if (name === 'data-koyomi' && value !== null && value !== '') {
-      expect(sourceDataKoyomiValues.has(value)).toBe(true);
-    }
-  });
+      // `data-koyomi="<部位名>"` はリテラル値（部位名）そのものが CSS のフックなので、
+      // 値まで実在するかを確認する。それ以外の属性（真偽フラグ的な data-koyomi-dragging
+      // 等の列挙値）は、動的に付け外しされる値の一致まで固定すると過剰に脆くなるため、
+      // 属性名レベルの照合にとどめる。
+      if (name === 'data-koyomi' && value !== null && value !== '') {
+        expect(sourceDataKoyomiValues.has(value)).toBe(true);
+      }
+    },
+  );
 });

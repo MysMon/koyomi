@@ -609,26 +609,34 @@ describe('useCalendarAnnouncer', () => {
       'timeline',
     ];
 
-    it.each(
-      VIEWS,
-    )('announce: { viewChange: true } のとき、view=%s への setView 後に formatViewTitle 相当の文言で announce される', (view) => {
-      // 対象の view が既定（'month'）と同じだと setView が no-op になるため、
-      // 異なる初期 view から始める
-      const initialView = view === 'week' ? 'month' : 'week';
-      const calendar = makeCalendar({ initialView });
-      const { result } = renderHook(() =>
-        useCalendarAnnouncer({ calendar, announce: { viewChange: true } }),
-      );
+    it.each(VIEWS)(
+      'announce: { viewChange: true } のとき、view=%s への setView 後に formatViewTitle 相当の文言で announce される',
+      (view) => {
+        // 対象の view が既定（'month'）と同じだと setView が no-op になるため、
+        // 異なる初期 view から始める
+        const initialView = view === 'week' ? 'month' : 'week';
+        const calendar = makeCalendar({ initialView });
+        const { result } = renderHook(() =>
+          useCalendarAnnouncer({ calendar, announce: { viewChange: true } }),
+        );
 
-      act(() => {
-        calendar.api.setView(view);
-      });
+        act(() => {
+          calendar.api.setView(view);
+        });
 
-      const state = calendar.api.getState();
-      const range = calendar.api.getVisibleRange();
-      const title = formatViewTitle(state.view, state.currentDate, range, 'Asia/Tokyo', 'ja', '〜');
-      expect(result.current.message).toBe(`表示を${title}に切り替えました`);
-    });
+        const state = calendar.api.getState();
+        const range = calendar.api.getVisibleRange();
+        const title = formatViewTitle(
+          state.view,
+          state.currentDate,
+          range,
+          'Asia/Tokyo',
+          'ja',
+          '〜',
+        );
+        expect(result.current.message).toBe(`表示を${title}に切り替えました`);
+      },
+    );
 
     it('locale が en-US のとき、viewChange 通知のタイトルは中央カタログの rangeSeparator（"–"）を使う（〜のハードコードを使わない）', () => {
       const calendar = makeCalendar({ locale: 'en-US', initialView: 'month' });

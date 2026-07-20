@@ -1,6 +1,7 @@
-# CI: Lint（Biome）・型チェック（tsc）・テスト（Vitest・カバレッジ付き）・ビルド（tsup）
-# ・実ブラウザ E2E（Playwright）・パッケージ検査（publint / attw / pack スモークテスト）を実行する。
-# Node の互換性を確認するため、下限（20.19.0）と最新 LTS（24）の 2 レグで検証する。
+# CI: 静的検査・テスト・ビルド/パッケージ検査・実ブラウザ E2E・性能リグレッション検出を
+# 独立したジョブとして並行実行する。
+# Node の互換性はテストジョブの matrix で下限（20.19.0）と最新 LTS（24）の 2 レグで検証する。
+# それ以外のジョブはサポート下限の Node 20.19.0 で実行し、ツールチェーンが下限で動くことを保証する。
 name: CI
 
 on:
@@ -8,17 +9,57 @@ on:
     branches: [main]
   pull_request:
 
+# 同一ブランチへの連続 push では古い実行をキャンセルする（main への push は全実行を保持）
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
-  check:
+  static-checks:
+    name: 静的検査（Lint・型・用語・対応関係）
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20.19.0
+          cache: pnpm
+
+      - name: 依存関係のインストール
+        run: pnpm install --frozen-lockfile
+
+      - name: 用語チェック
+        run: pnpm terms
+
+      - name: 実装・テスト対応チェック
+        run: pnpm test:pairs
+
+      - name: ドキュメント英訳対応チェック
+        run: pnpm docs:en-pairs
+
+      - name: Lint（Biome）
+        run: pnpm lint
+
+      - name: 型チェック
+        run: pnpm typecheck
+
+  test:
+    name: テスト（Node ${{ matrix.node-version }}）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         include:
-          - id: main
-            node-version: 20.19.0
-          - id: node24
-            node-version: 24
+          # 下限レグはカバレッジ計測を兼ねる（計測は 1 レグで十分なため）
+          - node-version: 20.19.0
+            coverage: true
+          - node-version: 24
+            coverage: false
     steps:
       - uses: actions/checkout@v7
 
@@ -32,66 +73,100 @@ jobs:
       - name: 依存関係のインストール
         run: pnpm install --frozen-lockfile
 
-      - name: 用語チェック（main レグのみ）
-        if: matrix.id == 'main'
-        run: pnpm terms
-
-      - name: 実装・テスト対応チェック（main レグのみ）
-        if: matrix.id == 'main'
-        run: pnpm test:pairs
-
-      - name: Lint（Biome）（main レグのみ）
-        if: matrix.id == 'main'
-        run: pnpm lint
-
-      - name: 型チェック
-        run: pnpm typecheck
-
-      - name: テスト（カバレッジ付き、main レグのみ）
-        if: matrix.id == 'main'
+      - name: テスト（カバレッジ付き）
+        if: matrix.coverage
         run: pnpm --filter @koyomi-cal/react test:coverage
 
-      - name: テスト（main レグ以外）
-        if: matrix.id != 'main'
+      - name: テスト
+        if: ${{ !matrix.coverage }}
         run: pnpm --filter @koyomi-cal/react test
 
-      - name: ビルド（main レグのみ）
-        if: matrix.id == 'main'
+  package:
+    name: ビルド・パッケージ検査
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20.19.0
+          cache: pnpm
+
+      - name: 依存関係のインストール
+        run: pnpm install --frozen-lockfile
+
+      - name: ビルド（tsup）
         run: pnpm build
 
       # ビルド済み dist を利用側の立場でバンドルし、tree-shaking の実効性
       # （未使用ビューの除外・ライブラリ寄与分の gzip サイズ閾値）を検証する
-      - name: バンドルサイズ検証（main レグのみ）
-        if: matrix.id == 'main'
+      - name: バンドルサイズ検証
         run: pnpm bundle:check
 
-      - name: デモのビルド（main レグのみ）
-        if: matrix.id == 'main'
-        run: pnpm --filter @koyomi-cal/demo build
-
-      - name: Playwright ブラウザのインストール（main レグのみ）
-        if: matrix.id == 'main'
-        run: pnpm exec playwright install --with-deps chromium firefox webkit
-
-      - name: 実ブラウザ E2E（main レグのみ）
-        if: matrix.id == 'main'
-        run: pnpm test:e2e
-
-      # 意図的に粗い閾値（手元実測の約 10 倍）との比較のみ行い、ランナーの
-      # 速度差・負荷変動で flaky にならない範囲で、計算量が悪化するような
-      # 明確な性能リグレッションだけを検出する（bench/regression.spec.ts）
-      - name: 性能リグレッション検出（粗い閾値、main レグのみ）
-        if: matrix.id == 'main'
-        run: pnpm bench:ci
-
-      - name: パッケージ検査（publint / arethetypeswrong、main レグのみ）
-        if: matrix.id == 'main'
+      - name: パッケージ検査（publint / arethetypeswrong）
         working-directory: packages/react-calendar
         run: |
           pnpm dlx publint@0.3.15
           # ESM-only パッケージのため esm-only プロファイル。theme.css は型解決対象外なので除外
           pnpm dlx @arethetypeswrong/cli@0.18.5 --pack . --profile esm-only --exclude-entrypoints ./theme.css
 
-      - name: pack スモークテスト（素の Node ESM/CJS から公開物を読み込めるか、main レグのみ）
-        if: matrix.id == 'main'
+      - name: pack スモークテスト（素の Node ESM/CJS から公開物を読み込めるか）
         run: bash scripts/pack-smoke-test.sh
+
+  e2e:
+    name: 実ブラウザ E2E（Playwright）
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20.19.0
+          cache: pnpm
+
+      - name: 依存関係のインストール
+        run: pnpm install --frozen-lockfile
+
+      # E2E は開発サーバー（ソース直接参照）で動くため dist ビルドは不要だが、
+      # デモの本番ビルドが通ること自体はここで検証する
+      - name: デモのビルド
+        run: pnpm --filter @koyomi-cal/demo build
+
+      - name: Playwright ブラウザのインストール
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
+
+      - name: 実ブラウザ E2E
+        run: pnpm test:e2e
+
+  bench:
+    name: 性能リグレッション検出
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20.19.0
+          cache: pnpm
+
+      - name: 依存関係のインストール
+        run: pnpm install --frozen-lockfile
+
+      # ベンチはデモの本番ビルド + preview 配信（bench:serve）で Chromium のみ実行する
+      - name: Playwright ブラウザのインストール（Chromium のみ）
+        run: pnpm exec playwright install --with-deps chromium
+
+      # 意図的に粗い閾値（手元実測の約 10 倍）との比較のみ行い、ランナーの
+      # 速度差・負荷変動で flaky にならない範囲で、計算量が悪化するような
+      # 明確な性能リグレッションだけを検出する（bench/regression.spec.ts）
+      - name: 性能リグレッション検出（粗い閾値）
+        run: pnpm bench:ci

@@ -228,17 +228,20 @@ describe('VirtualTimelineView', () => {
     ['負数', -28],
     ['0', 0],
     ['NaN', Number.NaN],
-  ])('estimateRowHeight に不正な値（%s）を渡しても例外を投げず、行が描画される', (_label, invalid) => {
-    expect(() =>
-      render(<Harness resources={makeResources(3)} viewProps={{ estimateRowHeight: invalid }} />),
-    ).not.toThrow();
-    const { container } = render(
-      <Harness resources={makeResources(3)} viewProps={{ estimateRowHeight: invalid }} />,
-    );
-    expect(container.querySelectorAll('[data-koyomi="timeline-row-group"]').length).toBeGreaterThan(
-      0,
-    );
-  });
+  ])(
+    'estimateRowHeight に不正な値（%s）を渡しても例外を投げず、行が描画される',
+    (_label, invalid) => {
+      expect(() =>
+        render(<Harness resources={makeResources(3)} viewProps={{ estimateRowHeight: invalid }} />),
+      ).not.toThrow();
+      const { container } = render(
+        <Harness resources={makeResources(3)} viewProps={{ estimateRowHeight: invalid }} />,
+      );
+      expect(
+        container.querySelectorAll('[data-koyomi="timeline-row-group"]').length,
+      ).toBeGreaterThan(0);
+    },
+  );
 
   it('フォーカス中の行は窓外へスクロールしても pinned で残り、blur で解除される', async () => {
     const events: CalendarEvent[] = [

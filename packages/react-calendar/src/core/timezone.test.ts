@@ -269,31 +269,27 @@ describe('fromWallClock / getWallClock: 不正な IANA タイムゾーン ID', (
   // '' を無効なタイムゾーンとして渡しても、その副作用でオフセット 0（有効な UTC 相当）
   // に解決されてしまい、NaN にならない（このファイル内の実行順序に依存する
   // ライブラリ側の挙動であり、本仕様が検証したい「不正な ID の拒否」とは無関係）。
-  it.each([
-    'Not/AZone',
-    'garbage',
-    'Asia/Nonexistent',
-    'XYZ',
-  ])('fromWallClock は不正な IANA タイムゾーン ID %s で Error を投げず、time が NaN の Invalid Date を返す', (invalidTimeZone) => {
-    const instant = fromWallClock({ year: 2026, month: 7, day: 1, hours: 10 }, invalidTimeZone);
-    expect(Number.isNaN(instant.getTime())).toBe(true);
-  });
+  it.each(['Not/AZone', 'garbage', 'Asia/Nonexistent', 'XYZ'])(
+    'fromWallClock は不正な IANA タイムゾーン ID %s で Error を投げず、time が NaN の Invalid Date を返す',
+    (invalidTimeZone) => {
+      const instant = fromWallClock({ year: 2026, month: 7, day: 1, hours: 10 }, invalidTimeZone);
+      expect(Number.isNaN(instant.getTime())).toBe(true);
+    },
+  );
 
-  it.each([
-    'Not/AZone',
-    'garbage',
-    'Asia/Nonexistent',
-    'XYZ',
-  ])('getWallClock は不正な IANA タイムゾーン ID %s で Error を投げず、全成分が NaN の WallClockParts を返す', (invalidTimeZone) => {
-    const wall = getWallClock(new Date('2026-07-01T00:00:00Z'), invalidTimeZone);
-    expect(Number.isNaN(wall.year)).toBe(true);
-    expect(Number.isNaN(wall.month)).toBe(true);
-    expect(Number.isNaN(wall.day)).toBe(true);
-    expect(Number.isNaN(wall.hours)).toBe(true);
-    expect(Number.isNaN(wall.minutes)).toBe(true);
-    expect(Number.isNaN(wall.seconds)).toBe(true);
-    expect(Number.isNaN(wall.milliseconds)).toBe(true);
-  });
+  it.each(['Not/AZone', 'garbage', 'Asia/Nonexistent', 'XYZ'])(
+    'getWallClock は不正な IANA タイムゾーン ID %s で Error を投げず、全成分が NaN の WallClockParts を返す',
+    (invalidTimeZone) => {
+      const wall = getWallClock(new Date('2026-07-01T00:00:00Z'), invalidTimeZone);
+      expect(Number.isNaN(wall.year)).toBe(true);
+      expect(Number.isNaN(wall.month)).toBe(true);
+      expect(Number.isNaN(wall.day)).toBe(true);
+      expect(Number.isNaN(wall.hours)).toBe(true);
+      expect(Number.isNaN(wall.minutes)).toBe(true);
+      expect(Number.isNaN(wall.seconds)).toBe(true);
+      expect(Number.isNaN(wall.milliseconds)).toBe(true);
+    },
+  );
 });
 
 describe('fromWallClock: 年 0〜99 の 2 桁年変換バグ回帰', () => {

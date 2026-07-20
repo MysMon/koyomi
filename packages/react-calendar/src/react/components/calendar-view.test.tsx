@@ -590,12 +590,15 @@ describe('CalendarView', () => {
       ['multiMonth', 'month-event', '10:00 会議＠会議室A'],
       ['resource', 'timegrid-event', '10:00〜11:00 会議＠会議室A'],
       ['timeline', 'timeline-item', '会議＠会議室A'],
-    ] as const)('中央定義 1 箇所が %s ビューのイベント内容に適用され、既定の時刻表示も保たれる', (view, part, expected) => {
-      const { container } = renderWithCentral(view);
-      const eventEl = container.querySelector(`[data-koyomi="${part}"]`);
-      expect(eventEl?.querySelector('[data-testid="loc"]')?.textContent).toBe('＠会議室A');
-      expect(eventEl?.textContent).toBe(expected);
-    });
+    ] as const)(
+      '中央定義 1 箇所が %s ビューのイベント内容に適用され、既定の時刻表示も保たれる',
+      (view, part, expected) => {
+        const { container } = renderWithCentral(view);
+        const eventEl = container.querySelector(`[data-koyomi="${part}"]`);
+        expect(eventEl?.querySelector('[data-testid="loc"]')?.textContent).toBe('＠会議室A');
+        expect(eventEl?.textContent).toBe(expected);
+      },
+    );
 
     it.each([
       ['month', 'month'],
@@ -605,32 +608,35 @@ describe('CalendarView', () => {
       ['multiMonth', 'multiMonth'],
       ['resource', 'resource'],
       ['timeline', 'timeline'],
-    ] as const)('%s ビューでは ctx.view に %s が渡り、スロットが同じでもビューを判別できる', (view, expected) => {
-      const seenViews = new Set<string>();
-      function Harness(): ReactElement {
-        const calendar = useCalendar({
-          timeZone: 'Asia/Tokyo',
-          now: () => NOW,
-          initialDate: NOW,
-          initialView: view,
-          events: EVENTS,
-          resources: RESOURCES,
-        });
-        return (
-          <CalendarProvider
-            value={calendar}
-            renderEventContent={(_occurrence, ctx) => {
-              seenViews.add(ctx.view);
-              return ctx.defaultContent;
-            }}
-          >
-            <CalendarView />
-          </CalendarProvider>
-        );
-      }
-      render(<Harness />);
-      expect(Array.from(seenViews)).toEqual([expected]);
-    });
+    ] as const)(
+      '%s ビューでは ctx.view に %s が渡り、スロットが同じでもビューを判別できる',
+      (view, expected) => {
+        const seenViews = new Set<string>();
+        function Harness(): ReactElement {
+          const calendar = useCalendar({
+            timeZone: 'Asia/Tokyo',
+            now: () => NOW,
+            initialDate: NOW,
+            initialView: view,
+            events: EVENTS,
+            resources: RESOURCES,
+          });
+          return (
+            <CalendarProvider
+              value={calendar}
+              renderEventContent={(_occurrence, ctx) => {
+                seenViews.add(ctx.view);
+                return ctx.defaultContent;
+              }}
+            >
+              <CalendarView />
+            </CalendarProvider>
+          );
+        }
+        render(<Harness />);
+        expect(Array.from(seenViews)).toEqual([expected]);
+      },
+    );
 
     it('renderEventContent を使っても aria-label とリサイズハンドル（ドラッグ配線）は保たれる', () => {
       const { container: monthContainer } = renderWithCentral('month');
