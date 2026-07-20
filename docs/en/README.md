@@ -19,7 +19,7 @@ Everything else below links to the Japanese original. If you can read Japanese, 
 - **Accessibility.** WAI-ARIA grid patterns, keyboard operation, and `aria-live` announcements of event changes via `useCalendarAnnouncer`. See [Accessibility](../accessibility.md).
 - **Virtualization for large datasets.** `VirtualListView` / `VirtualResourceView` / `VirtualTimelineView` (all opt-in) render only the visible range. See [Performance](../performance.md).
 - **Undo/redo.** `useCalendarHistory` provides an operation history with undo/redo (keyboard shortcuts are opt-in). See [Managing events](../events.md).
-- **Every feature is MIT-licensed**, with no paid tier. See [Comparison with other libraries](../comparison.md) for a feature-and-licensing comparison against other React calendar/scheduler libraries.
+- **Every feature is MIT-licensed**, with no paid tier. Drag-to-create/move/resize, recurring-event editing, resource and timeline views, virtualization, accessibility, and multi-timezone handling are all part of the single MIT-licensed package — none gated behind a paid tier.
 
 ## Documentation index
 
@@ -37,7 +37,6 @@ Everything else below links to the Japanese original. If you can read Japanese, 
 | [Theming and styling](../theming.md) | Japanese |
 | [Customization guide](../customization.md) | Japanese |
 | [API Reference](../api.md) | Japanese (see the [heading index](#api-reference-heading-index) below) |
-| [Comparison with other libraries](../comparison.md) | Japanese |
 | [Performance](../performance.md) | Japanese |
 | [Publishing](../publishing.md) | Japanese |
 | [Versioning](../versioning.md) | Japanese |

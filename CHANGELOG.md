@@ -133,7 +133,7 @@
 
 ### ドキュメント
 
-- 採用判断に必要な情報を整備: 競合比較（[docs/comparison.md](./docs/comparison.md)）、
+- 採用判断に必要な情報を整備:
   バージョニング運用ポリシー（[docs/versioning.md](./docs/versioning.md)）、パフォーマンス
   指針（[docs/performance.md](./docs/performance.md)）、コントリビューションガイド
   （[CONTRIBUTING.md](./CONTRIBUTING.md)）、セキュリティポリシー
