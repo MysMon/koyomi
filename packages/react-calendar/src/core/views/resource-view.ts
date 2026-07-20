@@ -232,7 +232,8 @@ function allDayItemOverlapsDay(occurrence: EventOccurrence, dayStart: Date, dayE
  * @param params.slotMinTime - 表示する時間帯の開始（`'HH:mm'` 形式）。省略時は `'00:00'`
  * @param params.slotMaxTime - 表示する時間帯の終了（`'HH:mm'` 形式、排他的。`'24:00'` も可）。
  *   省略時は `'24:00'`
- * @param params.resourceViewDays - 表示日数。省略時は `1`。0 以下・非整数は 1 日へ正規化する
+ * @param params.resourceViewDays - 表示日数。省略時は `1`。0 以下・非有限は 1 日へ、
+ *   小数は切り捨てて 1 以上の整数へ正規化する
  * @param params.collapsedResourceIds - 折りたたみ中のリソース ID の集合
  *   （{@link CalendarState.collapsedResourceIds}）。省略時は `[]`（全展開）扱い
  * @returns リソースビューのビューモデル

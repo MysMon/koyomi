@@ -7,7 +7,8 @@
  * ドラッグセッションを開始し、カレンダー上のドロップ先を日時・（リソース/
  * タイムラインビューでは）リソースへ解決する。プレビュー表示は既存の仕組み
  * （`api.setDragPreview` / 各ビューの内部ドラッグフックが読む
- * `state.dragPreview`）をそのまま再利用する。カレンダー本体の DOM
+ * `state.dragPreview`）をそのまま再利用する（リストビューはドロップ先の
+ * 解決のみでハイライト表示はない）。カレンダー本体の DOM
  * （`data-koyomi-*` 属性）を `document.elementFromPoint` でヒットテストする
  * ため、対応ビューが実際に描画されている必要がある。ヒットテストの候補は
  * {@link UseExternalDragParams.containerRef} が指す要素の内側に限定する。
@@ -458,7 +459,8 @@ function resolveExternalDrop(
  * テンプレートなど）にスプレッドすると、その要素からの `pointerdown` で
  * ドラッグセッションが始まる。ドラッグ中はポインタ直下のカレンダー要素から
  * ドロップ先を解決し、既存のプレビュー機構（`api.setDragPreview`）でカレンダー
- * 上にハイライト表示する。`pointerup` でドロップ先が解決できれば
+ * 上にハイライト表示する（リストビューはドロップ先の解決のみで、ハイライト
+ * 表示はない）。`pointerup` でドロップ先が解決できれば
  * `onExternalDrop` を呼ぶ（`payload` はドロップ確定時にそのまま渡される）。
  *
  * Escape キー・`pointercancel`、およびドロップ先が解決できなかった場合は

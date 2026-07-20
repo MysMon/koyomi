@@ -199,7 +199,7 @@ Koyomi のフックの一部の props は、**マウント時の初期値とし�
 | フック | 初期値専用の props | 動的に変更する方法 |
 | --- | --- | --- |
 | `useCalendar` | `events` / `resources`（`CalendarOptions` の他のオプション全般も同様） | `calendar.api.setEvents(nextEvents)` / `calendar.api.setResources(nextResources)`。ビュー・基準日・タイムゾーンは `calendar.api.setView` / `goTo` / `setTimeZone`、その他のオプションは `calendar.api.updateOptions(patch)` |
-| `useRecurrenceRuleEditor` | `start` / `timeZone` / `rrule` | 編集対象を切り替える場合は、このフックを使うコンポーネントに一意な `key` を指定して再マウントする |
+| `useRecurrenceRuleEditor` | `start` / `timeZone` / `rrule` | `reset({ start, timeZone, rrule })` を呼ぶ（このフックを使うコンポーネントに一意な `key` を指定して再マウントする方法も引き続き使える） |
 | `useCalendarHistory` | `limit`（`createEventHistory` の `options.limit` も同様） | 動的な変更方法はない。上限を変えたい場合はコンポーネントを再マウントする（`key` を変える等） |
 
 なぜ初期値専用なのか: `useCalendar` の `events`/`resources` はカレンダーエンジン内部の
