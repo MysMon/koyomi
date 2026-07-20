@@ -190,6 +190,42 @@ describe('月ビューの roving tabindex', () => {
   });
 });
 
+describe('RTL レイアウトでの左右矢印', () => {
+  it('コンテナが RTL のとき ←/→ は視覚方向に従い、読み順に対して反転する', () => {
+    const { container } = render(<Harness gridNavigation={true} />);
+    const grid = container.querySelector('[data-koyomi="month"]');
+    if (!(grid instanceof HTMLElement)) {
+      throw new Error('月グリッドが見つかりません');
+    }
+    grid.style.direction = 'rtl';
+
+    const today = cellByKey(container, 'month-day', '2026-07-15');
+    const previousDay = cellByKey(container, 'month-day', '2026-07-14');
+    act(() => today.focus());
+
+    // RTL ではセルが視覚的に右→左へ並ぶため、→（視覚上の右）は読み順で 1 つ前のセル
+    fireEvent.keyDown(today, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(previousDay);
+
+    fireEvent.keyDown(previousDay, { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(today);
+  });
+
+  it('コンテナが RTL でも ↑/↓ は同じ曜日列の移動のまま変わらない', () => {
+    const { container } = render(<Harness gridNavigation={true} />);
+    const grid = container.querySelector('[data-koyomi="month"]');
+    if (!(grid instanceof HTMLElement)) {
+      throw new Error('月グリッドが見つかりません');
+    }
+    grid.style.direction = 'rtl';
+
+    const today = cellByKey(container, 'month-day', '2026-07-15');
+    act(() => today.focus());
+    fireEvent.keyDown(today, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(cellByKey(container, 'month-day', '2026-07-22'));
+  });
+});
+
 describe('セルと予定のモード分離', () => {
   it('予定のあるセルの Enter はセル内の最初の予定へフォーカスし、範囲選択（作成）は発火しない', () => {
     const onSelectRange = vi.fn();
@@ -220,6 +256,32 @@ describe('セルと予定のモード分離', () => {
     expect(onSelectRange.mock.calls[0]?.[0].allDay).toBe(true);
   });
 
+  it('週をまたぐ帯の継続セグメントを所有するセル（週の先頭セル）の Enter はそのセグメントへ入り、Escape で所有セルへ戻る', () => {
+    const onSelectRange = vi.fn();
+    const { container } = render(
+      <Harness
+        gridNavigation={true}
+        events={[{ id: 'e1', title: '合宿', start: '2026-07-16', end: '2026-07-22', allDay: true }]}
+        callbacks={{ onSelectRange }}
+      />,
+    );
+    // 7/16 開始の帯は 7/19 始まりの週へまたがり、継続セグメントは週の先頭セル（7/19）が所有する
+    const weekStartCell = cellByKey(container, 'month-day', '2026-07-19');
+    act(() => weekStartCell.focus());
+    fireEvent.keyDown(weekStartCell, { key: 'Enter' });
+
+    const segment = weekStartCell.querySelector('[data-koyomi-occurrence]');
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('継続セグメントが見つかりません');
+    }
+    expect(document.activeElement).toBe(segment);
+    expect(onSelectRange).not.toHaveBeenCalled();
+
+    // Escape は開始日（7/16）のセルではなく、セグメントを所有するセル（7/19）へ戻る
+    fireEvent.keyDown(segment, { key: 'Escape' });
+    expect(document.activeElement).toBe(weekStartCell);
+  });
+
   it('予定にフォーカス中の矢印キーは従来どおり予定の移動として動作する', async () => {
     const onEventChange = vi.fn();
     const { container } = render(
@@ -244,7 +306,7 @@ describe('セルと予定のモード分離', () => {
     );
   });
 
-  it('予定にフォーカス中の Escape で開始日のセルへフォーカスが戻る', () => {
+  it('予定にフォーカス中の Escape で予定を所有するセルへフォーカスが戻る', () => {
     const { container } = render(
       <Harness
         gridNavigation={true}

@@ -13,8 +13,9 @@
  * 限られる（WAI-ARIA grid パターン）ため、本文は grid 化しないだけでなく
  * `timegrid-grid` の**外側**（兄弟要素）に置き、内部の予定ボタンが grid の子孫として
  * アクセシビリティツリーに漏れ出さないようにする。終日イベントの帯
- * （`AllDaySegmentButton`）は複数日にまたがり得るが、DOM 上は**開始日の gridcell
- * （`allday-cell`）の子**として所有させる（ResourceView の終日アイテムと同じ正当な
+ * （`AllDaySegmentButton`）は複数日にまたがり得るが、DOM 上は**表示範囲内で帯が
+ * 始まる日の gridcell（`allday-cell`）の子**として所有させる（表示範囲より前から
+ * 続く帯は先頭のセル。ResourceView の終日アイテムと同じ正当な
  * ネスト。`role="presentation"` のレイヤーに置く方式は、レイヤー自身の意味論しか
  * 消えず内部の focusable なボタンが grid の子孫として露出したままになるため不可）。
  * ボタンの positioned ancestor はセルではなく `allday-cells`（position: relative）
@@ -660,8 +661,9 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
                   role="gridcell"
                   aria-label={formatFullDateLabel(day.date, timeZone, locale)}
                 >
-                  {/* 帯セグメントは複数日にまたがり得るが、DOM 上は開始日の gridcell が
-                        所有する（grid の子孫の focusable を row/gridcell の所有関係の外に
+                  {/* 帯セグメントは複数日にまたがり得るが、DOM 上は表示範囲内で帯が
+                        始まる日の gridcell が所有する（表示範囲より前から続く帯は先頭の
+                        セル。grid の子孫の focusable を row/gridcell の所有関係の外に
                         置かないため）。ボタンは absolute 配置で、positioned ancestor は
                         セルではなく allday-cells（position: relative）なので、列をまたぐ
                         視覚上のスパンと座標計算はレイヤー方式と変わらない */}

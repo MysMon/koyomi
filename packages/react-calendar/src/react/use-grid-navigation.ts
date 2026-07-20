@@ -8,16 +8,17 @@
  * に沿って、日セル群をビューごとに単一の Tab ストップへ集約し、
  * 矢印キー・Home/End・PageUp/PageDown でセル間を移動できるようにする。
  *
- * - 矢印キー（←/→）: 読み順で前後の対象セルへ移動（行末・グリッド境界も連続移動）
+ * - 矢印キー（←/→）: 視覚方向に従い左右の対象セルへ移動（LTR では → が読み順で次、
+ *   RTL では反転して → が読み順で前。行末・グリッド境界も連続移動）
  * - 矢印キー（↑/↓）: 同じ列の前後の行のセルへ移動
  * - Home / End: 行の先頭・末尾のセルへ移動
  * - Ctrl+Home / Ctrl+End: グリッド全体の先頭・末尾のセルへ移動
  * - PageUp / PageDown: 表示期間を前後へ切り替え（`CalendarApi.prev` / `next`）、
  *   新しい期間の既定セル（今日のセル、なければ先頭セル）へフォーカスを移す
- * - Enter: セル内にその日を開始日とする予定があれば最初の予定へフォーカスを移す
- *   （なければ従来どおりセル自身の Enter = 1 日分の範囲選択に委ねる）
- * - 予定にフォーカスがある間は矢印キーを奪わない（従来どおり予定の移動・リサイズ）。
- *   Escape のみ「開始日のセルへ戻る」として処理する
+ * - Enter: セルが DOM 上所有する予定（週をまたぐ帯の継続セグメントを含む）があれば
+ *   最初の予定へフォーカスを移す（なければセル自身の Enter = 1 日分の範囲選択に委ねる）
+ * - 予定にフォーカスがある間は矢印キーを奪わない（予定の移動・リサイズに委ねる）。
+ *   Escape のみ「その予定を所有するセルへ戻る」として処理する
  *
  * 実装はイベント委譲方式: コンテナ（ビューのルート要素）にキャプチャ段階の
  * keydown / focus リスナーを付け、セルの幾何配置は DOM の `role="row"` /
@@ -183,25 +184,36 @@ function hasCtrlLikeModifier(event: ReactKeyboardEvent<HTMLElement>): boolean {
   return event.ctrlKey || event.metaKey || event.altKey;
 }
 
+/** コンテナの書字方向が RTL か（`use-virtualizer.ts` の判定と同じ方法）。 */
+function isRtl(element: HTMLElement): boolean {
+  return getComputedStyle(element).direction === 'rtl';
+}
+
 /**
  * ナビゲーションキーに対応する移動先セルを求める。
  * 対象キーでない・移動先がない場合は `null`（呼び出し側は何もしない）。
+ *
+ * @param rtl - コンテナの書字方向が RTL か。RTL ではセルが視覚的に右→左へ並ぶため、
+ *   ←/→ の移動方向を反転して「矢印キーは視覚方向に従う」を保つ
  */
 function resolveNavigationTarget(
   matrix: CellMatrix,
   position: CellPosition,
   event: ReactKeyboardEvent<HTMLElement>,
+  rtl: boolean,
 ): HTMLElement | null {
   const ctrl = event.ctrlKey || event.metaKey;
+  /** 視覚上の「右」に対応する読み順方向（RTL では読み順で 1 つ前）。 */
+  const visualRight: 1 | -1 = rtl ? -1 : 1;
   switch (event.key) {
     case 'ArrowRight':
       return hasCtrlLikeModifier(event) || event.shiftKey
         ? null
-        : readingOrderNeighbor(matrix, position, 1);
+        : readingOrderNeighbor(matrix, position, visualRight);
     case 'ArrowLeft':
       return hasCtrlLikeModifier(event) || event.shiftKey
         ? null
-        : readingOrderNeighbor(matrix, position, -1);
+        : readingOrderNeighbor(matrix, position, visualRight === 1 ? -1 : 1);
     case 'ArrowDown':
       return hasCtrlLikeModifier(event) || event.shiftKey
         ? null
@@ -314,8 +326,8 @@ export function useGridNavigation(params: {
   /**
    * コンテナ内のキー操作（キャプチャ段階）。
    *
-   * - 予定要素にフォーカスがある間: Escape のみ「開始日のセルへ戻る」として処理し、
-   *   矢印キー等は従来どおり予定側のハンドラ（移動・リサイズ）に委ねる
+   * - 予定要素にフォーカスがある間: Escape のみ「その予定を所有するセルへ戻る」として
+   *   処理し、矢印キー等は従来どおり予定側のハンドラ（移動・リサイズ）に委ねる
    * - 対象セルにフォーカスがある間: 矢印キー・Home/End でセル間移動、
    *   PageUp/PageDown で表示期間の切替、Enter でセル内の予定へ入る
    * - ドラッグ操作中（`dragPreview` あり）は何もしない（Escape はドラッグの
@@ -350,8 +362,8 @@ export function useGridNavigation(params: {
     }
 
     if (event.key === 'Enter' && !hasCtrlLikeModifier(event) && !event.shiftKey) {
-      // セル内（その日を開始日とする）の最初の予定へフォーカスを移す。
-      // 予定がなければ何もせず、セル自身の Enter（1 日分の範囲選択）に委ねる
+      // セルが DOM 上所有する最初の予定（週をまたぐ帯の継続セグメントを含む）へ
+      // フォーカスを移す。予定がなければ何もせず、セル自身の Enter（1 日分の範囲選択）に委ねる
       const firstOccurrence = target.querySelector<HTMLElement>(OCCURRENCE_SELECTOR);
       if (firstOccurrence !== null) {
         event.preventDefault();
@@ -383,7 +395,7 @@ export function useGridNavigation(params: {
     if (position === null) {
       return;
     }
-    const next = resolveNavigationTarget(matrix, position, event);
+    const next = resolveNavigationTarget(matrix, position, event, isRtl(container));
     if (next === null) {
       return;
     }

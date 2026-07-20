@@ -68,11 +68,10 @@ export interface CalendarProviderProps {
    * `true` にすると、月・複数月・年ビューの日セルと週/日ビューの終日セルが
    * ビューごとに単一の Tab ストップに集約され、矢印キー・Home/End・
    * PageUp/PageDown でセル間を移動できる（WAI-ARIA APG の grid パターン）。
-   * セルの Enter はセル内に予定があれば最初の予定へフォーカスを移し、
-   * 予定にフォーカスがある間の矢印キーは従来どおり予定の移動・リサイズ、
-   * Escape で開始日のセルへ戻る。詳細は
-   * [アクセシビリティ: grid 内のキーボードナビゲーション](./accessibility.md#grid-内のキーボードナビゲーションgridnavigation)
-   * を参照。
+   * セルの Enter はセルが所有する予定があれば最初の予定へフォーカスを移し、
+   * 予定にフォーカスがある間の矢印キーは予定の移動・リサイズのまま、
+   * Escape でその予定を所有するセルへ戻る。詳細は
+   * `docs/accessibility.md` の「grid 内のキーボードナビゲーション（gridNavigation）」を参照。
    */
   gridNavigation?: boolean;
   /** 子要素。 */
