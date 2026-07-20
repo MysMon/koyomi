@@ -390,6 +390,8 @@ describe('useCalendar', () => {
 
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]?.[0]).toContain('#ffff00');
+      // 警告文言は色の出所を示す（event.color 由来なら「イベント色」）
+      expect(warn.mock.calls[0]?.[0]).toContain('イベント色');
     });
 
     it('resource.color が既定前景色と WCAG AA を満たさないと console.warn する', () => {
@@ -410,6 +412,10 @@ describe('useCalendar', () => {
 
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]?.[0]).toContain('#ffff00');
+      // 警告文言は色の出所を示す（resource.color 由来なら「リソース色」。
+      // 「イベント色」と表示すると存在しない event.color を探させてしまう）
+      expect(warn.mock.calls[0]?.[0]).toContain('リソース色');
+      expect(warn.mock.calls[0]?.[0]).not.toContain('イベント色');
     });
 
     it('event.color が WCAG AA を満たす色なら警告しない', () => {

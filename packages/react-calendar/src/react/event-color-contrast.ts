@@ -97,17 +97,36 @@ export function contrastRatio(colorA: string, colorB: string): number | null {
 }
 
 /**
+ * 判定対象の色の出所。警告文言に反映し、利用者がどのフィールドの色を
+ * 直せばよいかを特定できるようにする。
+ */
+export type LowContrastColorSource = 'event' | 'resource';
+
+/** 色の出所ごとの警告文言上の呼称。 */
+const COLOR_SOURCE_LABELS: Record<LowContrastColorSource, string> = {
+  event: 'イベント色（event.color）',
+  resource: 'リソース色（resource.color）',
+};
+
+/**
  * `event.color` / `resource.color` が既定の前景色との組み合わせで
  * WCAG AA（4.5:1）を満たさない場合、`console.warn` で警告する。
+ * 警告文言には色の出所（`source`）に応じて「イベント色」/「リソース色」を表示する。
  *
  * 同じ色を繰り返し警告しないよう、警告済みの色を呼び出し側が持つ `warned` に
- * 積む（呼び出し側は通常、コンポーネントのマウント中保持する `Set` を渡す）。
+ * 積む（呼び出し側は通常、コンポーネントのマウント中保持する `Set` を渡す。
+ * 出所が異なっても同じ色は再警告しない）。
  * 16 進カラーコード以外（色名・`rgb()` 等）は判定できないため警告しない。
  *
  * @param color - 判定対象の色（`event.color` / `resource.color` の値）
+ * @param source - 色の出所（`'event'` = `event.color`、`'resource'` = `resource.color`）
  * @param warned - 警告済みの色を積む `Set`（呼び出し側が保持する）
  */
-export function warnIfLowContrastEventColor(color: string, warned: Set<string>): void {
+export function warnIfLowContrastEventColor(
+  color: string,
+  source: LowContrastColorSource,
+  warned: Set<string>,
+): void {
   if (warned.has(color)) {
     return;
   }
@@ -118,7 +137,7 @@ export function warnIfLowContrastEventColor(color: string, warned: Set<string>):
   warned.add(color);
   // biome-ignore lint/suspicious/noConsole: 開発ビルド限定の意図的な利用者向け警告
   console.warn(
-    `[koyomi] イベント色 ${color} は既定の前景色（白 ${DEFAULT_EVENT_FOREGROUND}）との組み合わせで` +
+    `[koyomi] ${COLOR_SOURCE_LABELS[source]} ${color} は既定の前景色（白 ${DEFAULT_EVENT_FOREGROUND}）との組み合わせで` +
       `WCAG AA のコントラスト比 4.5:1 を満たしません（実際の比率: ${ratio.toFixed(2)}:1）。` +
       'カスタムテーマで --koyomi-event-fg を変更している場合は、その配色でコントラストを確認してください。',
   );

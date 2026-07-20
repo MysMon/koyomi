@@ -41,29 +41,47 @@ describe('warnIfLowContrastEventColor', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const warned = new Set<string>();
 
-    warnIfLowContrastEventColor('#ffff00', warned);
+    warnIfLowContrastEventColor('#ffff00', 'event', warned);
 
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain('#ffff00');
     expect(warned.has('#ffff00')).toBe(true);
   });
 
+  it("source が 'event' のとき警告文言は「イベント色」（event.color）で始まる", () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    warnIfLowContrastEventColor('#ffff00', 'event', new Set());
+
+    expect(warn.mock.calls[0]?.[0]).toContain('イベント色（event.color）');
+    expect(warn.mock.calls[0]?.[0]).not.toContain('リソース色');
+  });
+
+  it("source が 'resource' のとき警告文言は「リソース色」（resource.color）で始まる", () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    warnIfLowContrastEventColor('#ffff00', 'resource', new Set());
+
+    expect(warn.mock.calls[0]?.[0]).toContain('リソース色（resource.color）');
+    expect(warn.mock.calls[0]?.[0]).not.toContain('イベント色');
+  });
+
   it('WCAG AA を満たす色では警告しない', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const warned = new Set<string>();
 
-    warnIfLowContrastEventColor('#14608f', warned);
+    warnIfLowContrastEventColor('#14608f', 'event', warned);
 
     expect(warn).not.toHaveBeenCalled();
     expect(warned.size).toBe(0);
   });
 
-  it('同じ色は 2 回目以降 warned 済みとして再警告しない', () => {
+  it('同じ色は出所が異なっても 2 回目以降 warned 済みとして再警告しない', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const warned = new Set<string>();
 
-    warnIfLowContrastEventColor('#ffff00', warned);
-    warnIfLowContrastEventColor('#ffff00', warned);
+    warnIfLowContrastEventColor('#ffff00', 'event', warned);
+    warnIfLowContrastEventColor('#ffff00', 'resource', warned);
 
     expect(warn).toHaveBeenCalledTimes(1);
   });
@@ -72,7 +90,7 @@ describe('warnIfLowContrastEventColor', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const warned = new Set<string>();
 
-    warnIfLowContrastEventColor('red', warned);
+    warnIfLowContrastEventColor('red', 'event', warned);
 
     expect(warn).not.toHaveBeenCalled();
   });

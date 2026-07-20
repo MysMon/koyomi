@@ -159,12 +159,12 @@ export function useCalendar(options?: UseCalendarOptions): UseCalendarResult {
     const warned = warnedColorsRef.current;
     for (const event of state.events) {
       if (event.color !== undefined) {
-        warnIfLowContrastEventColor(event.color, warned);
+        warnIfLowContrastEventColor(event.color, 'event', warned);
       }
     }
     for (const resource of state.resources) {
       if (resource.color !== undefined) {
-        warnIfLowContrastEventColor(resource.color, warned);
+        warnIfLowContrastEventColor(resource.color, 'resource', warned);
       }
     }
   }
