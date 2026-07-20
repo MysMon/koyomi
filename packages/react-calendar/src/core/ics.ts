@@ -240,46 +240,58 @@ function addDaysToDateKey(key: string, amount: number): string {
 
 /**
  * RRULE の UNTIL を出力用に変換する。
- * Koyomi の rrule 文字列の UNTIL はイベント TZ の現地時刻を表すため、
- * TZID 付きで出力する場合は UTC（RFC 5545 の要求形式）へ変換する。
- * 終日イベントは DTSTART と型を揃えて日付形式にする。
+ *
+ * Koyomi の rrule 文字列の UNTIL はイベント TZ（`timeZone` のないイベントは
+ * 表示 TZ = `fallbackTimeZone`）の現地時刻を表す。RFC 5545 §3.3.10 は UNTIL の型を
+ * DTSTART と揃えることを要求するため、DTSTART の出力形式に合わせて変換する:
+ *
+ * - 終日イベント: 日付形式（`YYYYMMDD`）に切り詰める
+ * - フローティング: DTSTART と同じ現地時刻形式（`Z` なし）にする
+ * - TZID 付き / UTC: 解釈に用いたタイムゾーンの現地時刻から UTC 表記へ変換する
  */
 function untilForExport(
   normalizedRRule: string,
   allDay: boolean,
-  tzid: TimeZoneId | undefined,
+  startStyle: TimedValueStyle,
+  fallbackTimeZone: TimeZoneId,
 ): string {
   return replaceUntilValue(normalizedRRule, (value) => {
     if (allDay) {
       return value.slice(0, 8);
     }
-    if (tzid === undefined) {
-      return value;
+    if (startStyle.kind === 'floating') {
+      // 正規化済みの UNTIL は常に末尾 Z 付きのため、Z を除いて現地時刻形式にする
+      return value.endsWith('Z') ? value.slice(0, -1) : value;
     }
-    return formatUtcDigits(fromWallClock(wallPartsFromUntilDigits(value), tzid));
+    const timeZone = startStyle.kind === 'zoned' ? startStyle.tzid : fallbackTimeZone;
+    return formatUtcDigits(fromWallClock(wallPartsFromUntilDigits(value), timeZone));
   });
 }
 
 /**
  * RRULE の UNTIL を取り込み用に変換する（{@link untilForExport} の逆変換）。
- * TZID 付きイベントの UTC 表記の UNTIL を、イベント TZ の現地時刻
- * （Koyomi の rrule 文字列の解釈）へ変換する。終日イベントは日付形式へ切り詰める。
+ *
+ * UTC 表記の UNTIL を、Koyomi の rrule 文字列の解釈（イベント TZ の現地時刻。
+ * `timeZone` のないイベントは表示 TZ の現地時刻）に合わせて DTSTART の形式ごとに変換する:
+ *
+ * - 終日イベント（DATE 形式の DTSTART）: 日付形式へ切り詰める
+ * - フローティングの DTSTART: UNTIL も現地時刻を表すため数字をそのまま使う
+ * - TZID 付きの DTSTART: UTC 表記からイベント TZ の現地時刻へ変換する
+ * - UTC 形式の DTSTART: UTC 表記から実行環境のローカルタイムゾーン
+ *   （表示タイムゾーンに相当）の現地時刻へ変換する
  */
-function untilForImport(
-  normalizedRRule: string,
-  allDay: boolean,
-  tzid: TimeZoneId | undefined,
-): string {
+function untilForImport(normalizedRRule: string, dtstart: IcsDateValue): string {
   return replaceUntilValue(normalizedRRule, (value) => {
-    if (allDay) {
+    if (dtstart.type === 'date') {
       return value.slice(0, 8);
     }
-    if (tzid === undefined || !value.endsWith('Z')) {
+    if (dtstart.type === 'floating' || !value.endsWith('Z')) {
       return value;
     }
-    // UTC 表記の成分から絶対時刻を組み立て、イベント TZ の現地時刻へ変換する
+    const timeZone = dtstart.type === 'zoned' ? dtstart.tzid : getLocalTimeZone();
+    // UTC 表記の成分から絶対時刻を組み立て、現地時刻へ変換する
     const instant = fromWallClock(wallPartsFromUntilDigits(value), 'UTC');
-    return `${formatWallDigits(getWallClock(instant, tzid))}Z`;
+    return `${formatWallDigits(getWallClock(instant, timeZone))}Z`;
   });
 }
 
@@ -350,9 +362,6 @@ function pushDateListProperties(
 
 /** 1 件のイベントを VEVENT の行配列（折り返し前）にする。 */
 function serializeVEvent(event: CalendarEvent, ctx: SerializeContext): string[] {
-  if (event.timeZone !== undefined && !isValidTimeZone(event.timeZone)) {
-    throw new Error(`無効なタイムゾーンです: '${event.timeZone}'（イベント '${event.id}'）`);
-  }
   const master =
     event.recurringEventId !== undefined ? ctx.eventsById.get(event.recurringEventId) : undefined;
   const isOverride = event.recurringEventId !== undefined && event.originalStart !== undefined;
@@ -366,6 +375,7 @@ function serializeVEvent(event: CalendarEvent, ctx: SerializeContext): string[] 
   }
   const interpretTimeZone = tzid ?? ctx.fallbackTimeZone;
   const allDay = event.allDay === true;
+  const startStyle = timedStyleFor(event.start, tzid);
   const lines = ['BEGIN:VEVENT', `UID:${escapeTextValue(uid)}`, ctx.dtstampLine];
 
   if (allDay) {
@@ -382,20 +392,21 @@ function serializeVEvent(event: CalendarEvent, ctx: SerializeContext): string[] 
       `DTEND;VALUE=DATE:${formatDateDigits(endKey)}`,
     );
   } else {
-    const style = timedStyleFor(event.start, tzid);
     const startInstant = parseDateValue(event.start, interpretTimeZone, false);
     const endInstant =
       event.end !== undefined
         ? parseDateValue(event.end, interpretTimeZone, false)
         : new Date(startInstant.getTime() + ctx.defaultEventMinutes * 60_000);
     lines.push(
-      formatTimedProperty('DTSTART', startInstant, style, ctx.fallbackTimeZone),
-      formatTimedProperty('DTEND', endInstant, style, ctx.fallbackTimeZone),
+      formatTimedProperty('DTSTART', startInstant, startStyle, ctx.fallbackTimeZone),
+      formatTimedProperty('DTEND', endInstant, startStyle, ctx.fallbackTimeZone),
     );
   }
 
   if (event.rrule !== undefined) {
-    lines.push(`RRULE:${untilForExport(normalizeRRuleString(event.rrule), allDay, tzid)}`);
+    lines.push(
+      `RRULE:${untilForExport(normalizeRRuleString(event.rrule), allDay, startStyle, ctx.fallbackTimeZone)}`,
+    );
   }
   const listParams = {
     allDay,
@@ -864,7 +875,7 @@ export function eventsFromIcs(ics: string): CalendarEvent[] {
       event.end = toEventValue(collected.dtend, timeZone);
     }
     if (collected.rruleRaw !== undefined) {
-      event.rrule = untilForImport(normalizeRRuleString(collected.rruleRaw), allDay, timeZone);
+      event.rrule = untilForImport(normalizeRRuleString(collected.rruleRaw), collected.dtstart);
     }
     if (collected.exdates.length > 0) {
       event.exdates = collected.exdates.map((value) => toEventValue(value, timeZone));

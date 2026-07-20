@@ -197,7 +197,9 @@ describe('eventsToIcs', () => {
       expect(ics).toContain('RRULE:FREQ=DAILY;UNTIL=20260310T130000Z\r\n');
     });
 
-    it('timeZone のないイベントの UNTIL は変換せずそのまま出力する', () => {
+    it('timeZone のないイベント（UTC 形式）の UNTIL は、オプションの timeZone の現地時刻として解釈し UTC に変換して出力する', () => {
+      // Koyomi の rrule 文字列では UNTIL=20260710T010000Z は「表示 TZ（ここでは東京）の 7/10 01:00」を表す。
+      // 東京 7/10 01:00 = 2026-07-09T16:00:00Z
       const ics = toIcs([
         {
           id: 'e1',
@@ -206,7 +208,21 @@ describe('eventsToIcs', () => {
           rrule: 'FREQ=DAILY;UNTIL=20260710T010000Z',
         },
       ]);
-      expect(ics).toContain('RRULE:FREQ=DAILY;UNTIL=20260710T010000Z\r\n');
+      expect(ics).toContain('RRULE:FREQ=DAILY;UNTIL=20260709T160000Z\r\n');
+    });
+
+    it('timeZone がなくオフセットなし文字列のイベントの UNTIL は、DTSTART と型を揃えた現地時刻形式（Z なし）で出力する', () => {
+      const ics = toIcs([
+        {
+          id: 'e1',
+          title: 'A',
+          start: '2026-07-01T10:00:00',
+          rrule: 'FREQ=DAILY;UNTIL=20260705T100000',
+        },
+      ]);
+      expect(ics).toContain('DTSTART:20260701T100000\r\n');
+      expect(ics).toContain('RRULE:FREQ=DAILY;UNTIL=20260705T100000\r\n');
+      expect(ics).not.toContain('UNTIL=20260705T100000Z');
     });
 
     it('終日イベントの UNTIL は日付形式（YYYYMMDD）で出力する', () => {
@@ -725,7 +741,8 @@ describe('eventsFromIcs', () => {
       expect(events[0]?.exdates).toEqual(['2026-07-13T10:00:00']);
     });
 
-    it('timeZone のないイベントの UNTIL は変換せずそのまま取り込む', () => {
+    it('timeZone のないイベント（UTC 形式）の UNTIL は、実行環境のローカル TZ の現地時刻に変換して取り込む', () => {
+      // テストプロセスのローカル TZ は Asia/Tokyo。2026-07-10T01:00Z = 東京 7/10 10:00
       const events = eventsFromIcs(
         icsText(
           'BEGIN:VEVENT',
@@ -736,7 +753,22 @@ describe('eventsFromIcs', () => {
           'END:VEVENT',
         ),
       );
-      expect(events[0]?.rrule).toContain('UNTIL=20260710T010000Z');
+      expect(events[0]?.rrule).toContain('UNTIL=20260710T100000Z');
+    });
+
+    it('フローティングのイベントの UNTIL は数字を変換せずそのまま取り込む', () => {
+      const events = eventsFromIcs(
+        icsText(
+          'BEGIN:VEVENT',
+          'UID:e1',
+          'DTSTART:20260701T100000',
+          'RRULE:FREQ=DAILY;UNTIL=20260705T100000',
+          'SUMMARY:A',
+          'END:VEVENT',
+        ),
+      );
+      // 正規化で末尾に Z が付くが、数字は表示 TZ の現地時刻としてそのまま解釈される
+      expect(events[0]?.rrule).toContain('UNTIL=20260705T100000Z');
     });
 
     it('マスターが同じ ICS 内にない STATUS:CANCELLED のオーバーライドは無視する', () => {
@@ -1140,6 +1172,40 @@ describe('往復変換（round-trip）', () => {
       '2026-03-09T13:00:00.000Z', // EDT（UTC-4、DST 開始後）
       '2026-03-16T13:00:00.000Z',
     ]);
+  });
+
+  it('timeZone のないイベントの UNTIL が往復で安定する（フローティング / UTC 形式）', () => {
+    const noTzSource: readonly CalendarEvent[] = [
+      {
+        id: 'f1',
+        title: 'フローティング',
+        start: '2026-07-01T10:00:00',
+        rrule: 'FREQ=DAILY;UNTIL=20260705T100000',
+      },
+      {
+        id: 'u1',
+        title: '絶対時刻',
+        start: new Date('2026-07-01T01:00:00Z'),
+        rrule: 'FREQ=DAILY;UNTIL=20260705T010000Z',
+      },
+    ];
+    // 実行環境のローカル TZ（テストプロセスは Asia/Tokyo）を出力側の timeZone にも使い、
+    // エクスポート（東京の現地時刻 → UTC）とインポート（UTC → 東京の現地時刻）を対にする
+    const round = eventsFromIcs(eventsToIcs(noTzSource, { dtstamp: STAMP, timeZone: TOKYO }));
+    expect(round[0]?.rrule).toBe('FREQ=DAILY;UNTIL=20260705T100000Z');
+    expect(round[1]?.rrule).toBe('FREQ=DAILY;UNTIL=20260705T010000Z');
+    const range = {
+      start: new Date('2026-06-30T15:00:00Z'), // 東京 7/1 0:00
+      end: new Date('2026-07-09T15:00:00Z'), // 東京 7/10 0:00
+    };
+    const summarize = (events: readonly CalendarEvent[]) =>
+      expandEvents({ events, range, displayTimeZone: TOKYO, defaultEventMinutes: 60 }).map((o) => ({
+        title: o.event.title,
+        start: o.start.toISOString(),
+      }));
+    expect(summarize(round)).toEqual(summarize(noTzSource));
+    // 再エクスポート → 再インポートでも安定する（不動点）
+    expect(eventsFromIcs(eventsToIcs(round, { dtstamp: STAMP, timeZone: TOKYO }))).toEqual(round);
   });
 
   it('UNTIL の UTC 変換が往復で安定する（Google 形式の UNTIL の取り込み → 再出力）', () => {

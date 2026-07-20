@@ -80,7 +80,7 @@ const ics = eventsToIcs(
 
 | Koyomi 側 | iCalendar 側 |
 | --- | --- |
-| `rrule` | `RRULE`。`UNTIL` は Koyomi の「イベント TZ の現地時刻」（[繰り返し予定: タイムゾーンとの関係](./recurrence.md#タイムゾーンとの関係) を参照）から RFC 5545 の要求する UTC 表記へ変換される。終日イベントの `UNTIL` は `DTSTART` と型を揃えた日付形式になる |
+| `rrule` | `RRULE`。`UNTIL` は RFC 5545 の要求どおり `DTSTART` と型を揃えて出力される。`timeZone` のあるイベントは Koyomi の「イベント TZ の現地時刻」（[繰り返し予定: タイムゾーンとの関係](./recurrence.md#タイムゾーンとの関係) を参照）から UTC 表記へ、`timeZone` のない UTC 形式のイベントはオプションの `timeZone` の現地時刻として解釈して UTC 表記へ変換される。フローティングのイベントは現地時刻形式（`Z` なし）で出力される。終日イベントの `UNTIL` は日付形式になる |
 | `exdates` | `EXDATE`（`TZID` / `VALUE=DATE` 付き。同じ形式の値はカンマ結合） |
 | `rdates` | `RDATE`（同上） |
 | オーバーライド（`recurringEventId` + `originalStart`） | マスターと同じ `UID` を持つ VEVENT + `RECURRENCE-ID`。オーバーライド自身の `id` は iCalendar に対応する表現がないため出力に含まれない。`timeZone` を省略したオーバーライドはマスターの `timeZone` を引き継いで出力される |
@@ -116,7 +116,7 @@ const events = eventsFromIcs(icsText);
 | `TZID` 付きの日時 | `timeZone`（`DTSTART` の TZID）とオフセットなし文字列。`DTSTART` と異なる TZID の値（`DTEND` 等）は絶対時刻の `Date` になる |
 | UTC（末尾 `Z`）の日時 | `'2026-07-01T01:00:00Z'` 形式のオフセット付き文字列 |
 | フローティング時刻 | オフセットなし文字列（表示タイムゾーンで解釈される） |
-| `RRULE` | `rrule`。`UNTIL`（UTC 表記）はイベント TZ の現地時刻へ変換される |
+| `RRULE` | `rrule`。UTC 表記の `UNTIL` はイベント TZ（`timeZone` のない UTC 形式のイベントは実行環境のローカルタイムゾーン）の現地時刻へ変換される。フローティングのイベントの `UNTIL` は現地時刻のまま取り込まれる |
 | `EXDATE` / `RDATE` | `exdates` / `rdates`（複数プロパティ・カンマ区切りの両方を合成） |
 | `RECURRENCE-ID` 付きの VEVENT | オーバーライド。`recurringEventId` に `UID`、`originalStart` に `RECURRENCE-ID` の値が入り、`id` は「`UID@RECURRENCE-ID の値`」（例: `weekly@20260713T100000`）で生成される |
 | `STATUS:CANCELLED` + `RECURRENCE-ID` | 「そのオカレンスの削除」として、同じ `UID` のマスターの `exdates` に変換される（マスターが同じ ICS 内にない場合は無視）。`RECURRENCE-ID` のない `STATUS:CANCELLED` の VEVENT は取り込まれない |
