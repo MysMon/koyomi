@@ -13,8 +13,9 @@
  * 限られる（WAI-ARIA grid パターン）ため、本文は grid 化しないだけでなく
  * `timegrid-grid` の**外側**（兄弟要素）に置き、内部の予定ボタンが grid の子孫として
  * アクセシビリティツリーに漏れ出さないようにする。終日イベントの帯
- * （`AllDaySegmentButton`）は複数日にまたがり得るが、DOM 上は**開始日の gridcell
- * （`allday-cell`）の子**として所有させる（ResourceView の終日アイテムと同じ正当な
+ * （`AllDaySegmentButton`）は複数日にまたがり得るが、DOM 上は**表示範囲内で帯が
+ * 始まる日の gridcell（`allday-cell`）の子**として所有させる（表示範囲より前から
+ * 続く帯は先頭のセル。ResourceView の終日アイテムと同じ正当な
  * ネスト。`role="presentation"` のレイヤーに置く方式は、レイヤー自身の意味論しか
  * 消えず内部の focusable なボタンが grid の子孫として露出したままになるため不可）。
  * ボタンの positioned ancestor はセルではなく `allday-cells`（position: relative）
@@ -45,6 +46,7 @@ import { scrollContainerToTime } from '../scroll-to-time';
 import type { EventContentContext, EventContentRenderer, SlotRenderContext } from '../types';
 import type { DayDragHandlers } from '../use-day-drag';
 import { useDayDrag } from '../use-day-drag';
+import { defaultActiveCellKey, useGridNavigation } from '../use-grid-navigation';
 import type { TimeGridDragHandlers, TimeGridPreviewSegment } from '../use-time-grid-drag';
 import { useTimeGridDrag } from '../use-time-grid-drag';
 import {
@@ -130,17 +132,19 @@ export interface TimeGridViewHandle {
 
 /**
  * 時間指定イベント（`timegrid-event`）のイベント内容コンテキストを組み立てる。
- * 既定内容は `'H:mm〜H:mm タイトル'`。
+ * 既定内容は時刻範囲 + タイトル（例: `'H:mm〜H:mm タイトル'`。区切り記号は
+ * `rangeSeparator` = {@link MessageCatalog.common.rangeSeparator}）。
  */
 function timegridEventContentContext(
   item: PositionedOccurrence,
   locale: string,
+  rangeSeparator: string,
   view: CalendarViewType,
 ): EventContentContext {
   return timedTextEventContentContext(
     'timegrid-event',
     view,
-    formatClockRangeLabel(item.startMinutes, item.endMinutes, locale),
+    formatClockRangeLabel(item.startMinutes, item.endMinutes, locale, rangeSeparator),
     item.occurrence.event.title,
   );
 }
@@ -454,13 +458,24 @@ function samePreviewSegment(
  */
 export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
   const { renderEvent, renderAllDayEvent, renderDayHeader, initialScrollTime, ref } = props;
-  const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
+  const { api, state, viewModel, callbacks, messages, renderEventContent, gridNavigation } =
+    useCalendarContext();
   const commonMessages = messages.common;
   const calendar = { api, state, viewModel };
   const dayDrag = useDayDrag({
     calendar,
     callbacks,
     defaultEventTitle: commonMessages.untitledEvent,
+  });
+  // roving tabindex（gridNavigation）。対象は timegrid-grid（日ヘッダー行＋終日行）の
+  // 終日セルのみ（本文は grid 化していないため対象外）
+  const timeGridViewModel = viewModel.type === 'timeGrid' ? viewModel : null;
+  const defaultNavKey =
+    timeGridViewModel === null ? null : defaultActiveCellKey(timeGridViewModel.days);
+  const nav = useGridNavigation({
+    calendar,
+    enabled: gridNavigation && timeGridViewModel !== null,
+    defaultKey: defaultNavKey,
   });
   const timeGridDrag = useTimeGridDrag({
     calendar,
@@ -543,6 +558,14 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
     alldayPreviewRange !== null ? computeDaySpan(days, alldayPreviewRange, timeZone) : null;
   const alldaySelectionInvalid = state.dragPreview?.invalid ?? false;
 
+  // roving tabindex の現在の Tab ストップ。フォーカス済みのセルが表示中の日に
+  // 含まれていればそれ、いなければ既定キー（今日、なければ先頭セル）へフォールバック
+  const navActiveKey = !nav.enabled
+    ? null
+    : nav.activeKey !== null && days.some((day) => day.key === nav.activeKey)
+      ? nav.activeKey
+      : defaultNavKey;
+
   return (
     <div
       data-koyomi="timegrid"
@@ -550,7 +573,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
       style={withTimegridHoursStyle(slotMinTimeMinutes, slotMaxTimeMinutes)}
     >
       {/* biome-ignore lint/a11y/useSemanticElements: DOM 仕様が定める div ベースの ARIA grid（MonthView と同じ方針。<table> はテーマ CSS と噛み合わないため不採用） */}
-      <div data-koyomi="timegrid-grid" role="grid">
+      <div data-koyomi="timegrid-grid" role="grid" {...nav.containerProps}>
         {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA row */}
         {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない（フォーカスは各 columnheader/gridcell が担う） */}
         <div
@@ -632,13 +655,17 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
                 <div
                   key={day.key}
                   {...cellProps}
+                  // roving tabindex 有効時は Tab ストップのセルだけ 0、他は -1 にする
+                  // （cellProps の tabIndex: 0 をスプレッド後に上書きする）
+                  {...(nav.enabled ? { tabIndex: day.key === navActiveKey ? 0 : -1 } : {})}
                   ref={toDivRef(ref)}
                   data-koyomi="allday-cell"
                   role="gridcell"
                   aria-label={formatFullDateLabel(day.date, timeZone, locale)}
                 >
-                  {/* 帯セグメントは複数日にまたがり得るが、DOM 上は開始日の gridcell が
-                        所有する（grid の子孫の focusable を row/gridcell の所有関係の外に
+                  {/* 帯セグメントは複数日にまたがり得るが、DOM 上は表示範囲内で帯が
+                        始まる日の gridcell が所有する（表示範囲より前から続く帯は先頭の
+                        セル。grid の子孫の focusable を row/gridcell の所有関係の外に
                         置かないため）。ボタンは absolute 配置で、positioned ancestor は
                         セルではなく allday-cells（position: relative）なので、列をまたぐ
                         視覚上のスパンと座標計算はレイヤー方式と変わらない */}
@@ -1030,7 +1057,7 @@ function TimeGridEventButtonImpl(props: {
           renderEventContent,
           item,
           occurrence,
-          timegridEventContentContext(item, locale, view),
+          timegridEventContentContext(item, locale, commonMessages.rangeSeparator, view),
         )}
       </div>
       {isEditable && !item.continuesBefore && (

@@ -174,13 +174,13 @@ describe('TimeGridView', () => {
     expect(eventEl?.textContent).toContain('会議');
   });
 
-  it("locale='en-US' では時間指定イベントの既定表示が 12h/AM-PM 表記になる", () => {
+  it("locale='en-US' では時間指定イベントの既定表示が 12h/AM-PM 表記になり、区切りも en カタログの rangeSeparator（–）になる", () => {
     const events: CalendarEvent[] = [
       { id: 'e1', title: 'Meeting', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
     ];
     const { container } = render(<Harness initialView="day" events={events} locale="en-US" />);
     const eventEl = container.querySelector('[data-koyomi="timegrid-event"]');
-    expect(eventEl?.textContent).toContain('10:00 AM〜11:00 AM');
+    expect(eventEl?.textContent).toContain('10:00 AM–11:00 AM');
     expect(eventEl?.textContent).toContain('Meeting');
   });
 

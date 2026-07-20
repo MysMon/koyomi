@@ -10,7 +10,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 
 /** デモパターンの識別子。 */
-export type PatternId = 'basic' | 'team' | 'international' | 'headless' | 'undo';
+export type PatternId = 'basic' | 'team' | 'international' | 'headless' | 'undo' | 'stress';
 
 /** パターン切替タブに表示するメタ情報。 */
 export interface PatternMeta {
@@ -59,11 +59,23 @@ export const PATTERNS: readonly PatternMeta[] = [
     label: 'Undo/Redo',
     description: '予定の変更履歴を取り消し・やり直しする例',
   },
+  {
+    id: 'stress',
+    hash: '#/stress',
+    label: 'ストレステスト',
+    description: '件数可変の大量データで初回描画時間を計測するストレステスト',
+  },
 ];
 
-/** `location.hash` から先頭の `#/` を除いたセグメントを取り出す。 */
+/**
+ * `location.hash` から先頭の `#/` とクエリ部分（`?` 以降）を除いたセグメントを
+ * 取り出す。パターンによってはハッシュにクエリパラメータを持てる
+ * （例: `#/stress?events=1000` → `'stress'`）。
+ */
 function currentHashSegment(): string {
-  return window.location.hash.replace(/^#\/?/, '');
+  const raw = window.location.hash.replace(/^#\/?/, '');
+  const queryIndex = raw.indexOf('?');
+  return queryIndex === -1 ? raw : raw.slice(0, queryIndex);
 }
 
 /** 文字列が有効な {@link PatternId} かどうかを判定する型ガード。 */

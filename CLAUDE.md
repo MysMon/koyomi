@@ -15,6 +15,11 @@ TypeScript/React 製のヘッドレスカレンダーライブラリのモノレ
 | `pnpm lint` / `pnpm lint:fix` | Biome によるチェック / 自動修正 |
 | `pnpm build` | ライブラリを tsup でビルド |
 | `pnpm demo` | デモアプリ（Vite）を起動 |
+| `pnpm test:e2e` | 実ブラウザ E2E（Playwright）を実行 |
+| `pnpm bench` | 性能ベンチマークを実行し `bench/results/` に記録 |
+| `pnpm bench:ci` | 性能リグレッション検出（粗い閾値、コミット前は任意・CI では必須） |
+| `pnpm bundle:check` | バンドルサイズ・tree-shaking を検証（`pnpm build` 後） |
+| `pnpm docs:en-pairs` | 英訳ファイルの対応関係を検証 |
 
 単一テストファイルの実行: `pnpm --filter @koyomi-cal/react exec vitest run src/core/date-utils.test.ts`
 
@@ -42,4 +47,5 @@ TypeScript/React 製のヘッドレスカレンダーライブラリのモノレ
 - **型の厳しさ**: `any` 禁止（Biome でエラー）。`as` キャストは原則禁止、必要なら理由をコメントで併記。`noUncheckedIndexedAccess` / `exactOptionalPropertyTypes` 有効
 - **日付の扱い**: タイムゾーン依存の計算は必ず `src/core/timezone.ts` のユーティリティ経由で行う。素の `new Date()` の暗黙ローカル TZ に依存したロジックを core に書かない。テストは `TZ=Asia/Tokyo` 固定（`vitest.config.ts`）＋ `TZDate` で他 TZ を明示検証
 - **コミットメッセージ**: 形式は `type: 説明`（type は feat / fix / docs / test / refactor / perf / chore / ci / deps、破壊的変更は `feat!:` 等）。件名は**変更内容そのもの**（何がどう変わるか）を書く。「レビュー指摘 N 件を修正」「監査対応」「◯◯で確定した欠陥を修正」のような、経緯・指摘元・件数だけで内容が分からない件名は禁止（docs と同じ「現在の仕様を書く」原則をコミットにも適用する）。経緯・指摘元・検証結果は本文に書く
+- **PR**: タイトルはコミット件名と同じ `type: 説明` 形式で PR 全体の変更内容を表す。本文は `.github/pull_request_template.md` の構成に従い、経緯・タスク文脈・対応しなかった項目の列挙ではなく「何を・なぜ・どう検証したか・レビューで見てほしい点」を自己完結で書く（`docs/internal/pr-style.md`）
 - コミット前に `pnpm check` を通すこと

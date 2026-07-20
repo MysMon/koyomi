@@ -41,6 +41,7 @@ import type {
   EventChange,
   ExternalDropInfo,
   TimelineScale,
+  TimelineVisibleRangeChangeInfo,
   VirtualResourceViewHandle,
   VirtualTimelineViewHandle,
 } from '@koyomi-cal/react';
@@ -327,6 +328,11 @@ export function TeamPattern(): ReactElement {
   const { api, state } = calendar;
 
   const [unassignedTasks, setUnassignedTasks] = useState<readonly UnassignedTask[]>(INITIAL_TASKS);
+  // タイムラインの可視ウィンドウ（onVisibleRangeChange の最新通知内容）。
+  // 実アプリではこの通知を契機に可視範囲のデータだけを増分取得（遅延読込）できる
+  // （docs/performance.md のレシピ参照）。デモでは通知内容の表示のみ行う。
+  const [timelineVisibleRange, setTimelineVisibleRange] =
+    useState<TimelineVisibleRangeChangeInfo | null>(null);
   const [logEntries, setLogEntries] = useState<readonly LogEntry[]>([]);
   // slotMinTime/slotMaxTime の <select> 表示専用の値（実際の適用は state.options 側）。
   const [slotRangeValue, setSlotRangeValue] = useState<string>('full');
@@ -491,6 +497,13 @@ export function TeamPattern(): ReactElement {
               →
             </button>
             <span className="team-nav-date">{dateLabel}</span>
+            {state.view === 'timeline' && timelineVisibleRange !== null && (
+              <span className="team-timeline-visible">
+                可視範囲: {timelineVisibleRange.days.startKey}〜{timelineVisibleRange.days.endKey}
+                ・行 {timelineVisibleRange.rows.startIndex + 1}〜
+                {timelineVisibleRange.rows.endIndex + 1}
+              </span>
+            )}
           </div>
 
           <label className="demo-control" htmlFor="team-snap-select">
@@ -660,7 +673,12 @@ export function TeamPattern(): ReactElement {
                 initialScrollTime={SCROLL_TO_TIME_TARGET}
               />
             )}
-            {state.view === 'timeline' && <VirtualTimelineView ref={timelineViewRef} />}
+            {state.view === 'timeline' && (
+              <VirtualTimelineView
+                ref={timelineViewRef}
+                onVisibleRangeChange={setTimelineVisibleRange}
+              />
+            )}
             {state.view === 'list' && <VirtualListView />}
           </CalendarProvider>
         </div>

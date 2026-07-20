@@ -61,6 +61,19 @@ export interface CalendarProviderProps {
    * 再レンダーを招く）。
    */
   renderEventContent?: EventContentRenderer;
+  /**
+   * grid 内のセル間キーボードナビゲーション（roving tabindex）を有効にするか。
+   * 既定は `false`。
+   *
+   * `true` にすると、月・複数月・年ビューの日セルと週/日ビューの終日セルが
+   * ビューごとに単一の Tab ストップに集約され、矢印キー・Home/End・
+   * PageUp/PageDown でセル間を移動できる（WAI-ARIA APG の grid パターン）。
+   * セルの Enter はセルが所有する予定があれば最初の予定へフォーカスを移し、
+   * 予定にフォーカスがある間の矢印キーは予定の移動・リサイズのまま、
+   * Escape でその予定を所有するセルへ戻る。詳細は
+   * `docs/accessibility.md` の「grid 内のキーボードナビゲーション（gridNavigation）」を参照。
+   */
+  gridNavigation?: boolean;
   /** 子要素。 */
   children?: ReactNode;
 }
@@ -83,8 +96,9 @@ export interface CalendarProviderProps {
  * ```
  */
 export function CalendarProvider(props: CalendarProviderProps): ReactElement {
-  const { value, callbacks, messages, renderEventContent, children } = props;
+  const { value, callbacks, messages, renderEventContent, gridNavigation, children } = props;
   const resolvedCallbacks = callbacks ?? EMPTY_CALLBACKS;
+  const resolvedGridNavigation = gridNavigation ?? false;
   const { api, state, viewModel } = value;
 
   const resolvedMessages = useMemo(
@@ -107,8 +121,17 @@ export function CalendarProvider(props: CalendarProviderProps): ReactElement {
       callbacks: resolvedCallbacks,
       messages: resolvedMessages,
       renderEventContent,
+      gridNavigation: resolvedGridNavigation,
     }),
-    [api, state, viewModel, resolvedCallbacks, resolvedMessages, renderEventContent],
+    [
+      api,
+      state,
+      viewModel,
+      resolvedCallbacks,
+      resolvedMessages,
+      renderEventContent,
+      resolvedGridNavigation,
+    ],
   );
 
   return createElement(CalendarContext, { value: contextValue }, children);

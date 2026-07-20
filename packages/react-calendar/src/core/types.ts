@@ -56,10 +56,10 @@ export interface CalendarResource {
    */
   color?: string;
   /**
-   * 親リソースの ID。指定するとタイムラインビューでこのリソースを子として
-   * ツリー内に配置する（深さは任意段）。参照先のない ID・循環参照（自己参照含む）は
-   * 孤立したルート（深さ 0）として扱う。リソースビューの列順には影響しない
-   * （常にフラット）。省略時（既定）はルート。
+   * 親リソースの ID。指定するとリソース/タイムラインビューでこのリソースを子として
+   * ツリー内に配置する（深さは任意段。タイムラインは行のツリー、リソースビューは
+   * ツリー順の列＋列グループ見出し行）。参照先のない ID・循環参照（自己参照含む）は
+   * 孤立したルート（深さ 0）として扱う。省略時（既定）はルート。
    */
   parentId?: string;
   /** 利用者定義の任意データ。ライブラリは内容に関知しない。 */
@@ -150,8 +150,19 @@ export interface CalendarEvent {
    * 割当先のリソース ID（{@link CalendarResource.id}）。
    * 省略時は「未割り当て」として扱われる（リソース/タイムラインビューの
    * 未割り当てレーンに表示される）。他のビューの表示には影響しない。
+   * {@link CalendarEvent.resourceIds} が指定されている場合、このフィールドは無視される。
    */
   resourceId?: string;
+  /**
+   * 割当先のリソース ID の一覧（複数リソース割当）。指定すると、リソース/タイムライン
+   * ビューで割当先の各レーンに同一オカレンスが表示される（Google カレンダーの
+   * 複数会議室割当相当）。重複する ID は 1 件として扱われる。
+   *
+   * このフィールドを指定した場合（空配列を含む）、{@link CalendarEvent.resourceId} は
+   * 無視される。空配列は「未割り当て」を意味する。省略時は `resourceId`（単一割当）に
+   * 従う。他のビューの表示には影響しない。
+   */
+  resourceIds?: readonly string[];
   /** 場所。 */
   location?: string;
   /** 説明文。 */
@@ -429,7 +440,10 @@ export interface BusinessHoursRule {
   daysOfWeek: readonly Weekday[];
   /** 開始時刻（`'HH:mm'` 形式）。 */
   startTime: string;
-  /** 終了時刻（`'HH:mm'` 形式）。`startTime` より後である必要があり、この時刻自体は含まない。 */
+  /**
+   * 終了時刻（`'HH:mm'` 形式）。`startTime` より後である必要があり、この時刻自体は含まない。
+   * 日の終端を表す特例として `'24:00'` も指定できる（`startTime` には指定できない）。
+   */
   endTime: string;
 }
 
@@ -616,16 +630,26 @@ export interface MultiMonthViewModel {
   weekdays: readonly Weekday[];
 }
 
-/** リソースビューの 1 列分（1 リソース）。 */
+/** リソースビューの 1 列分（1 リソース × 1 日）。 */
 export interface ResourceColumn {
   /** 対応するリソース。未割り当てレーンは `null`。 */
   resource: CalendarResource | null;
   /**
-   * 列を一意に識別するキー。リソース列は `` `r:${resource.id}` ``、
+   * 列を一意に識別するキー。表示日数が 1 の場合、リソース列は `` `r:${resource.id}` ``、
    * 未割り当て列は `'unassigned'`（判別子付きの形式にすることで、
    * `'unassigned'` という ID のリソースと衝突しない）。
+   * 表示日数が 2 以上（{@link CalendarOptions.resourceViewDays}）の場合は
+   * 日付キーを付けた `` `r:${resource.id}@YYYY-MM-DD` `` / `` `unassigned@YYYY-MM-DD` `` になる。
    */
   key: string;
+  /** この列が表す日の開始時刻（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
+  date: Date;
+  /** この列が表す日の `'YYYY-MM-DD'` キー。 */
+  dayKey: string;
+  /** この列が表す日が今日かどうか。 */
+  isToday: boolean;
+  /** この列が表す日の {@link ResourceViewModel.days} 内でのインデックス。 */
+  dayIndex: number;
   /** この列に配置された時間指定イベント（週/日ビューと同じ配置計算）。 */
   items: readonly PositionedOccurrence[];
   /**
@@ -633,22 +657,99 @@ export interface ResourceColumn {
    * 列 = 1 日のため帯の水平スパンは常に 1 で、レーン割当は単純な縦積みでよい。
    */
   allDayItems: readonly EventOccurrence[];
+  /**
+   * ツリー内の深さ（0 起点）。{@link CalendarResource.parentId} を使わない場合・
+   * 未割り当て列は常に `0`（{@link TimelineRow.depth} と同じ規則）。
+   */
+  depth: number;
+  /**
+   * 子リソースを持つか。`true` のときのみ折りたたみ可能（トグルボタンの描画対象）。
+   * {@link CalendarResource.parentId} を使わない場合・未割り当て列は常に `false`。
+   */
+  hasChildren: boolean;
+  /**
+   * 折りたたみ状態（{@link CalendarState.collapsedResourceIds} に基づく）。
+   * `hasChildren` が `false` のときは常に `false`。
+   */
+  collapsed: boolean;
+}
+
+/**
+ * リソースビューの列グループ見出し行の 1 セル分（{@link ResourceViewModel.columnGroupRows}）。
+ *
+ * 親リソースのグループセル（`resource` 非 `null`）は、その親自身の列と可視の
+ * 子孫の列を覆う。どのグループにも属さない列の区間（フラットなリソースの列・
+ * 未割り当て列）はスペーサーセル（`resource: null`）で覆われ、行全体で
+ * {@link ResourceViewModel.columns} の全列を隙間なく覆う。
+ */
+export interface ResourceColumnGroupCell {
+  /** グループの親リソース。グループに属さない区間のスペーサーは `null`。 */
+  resource: CalendarResource | null;
+  /**
+   * セルを一意に識別するキー。グループセルは `` `r:${resource.id}` ``、
+   * スペーサーは `` `gap:${startColumnIndex}` ``。
+   */
+  key: string;
+  /** このセルが覆う先頭の列の {@link ResourceViewModel.columns} 内でのインデックス。 */
+  startColumnIndex: number;
+  /** このセルが覆う列数（複数日表示では日数分に広がる）。 */
+  columnCount: number;
+  /**
+   * グループの折りたたみ状態（{@link CalendarState.collapsedResourceIds} に基づく）。
+   * 折りたたみ中のグループセルは親自身の列だけを覆う。スペーサーは常に `false`。
+   */
+  collapsed: boolean;
+  /** この行の深さ（0 起点。{@link ResourceColumn.depth} と同じ座標系）。 */
+  depth: number;
+}
+
+/** リソースビューの表示日 1 日分のメタデータ。 */
+export interface ResourceViewDay {
+  /** その日の開始時刻（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
+  date: Date;
+  /** 表示タイムゾーンにおける `'YYYY-MM-DD'` 形式のキー。 */
+  key: string;
+  /** 今日かどうか（表示タイムゾーン基準）。 */
+  isToday: boolean;
+  /**
+   * {@link ResourceViewModel.slots} と同じ並びで、各スロットがこの日の曜日基準で
+   * {@link CalendarOptions.businessHours} の営業時間内かどうかを示す。
+   * `businessHours` 未指定時はすべて `isBusinessHours: false`。
+   */
+  businessHourSlots: readonly BusinessHourSlot[];
 }
 
 /** リソースビューのビューモデル。 */
 export interface ResourceViewModel {
   type: 'resource';
-  /** 表示日の開始時刻（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
+  /** 表示範囲の先頭日の開始時刻（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
   date: Date;
-  /** 表示日の `'YYYY-MM-DD'` キー。 */
+  /** 表示範囲の先頭日の `'YYYY-MM-DD'` キー。 */
   dateKey: string;
-  /** 表示日が今日かどうか。 */
+  /** 表示範囲の先頭日が今日かどうか。列ごとの判定は {@link ResourceColumn.isToday} を使う。 */
   isToday: boolean;
   /**
-   * リソース列（{@link CalendarOptions.resources} の並び順。
-   * {@link CalendarOptions.unassignedLane} の規則で末尾に未割り当て列が付くことがある）。
+   * 表示日の一覧（{@link CalendarOptions.resourceViewDays} 日分、昇順）。
+   * 既定（`resourceViewDays: 1`）では先頭日 1 件のみ。
+   */
+  days: readonly ResourceViewDay[];
+  /**
+   * リソース列（リソース × 日の直積。リソースは {@link CalendarResource.parentId} による
+   * ツリー順（深さ優先の行き掛け順。`parentId` 未使用時は
+   * {@link CalendarOptions.resources} の並び順そのまま）で、折りたたみ中の親の
+   * 子孫は除外される。各リソースの中に表示日が昇順で並ぶ。
+   * {@link CalendarOptions.unassignedLane} の規則で末尾に未割り当て列（の日別の並び）が
+   * 付くことがある）。
    */
   columns: readonly ResourceColumn[];
+  /**
+   * 列グループ見出しの行（深さの浅い順）。親リソースのグループセルが親自身と
+   * 可視の子孫の列を覆い、どのグループにも属さない列はスペーサーセルで覆われる
+   * （各行は {@link ResourceViewModel.columns} の全列を隙間なく覆う）。
+   * {@link CalendarResource.parentId} を使わない（子を持つリソースがない）場合は
+   * 空配列。
+   */
+  columnGroupRows: readonly (readonly ResourceColumnGroupCell[])[];
   /** 列が 1 つもないか（リソース未設定かつ未割り当て列も生成されない場合）。 */
   isEmpty: boolean;
   /**
@@ -662,16 +763,15 @@ export interface ResourceViewModel {
   /** {@link CalendarOptions.slotMaxTime} を分に変換した値（1〜1440）。 */
   slotMaxTimeMinutes: number;
   /**
-   * 現在時刻線の位置（その日の 0:00 からの分）。表示日が今日でない場合、または
-   * 現在時刻が表示時間帯（`slotMinTimeMinutes`〜`slotMaxTimeMinutes`）の外にある
-   * 場合は `null`。
+   * 現在時刻線の位置（その日の 0:00 からの分）。表示範囲に今日が含まれない場合、
+   * または現在時刻が表示時間帯（`slotMinTimeMinutes`〜`slotMaxTimeMinutes`）の外にある
+   * 場合は `null`。描画対象の列は {@link ResourceColumn.isToday} で判定する。
    */
   nowIndicatorMinutes: number | null;
   /**
-   * {@link ResourceViewModel.slots} と同じ並びで、各スロットが
-   * {@link CalendarOptions.businessHours} の営業時間内かどうかを示す
-   * （表示日 {@link ResourceViewModel.date} の曜日基準で判定。列 = リソースのため
-   * 全列共通の 1 本になる。週/日ビューの `TimeGridDay.businessHourSlots` と同じ規則）。
+   * 先頭日の営業時間内フラグ（{@link ResourceViewDay.businessHourSlots} の先頭日分と
+   * 同じ配列参照。週/日ビューの `TimeGridDay.businessHourSlots` と同じ規則）。
+   * 日ごとの判定は {@link ResourceViewModel.days} の各要素を使う。
    * `businessHours` 未指定時はすべて `isBusinessHours: false`。
    */
   businessHourSlots: readonly BusinessHourSlot[];
@@ -869,7 +969,7 @@ export interface CalendarState {
   /** ドラッグ操作のプレビュー。操作中でなければ `null`。 */
   dragPreview: DragPreview | null;
   /**
-   * 折りたたみ中のリソース ID の集合（タイムラインビューのみが参照）。
+   * 折りたたみ中のリソース ID の集合（リソース/タイムラインビューが参照）。
    * {@link CalendarApi.toggleResourceCollapsed} で変更する。
    */
   collapsedResourceIds: ReadonlySet<string>;
@@ -951,6 +1051,14 @@ export interface CalendarOptions {
    */
   timelineDays?: number;
   /**
+   * リソースビューが表示する日数。既定は `1`。
+   * `2` 以上を指定すると、列がリソース × 日の直積になる
+   * （リソースごとに日を昇順で並べるグルーピング順）。
+   * `next()` / `prev()` の移動単位にもなる。
+   * 0 以下・非有限は `1` へ、小数は切り捨てて 1 以上の整数へ正規化される。
+   */
+  resourceViewDays?: number;
+  /**
    * タイムラインビューの横軸のズーム粒度。既定は `'hour'`。
    *
    * - `'hour'`  — 時刻目盛り（`slotMinutes` 間隔）。既存の挙動と完全に同一
@@ -998,8 +1106,10 @@ export interface CalendarOptions {
    * イベントの重なりを許可するかどうかの既定値。既定は `true`（制約なし、現状維持）。
    *
    * `false` にすると、移動・リサイズ・作成の結果が既存イベントと重なる操作は
-   * 適用されない（対象は同一レーン。リソース/タイムラインビューは同一 resourceId、
-   * それ以外のビューはレーン区分なしで表示中の全オカレンスが対象）。時間指定・終日は
+   * 適用されない（対象は同一レーン。リソース/タイムラインビューは割当先レーン。
+   * `resourceIds` で複数リソースに割り当てられている予定は割当先の各レーンで
+   * ブロッカーになる。それ以外のビューはレーン区分なしで表示中の全オカレンスが
+   * 対象）。時間指定・終日は
    * 絶対時刻の区間 `[start, end)` で統一的に比較する（終日イベントも日単位の絶対区間
    * として扱う）。
    *
@@ -1122,6 +1232,8 @@ export interface ResolvedCalendarOptions {
   multiMonthCount: number;
   /** タイムラインビューが表示する日数。 */
   timelineDays: number;
+  /** リソースビューが表示する日数。 */
+  resourceViewDays: number;
   /** タイムラインビューの横軸のズーム粒度。 */
   timelineScale: TimelineScale;
   /** 未割り当てレーンの生成規則。 */
@@ -1295,13 +1407,13 @@ export interface CalendarApi {
   // --- リソースの階層グルーピング ---
 
   /**
-   * リソースの折りたたみ状態をトグルする（タイムラインビューのみに影響する）。
+   * リソースの折りたたみ状態をトグルする（リソース/タイムラインビューに影響する）。
    *
    * 対象リソースが現在の {@link CalendarApi.getResources} に存在しない ID でも
    * 例外を投げず、内部の折りたたみ集合の要素として追加/削除する（後で同じ ID の
    * リソースが追加された場合に備える）。子を持たないリソースを指定しても状態は
-   * 変わるが表示への影響はない（トグルボタン自体は {@link TimelineRow.hasChildren}
-   * が `true` の行にのみ描画されるため）。
+   * 変わるが表示への影響はない（トグルボタン自体は {@link TimelineRow.hasChildren} /
+   * {@link ResourceColumn.hasChildren} が `true` の行/列にのみ描画されるため）。
    */
   toggleResourceCollapsed(resourceId: string): void;
 }

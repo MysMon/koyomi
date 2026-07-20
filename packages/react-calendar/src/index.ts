@@ -39,6 +39,8 @@ export {
   type CalendarEventHistoryOptions,
   createEventHistory,
 } from './core/history';
+// iCalendar（ICS）入出力
+export { type EventsToIcsOptions, eventsFromIcs, eventsToIcs } from './core/ics';
 // インタラクションの純粋計算
 export {
   type CalendarShortcut,
@@ -57,17 +59,27 @@ export {
   applyEventChangeEntries,
   applyEventChangeEntriesWithApplied,
   applyPatch,
+  buildOccurrenceCopy,
+  type CreateEventMutationResult,
   type CreateEventResult,
   createEventIn,
   deleteEventIn,
   deleteEventInWithChanges,
+  duplicateEventIn,
+  duplicateEventInWithChanges,
   type EventChangeApplyResult,
   type EventChangeDirection,
   type EventChangeEntry,
   type EventMutationResult,
   type MutationContext,
+  type MutationReadContext,
   moveOccurrenceIn,
   moveOccurrenceInWithChanges,
+  type OccurrenceCopyParams,
+  type PasteEventParams,
+  pasteEventIn,
+  pasteEventInWithChanges,
+  placeEventInputAt,
   type RecurringTarget,
   updateEventIn,
   updateEventInWithChanges,
@@ -95,6 +107,13 @@ export {
   type RecurrenceWeekdayOrdinal,
   validateRecurrenceRuleState,
 } from './core/recurrence-editor';
+// リソース割当の解決（resourceId / resourceIds）
+export {
+  assignedLaneIds,
+  effectiveResourceIds,
+  type ResourceAssignmentFields,
+  resourceLanePatch,
+} from './core/resource-assignment';
 // タイムゾーンユーティリティ
 export {
   addDaysInZone,
@@ -148,6 +167,8 @@ export type {
   RecurringEditScope,
   ResolvedCalendarOptions,
   ResourceColumn,
+  ResourceColumnGroupCell,
+  ResourceViewDay,
   ResourceViewModel,
   TimeAxis,
   TimeGridDay,
@@ -170,7 +191,7 @@ export type {
 export { buildListViewModel } from './core/views/list-view';
 export { buildMonthViewModel } from './core/views/month-view';
 export { buildMultiMonthViewModel } from './core/views/multi-month-view';
-// リソースの階層グルーピング（タイムラインビューのみが利用する）
+// リソースの階層グルーピング（リソース/タイムラインビューが利用する）
 export {
   buildResourceTree,
   filterVisibleResourceTree,
@@ -181,7 +202,12 @@ export { buildResourceViewModel } from './core/views/resource-view';
 export { buildTimeGridViewModel } from './core/views/time-grid-view';
 export { buildTimelineViewModel } from './core/views/timeline-view';
 export { buildYearViewModel } from './core/views/year-view';
-export type { VirtualItem } from './core/virtualization';
+export {
+  sameVisibleWindowRange,
+  type VirtualItem,
+  type VisibleWindowRange,
+  visibleWindowRange,
+} from './core/virtualization';
 // React: ビルトインコンポーネント（ヘッドレス）
 export { CalendarView, type CalendarViewProps } from './react/components/calendar-view';
 export {
@@ -223,6 +249,7 @@ export {
   type VirtualResourceViewProps,
 } from './react/components/virtual-resource-view';
 export {
+  type TimelineVisibleRangeChangeInfo,
   VirtualTimelineView,
   type VirtualTimelineViewHandle,
   type VirtualTimelineViewProps,
@@ -233,12 +260,17 @@ export { CalendarProvider, type CalendarProviderProps, useCalendarContext } from
 // React: 中央メッセージカタログ
 export { enMessages } from './react/locales/en';
 export { jaMessages } from './react/locales/ja';
-export { resolveMessageCatalog } from './react/locales/resolve';
+export { createMessageCatalog, resolveMessageCatalog } from './react/locales/resolve';
 export type {
   EventChangeVerb,
   MessageCatalog,
   MessageCatalogOverrides,
 } from './react/locales/types';
+// React: 「+N 件」ポップオーバーの a11y props
+export {
+  type OverflowPopoverButtonOptions,
+  overflowPopoverButtonProps,
+} from './react/overflow-popover-props';
 // React: スクロールユーティリティ（initialScrollTime/scrollToTime）
 export { scrollContainerToTime, scrollFractionForTime } from './react/scroll-to-time';
 // React: 型
@@ -269,6 +301,11 @@ export {
   type UseCalendarAnnouncerResult,
   useCalendarAnnouncer,
 } from './react/use-calendar-announcer';
+export {
+  type UseCalendarClipboardOptions,
+  type UseCalendarClipboardResult,
+  useCalendarClipboard,
+} from './react/use-calendar-clipboard';
 export {
   type UseCalendarHistoryOptions,
   type UseCalendarHistoryResult,

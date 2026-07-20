@@ -446,6 +446,31 @@ export function computeWeekSelectionSpan(
 }
 
 /**
+ * 週の可視列のうち、roving tabindex の現在の Tab ストップになっているセルの
+ * 可視列インデックスを求める。この週に該当セルがなければ `null`。
+ *
+ * @param days - 対象週の可視列（`hiddenWeekdays` 適用後）
+ * @param activeKey - 現在の Tab ストップの日付キー（ナビゲーション無効時は `null`）
+ * @param inCurrentMonthOnly - 表示中の月に属する日だけを対象にするか。
+ *   複数月ビューでは前後月セルが非インタラクティブ（ナビゲーション対象外）のため
+ *   `true` を渡し、同じ日付キーが隣接月グリッドの前後月セルに現れても一致させない
+ * @returns Tab ストップの可視列インデックス（0 起点）、なければ `null`
+ */
+export function weekNavActiveCol(
+  days: readonly MonthDay[],
+  activeKey: string | null,
+  inCurrentMonthOnly: boolean,
+): number | null {
+  if (activeKey === null) {
+    return null;
+  }
+  const col = days.findIndex(
+    (day) => day.key === activeKey && (!inCurrentMonthOnly || day.inCurrentMonth),
+  );
+  return col >= 0 ? col : null;
+}
+
+/**
  * 月ビューの週行（`MonthWeekRow`）の props。
  */
 interface MonthWeekRowProps {
@@ -462,6 +487,18 @@ interface MonthWeekRowProps {
    * 違反しているか。`selectionSpan` が `null` の週では無視される。
    */
   selectionInvalid: boolean;
+  /**
+   * roving tabindex（`CalendarProvider` の `gridNavigation`）が有効か。
+   * `true` の場合、インタラクティブな日セルの `tabIndex` は
+   * `navActiveCol` のセルだけ `0`、他は `-1` になる（単一 Tab ストップ）。
+   */
+  navEnabled: boolean;
+  /**
+   * この週の中で現在の Tab ストップになっているセルの可視列インデックス
+   * （{@link weekNavActiveCol} の結果）。この週に該当セルがなければ `null`。
+   * `navEnabled` が `false` の間は無視される。
+   */
+  navActiveCol: number | null;
   /**
    * 日セル・帯セグメントのドラッグ操作ハンドラ。`useStableDayDrag` で参照を
    * 安定化させたものを渡すこと（そのまま `useDayDrag` の戻り値を渡すと、
@@ -528,6 +565,8 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
     locale,
     selectionSpan,
     selectionInvalid,
+    navEnabled,
+    navActiveCol,
     dayDrag,
     renderEvent,
     renderEventContent,
@@ -637,6 +676,11 @@ export const MonthWeekRow = memo(function MonthWeekRow(props: MonthWeekRowProps)
             <div
               key={day.key}
               {...cellProps}
+              // roving tabindex 有効時は Tab ストップのセルだけ 0、他は -1 にする
+              // （cellProps の tabIndex: 0 をスプレッド後に上書きする）
+              {...(cellIsInteractive && navEnabled
+                ? { tabIndex: dayCol === navActiveCol ? 0 : -1 }
+                : {})}
               ref={cellRef}
               data-koyomi="month-day"
               role="gridcell"

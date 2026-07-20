@@ -26,6 +26,7 @@ import { parseDateValue } from '../core/timezone';
 import type { BusinessHoursRule, CalendarEvent, CalendarResource } from '../core/types';
 import { ListView } from './components/list-view';
 import { MonthView } from './components/month-view';
+import { MultiMonthView } from './components/multi-month-view';
 import { ResourceView } from './components/resource-view';
 import { TimeGridView } from './components/time-grid-view';
 import { TimelineView } from './components/timeline-view';
@@ -66,7 +67,7 @@ interface Payload {
 
 /** テスト用ハーネスの props。 */
 interface HarnessProps {
-  view: 'month' | 'week' | 'resource' | 'timeline';
+  view: 'month' | 'week' | 'list' | 'multiMonth' | 'resource' | 'timeline';
   events?: readonly CalendarEvent[];
   resources?: readonly CalendarResource[];
   unassignedLane?: 'auto' | 'always';
@@ -77,6 +78,7 @@ interface HarnessProps {
   eventOverlap?: boolean;
   eventConstraint?: 'businessHours' | readonly BusinessHoursRule[];
   businessHours?: readonly BusinessHoursRule[];
+  resourceViewDays?: number;
   onExternalDrop: (info: ExternalDropInfo<Payload>) => void;
   onError?: (error: unknown) => void;
   calendarSink?: { current: UseCalendarResult | null };
@@ -102,6 +104,7 @@ function Harness(props: HarnessProps): ReactElement {
     ...(props.eventOverlap !== undefined ? { eventOverlap: props.eventOverlap } : {}),
     ...(props.eventConstraint !== undefined ? { eventConstraint: props.eventConstraint } : {}),
     ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
+    ...(props.resourceViewDays !== undefined ? { resourceViewDays: props.resourceViewDays } : {}),
   });
   if (props.calendarSink) {
     props.calendarSink.current = calendar;
@@ -128,6 +131,8 @@ function Harness(props: HarnessProps): ReactElement {
         <CalendarProvider value={calendar} callbacks={{}}>
           {props.view === 'month' && <MonthView />}
           {props.view === 'week' && <TimeGridView />}
+          {props.view === 'list' && <ListView />}
+          {props.view === 'multiMonth' && <MultiMonthView />}
           {props.view === 'resource' && <ResourceView />}
           {props.view === 'timeline' && <TimelineView />}
         </CalendarProvider>
@@ -297,6 +302,183 @@ describe('useExternalDrag - 月ビュー', () => {
     };
     const { container } = render(
       <Harness view="month" events={[existingEvent]} onExternalDrop={onExternalDrop} />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const eventEl = container.querySelector('[data-koyomi="month-event"]');
+    const cell = container.querySelector(
+      '[data-koyomi="month-day"][data-koyomi-date="2026-07-20"]',
+    );
+    expect(source).toBeInstanceOf(HTMLElement);
+    expect(eventEl).toBeInstanceOf(HTMLElement);
+    expect(cell).toBeInstanceOf(HTMLElement);
+    if (
+      !(source instanceof HTMLElement) ||
+      !(eventEl instanceof HTMLElement) ||
+      !(cell instanceof HTMLElement)
+    ) {
+      throw new Error('要素が見つかりません');
+    }
+    mockElementsFromPoint([eventEl, cell]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+    releasePointer(10, 10);
+
+    expect(onExternalDrop).toHaveBeenCalledTimes(1);
+    expect(onExternalDrop).toHaveBeenCalledWith({
+      range: { start: at('2026-07-20T00:00'), end: at('2026-07-21T00:00') },
+      allDay: true,
+      payload: { title: '外部の予定' },
+    });
+  });
+});
+
+describe('useExternalDrag - リストビュー', () => {
+  // ListView は「予定がある日だけ」をセクション化するため、日セクションが
+  // 描画されるよう予定を用意する。
+  const LIST_EVENTS: readonly CalendarEvent[] = [
+    { id: 'e1', title: '予定', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+  ];
+
+  it('日セクションへドロップすると、その日 1 日分の終日範囲で onExternalDrop が呼ばれる', () => {
+    const onExternalDrop = vi.fn();
+    const calendarSink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(
+      <Harness
+        view="list"
+        events={LIST_EVENTS}
+        onExternalDrop={onExternalDrop}
+        calendarSink={calendarSink}
+      />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const day = container.querySelector('[data-koyomi="list-day"][data-koyomi-date="2026-07-16"]');
+    expect(source).toBeInstanceOf(HTMLElement);
+    expect(day).toBeInstanceOf(HTMLElement);
+    if (!(source instanceof HTMLElement) || !(day instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockElementsFromPoint([day]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+
+    expect(calendarSink.current?.state.dragPreview).toEqual({
+      kind: 'create',
+      occurrenceKey: null,
+      range: { start: at('2026-07-16T00:00'), end: at('2026-07-17T00:00') },
+      allDay: true,
+    });
+
+    releasePointer(10, 10);
+
+    expect(onExternalDrop).toHaveBeenCalledTimes(1);
+    expect(onExternalDrop).toHaveBeenCalledWith({
+      range: { start: at('2026-07-16T00:00'), end: at('2026-07-17T00:00') },
+      allDay: true,
+      payload: { title: '外部の予定' },
+    });
+    expect(calendarSink.current?.state.dragPreview).toBeNull();
+  });
+
+  it('予定行（list-event）の上へドロップしても、それを含む日セクションの日へ解決される', () => {
+    const onExternalDrop = vi.fn();
+    const { container } = render(
+      <Harness view="list" events={LIST_EVENTS} onExternalDrop={onExternalDrop} />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const eventRow = container.querySelector('[data-koyomi="list-event"]');
+    expect(source).toBeInstanceOf(HTMLElement);
+    expect(eventRow).toBeInstanceOf(HTMLElement);
+    if (!(source instanceof HTMLElement) || !(eventRow instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    // 予定行は日セクションの子孫のため、祖先を辿るフォールバックで日へ解決できる
+    mockElementsFromPoint([eventRow]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+    releasePointer(10, 10);
+
+    expect(onExternalDrop).toHaveBeenCalledTimes(1);
+    expect(onExternalDrop).toHaveBeenCalledWith({
+      range: { start: at('2026-07-16T00:00'), end: at('2026-07-17T00:00') },
+      allDay: true,
+      payload: { title: '外部の予定' },
+    });
+  });
+
+  it('日セクションの外（予定のない領域）でドロップしても onExternalDrop は呼ばれない', () => {
+    const onExternalDrop = vi.fn();
+    const { container } = render(
+      <Harness view="list" events={LIST_EVENTS} onExternalDrop={onExternalDrop} />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const root = container.querySelector('[data-koyomi="list"]');
+    expect(source).toBeInstanceOf(HTMLElement);
+    expect(root).toBeInstanceOf(HTMLElement);
+    if (!(source instanceof HTMLElement) || !(root instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    // リストのルート要素自体は日セクションではないため解決できない
+    mockElementsFromPoint([root]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+    releasePointer(10, 10);
+
+    expect(onExternalDrop).not.toHaveBeenCalled();
+  });
+});
+
+describe('useExternalDrag - 複数月ビュー', () => {
+  it('日セルへドロップすると、その日 1 日分の終日範囲で onExternalDrop が呼ばれる', () => {
+    const onExternalDrop = vi.fn();
+    const calendarSink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(
+      <Harness view="multiMonth" onExternalDrop={onExternalDrop} calendarSink={calendarSink} />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const cell = container.querySelector(
+      '[data-koyomi="month-day"][data-koyomi-date="2026-08-20"]',
+    );
+    expect(source).toBeInstanceOf(HTMLElement);
+    expect(cell).toBeInstanceOf(HTMLElement);
+    if (!(source instanceof HTMLElement) || !(cell instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockElementsFromPoint([cell]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+
+    expect(calendarSink.current?.state.dragPreview).toEqual({
+      kind: 'create',
+      occurrenceKey: null,
+      range: { start: at('2026-08-20T00:00'), end: at('2026-08-21T00:00') },
+      allDay: true,
+    });
+
+    releasePointer(10, 10);
+
+    expect(onExternalDrop).toHaveBeenCalledTimes(1);
+    expect(onExternalDrop).toHaveBeenCalledWith({
+      range: { start: at('2026-08-20T00:00'), end: at('2026-08-21T00:00') },
+      allDay: true,
+      payload: { title: '外部の予定' },
+    });
+  });
+
+  it('既存イベント（month-event）の上へドロップしても、その下のセルの終日範囲で onExternalDrop が呼ばれる', () => {
+    const onExternalDrop = vi.fn();
+    const existingEvent: CalendarEvent = {
+      id: 'existing-1',
+      title: '既存の予定',
+      start: '2026-07-20',
+      allDay: true,
+    };
+    const { container } = render(
+      <Harness view="multiMonth" events={[existingEvent]} onExternalDrop={onExternalDrop} />,
     );
     const source = container.querySelector('[data-testid="external-source"]');
     const eventEl = container.querySelector('[data-koyomi="month-event"]');
@@ -526,6 +708,72 @@ describe('useExternalDrag - リソースビュー', () => {
 
     expect(onExternalDrop).toHaveBeenCalledWith({
       range: { start: at('2026-07-15T00:00'), end: at('2026-07-16T00:00') },
+      allDay: true,
+      resourceId: 'room-a',
+      payload: { title: '外部の予定' },
+    });
+  });
+
+  it('複数日表示（resourceViewDays: 2）では、2 日目の列へのドロップがその列の日の時刻に解決される', () => {
+    const onExternalDrop = vi.fn();
+    const { container } = render(
+      <Harness
+        view="resource"
+        resources={[ROOM_A]}
+        resourceViewDays={2}
+        onExternalDrop={onExternalDrop}
+        snapMinutes={15}
+        defaultEventMinutes={30}
+      />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    // 2 日目（2026-07-16）の列
+    const column = container.querySelector(
+      '[data-koyomi="resource-column"][data-koyomi-date="2026-07-16"]',
+    );
+    if (!(source instanceof HTMLElement) || !(column instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockRect(column, { left: 100, top: 0, width: 100, height: 1440 });
+    mockElementsFromPoint([column]);
+
+    firePointerDown(source);
+    movePointer(150, 540); // 540 分 = 9:00
+    releasePointer(150, 540);
+
+    expect(onExternalDrop).toHaveBeenCalledWith({
+      range: { start: at('2026-07-16T09:00'), end: at('2026-07-16T09:30') },
+      allDay: false,
+      resourceId: 'room-a',
+      payload: { title: '外部の予定' },
+    });
+  });
+
+  it('複数日表示（resourceViewDays: 2）では、2 日目の終日セルへのドロップがその列の日の終日範囲に解決される', () => {
+    const onExternalDrop = vi.fn();
+    const { container } = render(
+      <Harness
+        view="resource"
+        resources={[ROOM_A]}
+        resourceViewDays={2}
+        onExternalDrop={onExternalDrop}
+      />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const alldayCell = container.querySelector(
+      '[data-koyomi="resource-allday-cell"][data-koyomi-date="2026-07-16"]',
+    );
+    if (!(source instanceof HTMLElement) || !(alldayCell instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockElementsFromPoint([alldayCell]);
+
+    firePointerDown(source);
+    movePointer(10, 10);
+    releasePointer(10, 10);
+
+    expect(onExternalDrop).toHaveBeenCalledWith({
+      range: { start: at('2026-07-16T00:00'), end: at('2026-07-17T00:00') },
       allDay: true,
       resourceId: 'room-a',
       payload: { title: '外部の予定' },
@@ -809,12 +1057,11 @@ describe('useExternalDrag - キャンセル', () => {
 
 describe('useExternalDrag - 非対応ビューでのドロップはキャンセル扱い', () => {
   interface UnsupportedHarnessProps {
-    view: 'list' | 'year';
+    view: 'year';
     onExternalDrop: (info: ExternalDropInfo<Payload>) => void;
   }
 
-  // ListView は「予定がある日だけ」をセクション化するため、日セクションが
-  // 描画されるよう予定を用意する（YearView は予定の有無に関わらず全日を描画する）。
+  // YearView は予定の有無に関わらず全日を描画するが、他ビューの条件と揃える。
   const UNSUPPORTED_VIEW_EVENTS: readonly CalendarEvent[] = [
     { id: 'e1', title: '予定', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
   ];
@@ -839,32 +1086,12 @@ describe('useExternalDrag - 非対応ビューでのドロップはキャンセ�
         <div data-testid="external-source" {...drag.getDraggableProps({ title: '外部の予定' })} />
         <div data-testid="calendar-root" ref={containerRef}>
           <CalendarProvider value={calendar}>
-            {props.view === 'list' && <ListView />}
-            {props.view === 'year' && <YearView />}
+            <YearView />
           </CalendarProvider>
         </div>
       </div>
     );
   }
-
-  it('リストビュー: 日セクション上へドロップしても onExternalDrop は呼ばれない（ドロップ先解決不可でキャンセル扱い）', () => {
-    const onExternalDrop = vi.fn();
-    const { container } = render(
-      <UnsupportedHarness view="list" onExternalDrop={onExternalDrop} />,
-    );
-    const source = container.querySelector('[data-testid="external-source"]');
-    const day = container.querySelector('[data-koyomi="list-day"]');
-    if (!(source instanceof HTMLElement) || !(day instanceof HTMLElement)) {
-      throw new Error('要素が見つかりません');
-    }
-    mockElementsFromPoint([day]);
-
-    firePointerDown(source);
-    movePointer(10, 10);
-    releasePointer(10, 10);
-
-    expect(onExternalDrop).not.toHaveBeenCalled();
-  });
 
   it('年ビュー: 日セル上へドロップしても onExternalDrop は呼ばれない（ドロップ先解決不可でキャンセル扱い）', () => {
     const onExternalDrop = vi.fn();

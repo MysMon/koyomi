@@ -63,10 +63,13 @@ import {
   withTimegridHoursStyle,
 } from './month-view-parts';
 import {
-  ariaLabelText,
   ariaLabelWithResource,
+  businessHourSlotsForColumn,
+  isMultiDayResourceView,
   MINUTES_PER_DAY,
   resourceAllDayContentContext,
+  resourceColumnAriaLabel,
+  resourceColumnHeaderContent,
   resourceTimedContentContext,
   sameBusinessHourSlots,
   sameEventOccurrence,
@@ -207,14 +210,36 @@ interface HeaderCellProps {
   unassignedLabel: ReactNode;
   renderColumnHeader: ((column: ResourceColumn, ctx: SlotRenderContext) => ReactNode) | undefined;
   columnWidth: number;
+  /** 複数日表示かどうか（`true` なら既定内容に日ラベルを付ける）。 */
+  multiDay: boolean;
+  /** 表示タイムゾーン（日ラベルの整形に使う）。 */
+  timeZone: TimeZoneId;
+  /** 書式ロケール（日ラベルの整形に使う）。 */
+  locale: string;
   pinned?: boolean;
   left?: number;
 }
 
 /** リソースビューの列見出しセル 1 件分。 */
 function HeaderCellImpl(props: HeaderCellProps): ReactElement {
-  const { column, unassignedLabel, renderColumnHeader, columnWidth, pinned, left } = props;
-  const defaultContent = column.resource?.title ?? unassignedLabel;
+  const {
+    column,
+    unassignedLabel,
+    renderColumnHeader,
+    columnWidth,
+    multiDay,
+    timeZone,
+    locale,
+    pinned,
+    left,
+  } = props;
+  const defaultContent = resourceColumnHeaderContent(
+    column.resource?.title ?? unassignedLabel,
+    column,
+    multiDay,
+    timeZone,
+    locale,
+  );
   const style: CSSProperties = {
     ...withEventColorStyle({}, column.resource?.color),
     flex: `0 0 ${columnWidth}px`,
@@ -232,6 +257,8 @@ function HeaderCellImpl(props: HeaderCellProps): ReactElement {
     <div
       data-koyomi="resource-header-cell"
       data-koyomi-column-key={column.key}
+      data-koyomi-date={column.dayKey}
+      data-koyomi-depth={String(column.depth)}
       role="columnheader"
       {...(column.resource !== null ? { 'data-koyomi-resource-id': column.resource.id } : {})}
       {...(pinned === true ? { 'data-koyomi-pinned': 'true' } : {})}
@@ -245,10 +272,18 @@ function HeaderCellImpl(props: HeaderCellProps): ReactElement {
 const HeaderCell = memo(HeaderCellImpl, (prev, next) => {
   return (
     prev.column.key === next.column.key &&
+    // 単日表示では日が変わってもキーが変わらないため、日付キーも比較する
+    prev.column.dayKey === next.column.dayKey &&
+    // sameResource は id・title・color のみ比較するため、parentId の変更で
+    // 深さだけが変わったケースを取りこぼさないよう depth も比較する
+    prev.column.depth === next.column.depth &&
     sameResource(prev.column.resource, next.column.resource) &&
     prev.unassignedLabel === next.unassignedLabel &&
     prev.renderColumnHeader === next.renderColumnHeader &&
     prev.columnWidth === next.columnWidth &&
+    prev.multiDay === next.multiDay &&
+    prev.timeZone === next.timeZone &&
+    prev.locale === next.locale &&
     prev.pinned === next.pinned &&
     prev.left === next.left
   );
@@ -264,6 +299,8 @@ interface AllDayCellProps {
   isPreviewTarget: boolean;
   /** `isPreviewTarget` のときに反映する `dragPreview.invalid`（省略時は `false` 相当）。 */
   isPreviewInvalid: boolean;
+  /** 複数日表示かどうか（`true` ならセルの aria-label に日ラベルを付ける）。 */
+  multiDay: boolean;
   /** 表示タイムゾーン（終日アイテムの aria-label 生成に使う）。 */
   timeZone: TimeZoneId;
   /** 書式ロケール（終日アイテムの aria-label 生成に使う）。 */
@@ -292,6 +329,7 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
     isDragging,
     isPreviewTarget,
     isPreviewInvalid,
+    multiDay,
     timeZone,
     locale,
     pinned,
@@ -314,13 +352,19 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
   };
   return (
     // biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA gridcell（ResourceView と同じ方針）
-    // biome-ignore lint/a11y/useFocusableInteractive: 現状クリック専用でキーボード操作に未対応（既知の制限。docs/accessibility.md 参照）
+    // biome-ignore lint/a11y/useFocusableInteractive: tabIndex は drag.getAllDayCellProps（useResourceGridDrag）のスプレッド経由で付与済み。静的解析ではスプレッド元を検出できないための誤検知
     <div
       {...drag.getAllDayCellProps(column)}
       data-koyomi="resource-allday-cell"
       data-koyomi-column-key={column.key}
       role="gridcell"
-      aria-label={column.resource?.title ?? ariaLabelText(unassignedLabel)}
+      aria-label={resourceColumnAriaLabel(
+        column.resource?.title ?? unassignedLabel,
+        column,
+        multiDay,
+        timeZone,
+        locale,
+      )}
       data-koyomi-preview-target={isPreviewTarget ? 'true' : undefined}
       data-koyomi-invalid={isPreviewTarget && isPreviewInvalid ? 'true' : undefined}
       {...(pinned === true ? { 'data-koyomi-pinned': 'true' } : {})}
@@ -349,6 +393,8 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
 const AllDayCell = memo(AllDayCellImpl, (prev, next) => {
   return (
     prev.column.key === next.column.key &&
+    // 単日表示では日が変わってもキーが変わらないため、日付キーも比較する
+    prev.column.dayKey === next.column.dayKey &&
     sameResource(prev.column.resource, next.column.resource) &&
     sameEventOccurrences(prev.column.allDayItems, next.column.allDayItems) &&
     prev.unassignedLabel === next.unassignedLabel &&
@@ -357,6 +403,7 @@ const AllDayCell = memo(AllDayCellImpl, (prev, next) => {
     prev.isDragging === next.isDragging &&
     prev.isPreviewTarget === next.isPreviewTarget &&
     prev.isPreviewInvalid === next.isPreviewInvalid &&
+    prev.multiDay === next.multiDay &&
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
     prev.pinned === next.pinned &&
@@ -460,7 +507,7 @@ interface ResourceColumnBodyProps {
   column: ResourceColumn;
   /** 時間軸の目盛り（{@link ResourceViewModel.slots}）。営業時間内フラグ付きスロット罫線の描画に使う。 */
   slots: readonly TimeSlot[];
-  /** {@link ResourceViewModel.businessHourSlots}（全列共通の 1 本）。 */
+  /** この列の日の営業時間内フラグ（{@link ResourceViewDay.businessHourSlots}）。 */
   businessHourSlots: readonly BusinessHourSlot[];
   timeZone: TimeZoneId;
   locale: string;
@@ -592,7 +639,7 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
                 renderEventContent,
                 item,
                 item.occurrence,
-                resourceTimedContentContext(item, locale),
+                resourceTimedContentContext(item, locale, commonMessages.rangeSeparator),
               )}
             </div>
             {isEditable && !item.continuesBefore && (
@@ -644,6 +691,8 @@ function sameResourceColumnForBody(a: ResourceColumn, b: ResourceColumn): boolea
   }
   return (
     a.key === b.key &&
+    // 単日表示では日が変わってもキーが変わらないため、日付キーも比較する
+    a.dayKey === b.dayKey &&
     sameResource(a.resource, b.resource) &&
     samePositionedOccurrences(a.items, b.items)
   );
@@ -876,9 +925,11 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
     return null;
   }
 
-  const { slots, businessHourSlots, nowIndicatorMinutes, isToday, isEmpty } = viewModel;
+  const { slots, nowIndicatorMinutes, isEmpty } = viewModel;
   const { timeZone, options } = state;
   const { locale } = options;
+  // 複数日表示（resourceViewDays >= 2）では列見出し・終日セルの aria-label に日ラベルを付ける
+  const multiDay = isMultiDayResourceView(viewModel);
   // 終日プレビュー対象列（isAllDayPreviewTarget）に反映する invalid（ResourceView と同じ計算）
   const isPreviewInvalid = state.dragPreview?.invalid ?? false;
   // businessHours 未指定（既定 []）のときは `timegrid-slot` 罫線 div 自体を描画しない
@@ -929,6 +980,9 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                   unassignedLabel={resourceMessages.unassigned}
                   renderColumnHeader={renderColumnHeader}
                   columnWidth={columnWidth}
+                  multiDay={multiDay}
+                  timeZone={timeZone}
+                  locale={locale}
                 />
               ) : null;
             })}
@@ -947,6 +1001,9 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                   unassignedLabel={resourceMessages.unassigned}
                   renderColumnHeader={renderColumnHeader}
                   columnWidth={columnWidth}
+                  multiDay={multiDay}
+                  timeZone={timeZone}
+                  locale={locale}
                   pinned
                   left={item.start}
                 />
@@ -977,6 +1034,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                   isDragging={drag.isDragging}
                   isPreviewTarget={drag.isAllDayPreviewTarget(column)}
                   isPreviewInvalid={isPreviewInvalid}
+                  multiDay={multiDay}
                   timeZone={timeZone}
                   locale={locale}
                   renderAllDayItem={renderAllDayItem}
@@ -1003,6 +1061,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                   isDragging={drag.isDragging}
                   isPreviewTarget={drag.isAllDayPreviewTarget(column)}
                   isPreviewInvalid={isPreviewInvalid}
+                  multiDay={multiDay}
                   timeZone={timeZone}
                   locale={locale}
                   pinned
@@ -1039,12 +1098,12 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                 key={column.key}
                 column={column}
                 slots={slots}
-                businessHourSlots={businessHourSlots}
+                businessHourSlots={businessHourSlotsForColumn(viewModel, column)}
                 timeZone={timeZone}
                 locale={locale}
                 slotMinTimeMinutes={slotMinTimeMinutes}
                 slotMaxTimeMinutes={slotMaxTimeMinutes}
-                isToday={isToday}
+                isToday={column.isToday}
                 nowIndicatorMinutes={nowIndicatorMinutes}
                 renderEvent={renderEvent}
                 renderEventContent={renderEventContent}
@@ -1069,12 +1128,12 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                 key={column.key}
                 column={column}
                 slots={slots}
-                businessHourSlots={businessHourSlots}
+                businessHourSlots={businessHourSlotsForColumn(viewModel, column)}
                 timeZone={timeZone}
                 locale={locale}
                 slotMinTimeMinutes={slotMinTimeMinutes}
                 slotMaxTimeMinutes={slotMaxTimeMinutes}
-                isToday={isToday}
+                isToday={column.isToday}
                 nowIndicatorMinutes={nowIndicatorMinutes}
                 renderEvent={renderEvent}
                 renderEventContent={renderEventContent}

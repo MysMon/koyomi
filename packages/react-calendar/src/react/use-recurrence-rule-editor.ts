@@ -28,15 +28,19 @@ import type { MessageCatalogOverrides } from './locales/types';
  * @remarks
  * `start` / `timeZone` / `rrule` は **作成時のみ有効**（`useCalendar` の
  * `options.events` と同じ規約）。マウント後にこれらを変更しても反映されない。
- * 編集対象（新規作成 / 既存オカレンス編集）を切り替える場合は、このフックを
- * 使うコンポーネントに一意な `key` を指定して再マウントすること。
+ * 編集対象（新規作成 / 既存オカレンス編集）を切り替える場合は
+ * {@link UseRecurrenceRuleEditorResult.reset} を呼ぶ（このフックを使う
+ * コンポーネントに一意な `key` を指定して再マウントする方法も引き続き使える）。
  */
 export interface UseRecurrenceRuleEditorOptions {
-  /** DTSTART。初期値としてのみ使用。 */
+  /** DTSTART。初期値としてのみ使用（切り替えは `reset`）。 */
   start: Date;
-  /** イベントのタイムゾーン。初期値としてのみ使用。 */
+  /** イベントのタイムゾーン。初期値としてのみ使用（切り替えは `reset`）。 */
   timeZone: TimeZoneId;
-  /** 編集対象の既存 RRULE 文字列。省略時は「繰り返しなし」。初期値としてのみ使用。 */
+  /**
+   * 編集対象の既存 RRULE 文字列。省略時は「繰り返しなし」。初期値としてのみ
+   * 使用（切り替えは `reset`）。
+   */
   rrule?: string;
   /**
    * 文言を解決するロケール。`resolveMessageCatalog` と同じ規約で、言語サブタグ
@@ -52,6 +56,24 @@ export interface UseRecurrenceRuleEditorOptions {
    * 部分的に差し替える。`locale` と同様、変更するたびに再解決される。
    */
   messages?: MessageCatalogOverrides;
+}
+
+/** 編集対象（start/timeZone/rrule）の組。フックの内部状態と `reset` の引数で共有する。 */
+type RecurrenceRuleEditorTarget = Pick<
+  UseRecurrenceRuleEditorOptions,
+  'start' | 'timeZone' | 'rrule'
+>;
+
+/**
+ * 編集対象の浅いコピーを作る。呼び出し側のオブジェクトを後から変更されても
+ * 内部状態が影響を受けないようにする（`rrule` 省略時はキー自体を持たない）。
+ */
+function copyTarget(target: RecurrenceRuleEditorTarget): RecurrenceRuleEditorTarget {
+  return {
+    start: target.start,
+    timeZone: target.timeZone,
+    ...(target.rrule !== undefined ? { rrule: target.rrule } : {}),
+  };
 }
 
 /** `useRecurrenceRuleEditor` の戻り値。 */
@@ -86,6 +108,19 @@ export interface UseRecurrenceRuleEditorResult {
   enable(): void;
   /** 繰り返しを解除する（`state` / `unsupported` の両方を `null` に戻す）。 */
   clear(): void;
+  /**
+   * 編集対象（`start` / `timeZone` / `rrule`）を切り替え、エディタ全体を
+   * 新しい編集対象で初期化し直す。既存予定の編集ダイアログを再マウントせずに
+   * 使い回す用途に使う（コンポーネントへの `key` 指定による再マウントと同等）。
+   *
+   * 編集中の `state` / `unsupported` は引き継がれず、渡した `rrule` の
+   * `parseRecurrenceRule` の結果で置き換えられる（`rrule` 省略時は
+   * 「繰り返しなし」）。以後の `rruleString` / `description` / `setFrequency` の
+   * 既定値補完は、新しい `start` / `timeZone` を基準に計算される。
+   *
+   * @param target - 新しい編集対象（`start` / `timeZone` は必須、`rrule` は省略可）
+   */
+  reset(target: Pick<UseRecurrenceRuleEditorOptions, 'start' | 'timeZone' | 'rrule'>): void;
   /** `state` の検証エラー（空配列なら有効）。`message` は解決済みロケールの文言。 */
   errors: readonly (RecurrenceValidationIssue & { message: string })[];
   /** 現在の状態から生成された RRULE 文字列。`state` が `null` または検証エラーがある場合は `null`。 */
@@ -124,21 +159,21 @@ export interface UseRecurrenceRuleEditorResult {
 export function useRecurrenceRuleEditor(
   options: UseRecurrenceRuleEditorOptions,
 ): UseRecurrenceRuleEditorResult {
-  /** start/timeZone/rrule の初回値。以後は変更を無視する（初期値のみ有効の規約）。 */
-  const initialOptionsRef = useRef({
-    start: options.start,
-    timeZone: options.timeZone,
-    rrule: options.rrule,
-  });
-  const initialOptions = initialOptionsRef.current;
+  /**
+   * 現在の編集対象（start/timeZone/rrule）。初期値は初回マウント時の options で、
+   * 以後は `reset()` でのみ更新される（options の変更は無視する規約）。
+   */
+  const [target, setTarget] = useState<RecurrenceRuleEditorTarget>(() => copyTarget(options));
+  /** setter 群から参照を安定させたまま現在の編集対象を読むためのミラー。 */
+  const targetRef = useRef(target);
 
   /** 初回マウント時の parseRecurrenceRule の結果（state/unsupported の初期値算出に使う）。 */
   const initialParsedRef = useRef<ReturnType<typeof parseRecurrenceRule> | null>(null);
   if (initialParsedRef.current === null) {
     initialParsedRef.current = parseRecurrenceRule({
-      rrule: initialOptions.rrule,
-      dtstart: initialOptions.start,
-      timeZone: initialOptions.timeZone,
+      rrule: options.rrule,
+      dtstart: options.start,
+      timeZone: options.timeZone,
     });
   }
   const initialParsed = initialParsedRef.current;
@@ -162,21 +197,25 @@ export function useRecurrenceRuleEditor(
   );
 
   // start/timeZone/rrule は初期値としてのみ有効。開発時のみ、マウント後に異なる
-  // 値が渡されたことを一度だけ警告する（key を付けて再マウントする運用を促す）。
+  // 値が渡されたことを一度だけ警告する（reset() か key 再マウントの運用を促す）。
+  // reset() を使っている場合は編集対象を意図的に管理していると分かるため警告しない。
   const warnedRef = useRef(false);
+  const didResetRef = useRef(false);
   if (
     isDevBuild() &&
     !warnedRef.current &&
-    (options.start !== initialOptions.start ||
-      options.timeZone !== initialOptions.timeZone ||
-      options.rrule !== initialOptions.rrule)
+    !didResetRef.current &&
+    (options.start !== targetRef.current.start ||
+      options.timeZone !== targetRef.current.timeZone ||
+      options.rrule !== targetRef.current.rrule)
   ) {
     warnedRef.current = true;
     // biome-ignore lint/suspicious/noConsole: 開発ビルド限定の意図的な利用者向け警告
     console.warn(
       '[koyomi] useRecurrenceRuleEditor の options.start / options.timeZone / options.rrule は' +
         '初期値としてのみ使われ、マウント後の変更は反映されません。編集対象を切り替える場合は、' +
-        'このフックを使うコンポーネントに一意な key を指定して再マウントしてください。',
+        'reset({ start, timeZone, rrule }) を呼ぶか、このフックを使うコンポーネントに一意な key を' +
+        '指定して再マウントしてください。',
     );
   }
 
@@ -187,7 +226,7 @@ export function useRecurrenceRuleEditor(
       }
       if (freq === 'weekly') {
         const fallbackByWeekday: readonly Weekday[] = [
-          weekdayInZone(initialOptionsRef.current.start, initialOptionsRef.current.timeZone),
+          weekdayInZone(targetRef.current.start, targetRef.current.timeZone),
         ];
         const byWeekday = current.byWeekday ?? fallbackByWeekday;
         return { freq, interval: current.interval, end: current.end, byWeekday };
@@ -195,8 +234,7 @@ export function useRecurrenceRuleEditor(
       if (freq === 'monthly') {
         const fallbackMonthlyPattern: MonthlyRecurrencePattern = {
           kind: 'dayOfMonth',
-          day: getWallClock(initialOptionsRef.current.start, initialOptionsRef.current.timeZone)
-            .day,
+          day: getWallClock(targetRef.current.start, targetRef.current.timeZone).day,
         };
         const monthlyPattern = current.monthlyPattern ?? fallbackMonthlyPattern;
         return { freq, interval: current.interval, end: current.end, monthlyPattern };
@@ -236,6 +274,22 @@ export function useRecurrenceRuleEditor(
     setUnsupportedRawRRule(null);
   }, []);
 
+  const reset = useCallback((nextTarget: RecurrenceRuleEditorTarget) => {
+    const normalized = copyTarget(nextTarget);
+    const parsed = parseRecurrenceRule({
+      rrule: normalized.rrule,
+      dtstart: normalized.start,
+      timeZone: normalized.timeZone,
+    });
+    didResetRef.current = true;
+    targetRef.current = normalized;
+    setTarget(normalized);
+    setState(parsed.kind === 'editable' ? parsed.state : null);
+    setUnsupportedRawRRule(
+      parsed.kind === 'unsupported' ? { rawRRule: parsed.rawRRule, reason: parsed.reason } : null,
+    );
+  }, []);
+
   const errors = useMemo(() => {
     if (state === null) {
       return [];
@@ -262,20 +316,20 @@ export function useRecurrenceRuleEditor(
     }
     return buildRecurrenceRuleString({
       state,
-      dtstart: initialOptionsRef.current.start,
-      timeZone: initialOptionsRef.current.timeZone,
+      dtstart: target.start,
+      timeZone: target.timeZone,
     });
-  }, [state, errors]);
+  }, [state, errors, target]);
 
   const description = useMemo(() => {
     if (state === null) {
       return null;
     }
     return catalog.recurrenceEditor.describeRule(state, {
-      dtstart: initialOptionsRef.current.start,
-      timeZone: initialOptionsRef.current.timeZone,
+      dtstart: target.start,
+      timeZone: target.timeZone,
     });
-  }, [state, catalog]);
+  }, [state, catalog, target]);
 
   return useMemo(
     () => ({
@@ -288,6 +342,7 @@ export function useRecurrenceRuleEditor(
       setEnd,
       enable,
       clear,
+      reset,
       errors,
       rruleString,
       description,
@@ -302,6 +357,7 @@ export function useRecurrenceRuleEditor(
       setEnd,
       enable,
       clear,
+      reset,
       errors,
       rruleString,
       description,

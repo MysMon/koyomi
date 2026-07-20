@@ -5,7 +5,14 @@
  * 検証する。DOM・タイムゾーンに依存しない数値のみのテスト。
  */
 import { describe, expect, it } from 'vitest';
-import { computeWindow, startForKey, type WindowInput } from './virtualization';
+import {
+  computeWindow,
+  sameVisibleWindowRange,
+  startForKey,
+  type VisibleWindowRange,
+  visibleWindowRange,
+  type WindowInput,
+} from './virtualization';
 
 /**
  * テスト用の入力を組み立てるヘルパ。
@@ -174,5 +181,49 @@ describe('startForKey', () => {
       measured: new Map<string, number>(),
     };
     expect(startForKey(input, 'missing')).toBeNull();
+  });
+});
+
+describe('visibleWindowRange', () => {
+  it('computeWindow の可視範囲（overscan を除く）からキー付きの範囲を組み立てる', () => {
+    const result = computeWindow(makeInput({ overscan: 3, scrollOffset: 100, viewportSize: 40 }));
+    // 可視: 100〜139px → index 5,6（overscan は含めない）
+    const range = visibleWindowRange(result, (index) => `k${index}`);
+    expect(range).toEqual({
+      startIndex: 5,
+      endIndex: 6,
+      startKey: 'k5',
+      endKey: 'k6',
+    } satisfies VisibleWindowRange);
+  });
+
+  it('count=0（startIndex/endIndex が -1）のときはキーを null にする', () => {
+    const result = computeWindow(makeInput({ count: 0 }));
+    const range = visibleWindowRange(result, (index) => `k${index}`);
+    expect(range).toEqual({
+      startIndex: -1,
+      endIndex: -1,
+      startKey: null,
+      endKey: null,
+    } satisfies VisibleWindowRange);
+  });
+});
+
+describe('sameVisibleWindowRange', () => {
+  const base: VisibleWindowRange = { startIndex: 2, endIndex: 5, startKey: 'k2', endKey: 'k5' };
+
+  it('インデックス・キーがすべて等しいときのみ true を返す', () => {
+    expect(sameVisibleWindowRange(base, { ...base })).toBe(true);
+    expect(sameVisibleWindowRange(base, { ...base, endIndex: 6 })).toBe(false);
+    expect(sameVisibleWindowRange(base, { ...base, startIndex: 3 })).toBe(false);
+    // インデックスが同じでもキーが変われば別内容（表示範囲の移動・並びの変更を検出する）
+    expect(sameVisibleWindowRange(base, { ...base, startKey: 'k9' })).toBe(false);
+    expect(sameVisibleWindowRange(base, { ...base, endKey: 'k9' })).toBe(false);
+  });
+
+  it('null は「まだ範囲を記録していない」を表し、非 null とは常に不一致になる', () => {
+    expect(sameVisibleWindowRange(null, base)).toBe(false);
+    expect(sameVisibleWindowRange(base, null)).toBe(false);
+    expect(sameVisibleWindowRange(null, null)).toBe(true);
   });
 });

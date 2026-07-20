@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { createCalendar } from '../core/calendar';
 import type { CalendarEvent, CalendarOptions, CalendarRangeChangeInfo } from '../core/types';
+import { warnIfLowContrastEventColor } from './event-color-contrast';
 import { isDevBuild } from './is-dev-build';
 import type { UseCalendarResult } from './types';
 
@@ -148,6 +149,45 @@ export function useCalendar(options?: UseCalendarOptions): UseCalendarResult {
   // キャッシュされた同一参照を返すため、サーバーレンダー中の一貫性も保たれる。
   const state = useSyncExternalStore(api.subscribe, api.getState, api.getState);
   const viewModel = api.getViewModel();
+
+  // event.color / resource.color の WCAG AA コントラスト警告（開発ビルド限定）。
+  // 同じ色を何度も警告しないよう、警告済みの色をマウント中保持する Set に積む
+  // （docs/accessibility.md 参照）。
+  const warnedColorsRef = useRef<Set<string> | null>(null);
+  if (isDevBuild()) {
+    warnedColorsRef.current ??= new Set();
+    const warned = warnedColorsRef.current;
+    for (const event of state.events) {
+      if (event.color !== undefined) {
+        warnIfLowContrastEventColor(event.color, 'event', warned);
+      }
+    }
+    for (const resource of state.resources) {
+      if (resource.color !== undefined) {
+        warnIfLowContrastEventColor(resource.color, 'resource', warned);
+      }
+    }
+  }
+
+  // eventConstraint: 'businessHours' なのに businessHours が空（未設定）だと、
+  // 制約の解決結果が空ルールになり時間指定イベントの移動・リサイズ・作成が
+  // すべて拒否される（docs/interactions.md 参照）。黙ってハマりやすいため、
+  // 開発時のみこの組み合わせを一度だけ警告する
+  const warnedBusinessHoursConstraintRef = useRef(false);
+  if (
+    isDevBuild() &&
+    !warnedBusinessHoursConstraintRef.current &&
+    state.options.eventConstraint === 'businessHours' &&
+    state.options.businessHours.length === 0
+  ) {
+    warnedBusinessHoursConstraintRef.current = true;
+    // biome-ignore lint/suspicious/noConsole: 開発ビルド限定の意図的な利用者向け警告
+    console.warn(
+      "[koyomi] eventConstraint: 'businessHours' が指定されていますが、businessHours が空（未設定）のため" +
+        '時間指定イベントの移動・リサイズ・作成はすべて拒否されます。' +
+        'businessHours にルールを設定するか、eventConstraint に BusinessHoursRule の配列を直接渡してください。',
+    );
+  }
 
   // refreshSeconds による現在時刻の自動追従（0 以下なら何もしない）。
   // onEventsChange と同様に、レンダーごとの最新値が反映される

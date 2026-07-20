@@ -139,6 +139,14 @@ export interface ResourceMessages {
   unassigned: ReactNode;
   /** リソースが 1 件もない場合のメッセージ。 */
   empty: ReactNode;
+  /**
+   * 列見出しの折りたたみトグルボタンの aria-label を組み立てる
+   * （{@link TimelineMessages.resourceToggleAriaLabel} の列版）。
+   *
+   * @param resource - 対象のリソース
+   * @param collapsed - 現在の折りたたみ状態（`true` なら押すと展開）
+   */
+  resourceToggleAriaLabel: (resource: CalendarResource, collapsed: boolean) => string;
 }
 
 /** {@link MessageCatalog.timeline} — `TimelineView` / `VirtualTimelineView` の文言。 */

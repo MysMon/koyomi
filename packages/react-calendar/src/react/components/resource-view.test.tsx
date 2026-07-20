@@ -56,6 +56,8 @@ interface HarnessProps {
   slotMinTime?: string;
   /** 表示時間帯の終了（{@link CalendarOptions.slotMaxTime}）。 */
   slotMaxTime?: string;
+  /** リソースビューの表示日数（{@link CalendarOptions.resourceViewDays}）。 */
+  resourceViewDays?: number;
   /** `ResourceView` へそのまま渡す追加 props。 */
   viewProps?: ResourceViewProps;
   /** `CalendarProvider` の `messages` prop。 */
@@ -79,6 +81,7 @@ function Harness(props: HarnessProps): ReactElement {
     ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
     ...(props.slotMinTime !== undefined ? { slotMinTime: props.slotMinTime } : {}),
     ...(props.slotMaxTime !== undefined ? { slotMaxTime: props.slotMaxTime } : {}),
+    ...(props.resourceViewDays !== undefined ? { resourceViewDays: props.resourceViewDays } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -427,6 +430,105 @@ describe('ResourceView - カスタム描画 props', () => {
     expect(container.querySelector('[data-koyomi="allday-event"]')?.textContent).toBe(
       'allday-event:休暇',
     );
+  });
+});
+
+describe('ResourceView - リソースの階層グルーピング（parentId・折りたたみ）', () => {
+  /** 「拠点 > フロア > 会議室」の階層フィクスチャ。 */
+  const SITE: CalendarResource = { id: 'site', title: '本社' };
+  const FLOOR_1: CalendarResource = { id: 'floor-1', title: '1F', parentId: 'site' };
+  const ROOM_X: CalendarResource = { id: 'room-x', title: '会議室X', parentId: 'floor-1' };
+  const ROOM_Y: CalendarResource = { id: 'room-y', title: '会議室Y', parentId: 'floor-1' };
+  const TREE = [SITE, FLOOR_1, ROOM_X, ROOM_Y];
+
+  it('parentId 未使用時はグループ見出し行もトグルボタンも描画されない（既存挙動の回帰確認）', () => {
+    const { container } = render(<Harness resources={[ROOM_A, ROOM_B]} />);
+    expect(container.querySelector('[data-koyomi="resource-group-header-row"]')).toBeNull();
+    expect(container.querySelector('[data-koyomi="resource-column-toggle"]')).toBeNull();
+  });
+
+  it('親リソースのグループ見出し行が深さごとに描画され、role="row"・aria-colspan 付きの columnheader になる', () => {
+    const { container } = render(<Harness resources={TREE} />);
+    const rows = container.querySelectorAll('[data-koyomi="resource-group-header-row"]');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.getAttribute('role')).toBe('row');
+
+    // 深さ 0 の行: site が自身 + 子孫の 4 列を覆う
+    const level0Cells = rows[0]?.querySelectorAll('[data-koyomi="resource-group-header-cell"]');
+    expect(level0Cells).toHaveLength(1);
+    expect(level0Cells?.[0]?.textContent).toBe('本社');
+    expect(level0Cells?.[0]?.getAttribute('role')).toBe('columnheader');
+    expect(level0Cells?.[0]?.getAttribute('aria-colspan')).toBe('4');
+    expect(level0Cells?.[0]?.getAttribute('data-koyomi-resource-id')).toBe('site');
+
+    // 深さ 1 の行: site の列を覆うスペーサー + floor-1 のグループ（3 列）
+    const level1Row = rows[1];
+    const gap = level1Row?.querySelector('[data-koyomi="resource-group-header-gap"]');
+    expect(gap).not.toBeNull();
+    expect(gap?.getAttribute('role')).toBe('columnheader');
+    expect(gap?.getAttribute('aria-colspan')).toBe('1');
+    const level1Cell = level1Row?.querySelector('[data-koyomi="resource-group-header-cell"]');
+    expect(level1Cell?.textContent).toBe('1F');
+    expect(level1Cell?.getAttribute('aria-colspan')).toBe('3');
+  });
+
+  it('子を持つリソースの列見出しに aria-expanded 付きのトグルボタンが描画され、子を持たない列にはない', () => {
+    const { container } = render(<Harness resources={TREE} />);
+    const headerCells = container.querySelectorAll('[data-koyomi="resource-header-cell"]');
+    expect(headerCells).toHaveLength(4);
+    const toggles = container.querySelectorAll('[data-koyomi="resource-column-toggle"]');
+    expect(toggles).toHaveLength(2); // site と floor-1
+    expect(toggles[0]?.getAttribute('aria-expanded')).toBe('true');
+    expect(toggles[0]?.getAttribute('aria-label')).toBe('本社 を折りたたむ');
+  });
+
+  it('トグルボタンのクリックで子孫の列が隠れ、再クリックで戻る', () => {
+    const { container } = render(<Harness resources={TREE} />);
+    const columnKeys = () =>
+      Array.from(container.querySelectorAll('[data-koyomi="resource-column"]')).map((element) =>
+        element.getAttribute('data-koyomi-resource'),
+      );
+    expect(columnKeys()).toEqual(['r:site', 'r:floor-1', 'r:room-x', 'r:room-y']);
+
+    const floorToggle = container.querySelector(
+      '[data-koyomi="resource-header-cell"][data-koyomi-resource-id="floor-1"] [data-koyomi="resource-column-toggle"]',
+    );
+    if (floorToggle === null) {
+      throw new Error('floor-1 のトグルボタンが見つかりません');
+    }
+    act(() => {
+      (floorToggle as HTMLElement).click();
+    });
+    expect(columnKeys()).toEqual(['r:site', 'r:floor-1']);
+    const collapsedToggle = container.querySelector(
+      '[data-koyomi="resource-header-cell"][data-koyomi-resource-id="floor-1"] [data-koyomi="resource-column-toggle"]',
+    );
+    expect(collapsedToggle?.getAttribute('aria-expanded')).toBe('false');
+    expect(collapsedToggle?.getAttribute('aria-label')).toBe('1F を展開する');
+
+    act(() => {
+      (collapsedToggle as HTMLElement).click();
+    });
+    expect(columnKeys()).toEqual(['r:site', 'r:floor-1', 'r:room-x', 'r:room-y']);
+  });
+
+  it('列見出しに data-koyomi-depth が付く', () => {
+    const { container } = render(<Harness resources={TREE} />);
+    const depths = Array.from(
+      container.querySelectorAll('[data-koyomi="resource-header-cell"]'),
+    ).map((element) => element.getAttribute('data-koyomi-depth'));
+    expect(depths).toEqual(['0', '1', '2', '2']);
+  });
+
+  it('複数日表示ではトグルボタンがリソースの先頭日の列見出しにのみ描画される', () => {
+    const { container } = render(<Harness resources={[SITE, FLOOR_1]} resourceViewDays={2} />);
+    // site×2 日 + floor-1×2 日 = 4 見出しのうち、トグルは site の 1 日目のみ
+    // （floor-1 は子を持たないため対象外）
+    const headerCells = container.querySelectorAll('[data-koyomi="resource-header-cell"]');
+    expect(headerCells).toHaveLength(4);
+    const toggles = container.querySelectorAll('[data-koyomi="resource-column-toggle"]');
+    expect(toggles).toHaveLength(1);
+    expect(headerCells[0]?.contains(toggles[0] ?? null)).toBe(true);
   });
 });
 
@@ -994,6 +1096,133 @@ describe('ResourceView - 表示時間帯制限（slotMinTime/slotMaxTime）', ()
       <Harness resources={[ROOM_A]} slotMinTime="08:00" slotMaxTime="09:00" />,
     );
     expect(container.querySelector('[data-koyomi="now-indicator"]')).toBeNull();
+  });
+});
+
+describe('ResourceView - 複数日表示（resourceViewDays）', () => {
+  it('resourceViewDays: 2 で列見出し・終日セル・本文列がリソース×日の直積で描画される', () => {
+    const { container } = render(
+      <Harness resources={[ROOM_A, ROOM_B]} resourceViewDays={2} unassignedLane="always" />,
+    );
+    // (2 リソース + 未割り当て) × 2 日 = 6 列
+    const root = container.querySelector('[data-koyomi="resource"]');
+    expect(root).toHaveAttribute('data-koyomi-columns', '6');
+    expect(container.querySelectorAll('[data-koyomi="resource-header-cell"]')).toHaveLength(6);
+    expect(container.querySelectorAll('[data-koyomi="resource-allday-cell"]')).toHaveLength(6);
+    expect(container.querySelectorAll('[data-koyomi="resource-column"]')).toHaveLength(6);
+  });
+
+  it('複数日表示では列見出しの既定内容が「リソース名 + 日ラベル」になり、data-koyomi-date が付く', () => {
+    const { container } = render(<Harness resources={[ROOM_A]} resourceViewDays={2} />);
+    const headers = Array.from(container.querySelectorAll('[data-koyomi="resource-header-cell"]'));
+    // NOW = 2026-07-15（水）が先頭日
+    expect(headers[0]?.textContent).toBe('会議室A 15 (水)');
+    expect(headers[1]?.textContent).toBe('会議室A 16 (木)');
+    expect(headers[0]).toHaveAttribute('data-koyomi-date', '2026-07-15');
+    expect(headers[1]).toHaveAttribute('data-koyomi-date', '2026-07-16');
+  });
+
+  it('単日表示（既定）では列見出しの既定内容がリソース名のみのまま変わらない（回帰ペア）', () => {
+    const { container } = render(<Harness resources={[ROOM_A]} />);
+    const header = container.querySelector('[data-koyomi="resource-header-cell"]');
+    expect(header?.textContent).toBe('会議室A');
+    expect(header).toHaveAttribute('data-koyomi-date', '2026-07-15');
+  });
+
+  it('複数日表示では未割り当て列の見出しにも日ラベルが付く', () => {
+    const { container } = render(
+      <Harness resources={[ROOM_A]} resourceViewDays={2} unassignedLane="always" />,
+    );
+    const headers = Array.from(container.querySelectorAll('[data-koyomi="resource-header-cell"]'));
+    expect(headers[2]?.textContent).toBe('未割り当て 15 (水)');
+    expect(headers[3]?.textContent).toBe('未割り当て 16 (木)');
+  });
+
+  it('renderColumnHeader の ctx.defaultContent は複数日表示でも既定の内容（リソース名 + 日ラベル）を受け取る', () => {
+    const renderColumnHeader = (column: ResourceColumn, ctx: SlotRenderContext): ReactElement => (
+      <div data-koyomi="custom-header">
+        {column.dayKey}|{ctx.defaultContent}
+      </div>
+    );
+    const { container } = render(
+      <Harness resources={[ROOM_A]} resourceViewDays={2} viewProps={{ renderColumnHeader }} />,
+    );
+    const custom = container.querySelectorAll('[data-koyomi="custom-header"]');
+    expect(custom[0]?.textContent).toBe('2026-07-15|会議室A 15 (水)');
+    expect(custom[1]?.textContent).toBe('2026-07-16|会議室A 16 (木)');
+  });
+
+  it('複数日表示では終日セルの aria-label にも日ラベルが付く', () => {
+    const { container } = render(<Harness resources={[ROOM_A]} resourceViewDays={2} />);
+    const cells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
+    expect(cells[0]).toHaveAttribute('aria-label', '会議室A 15 (水)');
+    expect(cells[1]).toHaveAttribute('aria-label', '会議室A 16 (木)');
+  });
+
+  it('単日表示では終日セルの aria-label がリソース名のみのまま変わらない（回帰ペア）', () => {
+    const { container } = render(<Harness resources={[ROOM_A]} />);
+    const cell = container.querySelector('[data-koyomi="resource-allday-cell"]');
+    expect(cell).toHaveAttribute('aria-label', '会議室A');
+  });
+
+  it('now-indicator は今日の列にだけ描画される', () => {
+    // 表示範囲を 7/14〜7/15 にする（NOW = 7/15 が 2 日目）
+    const { container } = render(
+      <Harness
+        resources={[ROOM_A]}
+        resourceViewDays={2}
+        initialDate={new Date('2026-07-14T01:00:00Z')}
+      />,
+    );
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+    expect(columns[0]?.querySelector('[data-koyomi="now-indicator"]')).toBeNull();
+    expect(columns[1]?.querySelector('[data-koyomi="now-indicator"]')).not.toBeNull();
+    expect(columns[0]).not.toHaveAttribute('data-today');
+    expect(columns[1]).toHaveAttribute('data-today', 'true');
+  });
+
+  it('data-koyomi-business-hours は列ごとの日の曜日基準で付与される', () => {
+    // NOW = 2026-07-15（水）。水曜だけ営業にする → 1 日目の列のみハイライト
+    const businessHours: BusinessHoursRule[] = [
+      { daysOfWeek: [3], startTime: '09:00', endTime: '17:00' },
+    ];
+    const { container } = render(
+      <Harness resources={[ROOM_A]} resourceViewDays={2} businessHours={businessHours} />,
+    );
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+    const wednesdaySlots = columns[0]?.querySelectorAll('[data-koyomi-business-hours]') ?? [];
+    const thursdaySlots = columns[1]?.querySelectorAll('[data-koyomi-business-hours]') ?? [];
+    expect(wednesdaySlots.length).toBeGreaterThan(0);
+    expect(thursdaySlots).toHaveLength(0);
+  });
+
+  it('イベントは属する日の列にのみ描画される', () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'day1',
+        title: '1日目の会議',
+        start: '2026-07-15T10:00',
+        end: '2026-07-15T11:00',
+        resourceId: 'room-a',
+      },
+      {
+        id: 'day2',
+        title: '2日目の会議',
+        start: '2026-07-16T10:00',
+        end: '2026-07-16T11:00',
+        resourceId: 'room-a',
+      },
+    ];
+    const { container } = render(
+      <Harness resources={[ROOM_A]} resourceViewDays={2} events={events} />,
+    );
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+    expect(columns[0]?.querySelector('[data-koyomi="timegrid-event"]')?.textContent).toContain(
+      '1日目の会議',
+    );
+    expect(columns[1]?.querySelector('[data-koyomi="timegrid-event"]')?.textContent).toContain(
+      '2日目の会議',
+    );
   });
 });
 

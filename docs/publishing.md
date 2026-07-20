@@ -30,7 +30,8 @@
    pnpm --filter @koyomi-cal/react exec npm pack --dry-run
    ```
 
-   含まれるべきもの: `dist/`（index.js / index.d.ts / theme.css / sourcemap）、
+   含まれるべきもの: `dist/`（`index.js` を含むモジュール分割された ESM 一式 /
+   `index.d.ts` / `core.d.ts` / `theme/default.css` / sourcemap）、
    `README.md`、`LICENSE`、`package.json`。`src/` やテストが含まれていたら
    `files` フィールドを確認してください。
 

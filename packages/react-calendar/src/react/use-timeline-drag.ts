@@ -14,8 +14,11 @@
  *
  * 横位置 → 日時の変換は行要素の矩形と {@link timeAtTimelineOffset}（表示分の座標系）で
  * 行う。行要素は `getRowProps` が返す `ref` コールバックで内部レジストリに登録される。
- * 確定時は時間の変更と `resourceId` の変更を 1 つのパッチに合成して 1 回の
+ * 確定時は時間の変更とリソース割当の変更を 1 つのパッチに合成して 1 回の
  * `updateEvent` にする（{@link ./use-resource-grid-drag} と同じ規則）。
+ * 複数リソース割当（`resourceIds`）のオカレンスは割当先の各行に表示され、
+ * 行間の移動では**操作した行の割当だけ**が移動先に変わる
+ * （{@link resourceLanePatch}。他の行の割当は保持される）。
  * allDay⇔時間指定の越境変換は提供しない。
  *
  * `daySnap`（`occurrence?.allDay === true || options.timelineScale !== 'hour'`）は
@@ -41,6 +44,7 @@ import {
   dragPreviewRange,
   timeAtTimelineOffset,
 } from '../core/interaction';
+import { resourceLanePatch } from '../core/resource-assignment';
 import {
   addDaysInZone,
   addMinutesInZone,
@@ -70,6 +74,7 @@ import {
   createOverlapBlockerCache,
   type EventNotificationProps,
   eventNotificationProps,
+  laneIdFromEventTarget,
   laneResourceIdOf,
   resolveScopeForRecurring,
 } from './drag-common';
@@ -277,9 +282,20 @@ export function useTimelineDrag(params: {
     return viewModel.type === 'timeline' ? viewModel.days.map((day) => day.date) : [];
   }
 
-  /** オカレンスの現在のレーンのリソース ID（{@link laneResourceIdOf}）。 */
+  /** オカレンスの代表レーンのリソース ID（{@link laneResourceIdOf}）。 */
   function occurrenceLaneId(occurrence: EventOccurrence): string | null {
     return laneResourceIdOf(occurrence, paramsRef.current.calendar.state.resources);
+  }
+
+  /**
+   * 操作元レーン（行）のリソース ID を解決する。操作した DOM 要素の属する行
+   * （{@link laneIdFromEventTarget}）を正とし、解決できない場合のみ代表レーン
+   * （{@link occurrenceLaneId}）へフォールバックする。複数リソース割当のオカレンスは
+   * 複数の行に同時に表示されるため、「操作した行」はイベントデータからは特定できない。
+   */
+  function sourceLaneIdFor(occurrence: EventOccurrence, target: EventTarget | null): string | null {
+    const fromDom = laneIdFromEventTarget(target);
+    return fromDom !== undefined ? fromDom : occurrenceLaneId(occurrence);
   }
 
   /** clientY を含む行（なければ中心距離が最も近い行）を探す。 */
@@ -466,6 +482,9 @@ export function useTimelineDrag(params: {
   /**
    * オカレンスの変更（時間・リソースの合成パッチ）を適用し、`onEventChange` を通知する
    * （スコープ解決済みの前提。{@link ./use-resource-grid-drag} と同じ規則）。
+   *
+   * @param sourceLaneId - 操作を開始した行のリソース ID。複数リソース割当では
+   *   この行の割当だけが `resourceId`（移動先）へ変わる（{@link resourceLanePatch}）
    */
   function applyChange(
     occurrence: EventOccurrence,
@@ -473,15 +492,14 @@ export function useTimelineDrag(params: {
     range: DateRange | null,
     resourceId: string | null,
     allDay: boolean,
+    sourceLaneId: string | null,
   ): void {
-    const patch: CalendarEventPatch = {};
+    const patch: CalendarEventPatch = {
+      ...resourceLanePatch(occurrence.event, sourceLaneId, resourceId),
+    };
     if (range !== null) {
       patch.start = range.start;
       patch.end = range.end;
-    }
-    if (resourceId !== occurrenceLaneId(occurrence)) {
-      // 未割り当てへの移動は「キーが存在し値が undefined = フィールド削除」のパッチセマンティクス
-      patch.resourceId = resourceId ?? undefined;
     }
     const changes = paramsRef.current.calendar.api.updateEvent(
       occurrence.eventId,
@@ -561,6 +579,7 @@ export function useTimelineDrag(params: {
         timeChanged ? range : null,
         session.targetResourceId,
         occurrence.allDay,
+        session.initialResourceId,
       );
     } finally {
       paramsRef.current.calendar.api.setDragPreview(null);
@@ -764,7 +783,13 @@ export function useTimelineDrag(params: {
     const anchorDay =
       pointerDayAt(event.clientX, event.clientY) ??
       startOfDayInZone(occurrence.start, state.timeZone);
-    startSession('move', occurrence, anchor, anchorDay, occurrenceLaneId(occurrence));
+    startSession(
+      'move',
+      occurrence,
+      anchor,
+      anchorDay,
+      sourceLaneIdFor(occurrence, event.currentTarget),
+    );
   }
 
   /** リサイズハンドルのドラッグを開始する。 */
@@ -793,7 +818,7 @@ export function useTimelineDrag(params: {
       occurrence,
       anchor,
       anchorDay,
-      occurrenceLaneId(occurrence),
+      sourceLaneIdFor(occurrence, event.currentTarget),
     );
   }
 
@@ -858,6 +883,7 @@ export function useTimelineDrag(params: {
     action: 'move' | 'resize',
     range: DateRange | null,
     resourceId: string | null,
+    sourceLaneId: string | null,
   ): Promise<void> {
     if (
       !isCandidateValid(
@@ -892,7 +918,7 @@ export function useTimelineDrag(params: {
       }
       recurringScope = resolved;
     }
-    applyChange(occurrence, recurringScope, range, resourceId, occurrence.allDay);
+    applyChange(occurrence, recurringScope, range, resourceId, occurrence.allDay, sourceLaneId);
   }
 
   /**
@@ -922,14 +948,14 @@ export function useTimelineDrag(params: {
       if (occurrence.event.editable === false) {
         return;
       }
-      const target = adjacentResourceId(
-        occurrenceLaneId(occurrence),
-        event.key === 'ArrowUp' ? -1 : 1,
-      );
-      if (target === undefined || target === occurrenceLaneId(occurrence)) {
+      // 基準行はフォーカス中の要素が属する行（複数リソース割当では表示中の
+      // 複数の行のうち操作した行だけが移動対象になる）
+      const sourceLaneId = sourceLaneIdFor(occurrence, event.currentTarget);
+      const target = adjacentResourceId(sourceLaneId, event.key === 'ArrowUp' ? -1 : 1);
+      if (target === undefined || target === sourceLaneId) {
         return;
       }
-      void commitKeyboardChange(occurrence, 'move', null, target).catch(reportError);
+      void commitKeyboardChange(occurrence, 'move', null, target, sourceLaneId).catch(reportError);
       return;
     }
 
@@ -983,9 +1009,9 @@ export function useTimelineDrag(params: {
     ) {
       return;
     }
-    void commitKeyboardChange(occurrence, action, range, occurrenceLaneId(occurrence)).catch(
-      reportError,
-    );
+    // 時間のみの操作。レーンは不変（source = target）のため割当パッチは生成されない
+    const laneId = sourceLaneIdFor(occurrence, event.currentTarget);
+    void commitKeyboardChange(occurrence, action, range, laneId, laneId).catch(reportError);
   }
 
   function getRowProps(row: TimelineRow): TimelineRowProps {

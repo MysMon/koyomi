@@ -26,7 +26,8 @@
 | `location` | `string`（省略可） | 場所。 |
 | `description` | `string`（省略可） | 説明文。 |
 | `editable` | `boolean`（省略可） | 変更操作を許可するか。既定は `true`。`false` の場合、表示・クリックは可能だがドラッグ移動・リサイズ・キーボードでの移動/リサイズ/削除はすべて無効になります。 |
-| `resourceId` | `string`（省略可） | 割当先リソースの ID（[リソース](#リソース)を参照）。リソース/タイムラインビューで使用します。 |
+| `resourceId` | `string`（省略可） | 割当先リソースの ID（[リソース](#リソース)を参照）。リソース/タイムラインビューで使用します。`resourceIds` 指定時は無視されます。 |
+| `resourceIds` | `readonly string[]`（省略可） | 割当先リソース ID の一覧（複数リソース割当）。指定すると割当先の各レーンに同一オカレンスが表示されます。詳細は [複数リソース割当](#複数リソース割当resourceids) を参照。 |
 | `overlap` | `boolean`（省略可） | このイベントに他のイベントを重ねてよいか。省略時は `CalendarOptions.eventOverlap`（既定 `true`）に従います。詳細は [インタラクション: 宣言的な重なり・配置制約](./interactions.md#宣言的な重なり配置制約eventoverlap--eventconstraint) を参照。 |
 | `constraint` | `'businessHours' \| readonly BusinessHoursRule[]`（省略可） | このイベントのドロップ先を制限します。省略時は `CalendarOptions.eventConstraint` に従います。終日イベントには適用されません。詳細は [インタラクション: 宣言的な重なり・配置制約](./interactions.md#宣言的な重なり配置制約eventoverlap--eventconstraint) を参照。 |
 | `extendedProps` | `Record<string, unknown>`（省略可） | 利用者定義の任意データ。ライブラリは内容に関知しません。 |
@@ -122,14 +123,14 @@ const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
 
 ## リソース
 
-`CalendarResource` は会議室・設備・担当者など、予定の割当先を表す型です。`CalendarEvent.resourceId` でイベントをリソースに割り当てます。リソース/タイムラインビューで使用します。
+`CalendarResource` は会議室・設備・担当者など、予定の割当先を表す型です。`CalendarEvent.resourceId`（単一割当）または `CalendarEvent.resourceIds`（[複数リソース割当](#複数リソース割当resourceids)）でイベントをリソースに割り当てます。リソース/タイムラインビューで使用します。
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
 | `id` | `string` | 一意な ID。重複する場合は先頭のリソースが優先されます（先勝ち）。 |
 | `title` | `string` | 表示名。 |
 | `color` | `string`（省略可） | 表示色（CSS の color 値）。リソース/タイムラインビューの列/行見出しと、そのビュー内で `event.color` 未指定のイベントの既定色になります（イベント自身の `color` が常に優先。既存ビューの描画には影響しません）。 |
-| `parentId` | `string`（省略可） | 親リソースの ID。タイムラインビューでこのリソースを子としてツリー内に配置します（深さは任意段）。参照先のない ID・循環参照（自己参照含む）は孤立したルート（深さ 0）として扱われます。リソースビューの列順には影響しません（常にフラット）。詳細は [ビュー: リソースの階層グルーピング](./views.md#リソースの階層グルーピングparentid折りたたみ) を参照。 |
+| `parentId` | `string`（省略可） | 親リソースの ID。リソース/タイムラインビューでこのリソースを子としてツリー内に配置します（深さは任意段。タイムラインは行のツリー、リソースビューはツリー順の列＋列グループ見出し行）。参照先のない ID・循環参照（自己参照含む）は孤立したルート（深さ 0）として扱われます。詳細は [ビュー: リソースの階層グルーピング](./views.md#リソースの階層グルーピングparentid折りたたみ) を参照。 |
 | `extendedProps` | `Record<string, unknown>`（省略可） | 利用者定義の任意データ。ライブラリは内容に関知しません。 |
 
 表示順は `resources` 配列の並び順です（`order` のような専用フィールドは持ちません）。
@@ -159,6 +160,30 @@ calendar.setResources([{ id: 'room-a', title: '会議室A（改称）' }]);
 `events` と同様、`resources`（初期値）・`setResources` に渡した配列、
 `getResources()` の戻り値の配列、それぞれに含まれる各 `CalendarResource`
 オブジェクトは、渡した後・受け取った後に変更しないでください。
+
+### 複数リソース割当（resourceIds）
+
+`CalendarEvent.resourceIds` に複数のリソース ID を渡すと、1 件の予定を複数のリソースへ同時に割り当てられます（Google カレンダーで 1 つの予定に複数の会議室を割り当てるのと同じ考え方）。リソース/タイムラインビューでは、割当先の各レーン（列/行）に同一オカレンスが表示されます。
+
+```ts
+calendar.createEvent({
+  title: '全体会議',
+  start: '2026-07-01T10:00',
+  end: '2026-07-01T11:00',
+  resourceIds: ['room-a', 'room-b'], // 会議室A と会議室B の両方の列に表示される
+});
+```
+
+`resourceId`（単一割当）との優先規則は次のとおりです。
+
+- `resourceIds` を**指定した場合（空配列を含む）は `resourceIds` を採用**し、`resourceId` は無視されます。空配列は「未割り当て」を意味します
+- `resourceIds` 未指定時は `resourceId`（単一割当）に従います
+- `resourceIds` 内の重複 ID は 1 件として扱われます（同じレーンに二重表示されません）
+- 割当のうち `resources` に存在する ID だけがレーンになります。存在する ID が 1 件もない場合（割当なし、またはすべて参照先のない ID）のみ、未割り当てレーンに 1 回だけ表示されます
+
+D&D・キーボード操作でレーン間を移動した場合は、**操作したレーンの割当だけが移動先に変わり**、他のレーンの割当は保持されます（詳細は [インタラクション](./interactions.md) と [ビュー](./views.md) の各ビューの説明を参照）。未割り当てレーンへ移動すると操作したレーンの割当だけが外れ、最後の 1 件を外すと予定全体が未割り当てになります。移動先がすでに割当済みのレーンの場合は割当が統合されます（重複しません）。
+
+コアの解決規則は `effectiveResourceIds` / `assignedLaneIds` / `resourceLanePatch`（[API リファレンス](./api.md#リソース割当の解決coreresource-assignment)）として公開されており、独自 UI からも同じ規則を再利用できます。
 
 ## イベントの CRUD
 
@@ -220,6 +245,75 @@ calendar.setEvents([
 const events = calendar.getEvents();
 // events.map((e) => e.id) は ['x1', 'x2']
 ```
+
+## 複製とコピー&ペースト
+
+イベントの複製・コピー&ペーストは `core/mutations` の純粋関数として提供されます
+（`CalendarApi` のメソッドではありません）。
+
+- `buildOccurrenceCopy(events, id, params, context)` — コピー。イベント（またはオカレンス）の
+  複製を新規作成の入力（`CalendarEventInput`。`id` を持たない）として構築する
+- `placeEventInputAt(input, params, context)` — 配置。入力を貼り付け先の日時
+  （`params.newStart`）へ移した入力を返す（長さは維持）
+- `pasteEventIn(events, input, params, context)` — 貼り付け。配置した入力をイベント一覧に
+  追加する（`id` は常に採番。同じクリップボード内容を複数回貼り付けられる）
+- `duplicateEventIn(events, id, params, context)` — 複製。同じ日時のまま新しいイベントとして
+  追加する
+
+**繰り返しイベントのコピーは、シリーズ全体ではなく当該オカレンスの単発化です**
+（Google カレンダーのコピーと同じ扱い）。`params.occurrenceStart` で指定したオカレンスの
+日時に配置された、`rrule` / `exdates` / `rdates` を持たない単発イベントの複製になります。
+対象オカレンスがオーバーライド済みの場合（またはオーバーライドの `id` を直接渡した場合）は、
+オーバーライドの現在の内容（移動後の日時・変更後のタイトル等）がコピーされ、
+`recurringEventId` / `originalStart` は引き継がれません。シリーズ全体を複製したい場合は、
+`getEvents()` から取得したイベントの `rrule` を含むフィールドを自前で組み立てて
+`createEvent` に渡してください。
+
+`pasteEventInWithChanges` / `duplicateEventInWithChanges` は、追加後の一覧に加えて
+影響を受けたイベントの before/after 一覧（`changes`）も返します。これを
+[undo/redo 履歴](#undo元に戻すを実装する)（`createEventHistory` / `useCalendarHistory` の
+`push`）へ渡すと、貼り付け・複製も取り消し（undo）・やり直し（redo）の対象になります。
+
+```ts
+import { buildOccurrenceCopy, pasteEventInWithChanges } from '@koyomi-cal/react';
+import type { MutationContext } from '@koyomi-cal/react';
+
+const context: MutationContext = {
+  displayTimeZone: 'Asia/Tokyo',
+  defaultEventMinutes: 60,
+  generateId: () => 'copy-1',
+};
+const events = [
+  {
+    id: 'master-1',
+    title: '朝会',
+    start: new Date('2026-07-01T00:00:00Z'), // 東京 9:00
+    end: new Date('2026-07-01T01:00:00Z'),
+    rrule: 'FREQ=DAILY;COUNT=10',
+  },
+];
+
+// 7/3 のオカレンスをコピー（単発化。copy.rrule は undefined）
+const copy = buildOccurrenceCopy(
+  events,
+  'master-1',
+  { occurrenceStart: new Date('2026-07-03T00:00:00Z') },
+  context,
+);
+
+// 7/20 9:00 に貼り付け
+const result = pasteEventInWithChanges(
+  events,
+  copy,
+  { newStart: new Date('2026-07-20T00:00:00Z') },
+  context,
+);
+// result.created.id === 'copy-1'、result.changes は after のみのエントリ 1 件
+```
+
+キーボードショートカット（`Ctrl/Cmd+C` / `Ctrl/Cmd+V`）でこれらを配線する React フック
+`useCalendarClipboard` は [インタラクション: コピー&ペースト](./interactions.md#コピーペーストusecalendarclipboard) を
+参照してください。
 
 ## パッチ規則（applyPatch）
 
@@ -527,6 +621,7 @@ const occurrences = calendar.getOccurrences({
 ## 関連ページ
 
 - [繰り返し予定](./recurrence.md)
+- [iCalendar（ICS）入出力](./ics.md)
 - [タイムゾーン](./timezones.md)
 - [インタラクション（作成・移動・リサイズ）](./interactions.md)
 - [API リファレンス](./api.md)

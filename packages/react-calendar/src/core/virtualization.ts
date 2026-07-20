@@ -226,6 +226,76 @@ function makeVirtualItem(
 }
 
 /**
+ * 可視ウィンドウ（スクロールで実際に見えている範囲。overscan を含まない）の
+ * インデックス範囲とキー範囲。
+ *
+ * 可視範囲の変更通知（`VirtualTimelineView` の `onVisibleRangeChange` など）で、
+ * 「どこからどこまでが見えているか」をキー基準で表すために使う。キーを含めるのは、
+ * 表示範囲の移動や並びの変更でインデックスが同じまま内容が入れ替わっても
+ * 変化として検出できるようにするため。
+ */
+export interface VisibleWindowRange {
+  /** 可視範囲の先頭インデックス（0 起点）。アイテムが 0 件なら `-1`。 */
+  startIndex: number;
+  /** 可視範囲の末尾インデックス（両端含む）。アイテムが 0 件なら `-1`。 */
+  endIndex: number;
+  /** 可視範囲の先頭アイテムのキー。アイテムが 0 件なら `null`。 */
+  startKey: string | null;
+  /** 可視範囲の末尾アイテムのキー。アイテムが 0 件なら `null`。 */
+  endKey: string | null;
+}
+
+/**
+ * {@link computeWindow} の結果から可視ウィンドウ（overscan を除く）の
+ * {@link VisibleWindowRange} を組み立てる純関数。
+ *
+ * @param result - `startIndex` / `endIndex` を含む {@link WindowResult}（の部分集合）
+ * @param getKey - インデックス → 安定キー（{@link WindowInput.getKey} と同じもの）
+ * @returns キー付きの可視範囲。`startIndex` が負（0 件）ならキーは `null`
+ */
+export function visibleWindowRange(
+  result: Pick<WindowResult, 'startIndex' | 'endIndex'>,
+  getKey: (index: number) => string,
+): VisibleWindowRange {
+  const { startIndex, endIndex } = result;
+  if (startIndex < 0 || endIndex < 0) {
+    return { startIndex: -1, endIndex: -1, startKey: null, endKey: null };
+  }
+  return {
+    startIndex,
+    endIndex,
+    startKey: getKey(startIndex),
+    endKey: getKey(endIndex),
+  };
+}
+
+/**
+ * 2 つの {@link VisibleWindowRange} が同じ内容かどうかを判定する純関数。
+ *
+ * 可視範囲の変更通知の発火判定（内容が変わったときだけ 1 回通知する）に使う。
+ * `null` は「まだ範囲を記録していない」を表し、非 `null` とは常に不一致
+ * （＝初回は必ず「変化あり」）として扱う。
+ *
+ * @param a - 比較する範囲（`null` は未記録）
+ * @param b - 比較する範囲（`null` は未記録）
+ * @returns インデックス・キーがすべて等しければ `true`
+ */
+export function sameVisibleWindowRange(
+  a: VisibleWindowRange | null,
+  b: VisibleWindowRange | null,
+): boolean {
+  if (a === null || b === null) {
+    return a === b;
+  }
+  return (
+    a.startIndex === b.startIndex &&
+    a.endIndex === b.endIndex &&
+    a.startKey === b.startKey &&
+    a.endKey === b.endKey
+  );
+}
+
+/**
  * 指定したキーを持つアイテムの `start`（px）を返す。無ければ `null`。
  *
  * 可変高でのスクロールアンカリング（測定反映後にスクロール位置を補正する）で、

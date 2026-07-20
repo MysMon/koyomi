@@ -1,5 +1,7 @@
 # Koyomi（@koyomi-cal/react）
 
+日本語（正式なドキュメント） ・ **[English README](./README.en.md)**
+
 ヘッドレスな TypeScript/React カレンダーライブラリ。
 
 - 📅 **8 つのビュー** — 月・週・日・リストに加え、年・複数月・リソース・タイムライン（後者 4 つは opt-in）を切り替え可能（`hiddenWeekdays` で週末非表示も）。リソースは `parentId` で階層グルーピング・折りたたみ、タイムラインは `timelineScale` で時刻/日/週/月のズーム粒度を切替
@@ -23,11 +25,14 @@
 - [予定の管理](./docs/events.md)
 - [インタラクション（作成・移動・リサイズ）](./docs/interactions.md)
 - [繰り返し予定](./docs/recurrence.md)
+- [iCalendar（ICS）入出力](./docs/ics.md)
 - [アクセシビリティ](./docs/accessibility.md)
 - [タイムゾーン](./docs/timezones.md)
 - [テーマとスタイリング](./docs/theming.md)
 - [カスタマイズガイド](./docs/customization.md)
 - [API リファレンス](./docs/api.md)
+- [English documentation (docs/en/)](./docs/en/README.md)
+- [サンプル（StackBlitz / CodeSandbox で開ける examples/）](./examples/)
 
 ## インストール
 
@@ -41,6 +46,7 @@ pnpm add @koyomi-cal/react
 pnpm install
 pnpm check   # 用語・テスト配置 + Lint + 型チェック + Vitest
 pnpm test:e2e # Playwright（Chromium / Firefox / WebKit / touch / axe）
+pnpm bench   # 性能ベンチマーク（docs/performance.md に実測値の例）
 pnpm demo    # デモアプリを起動
 ```
 

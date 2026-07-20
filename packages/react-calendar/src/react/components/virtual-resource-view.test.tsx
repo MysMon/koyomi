@@ -58,6 +58,7 @@ interface HarnessProps {
   businessHours?: readonly BusinessHoursRule[];
   slotMinTime?: string;
   slotMaxTime?: string;
+  resourceViewDays?: number;
   viewProps?: VirtualResourceViewProps;
   messages?: MessageCatalogOverrides;
   sink?: { current: UseCalendarResult | null };
@@ -76,6 +77,7 @@ function Harness(props: HarnessProps): ReactElement {
     ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
     ...(props.slotMinTime !== undefined ? { slotMinTime: props.slotMinTime } : {}),
     ...(props.slotMaxTime !== undefined ? { slotMaxTime: props.slotMaxTime } : {}),
+    ...(props.resourceViewDays !== undefined ? { resourceViewDays: props.resourceViewDays } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -133,6 +135,46 @@ describe('VirtualResourceView', () => {
     }
     const bodyColumns = container.querySelectorAll('[data-koyomi="resource-column"]');
     expect(bodyColumns.length).toBe(headerCells.length);
+  });
+
+  it('列見出しに data-koyomi-depth（階層の深さ）が付く', () => {
+    const resources: CalendarResource[] = [
+      { id: 'site', title: '本社' },
+      { id: 'floor-1', title: '1F', parentId: 'site' },
+      { id: 'room-x', title: '会議室X', parentId: 'floor-1' },
+    ];
+    const { container } = render(<Harness resources={resources} />);
+    const depths = Array.from(
+      container.querySelectorAll('[data-koyomi="resource-header-cell"]'),
+    ).map((element) => element.getAttribute('data-koyomi-depth'));
+    expect(depths).toEqual(['0', '1', '2']);
+  });
+
+  it('parentId の変更で深さが変わると data-koyomi-depth も追従する（memo が古い値を固定しない）', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(
+      <Harness
+        resources={[
+          { id: 'site', title: '本社' },
+          { id: 'floor-1', title: '1F', parentId: 'site' },
+        ]}
+        sink={sink}
+      />,
+    );
+    const depths = (): (string | null)[] =>
+      Array.from(container.querySelectorAll('[data-koyomi="resource-header-cell"]')).map(
+        (element) => element.getAttribute('data-koyomi-depth'),
+      );
+    expect(depths()).toEqual(['0', '1']);
+
+    // id・title・color が同じまま parentId だけ外す（depth 1 → 0）
+    act(() => {
+      sink.current?.api.setResources([
+        { id: 'site', title: '本社' },
+        { id: 'floor-1', title: '1F' },
+      ]);
+    });
+    expect(depths()).toEqual(['0', '0']);
   });
 
   it('終日イベントの aria-label は通常の ResourceView と同じ形式（イベント名＋日付＋リソース名）になる', () => {
@@ -665,6 +707,37 @@ describe('VirtualResourceView - businessHours（営業時間）', () => {
       expect(slots[17]).not.toHaveAttribute('data-koyomi-business-hours');
       expect(slots[8]).not.toHaveAttribute('data-koyomi-business-hours');
     }
+  });
+});
+
+describe('VirtualResourceView - 複数日表示（resourceViewDays）', () => {
+  it('resourceViewDays: 2 で列がリソース×日の直積になり、見出しに日ラベルと data-koyomi-date が付く', () => {
+    const { container } = render(<Harness resources={makeResources(2)} resourceViewDays={2} />);
+    const root = container.querySelector('[data-koyomi="resource"]');
+    expect(root).toHaveAttribute('data-koyomi-columns', '4');
+    const headers = Array.from(container.querySelectorAll('[data-koyomi="resource-header-cell"]'));
+    expect(headers).toHaveLength(4);
+    // NOW = 2026-07-15（水）が先頭日
+    expect(headers[0]?.textContent).toBe('リソース0 15 (水)');
+    expect(headers[1]?.textContent).toBe('リソース0 16 (木)');
+    expect(headers[0]).toHaveAttribute('data-koyomi-date', '2026-07-15');
+    expect(headers[1]).toHaveAttribute('data-koyomi-date', '2026-07-16');
+  });
+
+  it('now-indicator は今日の列にだけ描画され、data-koyomi-business-hours は列ごとの日の曜日基準になる', () => {
+    // NOW = 2026-07-15（水）。水曜だけ営業にする → 1 日目の列のみハイライト
+    const businessHours: BusinessHoursRule[] = [
+      { daysOfWeek: [3], startTime: '09:00', endTime: '17:00' },
+    ];
+    const { container } = render(
+      <Harness resources={makeResources(1)} resourceViewDays={2} businessHours={businessHours} />,
+    );
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+    expect(columns).toHaveLength(2);
+    expect(columns[0]?.querySelector('[data-koyomi="now-indicator"]')).not.toBeNull();
+    expect(columns[1]?.querySelector('[data-koyomi="now-indicator"]')).toBeNull();
+    expect(columns[0]?.querySelectorAll('[data-koyomi-business-hours]').length).toBeGreaterThan(0);
+    expect(columns[1]?.querySelectorAll('[data-koyomi-business-hours]')).toHaveLength(0);
   });
 });
 

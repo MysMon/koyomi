@@ -7,7 +7,8 @@
  * ドラッグセッションを開始し、カレンダー上のドロップ先を日時・（リソース/
  * タイムラインビューでは）リソースへ解決する。プレビュー表示は既存の仕組み
  * （`api.setDragPreview` / 各ビューの内部ドラッグフックが読む
- * `state.dragPreview`）をそのまま再利用する。カレンダー本体の DOM
+ * `state.dragPreview`）をそのまま再利用する（リストビューはドロップ先の
+ * 解決のみでハイライト表示はない）。カレンダー本体の DOM
  * （`data-koyomi-*` 属性）を `document.elementFromPoint` でヒットテストする
  * ため、対応ビューが実際に描画されている必要がある。ヒットテストの候補は
  * {@link UseExternalDragParams.containerRef} が指す要素の内側に限定する。
@@ -25,8 +26,9 @@
  * `document.elementsFromPoint`（手前から奥へ）を使い、セルに到達するまで候補を
  * 順に見る（{@link resolveExternalDrop} 参照）。
  *
- * 対応ビュー: 月・週/日（時間グリッド本体＋終日行）・リソース・タイムライン。
- * リスト・年・複数月ビューは対象外（ドロップ先が解決できず常にキャンセル扱いになる）。
+ * 対応ビュー: 月・週/日（時間グリッド本体＋終日行）・リスト（日セクション）・
+ * 複数月（日セル）・リソース・タイムライン。年ビューは対象外
+ * （ドロップ先が解決できず常にキャンセル扱いになる）。
  *
  * Escape キー・`pointercancel`、およびドロップ先が解決できなかった場合は
  * 既存のドラッグ系フックと同じ流儀でコールバックを発火させずに中断する。
@@ -204,12 +206,16 @@ function closestAmong(elements: readonly Element[], selector: string): HTMLEleme
   return null;
 }
 
-/** 月ビューでの解決（日セル → 終日 1 日分の範囲）。対象セルが見つからなければ `null`。 */
-function resolveMonthDrop(
+/**
+ * 日単位のセル/セクション要素から終日 1 日分の範囲を解決する共通処理。
+ * `selector` にマッチし `data-koyomi-date` を持つ要素が見つからなければ `null`。
+ */
+function resolveDayDrop(
   elements: readonly Element[],
+  selector: string,
   timeZone: TimeZoneId,
 ): ExternalDropResolution | null {
-  const cell = closestAmong(elements, '[data-koyomi="month-day"]');
+  const cell = closestAmong(elements, selector);
   if (cell === null) {
     return null;
   }
@@ -219,6 +225,32 @@ function resolveMonthDrop(
   }
   const start = dateFromKey(dateKey, timeZone);
   return { range: { start, end: addDaysInZone(start, 1, timeZone) }, allDay: true };
+}
+
+/**
+ * 月ビュー・複数月ビューでの解決（日セル → 終日 1 日分の範囲）。
+ * 対象セルが見つからなければ `null`。複数月ビューの日セルは月ビューと同じ
+ * `month-day`（`data-koyomi-date` 付き）のため共通で解決できる（複数月ビューの
+ * 前後月の日付は `data-koyomi-date` を持たないため解決対象にならない）。
+ */
+function resolveMonthDrop(
+  elements: readonly Element[],
+  timeZone: TimeZoneId,
+): ExternalDropResolution | null {
+  return resolveDayDrop(elements, '[data-koyomi="month-day"]', timeZone);
+}
+
+/**
+ * リストビューでの解決（日セクション → 終日 1 日分の範囲）。
+ * リストビューは予定がある日だけを日セクション（`list-day`）として描画するため、
+ * ドロップを受け付けるのもその日セクションの上に限られる（予定のない日の領域では
+ * ドロップ先が解決できずキャンセル扱いになる）。
+ */
+function resolveListDrop(
+  elements: readonly Element[],
+  timeZone: TimeZoneId,
+): ExternalDropResolution | null {
+  return resolveDayDrop(elements, '[data-koyomi="list-day"]', timeZone);
 }
 
 /**
@@ -269,6 +301,9 @@ function resolveTimeGridDrop(
  * 終日行のセル（`resource-allday-cell`）なら終日 1 日分の範囲＋リソース ID、
  * 列（`resource-column`）ならポインタの縦位置から算出した時間指定の範囲＋
  * リソース ID を返す。どちらにも該当しなければ `null`。
+ *
+ * 対象の日は要素の `data-koyomi-date`（列の日付キー。複数日表示で列ごとに異なる）
+ * から求め、属性が無い場合は表示範囲の先頭日（`context.day`）にフォールバックする。
  */
 function resolveResourceDrop(
   elements: readonly Element[],
@@ -276,11 +311,17 @@ function resolveResourceDrop(
   context: { timeZone: TimeZoneId; snap: number; defaultEventMinutes: number; day: Date },
 ): ExternalDropResolution | null {
   const { timeZone, snap, defaultEventMinutes, day } = context;
+  /** 要素の `data-koyomi-date` から列の日を求める（無ければ先頭日）。 */
+  function columnDay(element: Element): Date {
+    const dateKey = element.getAttribute('data-koyomi-date');
+    return dateKey === null ? day : dateFromKey(dateKey, timeZone);
+  }
   const alldayCell = closestAmong(elements, '[data-koyomi="resource-allday-cell"]');
   if (alldayCell !== null) {
     const resourceId = resourceIdFromLaneKey(alldayCell.getAttribute('data-koyomi-resource'));
+    const cellDay = columnDay(alldayCell);
     return {
-      range: { start: day, end: addDaysInZone(day, 1, timeZone) },
+      range: { start: cellDay, end: addDaysInZone(cellDay, 1, timeZone) },
       allDay: true,
       resourceId,
     };
@@ -292,7 +333,7 @@ function resolveResourceDrop(
   const resourceId = resourceIdFromLaneKey(column.getAttribute('data-koyomi-resource'));
   const rect = column.getBoundingClientRect();
   const start = timeAtGridPosition({
-    day,
+    day: columnDay(column),
     fractionY: fractionAlong(rect.top, rect.height, clientY),
     timeZone,
     snap,
@@ -367,7 +408,7 @@ function elementsWithinContainer(
  * ポインタ位置の直下の要素（{@link elementsAtPoint}）から、現在のビューに
  * 応じたドロップ先（日時範囲・終日か・リソース ID）を解決する。
  * `document.elementFromPoint` / `elementsFromPoint` のいずれも使えない環境、
- * 対応ビューでない場合（リスト・年・複数月ビュー等）、`container` の内側に
+ * 対応ビューでない場合（年ビュー等）、`container` の内側に
  * 対応する要素が見つからない場合は `null`。
  *
  * @param container - ヒットテストの対象を限定するカレンダーインスタンスの DOM
@@ -393,7 +434,10 @@ function resolveExternalDrop(
   };
   switch (viewModel.type) {
     case 'month':
+    case 'multiMonth':
       return resolveMonthDrop(elements, timeZone);
+    case 'list':
+      return resolveListDrop(elements, timeZone);
     case 'timeGrid':
       return resolveTimeGridDrop(elements, clientY, context);
     case 'resource':
@@ -415,7 +459,8 @@ function resolveExternalDrop(
  * テンプレートなど）にスプレッドすると、その要素からの `pointerdown` で
  * ドラッグセッションが始まる。ドラッグ中はポインタ直下のカレンダー要素から
  * ドロップ先を解決し、既存のプレビュー機構（`api.setDragPreview`）でカレンダー
- * 上にハイライト表示する。`pointerup` でドロップ先が解決できれば
+ * 上にハイライト表示する（リストビューはドロップ先の解決のみで、ハイライト
+ * 表示はない）。`pointerup` でドロップ先が解決できれば
  * `onExternalDrop` を呼ぶ（`payload` はドロップ確定時にそのまま渡される）。
  *
  * Escape キー・`pointercancel`、およびドロップ先が解決できなかった場合は

@@ -41,8 +41,8 @@ import '@koyomi-cal/react/theme.css';
 | `--koyomi-shadow` | 持ち上がり要素（選択中のビューセグメント・ホバー中のチップなど）の影 | 弱い 2 層のドロップシャドウ |
 | `--koyomi-radius` | 角丸の半径（ボタン・イベント共通） | `6px` |
 | `--koyomi-font-size` | 基準フォントサイズ | `13px` |
-| `--koyomi-month-header-height` | 月セルの日番号行の高さ（イベント帯の上端オフセットにも使用） | `24px` |
-| `--koyomi-lane-height` | 帯セグメント 1 レーンの高さ | `24px` |
+| `--koyomi-month-header-height` | 月セルの日番号行の高さ（イベント帯の上端オフセットにも使用）。既定値は日番号ボタンの実表示高（-2px 後）が WCAG 2.2 の最小ターゲットサイズ（24px）を満たす値 | `26px` |
+| `--koyomi-lane-height` | 帯セグメント 1 レーンの高さ。既定値は帯の実表示高（-2px 後）が WCAG 2.2 の最小ターゲットサイズ（24px）を満たす値 | `26px` |
 | `--koyomi-hour-height` | 時間グリッド 1 時間分の高さ | `48px` |
 | `--koyomi-time-axis-width` | 時間グリッドの時刻軸幅（ヘッダー・終日行・本体で揃えるための内部変数） | `56px` |
 | `--koyomi-virtual-list-max-height` | `VirtualListView`（仮想化リスト）のスクロールコンテナの `max-height`。既定は `none`（無制限）で、実際の境界高は利用者が指定する | `none` |
@@ -100,6 +100,10 @@ import '@koyomi-cal/react/theme.css';
 // 例: ユーザーの選択に応じて <html> に data-koyomi-theme を付け外しする
 document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 ```
+
+## motion の削減（prefers-reduced-motion）
+
+デフォルトテーマは `prefers-color-scheme` と同様に `prefers-reduced-motion: reduce` にも自動で追従します。OS/ブラウザで「視差効果を減らす」等の設定を有効にしているユーザーには、ボタンの配色変化や折りたたみトグル（リソース/タイムラインビュー）の回転といった `transition` がすべて無効化されます（瞬時に切り替わります）。この対応はデフォルトテーマの CSS のみで完結しており、追加の設定は不要です。
 
 ## data-koyomi 属性の一覧
 
@@ -190,7 +194,9 @@ document.documentElement.dataset.koyomiTheme = isDark ? 'dark' : 'light';
 | --- | --- |
 | リソースビュー本体 | `resource`（`data-koyomi-columns="N"`） |
 | 空状態（列が 1 つもない）の表示 | `resource-empty` |
-| 列見出し行（role="row"） / 各見出しセル | `resource-header` / `resource-header-cell`（`role="columnheader"`。リソースに対応する列のみ `data-koyomi-resource-id`） |
+| 列見出し行（role="row"） / 各見出しセル | `resource-header` / `resource-header-cell`（`role="columnheader"`。リソースに対応する列のみ `data-koyomi-resource-id`。階層の深さを示す `data-koyomi-depth` も付く） |
+| 列グループ見出し行（`parentId` で子を持つリソースがある場合のみ） / グループセル / スペーサー | `resource-group-header-row` / `resource-group-header-cell`（`role="columnheader"`、`aria-colspan`、`data-koyomi-resource-id`、`data-koyomi-depth`） / `resource-group-header-gap` |
+| 列見出しの折りたたみトグルボタン（`ResourceColumn.hasChildren` が `true` の列の先頭日のみ） | `resource-column-toggle`（`aria-expanded`） |
 | 終日イベント行 / セル | `allday-row` / `resource-allday-cell`（`data-koyomi-resource`、終日ドラッグプレビューの対象列は `data-koyomi-preview-target="true"`、宣言的制約違反時は `data-koyomi-invalid="true"` も付く） |
 | 終日アイテム | `allday-event` |
 | 本体 / 時刻軸ラベル | `resource-body` / `time-slot-label` |
@@ -459,6 +465,14 @@ function App() {
 // - locale が同梱していない言語（例: 'fr'）の場合は 'ja' のカタログにフォールバックする
 ```
 
+`CalendarProvider` / `useCalendarAnnouncer` / `useRecurrenceRuleEditor` 経由では常に `'ja'` にフォールバックしますが、`resolveMessageCatalog` を直接呼ぶ場合は第 3 引数 `fallbackLanguage` でフォールバック先を変更できます。
+
+```ts
+import { resolveMessageCatalog } from '@koyomi-cal/react';
+
+resolveMessageCatalog('fr', undefined, 'en').toolbar.today; // => 'Today'（'fr' は同梱していないため 'en' にフォールバック）
+```
+
 ### messages prop での部分上書き
 
 `CalendarProvider` の `messages` prop（`MessageCatalogOverrides` 型）は、`MessageCatalog` の各グループ（`common` / `toolbar` / `list` / `month` / `multiMonth` / `resource` / `timeline` / `year` / `announcer` / `recurrenceEditor`）単位で既定カタログに浅くマージされます。グループ自体を省略すればそのグループ全体が既定のまま、グループの一部のリーフだけを指定すればそのリーフだけが差し替わります。
@@ -528,6 +542,24 @@ const frMessages: MessageCatalog = {
 ```
 
 `locale` オプション自体は同梱カタログを選ぶ言語サブタグとしてのみ使われるため、任意の文字列（例: `'fr'`）を指定して構いません（同梱にない言語は既定では `jaMessages` にフォールバックしますが、`messages` に完全なカタログを渡せばそちらが優先されます）。各グループのリーフの型（`CommonMessages` / `ToolbarMessages` / `ListMessages` / `MonthMessages` / `MultiMonthMessages` / `ResourceMessages` / `TimelineMessages` / `YearMessages` / `AnnouncerMessages` / `RecurrenceEditorMessages`）は `MessageCatalog` の対応するグループとして参照できます。全リーフの一覧は [API リファレンス: 中央メッセージカタログ](./api.md#中央メッセージカタログreactlocales) を参照してください。
+
+### 既存のカタログを土台に差分だけ書く（`createMessageCatalog`）
+
+新しい言語が既存の同梱カタログ（`jaMessages` / `enMessages`）と近い場合、`createMessageCatalog(base, overrides)` で近い方をベースにし、異なるリーフだけを `overrides` に指定すれば、全リーフを書き直さずに完全なカタログを合成できます。`overrides` の型は `messages` prop と同じ `MessageCatalogOverrides`（各グループを `Partial` 化した型）です。
+
+```ts
+import { createMessageCatalog, enMessages } from '@koyomi-cal/react';
+
+// en とほぼ同じだが、toolbar の一部だけ異なる独自ロケール
+const customMessages = createMessageCatalog(enMessages, {
+  toolbar: { today: "Today's schedule" },
+});
+
+customMessages.toolbar.today; // => "Today's schedule"
+customMessages.toolbar.week; // => 'Week'（enMessages のまま。書き直し不要）
+```
+
+`base` に渡すカタログはこの関数の呼び出し前に完成している必要があるため、`frMessages`（自作の完全なカタログ）や `enMessages` を土台に別の言語・方言のカタログを合成する用途にも使えます。
 
 ### Provider に依存しないフックの locale / messages
 

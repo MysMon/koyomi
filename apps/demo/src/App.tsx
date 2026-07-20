@@ -12,6 +12,7 @@ import { type ReactElement, useEffect, useState } from 'react';
 import { BasicPattern } from './patterns/basic';
 import { HeadlessPattern } from './patterns/headless';
 import { InternationalPattern } from './patterns/international';
+import { StressPattern } from './patterns/stress';
 import { TeamPattern } from './patterns/team';
 import { UndoPattern } from './patterns/undo';
 import { PATTERNS, type PatternId, useHashRoute } from './router';
@@ -23,6 +24,7 @@ const PATTERN_COMPONENTS: Record<PatternId, () => ReactElement> = {
   international: InternationalPattern,
   headless: HeadlessPattern,
   undo: UndoPattern,
+  stress: StressPattern,
 };
 
 /**

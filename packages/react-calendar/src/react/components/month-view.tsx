@@ -22,11 +22,13 @@ import type {
   SlotRenderContext,
 } from '../types';
 import { useDayDrag } from '../use-day-drag';
+import { defaultActiveCellKey, useGridNavigation } from '../use-grid-navigation';
 import {
   computeWeekSelectionSpan,
   formatWeekdayLabel,
   MonthWeekRow,
   useStableDayDrag,
+  weekNavActiveCol,
   withMonthLanesStyle,
 } from './month-view-parts';
 
@@ -96,12 +98,25 @@ export interface MonthViewProps {
  */
 export function MonthView(props: MonthViewProps): ReactElement | null {
   const { renderEvent, renderDayCell, overflowButtonProps, renderOverflowLabel } = props;
-  const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
+  const { api, state, viewModel, callbacks, messages, renderEventContent, gridNavigation } =
+    useCalendarContext();
   const calendar = { api, state, viewModel };
   const dayDrag = useDayDrag({
     calendar,
     callbacks,
     defaultEventTitle: messages.common.untitledEvent,
+  });
+  // roving tabindex（gridNavigation）。無効時は containerProps のリスナーが何もせず、
+  // 既定の挙動（全セル tabIndex=0）が維持される
+  const monthViewModel = viewModel.type === 'month' ? viewModel : null;
+  const defaultNavKey =
+    monthViewModel === null
+      ? null
+      : defaultActiveCellKey(monthViewModel.weeks.flatMap((week) => week.days));
+  const nav = useGridNavigation({
+    calendar,
+    enabled: gridNavigation && monthViewModel !== null,
+    defaultKey: defaultNavKey,
   });
   // dayDrag は毎レンダー新しいオブジェクトになるため、MonthWeekRow（memo化済み）への
   // 再レンダー抑制が効くよう、参照が変わらないラッパー経由で渡す（詳細は
@@ -166,15 +181,30 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
   // 浅い比較が常に不一致になり無関係な週まで再レンダーされてしまう）。そのため
   // 下記では `useDayDrag` の生の戻り値ではなく `stableDayDrag`（`useStableDayDrag`
   // でラップ済み）を渡す。
+  // roving tabindex の現在の Tab ストップ。フォーカス済みのセルが表示中の週に
+  // 含まれていればそれ、いなければ既定キー（今日、なければ先頭セル）へフォールバック
+  const navActiveKey = !nav.enabled
+    ? null
+    : nav.activeKey !== null &&
+        weeks.some((week) => week.days.some((day) => day.key === nav.activeKey))
+      ? nav.activeKey
+      : defaultNavKey;
+
   const weeksWithSelection = weeks.map((week) => ({
     week,
     selectionSpan:
       previewRange !== null ? computeWeekSelectionSpan(week.days, previewRange, timeZone) : null,
+    navActiveCol: weekNavActiveCol(week.days, navActiveKey, false),
   }));
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: DOM 仕様（components-dom.md）が定める div ベースの ARIA grid（<table> はテーマ CSS と噛み合わないため不採用）
-    <div data-koyomi="month" role="grid" style={withMonthLanesStyle(options.dayMaxEvents)}>
+    <div
+      data-koyomi="month"
+      role="grid"
+      style={withMonthLanesStyle(options.dayMaxEvents)}
+      {...nav.containerProps}
+    >
       {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA row */}
       {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない（フォーカスは各 gridcell が担う） */}
       <div data-koyomi="month-weekdays" role="row">
@@ -188,7 +218,7 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
       </div>
       {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA rowgroup */}
       <div data-koyomi="month-weeks" role="rowgroup">
-        {weeksWithSelection.map(({ week, selectionSpan }) => (
+        {weeksWithSelection.map(({ week, selectionSpan, navActiveCol }) => (
           <MonthWeekRow
             key={week.days[0]?.key ?? ''}
             week={week}
@@ -196,6 +226,8 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
             locale={locale}
             selectionSpan={selectionSpan}
             selectionInvalid={previewInvalid}
+            navEnabled={nav.enabled}
+            navActiveCol={navActiveCol}
             dayDrag={stableDayDrag}
             renderEvent={renderEvent}
             renderEventContent={renderEventContent}

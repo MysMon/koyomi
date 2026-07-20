@@ -32,6 +32,7 @@ function makeOccurrence(params: {
   eventId?: string;
   allDay?: boolean;
   resourceId?: string;
+  resourceIds?: readonly string[];
 }): EventOccurrence {
   const eventId = params.eventId ?? 'ev-1';
   const allDay = params.allDay ?? false;
@@ -42,6 +43,7 @@ function makeOccurrence(params: {
     end: params.end,
     allDay,
     ...(params.resourceId !== undefined ? { resourceId: params.resourceId } : {}),
+    ...(params.resourceIds !== undefined ? { resourceIds: params.resourceIds } : {}),
   };
   return {
     key: `${eventId}@${params.start.toISOString()}`,
@@ -168,6 +170,44 @@ describe('buildTimelineViewModel', () => {
       });
       expect(vm.rows.map((row) => row.key)).toEqual(['r:r1', 'unassigned']);
       expect(vm.rows[1]?.items).toHaveLength(1);
+    });
+
+    it('resourceIds の各リソースの行に同一オカレンスが表示される（resourceId は無視される）', () => {
+      const occurrence = makeOccurrence({
+        start: at('2026-07-10T10:00'),
+        end: at('2026-07-10T11:00'),
+        resourceId: 'r3',
+        resourceIds: ['r1', 'r2'],
+      });
+      const vm = build({
+        resources: [resource('r1'), resource('r2'), resource('r3')],
+        occurrences: [occurrence],
+      });
+      expect(vm.rows.map((row) => row.items.length)).toEqual([1, 1, 0]);
+      expect(vm.rows[0]?.items[0]?.occurrence).toBe(occurrence);
+      expect(vm.rows[1]?.items[0]?.occurrence).toBe(occurrence);
+    });
+
+    it('resourceIds が空配列・すべて参照先のない ID の場合は未割り当て行に 1 回だけ合流する', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        occurrences: [
+          makeOccurrence({
+            eventId: 'empty',
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceIds: [],
+          }),
+          makeOccurrence({
+            eventId: 'ghosts',
+            start: at('2026-07-10T12:00'),
+            end: at('2026-07-10T13:00'),
+            resourceIds: ['ghost-1', 'ghost-2'],
+          }),
+        ],
+      });
+      expect(vm.rows.map((row) => row.key)).toEqual(['r:r1', 'unassigned']);
+      expect(vm.rows[1]?.items).toHaveLength(2);
     });
   });
 
@@ -373,6 +413,17 @@ describe('buildTimelineViewModel', () => {
         { startMinutes: 540, endMinutes: 720 },
         { startMinutes: 900, endMinutes: 1080 },
       ]);
+    });
+
+    it("endTime '24:00'（日の終端）の区間は翌日 00:00 始まりの区間と連続とみなされマージされる", () => {
+      // 金曜 22:00〜24:00 と土曜 00:00〜02:00 は表示分座標系で連続する 1 本の帯になる
+      const vm = build({
+        businessHours: [
+          { daysOfWeek: [5], startTime: '22:00', endTime: '24:00' },
+          { daysOfWeek: [6], startTime: '00:00', endTime: '02:00' },
+        ],
+      });
+      expect(vm.businessHourRanges).toEqual([{ startMinutes: 1320, endMinutes: 1440 + 120 }]);
     });
 
     it('daysOfWeek に表示日の曜日が含まれない場合は区間が生成されない', () => {

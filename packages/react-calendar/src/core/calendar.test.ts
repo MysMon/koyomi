@@ -133,6 +133,31 @@ describe('createCalendar', () => {
       ).toThrow();
     });
 
+    it("businessHours の endTime には日の終端を表す '24:00' を指定できる", () => {
+      const calendar = makeCalendar({
+        businessHours: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '24:00' }],
+      });
+      expect(calendar.getState().options.businessHours[0]?.endTime).toBe('24:00');
+    });
+
+    it("businessHours の startTime に '24:00' を指定すると Error になる（'24:00' は endTime 専用）", () => {
+      expect(() =>
+        createCalendar({
+          timeZone: 'Asia/Tokyo',
+          businessHours: [{ daysOfWeek: [1], startTime: '24:00', endTime: '24:00' }],
+        }),
+      ).toThrow();
+    });
+
+    it("businessHours の endTime の '24:00' 超（'24:01' など）は Error になる", () => {
+      expect(() =>
+        createCalendar({
+          timeZone: 'Asia/Tokyo',
+          businessHours: [{ daysOfWeek: [1], startTime: '09:00', endTime: '24:01' }],
+        }),
+      ).toThrow();
+    });
+
     it('eventOverlap / eventConstraint は省略時にそれぞれ true / null になる', () => {
       const calendar = makeCalendar();
       expect(calendar.getState().options.eventOverlap).toBe(true);
@@ -159,6 +184,15 @@ describe('createCalendar', () => {
           eventConstraint: [{ daysOfWeek: [1], startTime: '18:00', endTime: '09:00' }],
         }),
       ).toThrow();
+    });
+
+    it("eventConstraint 配列の endTime にも '24:00' を指定できる（businessHours と同じ検証）", () => {
+      const calendar = makeCalendar({
+        eventConstraint: [{ daysOfWeek: [1], startTime: '18:00', endTime: '24:00' }],
+      });
+      expect(calendar.getState().options.eventConstraint).toEqual([
+        { daysOfWeek: [1], startTime: '18:00', endTime: '24:00' },
+      ]);
     });
 
     it('slotMinTime/slotMaxTime は省略時に既定 00:00/24:00 になる', () => {
@@ -454,6 +488,18 @@ describe('createCalendar', () => {
         const before = calendar.getState().currentDate.getTime();
         calendar.next();
         expect(calendar.getState().currentDate.getTime() - before).toBe(24 * 60 * 60 * 1000);
+      });
+
+      it('resource ビューの next() は resourceViewDays 日進む', () => {
+        const calendar = createCalendar({
+          timeZone: 'Asia/Tokyo',
+          initialView: 'resource',
+          initialDate: START,
+          resourceViewDays: 3,
+        });
+        const before = calendar.getState().currentDate.getTime();
+        calendar.next();
+        expect(calendar.getState().currentDate.getTime() - before).toBe(3 * 24 * 60 * 60 * 1000);
       });
 
       it('timeline ビューの next() は timelineDays 日進む', () => {
@@ -1193,6 +1239,48 @@ describe('createCalendar', () => {
       expect(vm.dateKey).toBe('2026-07-04');
     });
 
+    it('resourceViewDays を指定するとリソースビューの表示日数・列数に反映される', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        now: () => new Date('2026-07-15T01:00:00Z'),
+        initialDate: new Date('2026-07-15T01:00:00Z'),
+        initialView: 'resource',
+        resources: [{ id: 'r1', title: '会議室' }],
+        resourceViewDays: 2,
+      });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'resource') throw new Error('unreachable');
+      expect(vm.days.map((day) => day.key)).toEqual(['2026-07-15', '2026-07-16']);
+      expect(vm.columns.map((column) => column.key)).toEqual([
+        'r:r1@2026-07-15',
+        'r:r1@2026-07-16',
+      ]);
+      // 表示範囲もイベント展開と同じ 2 日分になる
+      const range = calendar.getVisibleRange();
+      expect(range.end.getTime() - range.start.getTime()).toBe(2 * 24 * 60 * 60 * 1000);
+    });
+
+    it('resourceViewDays を updateOptions で変更するとリソースビューの表示日数に反映され、0 以下は 1 へ正規化される', () => {
+      const calendar = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        now: () => new Date('2026-07-15T01:00:00Z'),
+        initialDate: new Date('2026-07-15T01:00:00Z'),
+        initialView: 'resource',
+        resources: [{ id: 'r1', title: '会議室' }],
+      });
+      calendar.updateOptions({ resourceViewDays: 3 });
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'resource') throw new Error('unreachable');
+      expect(vm.days).toHaveLength(3);
+      expect(calendar.getState().options.resourceViewDays).toBe(3);
+
+      calendar.updateOptions({ resourceViewDays: 0 });
+      expect(calendar.getState().options.resourceViewDays).toBe(1);
+      const normalized = calendar.getViewModel();
+      if (normalized.type !== 'resource') throw new Error('unreachable');
+      expect(normalized.days).toHaveLength(1);
+    });
+
     it('タイムラインビューは hiddenWeekdays を無視し、常に timelineDays 日の連続した並びになる', () => {
       const calendar = createCalendar({
         timeZone: 'Asia/Tokyo',
@@ -1552,6 +1640,22 @@ describe('createCalendar', () => {
     it('toggleResourceCollapsed は resources に存在しない ID を渡しても例外にならない', () => {
       const calendar = makeCalendar();
       expect(() => calendar.toggleResourceCollapsed('ghost')).not.toThrow();
+    });
+
+    it('toggleResourceCollapsed はリソースビューの列にも反映される（子孫の列が隠れる）', () => {
+      const calendar = makeCalendar({
+        resources: [ROOM, { id: 'room-2', title: '会議室B', parentId: 'room-1' }],
+      });
+      calendar.setView('resource');
+      const before = calendar.getViewModel();
+      if (before.type !== 'resource') throw new Error('unreachable');
+      expect(before.columns.map((c) => c.key)).toEqual(['r:room-1', 'r:room-2']);
+
+      calendar.toggleResourceCollapsed('room-1');
+      const collapsed = calendar.getViewModel();
+      if (collapsed.type !== 'resource') throw new Error('unreachable');
+      expect(collapsed.columns.map((c) => c.key)).toEqual(['r:room-1']);
+      expect(collapsed.columns[0]?.collapsed).toBe(true);
     });
 
     it('initialCollapsedResourceIds を指定すると、タイムラインの初回ビューモデルが該当行を隠す', () => {

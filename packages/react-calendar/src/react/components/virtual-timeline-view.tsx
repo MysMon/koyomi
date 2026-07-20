@@ -1,12 +1,14 @@
 /**
  * @packageDocumentation
- * `VirtualTimelineView` — タイムラインビューの行（リソース行）を縦方向に仮想化する
- * ヘッドレスコンポーネント。
+ * `VirtualTimelineView` — タイムラインビューを行（縦方向）× 時間軸（横方向）の
+ * 二軸で仮想化するヘッドレスコンポーネント。
  *
- * 大量のリソースを扱う画面で行の DOM ノードが肥大するのを避けるため、可視範囲の
- * リソース行だけを描画する。仮想化のプリミティブは {@link useVirtualizer}（`VirtualListView`
- * と同じ）。DOM 構造・ARIA（`role="grid"` / `row` / `columnheader` / `rowheader` /
- * `gridcell`）は `TimelineView` と同じ方針（`docs/accessibility.md` 参照）。
+ * 大量のリソース・長い表示期間を扱う画面で DOM ノードが肥大するのを避けるため、
+ * 可視範囲のリソース行と、横スクロールの可視範囲に重なる日の時間軸セル・帯だけを
+ * 描画する。仮想化のプリミティブはどちらも {@link useVirtualizer}（縦は `VirtualListView`、
+ * 横は `VirtualResourceView` の `axis: 'horizontal'` と同じ）。DOM 構造・ARIA
+ * （`role="grid"` / `row` / `columnheader` / `rowheader` / `gridcell`）は `TimelineView` と
+ * 同じ方針（`docs/accessibility.md` 参照）。
  *
  * `TimelineView` 自体は変更しない別コンポーネント方式で追加する（既存の DOM・挙動は不変）。
  * ヘッダー行（日ヘッダー・時刻目盛り）は `position: sticky` でスクロールコンテナの先頭に
@@ -15,6 +17,14 @@
  * ヘッダーが常時占有する分だけ可視ビューポートを差し引く（詳細は `useVirtualizer` の
  * TSDoc 参照）。横スクロール（時間軸）はスクロールコンテナ 1 つが担うため、
  * `TimelineView` 同様スクロール同期の JS は追加不要。
+ *
+ * 時間軸（横方向）の仮想化は「1 日 = 1 アイテム」の windowing で行う。帯・時刻目盛り・
+ * 営業時間帯はトラック（全表示日分の幅を持つ要素）に対する % 座標の絶対配置のため、
+ * 横窓の描画は px スペーサへの置き換えではなく「窓に重なるものだけを描画対象にする」
+ * フィルタで実現でき、スクロール位置・座標系には影響しない。フロー配置の日ヘッダー・
+ * グループ見出しのみ、窓外の分を % 幅スペーサ（`timeline-header-spacer`）へ置き換える。
+ * 行見出し列（左端固定列）は横スクロールでも sticky で常時占有するため、その実測幅を
+ * 横方向の `viewportPadding` として差し引く。
  */
 
 import type {
@@ -34,7 +44,19 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { BusinessHourRange, TimelineItem, TimelineRow, TimeZoneId } from '../../core/types';
+import { addDaysInZone } from '../../core/timezone';
+import type {
+  BusinessHourRange,
+  CalendarResource,
+  TimelineItem,
+  TimelineRow,
+  TimeZoneId,
+} from '../../core/types';
+import {
+  sameVisibleWindowRange,
+  type VisibleWindowRange,
+  visibleWindowRange,
+} from '../../core/virtualization';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
 import type { CommonMessages, TimelineMessages } from '../locales/types';
@@ -48,10 +70,14 @@ import { ariaLabelWithResource } from './resource-view-parts';
 import type { TimelineRowDragHandlers } from './timeline-view-parts';
 import {
   formatTimelineItemTimeText,
+  MINUTES_PER_DAY,
+  overlapsTimeWindow,
   sameBusinessHourRanges,
   samePreviewSegment,
   sameTimelineRow,
+  sameTimeWindow,
   TimelineAxisHeader,
+  type TimelineTimeWindow,
   toDivRef,
   useStableTimelineDrag,
   withDepthStyle,
@@ -61,6 +87,12 @@ import {
 
 /** `estimateRowHeight` 省略時の 1 レーンあたりの推定高（px、既定テーマの `--koyomi-timeline-lane-height` と同じ値）。 */
 const DEFAULT_LANE_HEIGHT = 28;
+
+/**
+ * `overscanDays` 省略時の既定値。時間軸（横方向）は 1 日分の幅が大きい
+ * （既定テーマで 720px）ため、行方向の既定（3）より小さくする。
+ */
+const DEFAULT_OVERSCAN_DAYS = 1;
 
 /**
  * 仮想化が効いていない旨を開発警告する行数の閾値。これ未満の少ない行数は
@@ -83,11 +115,53 @@ export interface VirtualTimelineViewProps {
   /** 前後 overscan 行数。既定 3。 */
   overscan?: number;
   /**
+   * 時間軸（横方向）の前後 overscan 日数。既定 1。
+   * 時間軸の仮想化は横スクロールの可視範囲に重なる日の時間軸セル
+   * （日ヘッダー・グループ見出し・時刻目盛り）と帯だけを描画する。
+   */
+  overscanDays?: number;
+  /**
+   * 可視ウィンドウ（行・日の可視範囲）が変わったときに呼ばれるコールバック。
+   *
+   * `CalendarOptions.onRangeChange` と同じ流儀で、可視範囲の計算結果
+   * （行・日それぞれのインデックス範囲とキー範囲）が直前の通知内容と 1 つでも
+   * 異なる場合のみ 1 回発火する。マウント直後にも現在の可視範囲を 1 回通知する
+   * （初回の増分データ取得に使えるようにするため）。スクロール・表示範囲の移動・
+   * 行一覧の変更など発火の契機は問わず、内容が同じ間は再通知しない。
+   * ビューモデルが `'timeline'` 以外のときは発火しない。
+   */
+  onVisibleRangeChange?: (info: TimelineVisibleRangeChangeInfo) => void;
+  /**
    * {@link VirtualTimelineViewHandle}（スクロール操作などの命令的 API）を受け取る ref。
    */
   // React 本体の RefAttributes と同じく明示的な undefined を許容する
   // （exactOptionalPropertyTypes 下で `ref={maybeUndefined}` を書けるようにするため）
   ref?: Ref<VirtualTimelineViewHandle> | undefined;
+}
+
+/**
+ * {@link VirtualTimelineViewProps.onVisibleRangeChange} に渡される、変更後の可視ウィンドウ。
+ *
+ * 行（縦方向）× 日（横方向）の二軸それぞれの可視範囲（overscan を含まない、
+ * 実際に見えている範囲）と、そこから導出した日付範囲・リソース一覧を持つ。
+ * 可視範囲のデータだけを増分取得する遅延読込（`docs/performance.md` のレシピ参照）の
+ * 入力に使う。
+ */
+export interface TimelineVisibleRangeChangeInfo {
+  /**
+   * 行（縦方向）の可視ウィンドウ。キーは {@link TimelineRow.key}
+   * （`r:${リソース ID}` / 未割り当て行は `'unassigned'`）。行が 0 件なら
+   * インデックスは `-1`・キーは `null`。
+   */
+  rows: VisibleWindowRange;
+  /** 日（横方向）の可視ウィンドウ。キーは `'YYYY-MM-DD'`（表示タイムゾーン基準）。 */
+  days: VisibleWindowRange;
+  /** 可視範囲の先頭日の開始（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
+  rangeStart: Date;
+  /** 可視範囲の末尾日の翌日 0:00（排他。{@link CalendarRangeChangeInfo.rangeEnd} と同じ流儀）。 */
+  rangeEnd: Date;
+  /** 可視行のリソース（行順。未割り当て行は `null`）。 */
+  resources: readonly (CalendarResource | null)[];
 }
 
 /** {@link VirtualTimelineView} が `ref` 経由で公開する命令的 API。 */
@@ -129,6 +203,17 @@ interface TimelineRowGroupProps {
   style?: CSSProperties;
   /** 仮想化: 帯をタブ順に含めるか。既定 `true`（`false` で `tabIndex=-1`）。 */
   itemTabbable?: boolean;
+  /**
+   * 仮想化: 時間軸（横方向）の可視ウィンドウ。指定時はウィンドウに重なる帯・
+   * 営業時間帯だけを描画する。省略時は全範囲を描画する。
+   */
+  timeWindow?: TimelineTimeWindow;
+  /**
+   * 仮想化: 横窓外でも描画し続ける帯のオカレンスキー（フォーカス保持用。通常 0〜1 件）。
+   * 帯は % 座標の絶対配置のため、pinned 行のような位置決めスタイルの追加は不要で、
+   * 描画対象へ含めるだけで同じ位置に表示される。
+   */
+  pinnedItemKey?: string | null;
   /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
   commonMessages: CommonMessages;
   /** 折りたたみトグルボタンのクリックハンドラ（`api.toggleResourceCollapsed` へ委譲）。 */
@@ -156,6 +241,8 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
     pinned,
     style,
     itemTabbable,
+    timeWindow,
+    pinnedItemKey,
     commonMessages,
     onToggleCollapse,
     timelineMessages,
@@ -163,6 +250,21 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
   const { ref, ...rowProps } = drag.getRowProps(row);
   const resource = row.resource;
   const headerContent = resource?.title ?? unassignedLabel;
+  // 時間軸（横方向）の windowing: ウィンドウに重なる帯＋フォーカス保持の帯だけを描画する。
+  const visibleItems =
+    timeWindow === undefined
+      ? row.items
+      : row.items.filter(
+          (item) =>
+            overlapsTimeWindow(item.startMinutes, item.endMinutes, timeWindow) ||
+            item.occurrence.key === pinnedItemKey,
+        );
+  const visibleBusinessHourRanges =
+    timeWindow === undefined
+      ? businessHourRanges
+      : businessHourRanges.filter((range) =>
+          overlapsTimeWindow(range.startMinutes, range.endMinutes, timeWindow),
+        );
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA row（TimelineView と同じ方針）
@@ -207,7 +309,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
         role="gridcell"
         style={withLaneCountStyle(row.laneCount)}
       >
-        {businessHourRanges.map((range) => (
+        {visibleBusinessHourRanges.map((range) => (
           <div
             key={`${range.startMinutes}-${range.endMinutes}`}
             data-koyomi="timeline-business-hours"
@@ -218,7 +320,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
             }}
           />
         ))}
-        {row.items.map((item) => {
+        {visibleItems.map((item) => {
           const itemProps = drag.getItemProps(item);
           const occurrence = item.occurrence;
           const isEditable = occurrence.event.editable !== false;
@@ -335,6 +437,8 @@ const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
     prev.pinned === next.pinned &&
     prev.style === next.style &&
     prev.itemTabbable === next.itemTabbable &&
+    sameTimeWindow(prev.timeWindow, next.timeWindow) &&
+    prev.pinnedItemKey === next.pinnedItemKey &&
     prev.commonMessages === next.commonMessages &&
     prev.onToggleCollapse === next.onToggleCollapse &&
     prev.timelineMessages === next.timelineMessages
@@ -360,7 +464,15 @@ const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
  * ```
  */
 export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactElement | null {
-  const { renderEvent, renderRowHeader, estimateRowHeight, overscan, ref } = props;
+  const {
+    renderEvent,
+    renderRowHeader,
+    estimateRowHeight,
+    overscan,
+    overscanDays,
+    onVisibleRangeChange,
+    ref,
+  } = props;
   const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const timelineMessages = messages.timeline;
   const commonMessages = messages.common;
@@ -381,6 +493,7 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
   );
 
   const rows: readonly TimelineRow[] = viewModel.type === 'timeline' ? viewModel.rows : [];
+  const days = viewModel.type === 'timeline' ? viewModel.days : [];
 
   const scrollRef = useRef<HTMLDivElement>(null);
   // SSR・初回クライアント render は非仮想化（全件）。マウント後に仮想化へ切り替える
@@ -410,9 +523,54 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
     return () => observer.disconnect();
   }, []);
 
+  // 時間軸（timeline-axis）のトラック実測幅。1 日分の幅（トラック幅 ÷ 表示日数）の
+  // 算出に使う。トラック幅は利用者 CSS（既定テーマは 1 日 720px の min-width）が決めるため、
+  // ここでは実測するだけ（useVirtualizer と同じ「寸法を所有しない」方針）。
+  const axisRef = useRef<HTMLDivElement>(null);
+  const [axisWidth, setAxisWidth] = useState(0);
+  useLayoutEffect(() => {
+    const element = axisRef.current;
+    if (element === null) {
+      return;
+    }
+    setAxisWidth(element.getBoundingClientRect().width);
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      setAxisWidth(element.getBoundingClientRect().width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  // 行見出し列（左端固定列）の実測幅。スクロールコンテナ内で時間軸トラックより
+  // 「前」に同居する sticky 列なので、横の可視ビューポートからその分を差し引く
+  // （横方向の viewportPadding。ヘッダー実測高と同じ扱い）。
+  const cornerRef = useRef<HTMLDivElement>(null);
+  const [cornerWidth, setCornerWidth] = useState(0);
+  useLayoutEffect(() => {
+    const element = cornerRef.current;
+    if (element === null) {
+      return;
+    }
+    setCornerWidth(element.getBoundingClientRect().width);
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      setCornerWidth(element.getBoundingClientRect().width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   // フォーカス中の行のキー。窓外へスクロールしても DOM を保持し続け、
   // フォーカス喪失を防ぐため pinnedKeys に渡す（VirtualListView と同じ方式）。
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
+  // フォーカス中の帯のオカレンスキー。横窓外へスクロールしても帯の DOM を
+  // 保持し続けるため、フォーカス行の TimelineRowGroup へ pinnedItemKey として渡す。
+  const [focusedItemKey, setFocusedItemKey] = useState<string | null>(null);
   const focusedOccurrenceRef = useRef<string | null>(null);
   const pinnedKeys = useMemo(
     () => (focusedKey !== null ? new Set([focusedKey]) : undefined),
@@ -447,6 +605,110 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
     ...(overscan !== undefined ? { overscan } : {}),
     ...(pinnedKeys !== undefined ? { pinnedKeys } : {}),
   });
+
+  // 時間軸（横方向）の仮想化。1 日を 1 アイテムとして同じスクロールコンテナの
+  // 横方向を windowing する（行仮想化との二軸構成）。1 日分の幅はトラック実測幅から
+  // 均等割りで求まる固定値のため実測しない（measure: false。日幅は CSS が決める）。
+  // トラック幅が未実測（0）の間は無効にし、全日描画へ無害に縮退する。
+  const daySize = days.length > 0 ? axisWidth / days.length : 0;
+  const getDayKey = useCallback((index: number): string => days[index]?.key ?? '', [days]);
+  const estimateDaySize = useCallback((): number => daySize, [daySize]);
+  const timeAxisEnabled = enabled && daySize > 0;
+  const dayVirtualizer = useVirtualizer({
+    count: days.length,
+    getItemKey: getDayKey,
+    estimateSize: estimateDaySize,
+    getScrollElement,
+    enabled: timeAxisEnabled,
+    axis: 'horizontal',
+    measure: false,
+    viewportPadding: cornerWidth,
+    overscan: overscanDays ?? DEFAULT_OVERSCAN_DAYS,
+  });
+
+  // 横窓（overscan 込みの日インデックス範囲）を表示分のウィンドウへ変換する。
+  // 全日が窓に入るときは undefined（＝全範囲描画。TimelineView と同一 DOM）に落とし、
+  // 帯・目盛りのフィルタ処理とスペーサ描画を丸ごと省く。
+  // スクロールアンカリング: 日幅は CSS 由来の固定値（実測更新なし）のため、
+  // 窓の移動でスクロール位置がずれることはなく、横方向の補正は不要。
+  const dayItems = dayVirtualizer.virtualItems;
+  const timeWindow = useMemo((): TimelineTimeWindow | undefined => {
+    if (!timeAxisEnabled || dayItems.length === 0 || dayItems.length >= days.length) {
+      return undefined;
+    }
+    const first = dayItems[0];
+    const last = dayItems[dayItems.length - 1];
+    if (first === undefined || last === undefined) {
+      return undefined;
+    }
+    return {
+      startMinutes: first.index * MINUTES_PER_DAY,
+      endMinutes: (last.index + 1) * MINUTES_PER_DAY,
+    };
+  }, [timeAxisEnabled, dayItems, days.length]);
+
+  // 可視ウィンドウの変更通知（onVisibleRangeChange）。
+  // 行・日それぞれの可視範囲（overscan を含まない）を core の純粋計算
+  // （visibleWindowRange / sameVisibleWindowRange）でキー付きスナップショットにし、
+  // 直前の通知内容と異なるときだけ 1 回発火する（onRangeChange と同じ流儀）。
+  // 比較基準の更新はコールバックの登録有無に関わらず常に行う（未登録で作成 →
+  // 後から登録、という順序でも誤発火しないようにするため）。
+  // virtualizer / dayVirtualizer はレンダーごとに新しいオブジェクトのため、
+  // 可視範囲のフィールドだけを取り出して useMemo の依存にする。
+  const { startIndex: rowStartIndex, endIndex: rowEndIndex } = virtualizer;
+  const { startIndex: dayStartIndex, endIndex: dayEndIndex } = dayVirtualizer;
+  const rowsRange = useMemo(
+    () => visibleWindowRange({ startIndex: rowStartIndex, endIndex: rowEndIndex }, getItemKey),
+    [rowStartIndex, rowEndIndex, getItemKey],
+  );
+  const daysRange = useMemo(() => {
+    // 横仮想化が無効（トラック幅未実測など）の間は全日を描画しているため、
+    // 可視範囲も全日として扱う（未実測の日幅 0 による退化した範囲を使わない）。
+    if (!timeAxisEnabled) {
+      return visibleWindowRange(
+        { startIndex: days.length > 0 ? 0 : -1, endIndex: days.length - 1 },
+        getDayKey,
+      );
+    }
+    return visibleWindowRange({ startIndex: dayStartIndex, endIndex: dayEndIndex }, getDayKey);
+  }, [timeAxisEnabled, days, dayStartIndex, dayEndIndex, getDayKey]);
+  const isTimeline = viewModel.type === 'timeline';
+  const timeZoneId = state.timeZone;
+  const lastNotifiedWindowRef = useRef<{
+    rows: VisibleWindowRange;
+    days: VisibleWindowRange;
+  } | null>(null);
+  useEffect(() => {
+    if (!enabled || !isTimeline) {
+      return;
+    }
+    const next = { rows: rowsRange, days: daysRange };
+    const last = lastNotifiedWindowRef.current;
+    const changed =
+      last === null ||
+      !sameVisibleWindowRange(last.rows, next.rows) ||
+      !sameVisibleWindowRange(last.days, next.days);
+    lastNotifiedWindowRef.current = next;
+    if (!changed || onVisibleRangeChange === undefined) {
+      return;
+    }
+    const firstDay = days[Math.max(0, daysRange.startIndex)];
+    const lastDay = days[Math.max(0, daysRange.endIndex)];
+    if (firstDay === undefined || lastDay === undefined) {
+      return;
+    }
+    const visibleRows =
+      rowsRange.startIndex >= 0 ? rows.slice(rowsRange.startIndex, rowsRange.endIndex + 1) : [];
+    onVisibleRangeChange({
+      rows: rowsRange,
+      days: daysRange,
+      // 公開境界での複製（呼び出し側が rangeStart を変更しても内部状態に影響しない
+      // ようにするため。onRangeChange の currentDate と同じ扱い）
+      rangeStart: new Date(firstDay.date.getTime()),
+      rangeEnd: addDaysInZone(lastDay.date, 1, timeZoneId),
+      resources: visibleRows.map((row) => row.resource),
+    });
+  }, [enabled, isTimeline, rowsRange, daysRange, onVisibleRangeChange, days, rows, timeZoneId]);
 
   useImperativeHandle(
     ref,
@@ -487,8 +749,10 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
     const rowGroup = target.closest('[data-koyomi="timeline-row-group"]');
     const key = rowGroup?.getAttribute('data-koyomi-row-key') ?? null;
     if (key !== null) {
-      focusedOccurrenceRef.current =
+      const occurrenceKey =
         target.closest('[data-koyomi-occurrence]')?.getAttribute('data-koyomi-occurrence') ?? null;
+      focusedOccurrenceRef.current = occurrenceKey;
+      setFocusedItemKey(occurrenceKey);
       setFocusedKey(key);
     }
   }, []);
@@ -500,6 +764,7 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
       return;
     }
     focusedOccurrenceRef.current = null;
+    setFocusedItemKey(null);
     setFocusedKey(null);
   }, []);
 
@@ -521,7 +786,6 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
   }
 
   const {
-    days,
     slots,
     totalMinutes,
     nowIndicatorMinutes,
@@ -565,6 +829,10 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
       onToggleCollapse={onToggleCollapse}
       timelineMessages={timelineMessages}
       rowRef={virtualizer.measureElement(row.key)}
+      {...(timeWindow !== undefined ? { timeWindow } : {})}
+      {...(row.key === focusedKey && focusedItemKey !== null
+        ? { pinnedItemKey: focusedItemKey }
+        : {})}
       {...(extra.pinned === true ? { pinned: true, itemTabbable: false } : {})}
       {...(extra.style !== undefined ? { style: extra.style } : {})}
     />
@@ -589,6 +857,7 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
           {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA columnheader */}
           {/* biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない */}
           <div
+            ref={cornerRef}
             data-koyomi="timeline-corner"
             role="columnheader"
             aria-label={timelineMessages.corner}
@@ -602,6 +871,8 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
             timeZone={timeZone}
             locale={locale}
             rangeSeparator={commonMessages.rangeSeparator}
+            axisRef={axisRef}
+            {...(timeWindow !== undefined ? { timeWindow } : {})}
           />
         </div>
         <div data-koyomi="timeline-rows" role="presentation">

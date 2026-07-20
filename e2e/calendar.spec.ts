@@ -197,7 +197,135 @@ test('大量リソースの仮想化スクロールでフォーカスと対象�
   await expect(timeline.locator('[data-koyomi-resource-id="member-200"]').first()).toBeVisible();
 });
 
-test('主要画面に WCAG 2.0 A/AA の自動検出違反がない', async ({ page }) => {
+test('VirtualResourceView の横スクロールで表示列の窓が追従し、両端でも破綻しない', async ({
+  page,
+}) => {
+  await page.getByRole('link', { name: /チーム/ }).click();
+  const resource = page.locator('[data-koyomi="resource"][data-koyomi-virtualized="true"]');
+  await expect(resource).toBeVisible();
+
+  // 初期状態（scrollLeft=0）では先頭のメンバーが可視で、大きく離れたメンバーは窓の外
+  await expect(resource.locator('[data-koyomi-resource-id="member-1"]').first()).toBeVisible();
+  await expect(resource.locator('[data-koyomi-resource-id="member-150"]')).toHaveCount(0);
+  const headerCells = resource.locator('[data-koyomi="resource-header-cell"]');
+  // 209 列（メンバー 200 + 階層リソース 9）のうち、可視窓＋overscan だけが描画される
+  expect(await headerCells.count()).toBeLessThan(60);
+
+  // 中間までスクロールすると、窓が追従して離れたメンバーが可視になり、先頭は窓の外へ出る
+  await resource.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth / 2;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(resource.locator('[data-koyomi-resource-id="member-105"]').first()).toBeVisible();
+  await expect(resource.locator('[data-koyomi-resource-id="member-1"]')).toHaveCount(0);
+
+  // 末尾までスクロールすると、末尾の階層リソース（大阪1F 会議室A）が可視になる
+  await resource.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(
+    resource.locator('[data-koyomi-resource-id="room-osaka-1f-a"]').first(),
+  ).toBeVisible();
+  await expect(resource.locator('[data-koyomi-resource-id="member-1"]')).toHaveCount(0);
+
+  // 先頭へ戻ると、往復後も再び先頭メンバーが可視になる（境界の往復で破綻しない）
+  await resource.evaluate((element) => {
+    element.scrollLeft = 0;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(resource.locator('[data-koyomi-resource-id="member-1"]').first()).toBeVisible();
+});
+
+test('VirtualTimelineView の縦スクロールで表示行の窓が追従し、両端でも破綻しない', async ({
+  page,
+}) => {
+  await page.getByRole('link', { name: /チーム/ }).click();
+  await page.getByRole('button', { name: 'タイムライン' }).click();
+  const timeline = page.locator('[data-koyomi="timeline"][data-koyomi-virtualized="true"]');
+  await expect(timeline).toBeVisible();
+  const body = timeline.locator('[data-koyomi="timeline-body"]');
+
+  // 初期状態（scrollTop=0）では先頭のメンバーが可視で、大きく離れたメンバーは窓の外
+  await expect(timeline.locator('[data-koyomi-resource-id="member-1"]').first()).toBeVisible();
+  await expect(timeline.locator('[data-koyomi-resource-id="member-150"]')).toHaveCount(0);
+  const rowGroups = timeline.locator('[data-koyomi="timeline-row-group"]');
+  // 209 行超のうち、可視窓＋overscan だけが描画される
+  expect(await rowGroups.count()).toBeLessThan(80);
+
+  // 末尾までスクロールすると、末尾の階層リソース（大阪1F 会議室A）が可視になる
+  await body.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(
+    timeline.locator('[data-koyomi-resource-id="room-osaka-1f-a"]').first(),
+  ).toBeVisible();
+  await expect(timeline.locator('[data-koyomi-resource-id="member-1"]')).toHaveCount(0);
+
+  // 先頭へ戻ると、往復後も再び先頭メンバーが可視になる（境界の往復で破綻しない）
+  await body.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(timeline.locator('[data-koyomi-resource-id="member-1"]').first()).toBeVisible();
+});
+
+test('VirtualTimelineView の横スクロールで時間軸の窓が追従し、可視範囲通知が更新される', async ({
+  page,
+}) => {
+  await page.getByRole('link', { name: /チーム/ }).click();
+  await page.getByRole('button', { name: 'タイムライン' }).click();
+  const timeline = page.locator('[data-koyomi="timeline"][data-koyomi-virtualized="true"]');
+  await expect(timeline).toBeVisible();
+  const body = timeline.locator('[data-koyomi="timeline-body"]');
+
+  // 初期状態: 5 日分（トラック幅 720px × 5）のうち、可視窓＋overscan の日だけが
+  // 描画される（時刻目盛りは全 120 件 = 5 日 × 24 より少ない）
+  const slotLabels = timeline.locator('[data-koyomi="timeline-slot-label"]');
+  await expect(slotLabels.first()).toBeVisible();
+  expect(await slotLabels.count()).toBeLessThan(120);
+  const dayHeaders = timeline.locator('[data-koyomi="timeline-day-header"]');
+  expect(await dayHeaders.count()).toBeLessThan(5);
+  // 窓の後方の日はヘッダーの % 幅スペーサに置き換わる
+  const beforeSpacer = timeline.locator(
+    '[data-koyomi="timeline-header-spacer"][data-edge="before"]',
+  );
+  const afterSpacer = timeline.locator('[data-koyomi="timeline-header-spacer"][data-edge="after"]');
+  await expect(beforeSpacer).toHaveCount(0);
+  await expect(afterSpacer).toHaveCount(1);
+
+  // onVisibleRangeChange の通知内容（可視の日キー範囲・行範囲）が表示されている
+  const visibleRange = page.locator('.team-timeline-visible');
+  await expect(visibleRange).toContainText('可視範囲:');
+  const initialRangeText = await visibleRange.textContent();
+
+  // 末尾まで横スクロール → 窓が追従して前スペーサへ切り替わり、通知内容も更新される
+  await body.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(beforeSpacer).toHaveCount(1);
+  await expect(afterSpacer).toHaveCount(0);
+  await expect(visibleRange).not.toHaveText(initialRangeText ?? '');
+
+  // 先頭へ戻ると往復後も窓・通知内容が初期状態に戻る（境界の往復で破綻しない）
+  await body.evaluate((element) => {
+    element.scrollLeft = 0;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(beforeSpacer).toHaveCount(0);
+  await expect(afterSpacer).toHaveCount(1);
+  await expect(visibleRange).toHaveText(initialRangeText ?? '');
+});
+
+/** axe の検査対象タグ（WCAG 2.0 / 2.1 / 2.2 の A・AA）。 */
+const AXE_WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+
+test('主要画面に WCAG 2.0/2.1/2.2 A/AA の自動検出違反がない', async ({ page }) => {
+  // 5 タグ分の走査（特に target-size の近接ターゲット判定）はイベント数に比例して
+  // 時間がかかり、ライト・ダークの 2 回で既定の 30 秒を超えるため延長する
+  test.setTimeout(120_000);
   // CSS transition を無効化してから走査する。テーマ切替直後は background-color の
   // 遷移中で、axe が「切替後の文字色 × 遷移途中の背景色」という実在しない
   // 組み合わせのコントラストを検出してしまうため、確定後の配色のみを検査対象にする
@@ -205,14 +333,14 @@ test('主要画面に WCAG 2.0 A/AA の自動検出違反がない', async ({ pa
     content: '*, *::before, *::after { transition: none !important; }',
   });
   const lightResults = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa'])
+    .withTags(AXE_WCAG_TAGS)
     .exclude('[data-koyomi="timegrid-now-indicator"]')
     .analyze();
   expect(lightResults.violations).toEqual([]);
 
   await page.getByRole('button', { name: /ダークモード/ }).click();
   const darkResults = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa'])
+    .withTags(AXE_WCAG_TAGS)
     .exclude('[data-koyomi="timegrid-now-indicator"]')
     .analyze();
   expect(darkResults.violations).toEqual([]);

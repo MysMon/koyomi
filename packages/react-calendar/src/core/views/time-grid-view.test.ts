@@ -687,6 +687,21 @@ describe('buildTimeGridViewModel', () => {
       expect(at9?.isBusinessHours).toBe(false);
     });
 
+    it("endTime '24:00'（日の終端）を指定すると、日の最終スロットまで営業時間内になる", () => {
+      // 2026-07-01 は水曜（weekday: 3）
+      const model = build({
+        slotMinutes: 60,
+        businessHours: [{ daysOfWeek: [1, 2, 3, 4, 5], startTime: '18:00', endTime: '24:00' }],
+      });
+      const wednesday = dayByKey(model, '2026-07-01');
+      const at23 = wednesday.businessHourSlots.find((slot) => slot.minutes === 1380);
+      const at18 = wednesday.businessHourSlots.find((slot) => slot.minutes === 1080);
+      const at17 = wednesday.businessHourSlots.find((slot) => slot.minutes === 1020);
+      expect(at23?.isBusinessHours).toBe(true);
+      expect(at18?.isBusinessHours).toBe(true);
+      expect(at17?.isBusinessHours).toBe(false);
+    });
+
     it('startTime が slotMinutes の区切りに合っていない場合、ハイライトは次のスロット境界から始まる', () => {
       // 2026-07-01 は水曜（daysOfWeek に含まれる）。
       const model = build({

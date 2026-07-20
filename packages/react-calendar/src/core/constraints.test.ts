@@ -138,13 +138,9 @@ describe('isRangeWithinBusinessHours', () => {
     expect(isRangeWithinBusinessHours(candidate, [weekdayRule], TOKYO)).toBe(false);
   });
 
-  it('複数日にまたがる範囲は、ルールが 24:00 を表現できないため常に false になる', () => {
-    // BusinessHoursRule.endTime は 'HH:mm' 形式のみを受け付け '24:00' を許容しない
-    // （parseTimeOfDay の仕様。'24:00' 特例は slotMaxTime 専用の parseSlotBoundaryTime のみ）。
-    // そのため 1 日を完全に覆うルールを作れず、日をまたぐ候補区間の初日は必ず
-    // 日境界（24:00 相当）まで達するため、どれだけ広いルール（00:00〜23:59）でも
-    // 最後の 1 分をカバーできず false になる（多日にまたがる時間指定イベントは
-    // 実質的に businessHours 制約を満たせないという意図的な仕様）。
+  it("endTime '23:59' のルールでは、日をまたぐ範囲の初日の最後の 1 分をカバーできず false になる", () => {
+    // 日をまたぐ候補区間の初日は必ず日境界（24:00 相当）まで達するため、
+    // 23:59 までのルールでは 23:59〜24:00 の 1 分が外れる
     const almostAllDayRule: BusinessHoursRule = {
       daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
       startTime: '00:00',
@@ -152,6 +148,37 @@ describe('isRangeWithinBusinessHours', () => {
     };
     const candidate = range('2026-07-15T09:00:00+09:00', '2026-07-16T12:00:00+09:00');
     expect(isRangeWithinBusinessHours(candidate, [almostAllDayRule], TOKYO)).toBe(false);
+  });
+
+  it("endTime '24:00'（日の終端）のルールは、その日の 24:00 ちょうどまでを内包する", () => {
+    // 2026-07-15 は水曜。20:00〜翌 0:00 の候補は 18:00〜24:00 のルールに収まる
+    const eveningRule: BusinessHoursRule = {
+      daysOfWeek: [1, 2, 3, 4, 5],
+      startTime: '18:00',
+      endTime: '24:00',
+    };
+    const candidate = range('2026-07-15T20:00:00+09:00', '2026-07-16T00:00:00+09:00');
+    expect(isRangeWithinBusinessHours(candidate, [eveningRule], TOKYO)).toBe(true);
+  });
+
+  it('全曜日 00:00〜24:00 のルールなら、複数日にまたがる範囲も true になる', () => {
+    const fullDayRule: BusinessHoursRule = {
+      daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+      startTime: '00:00',
+      endTime: '24:00',
+    };
+    const candidate = range('2026-07-15T09:00:00+09:00', '2026-07-16T12:00:00+09:00');
+    expect(isRangeWithinBusinessHours(candidate, [fullDayRule], TOKYO)).toBe(true);
+  });
+
+  it('日をまたぐ営業時間を 2 件（22:00〜24:00 と翌曜日 00:00〜02:00）に分ければ、深夜の日またぎ範囲が true になる', () => {
+    // 2026-07-15 は水曜（3）、翌 07-16 は木曜（4）
+    const nightRules: readonly BusinessHoursRule[] = [
+      { daysOfWeek: [3], startTime: '22:00', endTime: '24:00' },
+      { daysOfWeek: [4], startTime: '00:00', endTime: '02:00' },
+    ];
+    const candidate = range('2026-07-15T22:30:00+09:00', '2026-07-16T01:30:00+09:00');
+    expect(isRangeWithinBusinessHours(candidate, nightRules, TOKYO)).toBe(true);
   });
 
   it('DST 切替日（America/New_York, 2026-03-08 は 2:00→3:00 で 23 時間しかない日）でも現地時刻基準で正しく判定する', () => {
@@ -261,6 +288,24 @@ describe('isDragCandidateValid', () => {
       moverBlocksOverlap: false,
       blockers: [blocker],
       constraintRules: null,
+      timeZone: TOKYO,
+    });
+    expect(result).toBe(true);
+  });
+
+  it('複数日にまたがる時間指定の候補も、00:00〜24:00 のルールなら constraint を満たし true になる', () => {
+    const fullDayRule: BusinessHoursRule = {
+      daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+      startTime: '00:00',
+      endTime: '24:00',
+    };
+    const result = isDragCandidateValid({
+      range: range('2026-07-15T09:00:00+09:00', '2026-07-17T12:00:00+09:00'),
+      allDay: false,
+      excludeKey: null,
+      moverBlocksOverlap: false,
+      blockers: [],
+      constraintRules: [fullDayRule],
       timeZone: TOKYO,
     });
     expect(result).toBe(true);

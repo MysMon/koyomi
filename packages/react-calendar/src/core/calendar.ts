@@ -61,6 +61,7 @@ const DEFAULT_OPTIONS: Omit<ResolvedCalendarOptions, 'now'> = {
   listDays: 30,
   multiMonthCount: 3,
   timelineDays: 1,
+  resourceViewDays: 1,
   timelineScale: 'hour',
   unassignedLane: 'auto',
   locale: 'ja',
@@ -143,6 +144,10 @@ function resolveOptions(
     listDays: normalizePositiveInt(options?.listDays ?? current.listDays, 1),
     multiMonthCount: normalizePositiveInt(options?.multiMonthCount ?? current.multiMonthCount, 1),
     timelineDays: normalizePositiveInt(options?.timelineDays ?? current.timelineDays, 1),
+    resourceViewDays: normalizePositiveInt(
+      options?.resourceViewDays ?? current.resourceViewDays,
+      1,
+    ),
     timelineScale: options?.timelineScale ?? current.timelineScale,
     unassignedLane: options?.unassignedLane ?? current.unassignedLane,
     locale: options?.locale ?? current.locale,
@@ -213,6 +218,7 @@ function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOpt
     a.listDays === b.listDays &&
     a.multiMonthCount === b.multiMonthCount &&
     a.timelineDays === b.timelineDays &&
+    a.resourceViewDays === b.resourceViewDays &&
     a.timelineScale === b.timelineScale &&
     a.unassignedLane === b.unassignedLane &&
     a.locale === b.locale &&
@@ -248,13 +254,14 @@ function assertTimeAxisZones(timeAxisZones: readonly TimeZoneId[]): void {
 
 /**
  * 営業時間の指定一覧を検証し、不正な要素があれば例外を投げる。
- * `startTime` / `endTime` の形式は {@link parseTimeOfDay} が検証し、
+ * `startTime` の形式は {@link parseTimeOfDay} が、`endTime` の形式は
+ * {@link parseSlotBoundaryTime} が検証し（`endTime` のみ日の終端 `'24:00'` を許容）、
  * ここでは `startTime` が `endTime` より前であることを追加で検証する。
  */
 function assertBusinessHours(businessHours: readonly BusinessHoursRule[]): void {
   for (const rule of businessHours) {
     const start = parseTimeOfDay(rule.startTime);
-    const end = parseTimeOfDay(rule.endTime);
+    const end = parseSlotBoundaryTime(rule.endTime);
     if (start >= end) {
       throw new Error(
         `不正な営業時間の指定です（startTime は endTime より前である必要があります）: startTime='${rule.startTime}', endTime='${rule.endTime}'`,
@@ -521,6 +528,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       listDays: resolvedOptions.listDays,
       multiMonthCount: resolvedOptions.multiMonthCount,
       timelineDays: resolvedOptions.timelineDays,
+      resourceViewDays: resolvedOptions.resourceViewDays,
     });
   }
 
@@ -605,7 +613,9 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           businessHours: resolvedOptions.businessHours,
           slotMinTime: resolvedOptions.slotMinTime,
           slotMaxTime: resolvedOptions.slotMaxTime,
+          resourceViewDays: resolvedOptions.resourceViewDays,
           now,
+          collapsedResourceIds,
         });
       case 'timeline':
         return buildTimelineViewModel({
@@ -672,6 +682,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
         listDays: resolvedOptions.listDays,
         multiMonthCount: resolvedOptions.multiMonthCount,
         timelineDays: resolvedOptions.timelineDays,
+        resourceViewDays: resolvedOptions.resourceViewDays,
       });
       commit(true);
     },
@@ -681,6 +692,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
         listDays: resolvedOptions.listDays,
         multiMonthCount: resolvedOptions.multiMonthCount,
         timelineDays: resolvedOptions.timelineDays,
+        resourceViewDays: resolvedOptions.resourceViewDays,
       });
       commit(true);
     },
@@ -868,7 +880,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
         next.add(resourceId);
       }
       collapsedResourceIds = next;
-      // タイムラインビューモデルの行構成に影響するため、キャッシュを破棄する
+      // リソース/タイムラインビューモデルの列・行構成に影響するため、キャッシュを破棄する
       commit(true);
     },
   };

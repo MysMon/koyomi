@@ -184,6 +184,77 @@ describe('fromWallClock', () => {
     const result = fromWallClock({ year: 2026, month: 7, day: 1, hours: 10 }, UTC);
     expect(result.getUTCMilliseconds()).toBe(0);
   });
+
+  describe('曖昧な時刻の解決方法（disambiguation）', () => {
+    it("'earlier' を明示しても省略時と同じ結果になる（既定 'earlier'）", () => {
+      const parts = { year: 2026, month: 11, day: 1, hours: 1, minutes: 30 };
+      expect(fromWallClock(parts, NY, 'earlier').getTime()).toBe(
+        fromWallClock(parts, NY).getTime(),
+      );
+    });
+
+    it("'later' は曖昧な時刻（2026-11-01 01:30 America/New_York）を遅い方のオフセット（EST）で解決する", () => {
+      const result = fromWallClock(
+        { year: 2026, month: 11, day: 1, hours: 1, minutes: 30 },
+        NY,
+        'later',
+      );
+      // EDT（UTC-4）の 05:30Z ではなく、切替後の EST（UTC-5）の 06:30Z
+      expect(result.toISOString()).toBe('2026-11-01T06:30:00.000Z');
+    });
+
+    it("'later' でも曖昧でない時刻は 'earlier' と同じ結果になる", () => {
+      const summer = { year: 2026, month: 7, day: 1, hours: 10 };
+      expect(fromWallClock(summer, NY, 'later').getTime()).toBe(
+        fromWallClock(summer, NY).getTime(),
+      );
+      // 切替日でも曖昧な範囲（01:00〜02:00）の外は同じ
+      const beforeWindow = { year: 2026, month: 11, day: 1, hours: 0, minutes: 30 };
+      expect(fromWallClock(beforeWindow, NY, 'later').getTime()).toBe(
+        fromWallClock(beforeWindow, NY).getTime(),
+      );
+      const afterWindow = { year: 2026, month: 11, day: 1, hours: 2 };
+      expect(fromWallClock(afterWindow, NY, 'later').getTime()).toBe(
+        fromWallClock(afterWindow, NY).getTime(),
+      );
+    });
+
+    it("'later' でも存在しない時刻（春の切替）は直後の実在時刻に繰り上げて解決する", () => {
+      const gap = fromWallClock(
+        { year: 2026, month: 3, day: 8, hours: 2, minutes: 30 },
+        NY,
+        'later',
+      );
+      expect(gap.toISOString()).toBe('2026-03-08T07:30:00.000Z');
+    });
+
+    it("'later' は 30 分単位のオフセット切替（Australia/Lord_Howe）でも遅い方に解決する", () => {
+      // Lord Howe は 2026-04-05 02:00（+11）に時計を 01:30（+10:30）へ 30 分巻き戻す。
+      // 01:45 は曖昧で、遅い方（+10:30）の解決は 2026-04-04T15:15Z
+      const parts = { year: 2026, month: 4, day: 5, hours: 1, minutes: 45 };
+      expect(fromWallClock(parts, 'Australia/Lord_Howe', 'later').toISOString()).toBe(
+        '2026-04-04T15:15:00.000Z',
+      );
+    });
+
+    it("'later' の結果も getWallClock で往復すると同じ現地時刻の成分になる", () => {
+      const parts = {
+        year: 2026,
+        month: 11,
+        day: 1,
+        hours: 1,
+        minutes: 30,
+        seconds: 15,
+        milliseconds: 250,
+      };
+      expect(getWallClock(fromWallClock(parts, NY, 'later'), NY)).toEqual(parts);
+    });
+
+    it("'later' でも不正な IANA タイムゾーン ID では Error を投げず Invalid Date を返す", () => {
+      const result = fromWallClock({ year: 2026, month: 7, day: 1 }, 'Not/AZone', 'later');
+      expect(Number.isNaN(result.getTime())).toBe(true);
+    });
+  });
 });
 
 describe('fromWallClock / getWallClock: 不正な IANA タイムゾーン ID', () => {

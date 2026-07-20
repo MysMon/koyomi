@@ -9,7 +9,9 @@
  * （{@link sampleEvents} / {@link sampleResources}）を提供する。
  *
  * これに加え、「チーム」パターン向けに大量データを決定的に生成する
- * {@link makeManyResources} / {@link makeManyEvents} を提供する。
+ * {@link makeManyResources} / {@link makeManyEvents} と、「ストレステスト」
+ * パターン・性能ベンチマーク（`bench/`）が共有する総件数指定の生成関数
+ * {@link makeStressEvents} を提供する。
  */
 
 import type { CalendarEvent, CalendarResource, Weekday } from '@koyomi-cal/react';
@@ -238,6 +240,20 @@ export const sampleEvents: CalendarEvent[] = [
     description: 'ニューヨークオフィスとの定例ミーティング（NY時間 21:00 開始）。',
   },
   {
+    // America/New_York のタイムゾーンで毎日 9:00〜9:30 に繰り返される定例。
+    // DST（夏時間）の切替日をまたいでも、表示タイムゾーンを America/New_York に
+    // すると常に現地時刻 9:00 に表示される（現地時刻を保った繰り返し展開）ことを
+    // 確認できる。3 週間前開始のため、任意の切替日の前後にオカレンスが並ぶ。
+    id: 'sample-dst-daily',
+    title: 'NY デイリー定例',
+    start: `${dayKey(-21)}T09:00:00`,
+    end: `${dayKey(-21)}T09:30:00`,
+    timeZone: 'America/New_York',
+    rrule: 'FREQ=DAILY',
+    color: '#315da8',
+    description: 'ニューヨーク時間 9:00 開始の毎日の定例（DST 切替日をまたいでも現地 9:00）。',
+  },
+  {
     // editable: false のイベント。ドラッグ移動・リサイズができないことを確認できる。
     id: 'sample-readonly',
     title: '全社総会（予定変更不可）',
@@ -436,6 +452,70 @@ function addMinutesToHourMinute(
  * const events = makeManyEvents(resources, 14); // 800〜1000 件程度
  * ```
  */
+/**
+ * {@link makeStressEvents} が予定を配置する日数（今日を含む過去・未来方向の合計）。
+ * 今日に近い日から順に埋めるため、生成件数が少なくても現在の表示範囲が密になる。
+ */
+const STRESS_SPREAD_DAYS = 30;
+
+/**
+ * {@link makeStressEvents} の日オフセット列。今日（0）を起点に
+ * `+1, -1, +2, -2, ...` と今日に近い日から交互に広げる。
+ *
+ * @param round - 何巡目か（0 起点）
+ */
+function stressDayOffset(round: number): number {
+  const step = round % STRESS_SPREAD_DAYS;
+  if (step === 0) {
+    return 0;
+  }
+  const magnitude = Math.ceil(step / 2);
+  return step % 2 === 1 ? magnitude : -magnitude;
+}
+
+/**
+ * 総件数を指定して大量イベントを乱数なしで決定的に生成する
+ * （ストレステストパターンと性能ベンチマークが共有する）。
+ *
+ * リソースへ 1 件ずつ順番に割り当て、リソース一覧を一巡するごとに配置日を
+ * 今日 → 明日 → 昨日 → 明後日 … と今日に近い日から交互に広げる
+ * （{@link STRESS_SPREAD_DAYS} 日分で一巡し、以降は同じ日に重ねて配置する）。
+ * 開始時刻・所要時間・タイトルはインデックスの剰余でローテーションする。
+ *
+ * @param resources - 予定を割り当てるリソース一覧（{@link makeManyResources} の結果を想定）
+ * @param eventCount - 生成する総件数（戻り値の長さは常にこの値に一致する）
+ * @example
+ * ```ts
+ * const resources = makeManyResources(100);
+ * const events = makeStressEvents(resources, 10000);
+ * // events.length === 10000
+ * ```
+ */
+export function makeStressEvents(
+  resources: readonly CalendarResource[],
+  eventCount: number,
+): CalendarEvent[] {
+  return Array.from({ length: eventCount }, (_, index) => {
+    const resource = cyclic(resources, index);
+    const round = Math.floor(index / resources.length);
+    const key = dayKey(stressDayOffset(round));
+    const startHour = cyclic(MANY_EVENT_START_HOURS, index + round);
+    const durationMinutes = 30 + (index % 3) * 30;
+    const { hour: endHour, minute: endMinute } = addMinutesToHourMinute(
+      startHour,
+      0,
+      durationMinutes,
+    );
+    return {
+      id: `stress-${index}`,
+      title: `${cyclic(MANY_EVENT_TITLES, index)} #${index + 1}`,
+      resourceId: resource.id,
+      start: `${key}T${pad2(startHour)}:00:00`,
+      end: `${key}T${pad2(endHour)}:${pad2(endMinute)}:00`,
+    };
+  });
+}
+
 export function makeManyEvents(
   resources: readonly CalendarResource[],
   days: number,

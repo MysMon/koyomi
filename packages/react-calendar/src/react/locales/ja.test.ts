@@ -361,6 +361,14 @@ describe('jaMessages.resource', () => {
     expect(jaMessages.resource.unassigned).toBe('未割り当て');
     expect(jaMessages.resource.empty).toBe('リソースがありません');
   });
+
+  it('resourceToggleAriaLabel は collapsed に応じて展開/折りたたみの案内文になる（タイムラインと同文）', () => {
+    const resource = { id: 'room-a', title: '会議室A' };
+    expect(jaMessages.resource.resourceToggleAriaLabel(resource, false)).toBe(
+      '会議室A を折りたたむ',
+    );
+    expect(jaMessages.resource.resourceToggleAriaLabel(resource, true)).toBe('会議室A を展開する');
+  });
 });
 
 describe('jaMessages.timeline', () => {

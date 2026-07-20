@@ -45,7 +45,7 @@
       "import": "./dist/core.js",
       "default": "./dist/core.js"
     },
-    "./theme.css": "./dist/theme.css"
+    "./theme.css": "./dist/theme/default.css"
   },
   "files": [
     "dist",
@@ -56,7 +56,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "provenance": false
+    "provenance": true
   },
   "scripts": {
     "build": "tsup",

@@ -44,6 +44,8 @@ export {
   type CalendarEventHistoryOptions,
   createEventHistory,
 } from './core/history';
+// iCalendar（ICS）入出力
+export { type EventsToIcsOptions, eventsFromIcs, eventsToIcs } from './core/ics';
 // インタラクションの純粋計算
 export {
   type CalendarShortcut,
@@ -62,17 +64,27 @@ export {
   applyEventChangeEntries,
   applyEventChangeEntriesWithApplied,
   applyPatch,
+  buildOccurrenceCopy,
+  type CreateEventMutationResult,
   type CreateEventResult,
   createEventIn,
   deleteEventIn,
   deleteEventInWithChanges,
+  duplicateEventIn,
+  duplicateEventInWithChanges,
   type EventChangeApplyResult,
   type EventChangeDirection,
   type EventChangeEntry,
   type EventMutationResult,
   type MutationContext,
+  type MutationReadContext,
   moveOccurrenceIn,
   moveOccurrenceInWithChanges,
+  type OccurrenceCopyParams,
+  type PasteEventParams,
+  pasteEventIn,
+  pasteEventInWithChanges,
+  placeEventInputAt,
   type RecurringTarget,
   updateEventIn,
   updateEventInWithChanges,
@@ -100,6 +112,13 @@ export {
   type RecurrenceWeekdayOrdinal,
   validateRecurrenceRuleState,
 } from './core/recurrence-editor';
+// リソース割当の解決（resourceId / resourceIds）
+export {
+  assignedLaneIds,
+  effectiveResourceIds,
+  type ResourceAssignmentFields,
+  resourceLanePatch,
+} from './core/resource-assignment';
 // タイムゾーンユーティリティ
 export {
   addDaysInZone,
@@ -153,6 +172,8 @@ export type {
   RecurringEditScope,
   ResolvedCalendarOptions,
   ResourceColumn,
+  ResourceColumnGroupCell,
+  ResourceViewDay,
   ResourceViewModel,
   TimeAxis,
   TimeGridDay,
@@ -175,7 +196,7 @@ export type {
 export { buildListViewModel } from './core/views/list-view';
 export { buildMonthViewModel } from './core/views/month-view';
 export { buildMultiMonthViewModel } from './core/views/multi-month-view';
-// リソースの階層グルーピング（タイムラインビューのみが利用する）
+// リソースの階層グルーピング（リソース/タイムラインビューが利用する）
 export {
   buildResourceTree,
   filterVisibleResourceTree,
@@ -186,4 +207,9 @@ export { buildResourceViewModel } from './core/views/resource-view';
 export { buildTimeGridViewModel } from './core/views/time-grid-view';
 export { buildTimelineViewModel } from './core/views/timeline-view';
 export { buildYearViewModel } from './core/views/year-view';
-export type { VirtualItem } from './core/virtualization';
+export {
+  sameVisibleWindowRange,
+  type VirtualItem,
+  type VisibleWindowRange,
+  visibleWindowRange,
+} from './core/virtualization';

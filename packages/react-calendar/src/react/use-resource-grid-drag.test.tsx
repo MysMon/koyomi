@@ -67,6 +67,7 @@ interface HarnessProps {
   eventOverlap?: boolean;
   eventConstraint?: 'businessHours' | readonly BusinessHoursRule[];
   businessHours?: readonly BusinessHoursRule[];
+  resourceViewDays?: number;
   sink?: { current: UseCalendarResult | null };
 }
 
@@ -89,6 +90,7 @@ function Harness(props: HarnessProps): ReactElement {
     ...(props.eventOverlap !== undefined ? { eventOverlap: props.eventOverlap } : {}),
     ...(props.eventConstraint !== undefined ? { eventConstraint: props.eventConstraint } : {}),
     ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
+    ...(props.resourceViewDays !== undefined ? { resourceViewDays: props.resourceViewDays } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -250,6 +252,74 @@ describe('useResourceGridDrag - 作成', () => {
       resourceId: 'room-b',
     });
   });
+
+  it('終日セルはフォーカス可能で、Enter を押すと allDay: true・当日 1 日・選択列の resourceId 付きのイベントが作成される', () => {
+    const { container, sink } = renderHarness({ resources: [ROOM_A, ROOM_B] });
+    const allDayCells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
+    const roomBCell = allDayCells[1];
+    if (roomBCell === undefined) {
+      throw new Error('room-b の終日セルが見つかりません');
+    }
+    expect(roomBCell).toHaveAttribute('tabindex', '0');
+
+    fireEvent.keyDown(roomBCell, { key: 'Enter' });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      allDay: true,
+      start: at(`${DAY}T00:00`),
+      end: at('2026-07-16T00:00'),
+      resourceId: 'room-b',
+    });
+  });
+
+  it('終日セルで Space キーを押しても同様にイベントが作成される', () => {
+    const { container, sink } = renderHarness({ resources: [ROOM_A, ROOM_B] });
+    const allDayCells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
+    const roomBCell = allDayCells[1];
+    if (roomBCell === undefined) {
+      throw new Error('room-b の終日セルが見つかりません');
+    }
+
+    fireEvent.keyDown(roomBCell, { key: ' ' });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      allDay: true,
+      start: at(`${DAY}T00:00`),
+      end: at('2026-07-16T00:00'),
+      resourceId: 'room-b',
+    });
+  });
+
+  it('終日アイテムのボタンで Enter を押しても、セル（終日セル）の作成は二重発火しない', () => {
+    const event: CalendarEvent = {
+      id: 'ev-allday-keep',
+      title: '休暇',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-a',
+    };
+    const onEventClick = vi.fn();
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { onEventClick },
+    });
+    const allDayItemEl = container.querySelector('[data-koyomi="allday-event"]');
+    if (allDayItemEl === null) {
+      throw new Error('終日アイテムが見つかりません');
+    }
+
+    fireEvent.keyDown(allDayItemEl, { key: 'Enter' });
+
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+    // セル側の作成が二重発火していれば room-a に当日分の新規イベントが増える
+    expect(sink.current?.api.getEvents()).toHaveLength(1);
+  });
 });
 
 describe('useResourceGridDrag - 移動・リサイズ', () => {
@@ -381,6 +451,124 @@ describe('useResourceGridDrag - 移動・リサイズ', () => {
       resourceId: 'room-a',
     });
     expect(sink.current?.state.dragPreview).toBeNull();
+  });
+});
+
+describe('useResourceGridDrag - 複数リソース割当（resourceIds）', () => {
+  /** 指定レーンの列内にあるオカレンス要素を取得する（複数レーンに同一オカレンスが表示されるため）。 */
+  function getEventElementInLane(
+    container: HTMLElement,
+    laneKey: string,
+    eventId: string,
+    startIso: string,
+  ): HTMLElement {
+    const key = `${eventId}@${at(startIso).toISOString()}`;
+    const element = container.querySelector(
+      `[data-koyomi="resource-column"][data-koyomi-resource="${laneKey}"] [data-koyomi-occurrence="${key}"]`,
+    );
+    if (element === null) {
+      throw new Error(`レーン ${laneKey} 内にイベント要素が見つかりません: ${key}`);
+    }
+    return element as HTMLElement;
+  }
+
+  it('ドラッグしたレーンの割当だけが移動先に変わり、他のレーンの割当は保持される', () => {
+    const event: CalendarEvent = {
+      id: 'ev-multi',
+      title: '全体会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceIds: ['room-a', 'room-c'],
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B, ROOM_C],
+      events: [event],
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElementInLane(container, 'r:room-a', 'ev-multi', `${DAY}T10:00`);
+
+    firePointerDown(eventEl, columnCenterX(0), 600); // room-a 列 10:00 を掴む
+    movePointer(columnCenterX(1), 600); // room-b 列へ（時間は不変）
+    releasePointer(columnCenterX(1), 600);
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]?.resourceIds).toEqual(['room-b', 'room-c']);
+    expect(events[0]).not.toHaveProperty('resourceId');
+  });
+
+  it('未割り当て列へドロップするとドラッグしたレーンの割当だけが外れる', () => {
+    const event: CalendarEvent = {
+      id: 'ev-multi-unassign',
+      title: '全体会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceIds: ['room-a', 'room-b'],
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      unassignedLane: 'always',
+      events: [event],
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElementInLane(
+      container,
+      'r:room-b',
+      'ev-multi-unassign',
+      `${DAY}T10:00`,
+    );
+
+    firePointerDown(eventEl, columnCenterX(1), 600); // room-b 列を掴む
+    movePointer(columnCenterX(2), 600); // 未割り当て列へ
+    releasePointer(columnCenterX(2), 600);
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]?.resourceIds).toEqual(['room-a']);
+  });
+
+  it('ArrowRight でフォーカス中のレーンの割当だけが隣の列へ移る', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-multi-key',
+      title: '全体会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceIds: ['room-a', 'room-c'],
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B, ROOM_C],
+      events: [event],
+    });
+    const eventEl = getEventElementInLane(container, 'r:room-a', 'ev-multi-key', `${DAY}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowRight' });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]?.resourceIds).toEqual(['room-b', 'room-c']);
+    // 時間は不変
+    expect(events[0]).toMatchObject({ start: `${DAY}T10:00`, end: `${DAY}T11:00` });
+  });
+
+  it('移動先がすでに割当済みのレーンなら割当が統合される（重複しない）', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-multi-merge',
+      title: '全体会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceIds: ['room-a', 'room-b'],
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+    });
+    const eventEl = getEventElementInLane(container, 'r:room-a', 'ev-multi-merge', `${DAY}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowRight' });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]?.resourceIds).toEqual(['room-b']);
   });
 });
 
@@ -1660,5 +1848,386 @@ describe('useResourceGridDrag - 宣言的な重なり・配置制約', () => {
     const otherRoomEl = getEventElement(container, 'moving-other-room', `${DAY}T17:00`);
     fireEvent.keyDown(otherRoomEl, { key: 'ArrowDown' });
     expect(onEventChange).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useResourceGridDrag - 複数日表示（resourceViewDays）', () => {
+  // resources: [ROOM_A, ROOM_B]、resourceViewDays: 2 のとき、列は
+  // [room-a@7/15, room-a@7/16, room-b@7/15, room-b@7/16] の並び（DOM 順 = 列順）
+
+  it('イベントドラッグで別リソースの別日の列へ移動すると、日付と resourceId の変更が 1 回の updateEvent に合成される', () => {
+    const event: CalendarEvent = {
+      id: 'ev-cross-day-move',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      resourceViewDays: 2,
+      events: [event],
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-cross-day-move', `${DAY}T10:00`);
+    if (sink.current === null) {
+      throw new Error('sink が設定されていません');
+    }
+    const updateEventSpy = vi.spyOn(sink.current.api, 'updateEvent');
+
+    firePointerDown(eventEl, columnCenterX(0), 600); // room-a@7/15 の 10:00 を掴む
+    movePointer(columnCenterX(3), 600); // room-b@7/16 の 10:00 へ（時刻は同じ）
+    releasePointer(columnCenterX(3), 600);
+
+    expect(updateEventSpy).toHaveBeenCalledTimes(1);
+    expect(updateEventSpy).toHaveBeenCalledWith(
+      'ev-cross-day-move',
+      { start: at(`${NEXT_DAY}T10:00`), end: at(`${NEXT_DAY}T11:00`), resourceId: 'room-b' },
+      undefined,
+    );
+  });
+
+  it('同一リソース内の別日の列への移動は日付だけが変わる（resourceId は不変）', () => {
+    const event: CalendarEvent = {
+      id: 'ev-same-resource-day-move',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      resourceViewDays: 2,
+      events: [event],
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-same-resource-day-move', `${DAY}T10:00`);
+
+    firePointerDown(eventEl, columnCenterX(0), 600); // room-a@7/15 の 10:00
+    movePointer(columnCenterX(1), 600); // room-a@7/16 の 10:00
+    releasePointer(columnCenterX(1), 600);
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      start: at(`${NEXT_DAY}T10:00`),
+      end: at(`${NEXT_DAY}T11:00`),
+      resourceId: 'room-a',
+    });
+  });
+
+  it('終日アイテムのドラッグで別日の列へ移動すると開始・終了が日数分シフトする', () => {
+    const event: CalendarEvent = {
+      id: 'ev-allday-day-move',
+      title: '休暇',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      resourceViewDays: 2,
+      events: [event],
+    });
+    mockAllColumnRects(container);
+    const allDayItems = container.querySelectorAll('[data-koyomi="allday-event"]');
+    const firstItem = allDayItems[0];
+    if (firstItem === undefined) {
+      throw new Error('終日アイテムが見つかりません');
+    }
+
+    firePointerDown(firstItem, columnCenterX(0), 10); // room-a@7/15
+    movePointer(columnCenterX(1), 10); // room-a@7/16
+    releasePointer(columnCenterX(1), 10);
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      start: at(`${NEXT_DAY}T00:00`),
+      end: at('2026-07-17T00:00'),
+      allDay: true,
+      resourceId: 'room-a',
+    });
+  });
+
+  it('終日アイテムのドラッグで別リソースの別日の列へ移動すると、日数シフトと resourceId 変更が合成される', () => {
+    const event: CalendarEvent = {
+      id: 'ev-allday-cross-move',
+      title: '休暇',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      resourceViewDays: 2,
+      events: [event],
+    });
+    mockAllColumnRects(container);
+    const firstItem = container.querySelector('[data-koyomi="allday-event"]');
+    if (firstItem === null) {
+      throw new Error('終日アイテムが見つかりません');
+    }
+
+    firePointerDown(firstItem, columnCenterX(0), 10); // room-a@7/15
+    movePointer(columnCenterX(3), 10); // room-b@7/16
+    releasePointer(columnCenterX(3), 10);
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      start: at(`${NEXT_DAY}T00:00`),
+      end: at('2026-07-17T00:00'),
+      allDay: true,
+      resourceId: 'room-b',
+    });
+  });
+
+  it('作成ドラッグは開始列の日に固定される（ポインタが別日の列へ入っても日は変わらない）', () => {
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      resourceViewDays: 2,
+    });
+    mockAllColumnRects(container);
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+    const secondDayColumn = columns[1]; // room-a@7/16
+    if (secondDayColumn === undefined) {
+      throw new Error('room-a@7/16 列が見つかりません');
+    }
+
+    firePointerDown(secondDayColumn, columnCenterX(1), 600); // 7/16 10:00
+    movePointer(columnCenterX(0), 690); // 別日の列（room-a@7/15）の 11:30 相当へ
+    releasePointer(columnCenterX(0), 690);
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    // 日は開始列（7/16）に固定され、縦方向の 11:30 だけが反映される
+    expect(events[0]).toMatchObject({
+      start: at(`${NEXT_DAY}T10:00`),
+      end: at(`${NEXT_DAY}T11:30`),
+      resourceId: 'room-a',
+    });
+  });
+
+  it('終日セルのクリックはその列の日の 1 日分の終日イベントを作成する', () => {
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      resourceViewDays: 2,
+    });
+    const allDayCells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
+    const secondDayCell = allDayCells[1]; // room-a@7/16
+    if (secondDayCell === undefined) {
+      throw new Error('room-a@7/16 の終日セルが見つかりません');
+    }
+
+    fireEvent.click(secondDayCell);
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      allDay: true,
+      start: at(`${NEXT_DAY}T00:00`),
+      end: at('2026-07-17T00:00'),
+      resourceId: 'room-a',
+    });
+  });
+
+  it('移動ドラッグ中のプレビューは移動先の（リソース, 日）の列にのみ出現する', () => {
+    const event: CalendarEvent = {
+      id: 'ev-preview-day',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      resourceViewDays: 2,
+      events: [event],
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-preview-day', `${DAY}T10:00`);
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+
+    firePointerDown(eventEl, columnCenterX(0), 600); // room-a@7/15 の 10:00
+    movePointer(columnCenterX(1), 600); // room-a@7/16 の 10:00
+
+    expect(columns[0]?.querySelector('[data-koyomi="timegrid-preview"]')).toBeNull();
+    expect(columns[1]?.querySelector('[data-koyomi="timegrid-preview"]')).not.toBeNull();
+    expect(columns[2]?.querySelector('[data-koyomi="timegrid-preview"]')).toBeNull();
+    expect(columns[3]?.querySelector('[data-koyomi="timegrid-preview"]')).toBeNull();
+
+    releasePointer(columnCenterX(1), 600);
+  });
+
+  it('ArrowRight は同一リソース内の翌日の列へ移動する（時間帯は同じまま日付 +1）', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-arrow-next-day',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      resourceViewDays: 2,
+      events: [event],
+    });
+    const eventEl = getEventElement(container, 'ev-arrow-next-day', `${DAY}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowRight' });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      start: at(`${NEXT_DAY}T10:00`),
+      end: at(`${NEXT_DAY}T11:00`),
+      resourceId: 'room-a',
+    });
+  });
+
+  it('リソースの最終日の列で ArrowRight を押すと、次のリソースの先頭日の列へ移動する（視覚上の隣の列）', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-arrow-next-resource',
+      title: '会議',
+      start: `${NEXT_DAY}T10:00`,
+      end: `${NEXT_DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      resourceViewDays: 2,
+      events: [event],
+    });
+    const eventEl = getEventElement(container, 'ev-arrow-next-resource', `${NEXT_DAY}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowRight' });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    // room-a@7/16 の視覚上の右隣は room-b@7/15（日付 -1・リソース変更が合成される）
+    expect(events[0]).toMatchObject({
+      start: at(`${DAY}T10:00`),
+      end: at(`${DAY}T11:00`),
+      resourceId: 'room-b',
+    });
+  });
+
+  it('ArrowLeft は同一リソース内の前日の列へ移動し、先頭の列では何も変更しない', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-arrow-prev-day',
+      title: '会議',
+      start: `${NEXT_DAY}T10:00`,
+      end: `${NEXT_DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      resourceViewDays: 2,
+      events: [event],
+    });
+    const eventEl = getEventElement(container, 'ev-arrow-prev-day', `${NEXT_DAY}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'ArrowLeft' });
+    });
+
+    let events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      start: at(`${DAY}T10:00`),
+      end: at(`${DAY}T11:00`),
+      resourceId: 'room-a',
+    });
+
+    // 先頭の列（room-a@7/15）でさらに ArrowLeft → 隣が無いため変更されない
+    const movedEl = getEventElement(container, 'ev-arrow-prev-day', `${DAY}T10:00`);
+    await act(async () => {
+      fireEvent.keyDown(movedEl, { key: 'ArrowLeft' });
+    });
+    events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      start: at(`${DAY}T10:00`),
+      resourceId: 'room-a',
+    });
+  });
+
+  it('終日アイテムの ArrowRight も翌日の列へ移動する（日数シフト）', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-allday-arrow',
+      title: '休暇',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      resourceViewDays: 2,
+      events: [event],
+    });
+    const firstItem = container.querySelector('[data-koyomi="allday-event"]');
+    if (firstItem === null) {
+      throw new Error('終日アイテムが見つかりません');
+    }
+
+    await act(async () => {
+      fireEvent.keyDown(firstItem, { key: 'ArrowRight' });
+    });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      start: at(`${NEXT_DAY}T00:00`),
+      end: at('2026-07-17T00:00'),
+      allDay: true,
+      resourceId: 'room-a',
+    });
+  });
+
+  it('終日アイテムの列間移動中、日をまたぐプレビュー対象の終日セルにのみ data-koyomi-preview-target が付く', () => {
+    const event: CalendarEvent = {
+      id: 'ev-allday-preview-day',
+      title: '休暇',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-a',
+    };
+    const { container } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      resourceViewDays: 2,
+      events: [event],
+    });
+    mockAllColumnRects(container);
+    const firstItem = container.querySelector('[data-koyomi="allday-event"]');
+    if (firstItem === null) {
+      throw new Error('終日アイテムが見つかりません');
+    }
+    const allDayCells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
+
+    firePointerDown(firstItem, columnCenterX(0), 10); // room-a@7/15
+    movePointer(columnCenterX(1), 10); // room-a@7/16 へ（+1 日）
+
+    // シフト後の範囲（7/16〜7/17）は room-a@7/16 の列にのみ重なる
+    expect(allDayCells[0]).not.toHaveAttribute('data-koyomi-preview-target');
+    expect(allDayCells[1]).toHaveAttribute('data-koyomi-preview-target', 'true');
+    expect(allDayCells[2]).not.toHaveAttribute('data-koyomi-preview-target');
+    expect(allDayCells[3]).not.toHaveAttribute('data-koyomi-preview-target');
+
+    releasePointer(columnCenterX(1), 10);
+  });
+
+  it('resource-column / resource-allday-cell には列の日付キーが data-koyomi-date として付く', () => {
+    const { container } = renderHarness({
+      resources: [ROOM_A],
+      resourceViewDays: 2,
+      unassignedLane: 'always',
+    });
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+    expect(columns[0]).toHaveAttribute('data-koyomi-date', DAY);
+    expect(columns[1]).toHaveAttribute('data-koyomi-date', NEXT_DAY);
+    const cells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
+    expect(cells[0]).toHaveAttribute('data-koyomi-date', DAY);
+    expect(cells[1]).toHaveAttribute('data-koyomi-date', NEXT_DAY);
   });
 });

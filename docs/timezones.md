@@ -245,7 +245,7 @@ if (vm.type === 'month') {
 | --- | --- |
 | `getLocalTimeZone()` | 実行環境のローカルタイムゾーン ID を返す |
 | `isValidTimeZone(timeZone)` | 文字列が有効な IANA タイムゾーン ID かどうかを判定する |
-| `fromWallClock(parts, timeZone)` | 現地時刻の成分（`WallClockParts`）から絶対時刻を構築する |
+| `fromWallClock(parts, timeZone, disambiguation?)` | 現地時刻の成分（`WallClockParts`）から絶対時刻を構築する。`disambiguation`（`'earlier' \| 'later'`、既定 `'earlier'`）で DST の曖昧な時刻の解決方法を選べる |
 | `getWallClock(date, timeZone)` | 絶対時刻を指定タイムゾーンの現地時刻の成分に分解する |
 | `dateKeyInZone(date, timeZone)` | 絶対時刻を `'YYYY-MM-DD'` の日付キーに変換する |
 | `dateFromKey(key, timeZone)` | `'YYYY-MM-DD'` の日付キーから、その日の 0:00 の絶対時刻を返す |
@@ -313,6 +313,21 @@ console.log(parseDateValue('2026-07-01T10:00', 'Asia/Tokyo', false).toISOString(
 - **存在しない時刻** — 直後の実在する時刻に**繰り上げ**て解決します（例:
   2:00 → 3:00 に進むゾーンで 2:30 を指定すると 3:30 として解決される）
 - **曖昧な時刻**（2 回現れる時刻） — 2 回のうち**早い方のオフセット**で解決します
+
+`fromWallClock` は第 3 引数 `disambiguation`（`'earlier' | 'later'`、既定 `'earlier'`）で
+曖昧な時刻の解決方法を選べます。`'later'` を渡すと、2 回のうち**遅い方のオフセット**
+（切替後）で解決します。曖昧でない時刻・存在しない時刻の扱いは `'earlier'` と
+変わりません（存在しない時刻は常に繰り上げ）。`parseDateValue` や `addMinutesInZone`
+など内部的に `fromWallClock` を使う関数は、常に既定の `'earlier'` で解決します。
+
+```tsx
+// America/New_York は 2026-11-01 に時計を 2:00 → 1:00 へ戻すため、01:30 は 2 回現れる
+const parts = { year: 2026, month: 11, day: 1, hours: 1, minutes: 30 };
+console.log(fromWallClock(parts, 'America/New_York').toISOString());
+// => '2026-11-01T05:30:00.000Z'（早い方、EDT = UTC-4）
+console.log(fromWallClock(parts, 'America/New_York', 'later').toISOString());
+// => '2026-11-01T06:30:00.000Z'（遅い方、EST = UTC-5）
+```
 
 `startOfDayInZone` / `dateFromKey` が返す「その日の 0:00」自体が、DST により
 その日に存在しないケース（真夜中に時計が進むゾーンで、ある日の 0:00 がそのまま

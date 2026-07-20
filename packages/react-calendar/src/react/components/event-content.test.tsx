@@ -97,7 +97,7 @@ describe('listEventContentContext', () => {
     expect(ctx.parts.title).toBe(title);
 
     // 既定内容を描画すると、時刻 → 色見本 → タイトルの順で 3 部位が並ぶ
-    const { container } = render(<>{ctx.defaultContent}</>);
+    const { container } = render(ctx.defaultContent);
     const parts = Array.from(container.querySelectorAll('[data-koyomi]')).map((el) =>
       el.getAttribute('data-koyomi'),
     );

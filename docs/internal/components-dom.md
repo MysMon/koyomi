@@ -77,7 +77,9 @@ div[data-koyomi="month"] (role="grid", style: --koyomi-month-lanes=dayMaxEvents)
         div[data-koyomi="month-day"][data-koyomi-date="YYYY-MM-DD"]
            (role="gridcell", tabIndex=0, aria-label=完全な日付, aria-current="date"?)
            [data-today?][data-outside?] × 可視列数    … useDayDrag.getDayCellProps を展開
-                                                       （Enter/Space でその日 1 日分の範囲選択）
+                                                       （Enter/Space でその日 1 日分の範囲選択。
+                                                        gridNavigation 有効時は roving tabindex:
+                                                        Tab ストップのセルのみ 0、他は -1）
           … 内容は renderDayCell で差し替え可能（既定は以下。イベントの帯は差し替え対象外）
           button[data-koyomi="month-day-number"]     … クリックでその日の day ビューへ
           button[data-koyomi="month-overflow"]?      … 「+N 件」（overflowCount > 0 のとき、
@@ -139,7 +141,8 @@ div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"] (style: --koyomi-
     div[data-koyomi="allday-row"] (role="row")
       div[data-koyomi="timegrid-axis-gutter"][data-koyomi-timezone] (role="presentation") × timeAxes.length
       div[data-koyomi="allday-cells"] (role="presentation")  … position: relative の基準（row→gridcell 間の透過ラッパ）
-        div[data-koyomi="allday-cell"][data-koyomi-date] (role="gridcell", aria-label=完全な日付) × days   … getDayCellProps（allDay 作成用）
+        div[data-koyomi="allday-cell"][data-koyomi-date] (role="gridcell", aria-label=完全な日付) × days   … getDayCellProps（allDay 作成用。
+               gridNavigation 有効時は roving tabindex: Tab ストップのセルのみ 0、他は -1）
           button[data-koyomi="allday-event"] × n     … getSegmentProps。開始日のセルが DOM 上所有する
                （positioned ancestor は allday-cells のため、複数日スパンの座標は従来どおり）。
                style: insetInlineStart/width %、top: lane × var(--koyomi-lane-height, 24px)。
@@ -255,6 +258,8 @@ div[data-koyomi="year"]
                (aria-label=完全な日付+予定件数, aria-current="date"?)
                [data-today?][data-outside?][data-has-events?]
                … 実際の操作・フォーカス対象。クリックで goTo(date) + setView('day')。
+                 gridNavigation 有効時は roving tabindex（Tab ストップのボタンのみ 0、
+                 他は -1。data-outside のボタンは常に -1 で矢印移動の対象外）。
                  内容は renderDayCell で差し替え可能（既定は以下）
               … 既定内容: 日番号のテキスト
               span[data-koyomi="year-day-count"][aria-hidden="true"]?
@@ -302,7 +307,8 @@ div[data-koyomi="multimonth"]
 
 ## リソースビュー（ResourceView）
 
-1 日固定、列 = リソース。イベントブロック・リサイズハンドル・現在時刻線・プレビューは
+列 = リソース × 日（表示日数は `resourceViewDays`、既定 1。複数日はリソース優先で日が
+昇順に並ぶ）。イベントブロック・リサイズハンドル・現在時刻線・プレビューは
 週/日ビュー（`timegrid-event` / `timegrid-resize` / `now-indicator` / `timegrid-preview`）と
 **同じ部位名**を使い、デフォルトテーマのスタイルを共有する（列ごとに `layoutTimeGridItems` を
 実行した結果を、週/日ビューの日列と同じ描画で表示するだけのため）。
@@ -313,17 +319,32 @@ div[data-koyomi="multimonth"]
 div[data-koyomi="resource"][data-koyomi-columns="<列数>"] (style: --koyomi-timegrid-hours=時間数)
   div[data-koyomi="resource-grid"] (role="grid")            … 列見出し行・終日行だけをまとめる a11y 用ラッパー
                                                                 （row/rowgroup 以外を子孫に持たないよう本文はこの外側に置く）
+    div[data-koyomi="resource-group-header-row"] (role="row") × 深さ数
+                                                              … 列グループ見出し行（parentId で子を持つリソースがある場合のみ。深さの浅い順）
+      div[data-koyomi="timegrid-axis-gutter"] (role="presentation")
+      div[data-koyomi="resource-headers"] (role="presentation")
+        div[data-koyomi="resource-group-header-cell"][data-koyomi-resource-id][data-koyomi-depth] (role="columnheader", aria-colspan=覆う列数)
+           … 親リソースのグループセル（親自身＋可視の子孫の列を覆う）。
+             style: 列幅変数 × 列数の flex/min-width、--koyomi-event-color（resource.color 指定時のみ）
+        div[data-koyomi="resource-group-header-gap"] (role="columnheader", aria-colspan=覆う列数)
+           … グループに属さない列の区間（フラットなリソース・未割り当て列など）のスペーサー
     div[data-koyomi="resource-header"] (role="row")
       div[data-koyomi="timegrid-axis-gutter"] (role="presentation")   … 左上の空き（時間軸幅の確保）
       div[data-koyomi="resource-headers"] (role="presentation")  … row→columnheader 間の透過ラッパ
-        div[data-koyomi="resource-header-cell"][data-koyomi-resource-id]? (role="columnheader") × columns
-           … リソース名（renderColumnHeader で差し替え可）。未割り当て列は data-koyomi-resource-id なし。
+        div[data-koyomi="resource-header-cell"][data-koyomi-date][data-koyomi-depth][data-koyomi-resource-id]? (role="columnheader") × columns
+           … リソース名（複数日表示では「リソース名 + 日ラベル」。renderColumnHeader で差し替え可）。
+             未割り当て列は data-koyomi-resource-id なし。data-koyomi-date は列の日付キー。
+             data-koyomi-depth はツリー内の深さ（parentId 未使用時は常に '0'）。
              style: --koyomi-event-color（resource.color 指定時のみ）
+          button[data-koyomi="resource-column-toggle"][aria-expanded] … 折りたたみトグル。
+             子を持つリソースの先頭日（dayIndex 0）の列にのみ描画。
+             aria-label は messages.resource.resourceToggleAriaLabel
     div[data-koyomi="allday-row"] (role="row")
       div[data-koyomi="timegrid-axis-gutter"] (role="presentation")
       div[data-koyomi="resource-allday-cells"] (role="presentation")  … position: relative の基準（row→gridcell 間の透過ラッパ）
-        div[data-koyomi="resource-allday-cell"][data-koyomi-resource][data-koyomi-preview-target?][data-koyomi-invalid?] (role="gridcell", aria-label=リソース名/未割り当て) × columns
-           … getAllDayCellProps（クリックで当日 1 日分の終日イベント作成。キーボードでの直接作成には未対応 = 既知の制限）。
+        div[data-koyomi="resource-allday-cell"][data-koyomi-resource][data-koyomi-date][data-koyomi-preview-target?][data-koyomi-invalid?] (role="gridcell", aria-label=リソース名/未割り当て。複数日表示では日ラベル付き) × columns
+           … getAllDayCellProps（クリックでその列の日 1 日分の終日イベント作成。キーボードでの直接作成には未対応 = 既知の制限）。
+             data-koyomi-resource はレーンキー（r:${id} / 'unassigned'）、data-koyomi-date は列の日付キー。
              data-koyomi-invalid は data-koyomi-preview-target="true" の列かつ宣言的制約違反時のみ 'true'
           button[data-koyomi="allday-event"] × n             … getAllDayItemProps（列間移動のみ）
              style: --koyomi-event-color（event.color ?? resource.color）
@@ -332,14 +353,16 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"] (style: --koyomi-tim
     div[data-koyomi="time-axis"]
       div[data-koyomi="time-slot-label"] × slots           … 'HH:mm'
     div[data-koyomi="resource-columns"]
-      div[data-koyomi="resource-column"][data-koyomi-resource][data-today?] × columns
-         … getColumnProps を展開。position: relative の基準
+      div[data-koyomi="resource-column"][data-koyomi-resource][data-koyomi-date][data-today?] × columns
+         … getColumnProps を展開。position: relative の基準。
+           data-koyomi-resource はレーンキー、data-koyomi-date は列の日付キー、
+           data-today はその列の日が今日の列のみ
         div[data-koyomi="timegrid-slot"][data-koyomi-business-hours]? × slots
                                                       … 罫線。style: top %。
                                                         data-koyomi-business-hours は
                                                         businessHours 該当スロットのみ付き、
                                                         その場合 style に height（次スロットまで）も追加
-                                                        （表示日の曜日基準で判定し全列共通。週/日ビューと同じ規則）
+                                                        （列の日の曜日基準で判定。週/日ビューと同じ規則）
         button[data-koyomi="timegrid-event"] × n           … getEventProps を展開
            [data-continues-before?][data-continues-after?][data-koyomi-dragging?]
            style: top/height/left/width すべて %
@@ -351,7 +374,7 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"] (style: --koyomi-tim
         div[data-koyomi="timegrid-preview"][data-kind="create|move|resize"]?[data-koyomi-invalid]? (aria-hidden)
            … previewFor(column) のその列に該当する区間。style: top/height %。
              data-koyomi-invalid は宣言的制約違反時のみ 'true'
-        div[data-koyomi="now-indicator"]? (aria-hidden)    … style: top %（表示日が今日の列のみ）
+        div[data-koyomi="now-indicator"]? (aria-hidden)    … style: top %（その列の日が今日の列のみ）
   div[data-koyomi="resource-empty"]?                        … isEmpty のとき messages.resource.empty（既定「リソースがありません」）
 ```
 
@@ -510,14 +533,18 @@ div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"][data-koyomi-scale
 ### 仮想化（VirtualTimelineView）— opt-in 時の DOM 拡張
 
 `VirtualTimelineView` は上記の非仮想化 DOM を**壊さず拡張**する（`TimelineView` の DOM は不変）。
-行（`timeline-row-group`）の中身自体は共通のため、変わるのは可視行だけを描画する点と、
-スペーサ・pinned 行（フォーカス保持）の追加だけ。
+行（`timeline-row-group`）の中身自体は共通のため、変わるのは可視範囲だけを描画する点と、
+スペーサ・pinned 行（フォーカス保持）の追加だけ。仮想化は行（縦方向）× 時間軸（横方向）の
+二軸で、時間軸は「1 日 = 1 アイテム」の windowing になる。
 
 ```
 div[data-koyomi="timeline"][data-koyomi-virtualized="true"][data-koyomi-days="<表示日数>"] (role="grid")
   div[data-koyomi="timeline-body"] (role="presentation")
     div[data-koyomi="timeline-header-row"] (role="row")             … sticky（実測高を viewportPadding に使う）
-      ( … 角セル・日ヘッダー・時刻目盛り。「タイムラインビュー」節と同一 … )
+      ( … 角セル・日ヘッダー・時刻目盛り。「タイムラインビュー」節と同一。ただし横窓の外の日は
+          描画されず、day/group ヘッダー列の窓外の分は次のスペーサに置き換わる … )
+      div[data-koyomi="timeline-header-spacer"][data-edge="before|after"][aria-hidden]? × 0〜2
+                                                                       … 横窓外の日/グループ分（inline: flex-basis %。幅 0 のとき出力しない）
     div[data-koyomi="timeline-rows"] (role="presentation")          … row/rowgroup 以外の中間ラッパー
       div[data-koyomi="timeline-row-spacer"][data-edge="before"][aria-hidden]  … 上スペーサ（inline: height）
       div[data-koyomi="timeline-row-group"] (role="row") × 可視行数           … 窓内の行（中身は非仮想化版と同一）
@@ -546,6 +573,21 @@ div[data-koyomi="timeline"][data-koyomi-virtualized="true"][data-koyomi-days="<�
   「前」に同居する固定表示行のため）
 - ルート `[data-koyomi="timeline"]` に `data-koyomi-virtualized="true"` が付く（縦スクロールで
   境界高を確保するのは利用者 CSS の責務。境界高が無ければ全件描画へ無害に縮退する）
+- **時間軸（横方向）の仮想化**: 横スクロールの可視範囲＋overscan（`overscanDays`、既定 1 日）に
+  重なる日だけを描画する。帯（`timeline-item`）・時刻目盛り（`timeline-slot-label`）・
+  営業時間帯（`timeline-business-hours`）はトラックに対する % 座標の絶対配置のため、
+  スペーサを挟まず「窓に重なるものだけを描画対象にする」フィルタになる（DOM から外れるだけで
+  座標系は不変）。フロー配置の `timeline-day-header` / `timeline-group-header` のみ、窓外の分を
+  `timeline-header-spacer`（% 幅）へ置き換える。1 日分の幅は `timeline-axis` のトラック実測幅 ÷
+  表示日数（`measure: false` の固定日幅）で、行見出し列（`timeline-corner` の実測幅）を横方向の
+  `viewportPadding` として差し引く。トラック幅が実測できない環境では全日描画へ無害に縮退する
+- フォーカス中の帯は横窓の外へスクロールしても描画対象に残る（`pinnedItemKey`。% 座標の
+  絶対配置なので pinned 行のような位置決めスタイルの追加は不要）。行の pinned（縦）と
+  独立して機能する
+- `onVisibleRangeChange`（可視範囲の変更通知）は行・日それぞれの可視範囲（overscan を
+  含まない `startIndex`/`endIndex`）を core の `visibleWindowRange` でキー付きスナップショットに
+  し、`sameVisibleWindowRange` による差分比較で内容が変わったときだけ発火する
+  （`onRangeChange` と同じ「比較基準は登録有無に関わらず更新」の流儀）
 
 ## CalendarView
 

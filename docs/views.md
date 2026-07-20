@@ -34,13 +34,13 @@ Koyomi は月・週・日・リスト（スケジュール）・年・複数月�
 
 ### リソースビュー（resource）
 
-`ResourceView` が描画します。1 日の時間グリッドを「列 = リソース」で描きます（週/日ビューの「列 = 日」をリソースに置き換えたもの。Google カレンダーの会議室日表示相当）。表示日は常に 1 日固定で、`hiddenWeekdays` は日ビューと同じく無視されます。
+`ResourceView` が描画します。時間グリッドを「列 = リソース」で描きます（週/日ビューの「列 = 日」をリソースに置き換えたもの。Google カレンダーの会議室日表示相当）。表示日数は `resourceViewDays`（既定 `1`）で指定でき、`2` 以上にすると列が**リソース × 日の直積**になります。グルーピング順は**リソース優先**（各リソースの中に日が昇順で並ぶ。FullCalendar の resourceTimeGrid の既定 `datesAboveResources: false` と同じ一般的な並び）です。`hiddenWeekdays` は日ビューと同じく無視され、常に `resourceViewDays` 日の連続した並びになります。
 
-構成は週/日ビューに準じます。上部にリソース列見出し行（`resources` の並び順。列見出しにはリソースの `color` が反映されます）、その下に終日行、本体には時間軸と各リソースの時間指定イベント列が並びます。`resourceId` を持たない予定、または `resources` に存在しない ID を指す予定（参照先のない `resourceId`）は「未割り当て」列に表示されます。未割り当て列は既定（`unassignedLane: 'auto'`）では該当する予定があるときだけ末尾に現れ、`unassignedLane: 'always'` を指定すると常に表示されます（詳細は下記の[関連オプション](#関連オプション)）。
+構成は週/日ビューに準じます。上部にリソース列見出し行（列見出しにはリソースの `color` が反映され、複数日表示では「リソース名 + 日ラベル」（例: `会議室A 15 (水)`）になります）、その下に終日行、本体には時間軸と各リソースの時間指定イベント列が並びます。列順は `resources` の並び順（`parentId` 使用時はツリー順。詳細は [リソースの階層グルーピング](#リソースの階層グルーピングparentid折りたたみ)）です。割当を持たない予定、または割当がすべて `resources` に存在しない ID を指す予定（参照先のないリソース ID）は「未割り当て」列に表示されます。未割り当て列は既定（`unassignedLane: 'auto'`）では該当する予定があるときだけ末尾に現れ、`unassignedLane: 'always'` を指定すると常に表示されます（詳細は下記の[関連オプション](#関連オプション)）。複数リソース割当（`resourceIds`）の予定は割当先の各列に表示されます（詳細は [予定の管理: 複数リソース割当](./events.md#複数リソース割当resourceids)）。
 
-インタラクションは `useResourceGridDrag` が提供します。縦方向（時間）は週/日ビューと同じ操作、横方向（リソース）はドラッグで別のリソース列へ移動できます。予定の作成・移動・リサイズが確定すると、時間の変更と `resourceId` の変更が 1 回の更新にまとめて適用されます。キーボードは `↑`/`↓` が時間の移動・`Shift+↑`/`Shift+↓` がリサイズ、**`←`/`→` が隣のリソース列への移動**です（画面上の視覚軸に対応する操作。詳細は [インタラクション](./interactions.md) を参照）。終日 ⇔ 時間指定の変換ドラッグは提供しません。
+インタラクションは `useResourceGridDrag` が提供します。縦方向（時間）は週/日ビューと同じ操作、横方向はドラッグで別の列へ移動できます。複数日表示では別の日の列への移動が日付の変更（日数シフト）になり、予定の作成・移動・リサイズが確定すると、時間・日付の変更とリソース割当の変更が 1 回の更新にまとめて適用されます（作成・リサイズの対象日は開始列の日に固定されます）。複数リソース割当の予定を別の列へ動かした場合は、**操作した列の割当だけ**が移動先に変わります。キーボードは `↑`/`↓` が時間の移動・`Shift+↑`/`Shift+↓` がリサイズ、**`←`/`→` が隣の列への移動**です（画面上の視覚軸に対応する操作。複数日表示では同一リソース内の隣の日 → リソース境界では隣のリソースの端の日、の順に移ります。詳細は [インタラクション](./interactions.md) を参照）。終日 ⇔ 時間指定の変換ドラッグは提供しません。
 
-`CalendarResource.parentId` はリソースビューには影響しません。列順は常に `resources` 配列の順（フラット）で、ツリー表示・折りたたみはタイムラインビュー専用です。
+`CalendarResource.parentId` を指定すると、親リソースの列グループ見出し行と折りたたみトグルが表示されます（詳細は [リソースの階層グルーピング](#リソースの階層グルーピングparentid折りたたみ) を参照）。
 
 表示する時間帯は `slotMinTime`/`slotMaxTime` で制限でき、初期スクロール位置は `initialScrollTime`/`scrollToTime` で指定できます（詳細は [表示時間帯（slotMinTime/slotMaxTime）](#表示時間帯slotmintimeslotmaxtime) と [初期スクロール位置（initialScrollTime / scrollToTime）](#初期スクロール位置initialscrolltime--scrolltotime) を参照）。
 
@@ -48,9 +48,9 @@ Koyomi は月・週・日・リスト（スケジュール）・年・複数月�
 
 `TimelineView` が描画します。横 = 時間、行 = リソースの帯表示で、`timelineDays`（既定 `1`）日分を横に連結します（FullCalendar の resourceTimeline 相当）。`hiddenWeekdays` は無視され、常に `timelineDays` 日の連続した並びになります。
 
-構成は、左にリソース行見出し列（`position: sticky` で固定）、右に横スクロールする本体（日ヘッダー・時間目盛り・各リソース行の帯）です。行の考え方はリソースビューと同じで、`resourceId` が対応しない予定は「未割り当て」行に入り、`unassignedLane` オプションで生成規則を制御します。終日イベントはその日の全幅の帯として、時間指定イベントと同じレーン空間に配置されます。
+構成は、左にリソース行見出し列（`position: sticky` で固定）、右に横スクロールする本体（日ヘッダー・時間目盛り・各リソース行の帯）です。行の考え方はリソースビューと同じで、割当が対応しない予定は「未割り当て」行に入り、`unassignedLane` オプションで生成規則を制御します。複数リソース割当（`resourceIds`）の予定は割当先の各行に表示されます（詳細は [予定の管理: 複数リソース割当](./events.md#複数リソース割当resourceids)）。終日イベントはその日の全幅の帯として、時間指定イベントと同じレーン空間に配置されます。
 
-インタラクションは `useTimelineDrag` が提供します。横方向（時間）へのドラッグで移動・リサイズ、縦方向（行）へのドラッグでリソース間の移動ができます。キーボードは `←`/`→` が時間の移動・`Shift+←`/`Shift+→` がリサイズ、**`↑`/`↓` が隣の行への移動**です（リソースビューとは軸が異なりますが、いずれも「画面上でその方向に動く」という同じ原則によるものです）。終日 ⇔ 時間指定の変換ドラッグは提供しません。
+インタラクションは `useTimelineDrag` が提供します。横方向（時間）へのドラッグで移動・リサイズ、縦方向（行）へのドラッグでリソース間の移動ができます。複数リソース割当の予定を別の行へ動かした場合は、**操作した行の割当だけ**が移動先に変わります。キーボードは `←`/`→` が時間の移動・`Shift+←`/`Shift+→` がリサイズ、**`↑`/`↓` が隣の行への移動**です（リソースビューとは軸が異なりますが、いずれも「画面上でその方向に動く」という同じ原則によるものです）。終日 ⇔ 時間指定の変換ドラッグは提供しません。
 
 `CalendarResource.parentId` を指定すると、リソースを親子関係のツリーとして表示できます（会議室を「拠点 > フロア > 会議室」のように階層化する用途）。詳細は [リソースの階層グルーピング](#リソースの階層グルーピングparentid折りたたみ) を参照してください。横軸の表示単位は `timelineScale` で時刻・日・週・月に切り替えられます（詳細は [タイムラインのズーム粒度](#タイムラインのズーム粒度timelinescale) を参照）。
 
@@ -175,7 +175,7 @@ const calendar = useCalendar({
 | `list` | ±`listDays` 日 |
 | `year` | ±1 年（基準日は年初に正規化される） |
 | `multiMonth` | ±`multiMonthCount` ヶ月（基準日は月初に正規化される） |
-| `resource` | ±1 日（`day` と同一） |
+| `resource` | ±`resourceViewDays` 日（既定 `1` = `day` と同一） |
 | `timeline` | ±`timelineDays` 日 |
 
 ```ts
@@ -198,7 +198,8 @@ calendar.today(); // now() が指す日（この例では 2026-07-15）に戻る
 // - week ビューでは next()/prev() が ±7日、day ビューでは ±1日、
 //   list ビューでは ±listDays 日（既定 30）、year ビューでは ±1 年、
 //   multiMonth ビューでは ±multiMonthCount ヶ月（既定 3）、
-//   resource ビューでは ±1 日、timeline ビューでは ±timelineDays 日（既定 1）で
+//   resource ビューでは ±resourceViewDays 日（既定 1）、
+//   timeline ビューでは ±timelineDays 日（既定 1）で
 //   currentDate（および getVisibleRange()）が動く
 ```
 
@@ -213,10 +214,10 @@ calendar.today(); // now() が指す日（この例では 2026-07-15）に戻る
 | `ListViewModel` | `'list'` | `days`（予定がある日だけの `ListDay[]`）、`isEmpty` |
 | `YearViewModel` | `'year'` | `anchor`（表示対象年の1月1日）、`months`（`YearMonth[]`、12件）、`weekdays`（曜日の並び） |
 | `MultiMonthViewModel` | `'multiMonth'` | `anchor`（先頭月の1日）、`months`（`MultiMonthMonth[]`、`multiMonthCount` 件）、`weekdays`（曜日の並び） |
-| `ResourceViewModel` | `'resource'` | `date`（表示日）、`columns`（`ResourceColumn[]`。`resources` の並び順＋末尾に未割り当て列）、`isEmpty`、`slots`（時間軸の目盛り）、`nowIndicatorMinutes` |
+| `ResourceViewModel` | `'resource'` | `date`（先頭日）、`days`（`ResourceViewDay[]`、`resourceViewDays` 日分）、`columns`（`ResourceColumn[]`。リソース × 日の直積。リソースはツリー順（`parentId` 未使用時は `resources` の並び順）＋末尾に未割り当て列）、`columnGroupRows`（`ResourceColumnGroupCell[][]`。列グループ見出しの行。子を持つリソースがなければ空配列）、`isEmpty`、`slots`（時間軸の目盛り）、`nowIndicatorMinutes` |
 | `TimelineViewModel` | `'timeline'` | `days`（`timelineDays` 日分）、`rows`（`TimelineRow[]`。`resources` の並び順＋末尾に未割り当て行）、`isEmpty`、`slots`（`TimelineSlot[]`）、`totalMinutes`、`nowIndicatorMinutes` |
 
-`MonthWeek.days` は `MonthDay[]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `overflowCount` など）、`TimeGridDay.items` は `PositionedOccurrence[]`（`startMinutes` / `endMinutes` / `left` / `width` など割合ベースの配置情報）を持ちます。`YearMonth.weeks` は `YearDay[][]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `eventCount` を持ち、前後月の日付は `eventCount: 0` に固定）です。`MultiMonthMonth.weeks` は月ビューと同じ `MonthWeek[]` です（前後月の日付セルにはセグメントを配置しない点だけが月ビューと異なります）。`ResourceColumn`（`resource` / `key` / `items`（`PositionedOccurrence[]`）/ `allDayItems`）は週/日ビューと同じ配置計算を列ごとに行った結果です。`TimelineRow`（`resource` / `key` / `items`（`TimelineItem[]`）/ `laneCount`）の `TimelineItem` は `startMinutes` / `endMinutes` が「表示分」（範囲先頭からの分。全日を等幅 1440 分として扱う座標系）で表され、`lane` で行内の縦位置を示します。詳細なフィールドは各型の TSDoc を参照してください。
+`MonthWeek.days` は `MonthDay[]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `overflowCount` など）、`TimeGridDay.items` は `PositionedOccurrence[]`（`startMinutes` / `endMinutes` / `left` / `width` など割合ベースの配置情報）を持ちます。`YearMonth.weeks` は `YearDay[][]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `eventCount` を持ち、前後月の日付は `eventCount: 0` に固定）です。`MultiMonthMonth.weeks` は月ビューと同じ `MonthWeek[]` です（前後月の日付セルにはセグメントを配置しない点だけが月ビューと異なります）。`ResourceColumn`（`resource` / `key` / `date` / `dayKey` / `isToday` / `dayIndex` / `items`（`PositionedOccurrence[]`）/ `allDayItems` / `depth` / `hasChildren` / `collapsed`）は週/日ビューと同じ配置計算を列（リソース × 日）ごとに行った結果です（`depth` / `hasChildren` / `collapsed` は `parentId` によるツリー内の情報）。`TimelineRow`（`resource` / `key` / `items`（`TimelineItem[]`）/ `laneCount`）の `TimelineItem` は `startMinutes` / `endMinutes` が「表示分」（範囲先頭からの分。全日を等幅 1440 分として扱う座標系）で表され、`lane` で行内の縦位置を示します。詳細なフィールドは各型の TSDoc を参照してください。
 
 `type` で分岐すれば、ビューごとの情報を型安全に扱えます。
 
@@ -291,6 +292,7 @@ function BareMonthGrid() {
 | `multiMonthCount` | `number` | `3` | 複数月ビューが表示する月数。`next()`/`prev()` の移動単位にもなる |
 | `hiddenWeekdays` | `readonly Weekday[]` | `[]` | 月・週・複数月ビューの列から除外する曜日（下記参照）。年・日・リソース・タイムラインビューは無視する。リストビューは対象外（そもそも受け取らない） |
 | `resources` | `readonly CalendarResource[]` | `[]` | リソースビュー・タイムラインビューの列/行になるリソース一覧（表示順）。他ビューには影響しない。詳細は [予定の管理: リソース](./events.md#リソース) を参照 |
+| `resourceViewDays` | `number` | `1` | リソースビューが表示する日数。`2` 以上で列がリソース × 日の直積（リソース優先のグルーピング順）になる。`next()`/`prev()` の移動単位にもなる |
 | `timelineDays` | `number` | `1` | タイムラインビューが表示する日数。`next()`/`prev()` の移動単位にもなる |
 | `timelineScale` | `'hour' \| 'day' \| 'week' \| 'month'` | `'hour'` | タイムラインビューの横軸のズーム粒度。詳細は [タイムラインのズーム粒度](#タイムラインのズーム粒度timelinescale) を参照 |
 | `unassignedLane` | `'auto' \| 'always'` | `'auto'` | リソース/タイムラインビューの未割り当てレーンの生成規則。`'auto'` は該当する予定があるときのみ末尾に生成、`'always'` は常に生成する（「未割り当てへ戻す」D&D を使う場合に必要。詳細は [対象ビューを有効にする](#年複数月リソースタイムラインビューを有効にするopt-in) を参照） |
@@ -299,7 +301,7 @@ function BareMonthGrid() {
 | `eventOverlap` | `boolean` | `true` | イベントの重なりを許可するかどうかの既定値。詳細は [インタラクション: 宣言的な重なり・配置制約](./interactions.md#宣言的な重なり配置制約eventoverlap--eventconstraint) を参照 |
 | `eventConstraint` | `'businessHours' \| readonly BusinessHoursRule[]` | 未指定 | イベントのドロップ先を制限する既定値。詳細は [インタラクション: 宣言的な重なり・配置制約](./interactions.md#宣言的な重なり配置制約eventoverlap--eventconstraint) を参照 |
 | `slotMinTime` / `slotMaxTime` | `string`（`'HH:mm'`） | `'00:00'` / `'24:00'` | 週/日・リソースビューで表示する時間帯。詳細は [表示時間帯](#表示時間帯slotmintimeslotmaxtime) を参照 |
-| `initialCollapsedResourceIds` | `readonly string[]` | `[]` | タイムラインビューで初期状態から折りたたむリソース ID。詳細は [リソースの階層グルーピング](#リソースの階層グルーピングparentid折りたたみ) を参照 |
+| `initialCollapsedResourceIds` | `readonly string[]` | `[]` | リソース/タイムラインビューで初期状態から折りたたむリソース ID。詳細は [リソースの階層グルーピング](#リソースの階層グルーピングparentid折りたたみ) を参照 |
 
 ## 週末などの曜日を隠す（hiddenWeekdays）
 
@@ -319,7 +321,8 @@ calendar.api.updateOptions({ hiddenWeekdays: [] }); // すべて表示
 // - 日ビューは hiddenWeekdays を無視する（土曜へ goTo すれば表示される）
 // - 年ビューも hiddenWeekdays を無視する（ミニ月グリッドは常に 7 列のまま）
 // - 複数月ビューは月ビューと同じく列が除外される（各月グリッドが月〜金の 5 列になる）
-// - リソースビューも hiddenWeekdays を無視する（日ビューと同じく表示日は 1 日固定）
+// - リソースビューも hiddenWeekdays を無視する（日ビューと同じ扱い。
+//   常に resourceViewDays 日の連続した並びになる）
 // - タイムラインビューも hiddenWeekdays を無視する（比例スケールの歪みを避けるため。
 //   常に timelineDays 日の連続した並びになる）
 // - リストビューは hiddenWeekdays を受け取らない（対象外）ため、非表示曜日にしか
@@ -409,7 +412,7 @@ function Agenda() {
 
 ## レーンの仮想化（リソース・タイムラインビュー）
 
-数十〜数百件のリソースを扱う画面では、`VirtualResourceView` / `VirtualTimelineView` で可視範囲のリソースだけを描画できます。既定の `ResourceView` / `TimelineView` は全件描画のままで、仮想化は完全に opt-in の別コンポーネントです（DOM 構造・ARIA・`renderEvent` 等のカスタマイズ props は元のビューと同じ）。
+数十〜数百件のリソースを扱う画面では、`VirtualResourceView` / `VirtualTimelineView` で可視範囲のリソースだけを描画できます。既定の `ResourceView` / `TimelineView` は全件描画のままで、仮想化は完全に opt-in の別コンポーネントです（DOM 構造・ARIA・`renderEvent` 等のカスタマイズ props は元のビューと同じ。ただし `VirtualResourceView` は列グループ見出し行と折りたたみトグルを描画しません。詳細は [リソースの階層グルーピング](#リソースの階層グルーピングparentid折りたたみ) を参照）。
 
 ```tsx
 import { CalendarProvider, VirtualTimelineView, useCalendar } from '@koyomi-cal/react';
@@ -424,9 +427,10 @@ function CraneSchedule() {
 }
 ```
 
-- **`VirtualTimelineView`** はリソース行を縦方向に仮想化します（`TimelineView` の行と同じ `role="row"`/`rowheader`/`gridcell` 構造）。行 1 件分の推定高は `estimateRowHeight`（既定はレーン数 × 28px）。
+- **`VirtualTimelineView`** はリソース行（縦方向）と時間軸（横方向）の二軸で仮想化します（`TimelineView` の行と同じ `role="row"`/`rowheader`/`gridcell` 構造）。行 1 件分の推定高は `estimateRowHeight`（既定はレーン数 × 28px）。時間軸は「1 日 = 1 単位」の windowing で、横スクロールの可視範囲＋overscan（`overscanDays`、既定 1 日）に重なる日の日ヘッダー・時刻目盛り・帯だけを描画します。帯の位置・幅・スクロール位置は仮想化の有無で変わりません。
+- **`VirtualTimelineView` の可視範囲通知**: `onVisibleRangeChange` に、行・日それぞれの可視範囲（キー範囲）と日付範囲・リソース一覧が、内容が変わったときだけ通知されます。可視範囲のデータだけを増分取得する遅延読込に使えます（レシピは [パフォーマンス](./performance.md#増分データ取得遅延読込) を参照）。
 - **`VirtualResourceView`** はリソース列を横方向に仮想化します（`ResourceView` の列と同じ `role="columnheader"`/`gridcell` 構造）。`ResourceView` 自体は列数が多いと横スクロールに任せる方針（`docs/internal/components-dom.md` 参照）ですが、数百列規模の極端なケース向けに `VirtualResourceView` が windowing を提供します。列幅は固定（`columnWidth`、既定 160px = `--koyomi-resource-column-width` の既定値と同じ）です。 `estimateRowHeight` / `columnWidth` に負数・`0`・`NaN` 等の不正な値を渡した場合も、窓の計算内では `0` として扱われ安全側にクランプされます（`VirtualListView` の `estimateDayHeight` と同じ規則）。ただし `columnWidth` は列の inline style（`flex` / `min-width`）にもそのまま使われるため、不正な値は描画される列幅自体にも影響します。
-- どちらも **境界寸法は CSS で指定します**。`VirtualTimelineView` は `[data-koyomi="timeline-body"]` の `max-height`（既定テーマは 640px）、`VirtualResourceView` はルート `[data-koyomi="resource"]` の境界幅（横スクロールを担う要素）です。境界寸法が無い環境では仮想化は無害に無効化され、全件描画へフォールバックします（開発ビルドで一度警告します）。
+- どちらも **境界寸法は CSS で指定します**。`VirtualTimelineView` は `[data-koyomi="timeline-body"]` の `max-height`（既定テーマは 640px）、`VirtualResourceView` はルート `[data-koyomi="resource"]` の境界幅（横スクロールを担う要素）です。境界寸法が無い環境では仮想化は無害に無効化され、全件描画へフォールバックします（開発ビルドで一度警告します）。`VirtualTimelineView` の時間軸（横方向）は、横スクロールを担う `[data-koyomi="timeline-body"]` の幅がそのまま境界幅になるため追加の指定は不要です（トラック幅は既定テーマの 1 日 720px、`'hour'` 以外のズーム粒度では 1 日 96px の `min-width` が決めます）。
 - フォーカス中のリソース（行・列）は、スクロールで可視窓の外に出ても DOM を保持し続けます（`VirtualListView` の pinned 日セクションと同じ方式）。`VirtualResourceView` は列見出し・終日セル・本文列の 3 箇所がまとめて保持されます。 pinned 状態の行・列に含まれるイベントボタン等の操作要素は `tabIndex={-1}` になりタブ順から外れます（窓内へ戻ると既定の `tabIndex` に戻ります。列見出し・行見出し自体はもともと操作対象ではないため対象外）。
 - `ref` 経由で `scrollToResource(resourceId, options?)`（`resourceId` は未割り当てへは `null`、`options.align` は `'auto' | 'start' | 'center'`）を呼べます。
 - `CalendarView` を使っている場合は、`<CalendarView virtualizeResource />` / `<CalendarView virtualizeTimeline />` でリソース・タイムラインビューだけを仮想化に切り替えられます。`renderResourceEvent` / `renderResourceAllDayItem` / `renderTimelineEvent` などの既存のカスタマイズ props はそのまま転送されます（`virtualizeList` と同じ方式）。
@@ -530,7 +534,7 @@ function App() {
 // - 土日、および平日でも 9:00 より前・18:00 以降のスロットには属性が付かない
 ```
 
-`daysOfWeek` に該当する曜日について、`startTime`〜`endTime`（ともに `'HH:mm'` 形式）を営業時間として扱います（`endTime` は排他的。`startTime` ちょうどは営業時間内、`endTime` ちょうどは営業時間外）。複数件を配列で渡すと OR 判定になるため、曜日ごとに異なる時間帯を指定できます。
+`daysOfWeek` に該当する曜日について、`startTime`〜`endTime`（ともに `'HH:mm'` 形式）を営業時間として扱います（`endTime` は排他的。`startTime` ちょうどは営業時間内、`endTime` ちょうどは営業時間外）。`endTime` には日の終端を表す特例として `'24:00'` も指定できます（`startTime` には指定できません）。複数件を配列で渡すと OR 判定になるため、曜日ごとに異なる時間帯を指定できます。
 
 ```tsx
 businessHours: [
@@ -545,18 +549,18 @@ businessHours: [
 
 `TimeGridDay.businessHourSlots`（`slots` と同じ並びの `{ minutes, isBusinessHours }[]`）としてビューモデルからも参照できます。`businessHours` 未指定時（既定 `[]`）はすべてのスロットが `isBusinessHours: false` になり、DOM 属性も出力されません。`startTime` が `endTime` 以降、または `'HH:mm'` 形式でない値を指定すると `Error` になります。
 
-`startTime` が `endTime` より前であることが必須のため、1 件の `BusinessHoursRule` で日をまたぐ営業時間（例: 22:00〜翌 2:00）を直接表現することはできません（指定すると Error になります）。日をまたぐ営業時間は、判定が曜日ごとの独立したスロット列で行われることを利用し、日をまたいで2件のルールに分けて指定します。
+`startTime` が `endTime` より前であることが必須のため、1 件の `BusinessHoursRule` で日をまたぐ営業時間（例: 22:00〜翌 2:00）を直接表現することはできません（指定すると Error になります）。日をまたぐ営業時間は、判定が曜日ごとの独立したスロット列で行われることを利用し、日をまたいで2件のルールに分けて指定します（初日側の `endTime` に `'24:00'` を使うと、日の終端まで途切れなくカバーできます）。
 
 ```tsx
 businessHours: [
-  { daysOfWeek: [2], startTime: '22:00', endTime: '23:59' }, // 火曜の遅い時間帯
+  { daysOfWeek: [2], startTime: '22:00', endTime: '24:00' }, // 火曜の遅い時間帯（日の終端まで）
   { daysOfWeek: [3], startTime: '00:00', endTime: '02:00' }, // 水曜の早い時間帯（火曜深夜からの続き）
 ]
 ```
 
 ### リソースビュー（ResourceView / VirtualResourceView）
 
-リソースビューは表示日が単日のため、その日の曜日を基準に判定した 1 本のスロット列（`ResourceViewModel.businessHourSlots`）を全列で共有します。DOM 上は週/日ビューと同じ `[data-koyomi="timegrid-slot"][data-koyomi-business-hours]` が各列に描画され、デフォルトテーマの見た目も共通です。
+リソースビューは表示日ごとにその日の曜日を基準に判定したスロット列（`ResourceViewDay.businessHourSlots`）を持ち、各列にはその列の日のものが適用されます（`ResourceViewModel.businessHourSlots` は先頭日の値です。既定の単日表示では全列共通の 1 本になります）。DOM 上は週/日ビューと同じ `[data-koyomi="timegrid-slot"][data-koyomi-business-hours]` が各列に描画され、デフォルトテーマの見た目も共通です。
 
 ### タイムラインビュー（TimelineView / VirtualTimelineView）
 
@@ -681,7 +685,7 @@ DOM 上はルート要素に `data-koyomi-scale="hour\|day\|week\|month"` が付
 
 ## リソースの階層グルーピング（parentId・折りたたみ）
 
-`CalendarResource.parentId` に親リソースの ID を指定すると、タイムラインビューでリソースを親子関係のツリーとして表示できます（任意の深さ）。リソースビューは常にフラットのまま変わりません。
+`CalendarResource.parentId` に親リソースの ID を指定すると、リソース/タイムラインビューでリソースを親子関係のツリーとして表示できます（任意の深さ）。タイムラインビューでは行がツリー順に並んでインデントされ、リソースビューでは列がツリー順に並び、親リソースの**列グループ見出し行**が上部に付きます。
 
 ```tsx
 import { CalendarProvider, TimelineView, useCalendar } from '@koyomi-cal/react';
@@ -709,18 +713,28 @@ function App() {
 // - 「1F」の行にも折りたたみボタンが表示される（子リソースを持つため）
 ```
 
-参照先のない `parentId`・循環参照（自己参照を含む）は、そのリソースを孤立したルート（深さ 0）として扱います（対象リソースが表示から欠落することはありません）。未割り当て行はツリーの対象外で、常に末尾に表示されます。
+参照先のない `parentId`・循環参照（自己参照を含む）は、そのリソースを孤立したルート（深さ 0）として扱います（対象リソースが表示から欠落することはありません）。未割り当てレーン（行/列）はツリーの対象外で、常に末尾に表示されます。
 
-折りたたみ状態は `CalendarState.collapsedResourceIds`（`ReadonlySet<string>`）で保持し、`CalendarApi.toggleResourceCollapsed(resourceId)` でトグルします。初期状態で折りたたむリソースは `CalendarOptions.initialCollapsedResourceIds`（作成時のみ有効）で指定できます。
+折りたたみ状態は `CalendarState.collapsedResourceIds`（`ReadonlySet<string>`）で保持し、`CalendarApi.toggleResourceCollapsed(resourceId)` でトグルします（リソース/タイムラインの両ビューが同じ状態を参照します）。初期状態で折りたたむリソースは `CalendarOptions.initialCollapsedResourceIds`（作成時のみ有効）で指定できます。
 
 ```ts
 calendar.api.toggleResourceCollapsed('site-a'); // 「本社」を折りたたむ
 calendar.api.toggleResourceCollapsed('site-a'); // 再度呼ぶと展開に戻る
 ```
 
-祖父母を折りたたむと、その子・孫の行が一括で非表示になります（各行自身の折りたたみ状態は保持されるため、祖父母を再展開すると、以前個別に折りたたんでいた子の行は非表示のまま復元されます）。折りたたみで非表示になった行は、`↑`/`↓` でのリソース間移動・仮想化（`VirtualTimelineView`）・`scrollToResource` からも「存在しない行」として扱われます（詳細は [インタラクション](./interactions.md) を参照）。
+祖父母を折りたたむと、その子・孫の行/列が一括で非表示になります（各リソース自身の折りたたみ状態は保持されるため、祖父母を再展開すると、以前個別に折りたたんでいた子は非表示のまま復元されます）。折りたたみで非表示になった行/列は、矢印キーでのリソース間移動・仮想化（`VirtualTimelineView`）・`scrollToResource` からも「存在しない行/列」として扱われます。折りたたみで非表示のリソースに割り当てた予定は未割り当てレーンへは合流せず、単に表示されません（詳細は [インタラクション](./interactions.md) を参照）。
 
-折りたたみボタンの `aria-label`（既定は「〈リソース名〉を折りたたむ」/「〈リソース名〉を展開する」）は `CalendarProvider` の `messages` prop（`messages.timeline.resourceToggleAriaLabel`）でカスタマイズできます。DOM 上は `button[data-koyomi="timeline-row-toggle"][aria-expanded]` が子を持つ行にのみ描画され、行見出しには階層の深さを示す `data-koyomi-depth` 属性が付きます（詳細は [テーマとスタイリング](./theming.md) を参照）。
+### タイムラインビューでの表示
+
+タイムラインビューでは、子を持つ行の見出しに折りたたみボタン（▸）が描画されます。ボタンの `aria-label`（既定は「〈リソース名〉を折りたたむ」/「〈リソース名〉を展開する」）は `CalendarProvider` の `messages` prop（`messages.timeline.resourceToggleAriaLabel`）でカスタマイズできます。DOM 上は `button[data-koyomi="timeline-row-toggle"][aria-expanded]` が子を持つ行にのみ描画され、行見出しには階層の深さを示す `data-koyomi-depth` 属性が付きます（詳細は [テーマとスタイリング](./theming.md) を参照）。
+
+### リソースビューでの表示（列グループ見出し行）
+
+リソースビューでは、列がツリー順（深さ優先。親の列 → その子孫の列）に並び、親リソース自身も 1 本の列を持ちます（親に直接割り当てた予定はその列に表示されます）。列見出し行の上に、深さごとの**列グループ見出し行**（`ResourceViewModel.columnGroupRows`）が付き、親リソースのセルが「親自身＋可視の子孫」の列を覆います。グループに属さない列（フラットなリソース・未割り当て列）の区間は空のスペーサーセルで覆われ、各行は全列を隙間なく覆います。
+
+支援技術向けには、グループ見出し行は `role="row"`、各セルは `role="columnheader"` + `aria-colspan`（覆う列数）として公開され、下の列見出し行とのグループ関係を表します。折りたたみボタンは子を持つリソースの列見出し（複数日表示では先頭日の列のみ）に `button[data-koyomi="resource-column-toggle"][aria-expanded]` として描画され、`aria-label` は `messages.resource.resourceToggleAriaLabel` でカスタマイズできます。列見出し・グループセルには `data-koyomi-depth` 属性が付きます。
+
+折りたたみ中の親のグループセルは親自身の列だけを覆います。`VirtualResourceView`（仮想化版）は列グループ見出し行と折りたたみボタンを描画しません（列の並び・折りたたみ状態の反映は共通で、折りたたみの変更は `CalendarApi.toggleResourceCollapsed` から行えます）。
 
 ## 関連ページ
 

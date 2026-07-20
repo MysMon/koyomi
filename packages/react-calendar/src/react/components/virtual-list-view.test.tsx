@@ -16,6 +16,8 @@ import type {
   CalendarInteractionCallbacks,
   EventContentContext,
   EventContentRenderer,
+  SlotRenderContext,
+  UseCalendarResult,
 } from '../types';
 import { useCalendar } from '../use-calendar';
 import type { VirtualListViewProps } from './virtual-list-view';
@@ -66,19 +68,23 @@ function TestVirtualList(props: {
   events?: readonly CalendarEvent[];
   callbacks?: CalendarInteractionCallbacks;
   listDays?: number;
-  estimateDayHeight?: number;
+  estimateDayHeight?: VirtualListViewProps['estimateDayHeight'];
   messages?: MessageCatalogOverrides;
   viewProps?: VirtualListViewProps;
   renderEventContent?: EventContentRenderer;
+  initialView?: 'list' | 'month';
+  /** マウント後に calendar API（`setEvents` 等）を呼べるよう、生成結果を親へ渡す。 */
+  onCalendarReady?: (calendar: UseCalendarResult) => void;
 }): ReactElement {
   const calendar = useCalendar({
     timeZone: 'Asia/Tokyo',
     now: () => NOW,
     initialDate: NOW,
-    initialView: 'list',
+    initialView: props.initialView ?? 'list',
     events: props.events ?? [],
     ...(props.listDays !== undefined ? { listDays: props.listDays } : {}),
   });
+  props.onCalendarReady?.(calendar);
   return (
     <CalendarProvider
       value={calendar}
@@ -220,6 +226,118 @@ describe('VirtualListView', () => {
     expect(container.querySelector('[data-koyomi-virtualized]')).toBeNull();
   });
 
+  it('現在のビューが list 以外のときは何も描画しない（viewModel.type が list 以外）', () => {
+    const { container } = render(
+      <TestVirtualList events={makeDailyEvents(5)} listDays={40} initialView="month" />,
+    );
+    expect(container.querySelector('[data-koyomi="list"]')).toBeNull();
+    expect(container.querySelector('[data-koyomi="list-empty"]')).toBeNull();
+  });
+
+  it('1 件のみの日セクションでも仮想化コンテナを描画し、windowStart/windowEnd の境界で破綻しない', async () => {
+    const { container } = render(
+      <TestVirtualList events={makeDailyEvents(1)} listDays={10} estimateDayHeight={50} />,
+    );
+    await setViewport(container, 100, 0);
+
+    const sections = container.querySelectorAll('[data-koyomi="list-day"]');
+    expect(sections).toHaveLength(1);
+    const afterSpacer = container.querySelector('[data-koyomi="list-spacer"][data-edge="after"]');
+    expect((afterSpacer as HTMLElement | null)?.style.height).toBe('0px');
+  });
+
+  it('スクロールを末尾ちょうどまで進めると after spacer が 0 になる（下端の境界）', async () => {
+    const { container } = render(
+      <TestVirtualList events={makeDailyEvents(40)} listDays={60} estimateDayHeight={50} />,
+    );
+    // 全高 40*50=2000px、viewport 100px → 末尾ちょうど（scrollTop=1900）で after は 0 になる
+    await setViewport(container, 100, 1900);
+
+    const afterSpacer = container.querySelector('[data-koyomi="list-spacer"][data-edge="after"]');
+    expect((afterSpacer as HTMLElement | null)?.style.height).toBe('0px');
+    const sections = container.querySelectorAll('[data-koyomi="list-day"]');
+    expect(container.querySelector('[data-koyomi-date="2026-08-24"]')).not.toBeNull();
+    expect(sections.length).toBeGreaterThan(0);
+  });
+
+  it('件数が動的に変化しても windows が再計算される（calendar.setEvents で日数が減る）', async () => {
+    let calendar: UseCalendarResult | undefined;
+    const { container } = render(
+      <TestVirtualList
+        events={makeDailyEvents(40)}
+        listDays={60}
+        estimateDayHeight={50}
+        onCalendarReady={(api) => {
+          calendar = api;
+        }}
+      />,
+    );
+    await setViewport(container, 100, 0);
+    expect(container.querySelectorAll('[data-koyomi="list-day"]').length).toBeLessThan(40);
+
+    if (calendar === undefined) {
+      throw new Error('calendar が取得できません');
+    }
+    await act(async () => {
+      calendar?.api.setEvents(makeDailyEvents(3));
+    });
+    // 3 日分に減った後は全件が窓に収まり、spacer は両方とも 0 になる
+    const sections = container.querySelectorAll('[data-koyomi="list-day"]');
+    expect(sections).toHaveLength(3);
+    const afterSpacer = container.querySelector('[data-koyomi="list-spacer"][data-edge="after"]');
+    expect((afterSpacer as HTMLElement | null)?.style.height).toBe('0px');
+  });
+
+  it('estimateDayHeight を関数で渡すと、日と index を受け取って日ごとの推定高に使われる', async () => {
+    const estimateDayHeight = vi.fn((_day: ListDay, index: number) => 20 + index * 10);
+    const { container } = render(
+      <TestVirtualList
+        events={makeDailyEvents(5)}
+        listDays={10}
+        estimateDayHeight={estimateDayHeight}
+      />,
+    );
+    await setViewport(container, 100, 0);
+
+    expect(estimateDayHeight).toHaveBeenCalled();
+    const [dayArg, indexArg] = estimateDayHeight.mock.calls[0] as [ListDay, number];
+    expect(dayArg.key).toBe('2026-07-16');
+    expect(indexArg).toBe(0);
+    // 推定高が日ごとに異なるため、合計高（totalSize 相当）は一律 64px 換算とは一致しない
+    const afterSpacer = container.querySelector('[data-koyomi="list-spacer"][data-edge="after"]');
+    const beforeSpacer = container.querySelector('[data-koyomi="list-spacer"][data-edge="before"]');
+    const total =
+      Number.parseFloat((afterSpacer as HTMLElement | null)?.style.height ?? '0') +
+      Number.parseFloat((beforeSpacer as HTMLElement | null)?.style.height ?? '0');
+    // 20+30+40+50+60 = 200（全件描画かつ scrollTop=0 のため before=0、after は末尾以降=0 のはず）
+    expect(total).toBe(0);
+  });
+
+  it('overscan を指定すると窓の前後に描画される件数が増える', async () => {
+    const withDefaultOverscan = render(
+      <TestVirtualList events={makeDailyEvents(40)} listDays={60} estimateDayHeight={50} />,
+    );
+    await setViewport(withDefaultOverscan.container, 100, 500);
+    const defaultCount = withDefaultOverscan.container.querySelectorAll(
+      '[data-koyomi="list-day"]',
+    ).length;
+
+    const withLargeOverscan = render(
+      <TestVirtualList
+        events={makeDailyEvents(40)}
+        listDays={60}
+        estimateDayHeight={50}
+        viewProps={{ overscan: 10 }}
+      />,
+    );
+    await setViewport(withLargeOverscan.container, 100, 500);
+    const largeCount = withLargeOverscan.container.querySelectorAll(
+      '[data-koyomi="list-day"]',
+    ).length;
+
+    expect(largeCount).toBeGreaterThan(defaultCount);
+  });
+
   it('イベント行クリックで onEventClick が発火する（共有レンダラの配線確認）', () => {
     const onEventClick = vi.fn();
     const events: CalendarEvent[] = [
@@ -254,6 +372,41 @@ describe('VirtualListView', () => {
     expect(onEventDoubleClick).toHaveBeenCalledTimes(1);
   });
 
+  it('イベント行で Enter キーを押すとクリック相当（onEventClick）が発火する', () => {
+    const onEventClick = vi.fn();
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const { container } = render(
+      <TestVirtualList events={events} listDays={40} callbacks={{ onEventClick }} />,
+    );
+    const button = container.querySelector('[data-koyomi="list-event"]');
+    if (button === null) {
+      throw new Error('list-event が見つかりません');
+    }
+    fireEvent.keyDown(button, { key: 'Enter' });
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('イベント行で Space キーを押すとクリック相当が発火し、それ以外のキーでは発火しない', () => {
+    const onEventClick = vi.fn();
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const { container } = render(
+      <TestVirtualList events={events} listDays={40} callbacks={{ onEventClick }} />,
+    );
+    const button = container.querySelector('[data-koyomi="list-event"]');
+    if (button === null) {
+      throw new Error('list-event が見つかりません');
+    }
+    fireEvent.keyDown(button, { key: 'a' });
+    expect(onEventClick).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(button, { key: ' ' });
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+
   it('フォーカス中の日セクションは窓外へスクロールしても pinned で残り、blur で解除される', async () => {
     const { container } = render(
       <TestVirtualList events={makeDailyEvents(40)} listDays={60} estimateDayHeight={50} />,
@@ -283,6 +436,97 @@ describe('VirtualListView', () => {
     await act(async () => {
       fireEvent.blur(pinnedButton, { relatedTarget: document.body });
     });
+    expect(container.querySelector('[data-koyomi-pinned="true"]')).toBeNull();
+  });
+
+  it('日セクションの外側（コンテナ自身）にフォーカスしても pinned は変化しない', async () => {
+    const { container } = render(
+      <TestVirtualList events={makeDailyEvents(40)} listDays={60} estimateDayHeight={50} />,
+    );
+    await setViewport(container, 100, 0);
+
+    const firstButton = container.querySelector('[data-koyomi="list-event"]');
+    if (firstButton === null) {
+      throw new Error('list-event が見つかりません');
+    }
+    await act(async () => {
+      fireEvent.focus(firstButton);
+    });
+
+    // コンテナ自身（どの日セクションにも属さない要素）へのフォーカスは無視される
+    const list = container.querySelector('[data-koyomi="list"]');
+    if (list === null) {
+      throw new Error('list コンテナが見つかりません');
+    }
+    await act(async () => {
+      fireEvent.focus(list);
+    });
+
+    // 直前に pin された 7/16 がそのまま維持される（上書き・解除されない）
+    await setViewport(container, 100, 1500);
+    const pinned = container.querySelector('[data-koyomi-pinned="true"]');
+    expect(pinned?.getAttribute('data-koyomi-date')).toBe('2026-07-16');
+  });
+
+  it('フォーカス移動先がコンテナ内にあるときは blur しても pinned を維持する', async () => {
+    const { container } = render(
+      <TestVirtualList events={makeDailyEvents(40)} listDays={60} estimateDayHeight={50} />,
+    );
+    await setViewport(container, 100, 0);
+
+    const firstButton = container.querySelector('[data-koyomi="list-event"]');
+    if (firstButton === null) {
+      throw new Error('list-event が見つかりません');
+    }
+    await act(async () => {
+      fireEvent.focus(firstButton);
+    });
+    await setViewport(container, 100, 1500);
+
+    const pinned = container.querySelector('[data-koyomi-pinned="true"]');
+    const pinnedButton = pinned?.querySelector('[data-koyomi="list-event"]');
+    if (!(pinnedButton instanceof HTMLElement)) {
+      throw new Error('pinned セクションの list-event が見つかりません');
+    }
+    const list = container.querySelector('[data-koyomi="list"]');
+    if (list === null) {
+      throw new Error('list コンテナが見つかりません');
+    }
+    // relatedTarget（フォーカスの移動先）がコンテナ自身＝コンテナ内なので pinned は解除されない
+    await act(async () => {
+      fireEvent.blur(pinnedButton, { relatedTarget: list });
+    });
+    expect(
+      container.querySelector('[data-koyomi-pinned="true"]')?.getAttribute('data-koyomi-date'),
+    ).toBe('2026-07-16');
+  });
+
+  it('HTMLElement でない要素（SVG 等）へフォーカスしても例外にならず pinned は変化しない', async () => {
+    const renderDayHeader = (day: ListDay, ctx: SlotRenderContext): ReactElement => (
+      <>
+        {ctx.defaultContent}
+        {/* biome-ignore lint/a11y/noNoninteractiveTabindex: テスト用途で HTMLElement でない要素（SVGElement）へ実際にフォーカスさせるため tabIndex が必要 */}
+        <svg data-testid={`svg-${day.key}`} tabIndex={0} />
+      </>
+    );
+    const { container } = render(
+      <TestVirtualList
+        events={makeDailyEvents(1)}
+        listDays={10}
+        estimateDayHeight={50}
+        viewProps={{ renderDayHeader }}
+      />,
+    );
+    const svg = container.querySelector('[data-testid="svg-2026-07-16"]');
+    if (svg === null) {
+      throw new Error('svg 要素が見つかりません');
+    }
+    expect(() => {
+      act(() => {
+        fireEvent.focus(svg);
+      });
+    }).not.toThrow();
+    // SVGElement は HTMLElement ではないため無視され、pinned は発生しない
     expect(container.querySelector('[data-koyomi-pinned="true"]')).toBeNull();
   });
 
@@ -335,6 +579,26 @@ describe('VirtualListView', () => {
     const pinned = container.querySelector('[data-koyomi-pinned="true"]');
     const pinnedButton = pinned?.querySelector('[data-koyomi="list-event"]');
     expect(pinnedButton?.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('フォーカス中の日セクションが窓内にあるときは pinned の複製を作らない（重複描画しない）', async () => {
+    const { container } = render(
+      <TestVirtualList events={makeDailyEvents(40)} listDays={60} estimateDayHeight={50} />,
+    );
+    await setViewport(container, 100, 0);
+
+    const firstButton = container.querySelector('[data-koyomi="list-event"]');
+    if (firstButton === null) {
+      throw new Error('list-event が見つかりません');
+    }
+    await act(async () => {
+      fireEvent.focus(firstButton);
+    });
+
+    // フォーカス中の日（7/16）は窓内にとどまったまま（スクロールしていない）
+    expect(container.querySelector('[data-koyomi-pinned="true"]')).toBeNull();
+    const sections = container.querySelectorAll('[data-koyomi-date="2026-07-16"]');
+    expect(sections).toHaveLength(1);
   });
 
   it('境界高が無く全件描画になる規模では開発警告を出す', async () => {
@@ -423,6 +687,23 @@ describe('VirtualListView - カスタム描画 props', () => {
     );
     expect(parts).toEqual(['list-event-title', 'list-event-time']);
     expect(button?.textContent).toBe('朝会09:00〜09:30');
+  });
+
+  it('renderDayHeader で日付見出しの内容を差し替えられ、ctx.defaultContent で既定内容にアクセスできる', () => {
+    const events: CalendarEvent[] = [
+      { id: 'a', title: '朝会', start: '2026-07-16T09:00:00', end: '2026-07-16T09:30:00' },
+    ];
+    const renderDayHeader = vi.fn((day: ListDay, ctx: SlotRenderContext) => (
+      <>
+        見出し:{day.key}（{ctx.defaultContent}）
+      </>
+    ));
+    const { container } = render(
+      <TestVirtualList events={events} listDays={40} viewProps={{ renderDayHeader }} />,
+    );
+    expect(renderDayHeader).toHaveBeenCalled();
+    const header = container.querySelector('[data-koyomi="list-day-header"]');
+    expect(header?.textContent).toBe('見出し:2026-07-16（7月16日(木)）');
   });
 
   it('CalendarProvider の renderEventContent が行に適用され、ボタン要素と aria-label は保たれる', () => {

@@ -1,20 +1,24 @@
 /**
  * @packageDocumentation
- * リソースビュー（列 = リソース × 縦 = 時間）のドラッグインタラクション。
+ * リソースビュー（列 = リソース × 日、縦 = 時間）のドラッグインタラクション。
  *
- * - 空き領域のクリック / ドラッグ → 範囲選択（新規作成。リソースは開始列に固定）
- * - イベント本体のドラッグ → 移動（縦 = 時間、横 = リソースの同時変更）
- * - 上下端ハンドルのドラッグ → リサイズ（時間のみ。リソース不変）
- * - 終日行 — セルのクリック → 当日 1 日の終日イベント作成、
- *   終日アイテムのドラッグ → 列間移動（リソース変更のみ）
+ * - 空き領域のクリック / ドラッグ → 範囲選択（新規作成。リソースと日は開始列に固定）
+ * - イベント本体のドラッグ → 移動（縦 = 時間、横 = リソース・日の同時変更）
+ * - 上下端ハンドルのドラッグ → リサイズ（時間のみ。リソース・日は不変）
+ * - 終日行 — セルのクリック → その列の日 1 日の終日イベント作成、
+ *   終日アイテムのドラッグ → 列間移動（リソース変更と日数シフトの合成）
  * - キーボード — `↑`/`↓` = `snapMinutes` 分移動、`Shift+↑`/`↓` = リサイズ、
- *   `←`/`→` = 隣のリソース列へ移動（画面上の視覚軸に対応する操作）
+ *   `←`/`→` = 隣の列へ移動（画面上の視覚軸に対応する操作。複数日表示では
+ *   同一リソース内の隣の日 → リソース境界では隣のリソースの端の日、の順に移る）
  * - ドラッグ中は Escape / pointercancel でキャンセルし、画面端で縦に自動スクロールする
  *
  * 週/日ビューの {@link ./use-time-grid-drag} と同じプロップゲッターパターンだが、
- * 列レジストリは「1 日 = 1 列」ではなく「1 リソース = 1 列」
- * （`Map<columnKey, { element, resourceId }>`）で持つ。確定時は時間の変更と
- * `resourceId` の変更を 1 つのパッチに合成して 1 回の `updateEvent` にする。
+ * 列レジストリは「1 リソース × 1 日 = 1 列」
+ * （`Map<columnKey, { element, resourceId, dayStart }>`）で持つ。確定時は時間の変更と
+ * リソース割当の変更を 1 つのパッチに合成して 1 回の `updateEvent` にする。
+ * 複数リソース割当（`resourceIds`）のオカレンスは割当先の各列に表示され、
+ * レーン間の移動では**操作した列の割当だけ**が移動先に変わる
+ * （{@link resourceLanePatch}。他の列の割当は保持される）。
  * allDay⇔時間指定の越境変換は提供しない（越境変換は週/日ビュー限定の方針。
  * 将来提供する場合も別設計とする）。
  */
@@ -32,6 +36,7 @@ import {
   resolveConstraintRules,
 } from '../core/constraints';
 import { dragPreviewRange, timeAtGridPosition } from '../core/interaction';
+import { resourceLanePatch } from '../core/resource-assignment';
 import {
   addDaysInZone,
   addMinutesInZone,
@@ -50,6 +55,7 @@ import type {
   ResourceColumn,
   TimeZoneId,
 } from '../core/types';
+import { laneKeyForResource, UNASSIGNED_LANE_KEY } from '../core/views/lane-key';
 import {
   attachDragSessionListeners,
   autoScrollVelocity,
@@ -62,6 +68,7 @@ import {
   createOverlapBlockerCache,
   type EventNotificationProps,
   eventNotificationProps,
+  laneIdFromEventTarget,
   laneResourceIdOf,
   resolveScopeForRecurring,
 } from './drag-common';
@@ -73,16 +80,28 @@ export interface ResourceColumnProps {
   ref: Ref<HTMLElement>;
   /** 空き領域での作成ドラッグを開始する。 */
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
-  /** 列キー（スタイルフック・ヒットテスト用）。 */
+  /**
+   * 列のレーンキー（`` `r:${id}` `` / `'unassigned'`。スタイルフック・ヒットテスト・
+   * 外部ドラッグのリソース解決用。複数日表示では同じレーンの列が日ごとに並ぶため、
+   * 列の一意な識別には {@link ResourceColumn.key} を使う）。
+   */
   'data-koyomi-resource': string;
+  /** 列の日の `'YYYY-MM-DD'` キー（スタイルフック・外部ドラッグの日解決用）。 */
+  'data-koyomi-date': string;
 }
 
 /** 終日行のセル要素に付与する props。 */
 export interface ResourceAllDayCellProps {
-  /** クリックで当日 1 日の終日イベントを作成する。 */
+  /** クリックでその列の日 1 日の終日イベントを作成する。 */
   onClick: (event: ReactMouseEvent<HTMLElement>) => void;
-  /** 列キー（スタイルフック用）。 */
+  /** キーボード操作（Enter・Space = その列の日 1 日の終日イベントを作成）。 */
+  onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
+  /** フォーカス可能にする。 */
+  tabIndex: number;
+  /** 列のレーンキー（{@link ResourceColumnProps} の同名 props と同じ規則）。 */
   'data-koyomi-resource': string;
+  /** 列の日の `'YYYY-MM-DD'` キー（スタイルフック・外部ドラッグの日解決用）。 */
+  'data-koyomi-date': string;
 }
 
 /** イベントブロック要素に付与する props。 */
@@ -161,12 +180,14 @@ interface ColumnEntry {
   element: HTMLElement;
   /** 列のリソース ID（未割り当て列は `null`）。 */
   resourceId: string | null;
+  /** 列の日の開始時刻（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
+  dayStart: Date;
 }
 
 /** ドラッグセッション（開始から終了までの内部状態）。 */
 interface DragSession {
   /**
-   * 操作の種類。`allday-move` は終日アイテムの列間移動（リソース変更のみ）、
+   * 操作の種類。`allday-move` は終日アイテムの列間移動（リソース変更と日数シフト）、
    * それ以外は {@link ./use-time-grid-drag} と同じ意味。
    */
   mode: 'create' | 'move' | 'resize' | 'resize-start' | 'allday-move';
@@ -181,12 +202,28 @@ interface DragSession {
   targetResourceId: string | null;
   /** ドラッグ開始時点のリソース ID（変更検出用）。 */
   initialResourceId: string | null;
+  /**
+   * 対象の日（列の日の開始時刻）。`create` / `resize` 系では開始列の日に固定、
+   * `move` / `allday-move` ではポインタ位置の列に追従する。
+   */
+  targetDayStart: Date;
+  /** ドラッグ開始時点の日（日数シフトの基準）。 */
+  initialDayStart: Date;
   /** セッション開始時点を基準とするプレビュー範囲（移動判定の基準）。 */
   baselineRange: DateRange;
-  /** 実質的な移動（時間またはリソースの変化）があったか。 */
+  /** 実質的な移動（時間・リソース・日のいずれかの変化）があったか。 */
   hasMoved: boolean;
   /** document に登録したリスナーを解除し、オートスクロールを停止する。 */
   cleanup: () => void;
+}
+
+/**
+ * 列のレーンキー（`` `r:${id}` `` / `'unassigned'`）を返す。
+ * `column.key` は複数日表示で日付キー付きになるため、`data-koyomi-resource` には
+ * 常にデコード可能なレーンキー（{@link resourceIdFromLaneKey} の逆変換対象）を使う。
+ */
+function laneKeyOf(column: ResourceColumn): string {
+  return column.resource === null ? UNASSIGNED_LANE_KEY : laneKeyForResource(column.resource.id);
 }
 
 /** 列要素の矩形内でのポインタの縦位置（0〜1）を求める（高さ 0 以下は 0）。 */
@@ -291,15 +328,72 @@ export function useResourceGridDrag(params: {
     console.error(error);
   }
 
-  /** 表示日の 0:00 を返す（リソースビューの表示範囲の先頭）。 */
+  /** 表示範囲の先頭日の 0:00 を返す（列が見つからない場合のフォールバック）。 */
   function displayDay(): Date {
     const { state, api } = paramsRef.current.calendar;
     return startOfDayInZone(api.getVisibleRange().start, state.timeZone);
   }
 
-  /** オカレンスの現在のレーンのリソース ID（{@link laneResourceIdOf}）。 */
+  /** 表示日の開始時刻一覧（昇順）。リソースビューでなければ先頭日のみの 1 件。 */
+  function visibleDayStarts(): readonly Date[] {
+    const { viewModel } = paramsRef.current.calendar;
+    if (viewModel.type === 'resource') {
+      return viewModel.days.map((day) => day.date);
+    }
+    return [displayDay()];
+  }
+
+  /**
+   * 表示日一覧の中での `dayStart` のインデックスを返す（見つからなければ `0`）。
+   * 表示日は連続する日の並びのため、インデックス差 = 日数差として扱える。
+   */
+  function dayIndexOf(dayStart: Date): number {
+    const index = visibleDayStarts().findIndex((day) => day.getTime() === dayStart.getTime());
+    return index === -1 ? 0 : index;
+  }
+
+  /**
+   * `date` の属する表示日の開始時刻を返す。表示範囲より前なら先頭日、
+   * 後なら最終日へクランプする（キーボード操作の基準列の決定に使う）。
+   */
+  function dayStartForDate(date: Date): Date {
+    const days = visibleDayStarts();
+    const time = date.getTime();
+    for (let index = days.length - 1; index >= 0; index -= 1) {
+      const day = days[index];
+      if (day !== undefined && time >= day.getTime()) {
+        return day;
+      }
+    }
+    return days[0] ?? displayDay();
+  }
+
+  /** 範囲を日数分シフトする（0 日ならそのままの参照を返す）。 */
+  function shiftRangeByDays(range: DateRange, dayDelta: number): DateRange {
+    if (dayDelta === 0) {
+      return range;
+    }
+    const timeZone = paramsRef.current.calendar.state.timeZone;
+    return {
+      start: addDaysInZone(range.start, dayDelta, timeZone),
+      end: addDaysInZone(range.end, dayDelta, timeZone),
+    };
+  }
+
+  /** オカレンスの代表レーンのリソース ID（{@link laneResourceIdOf}）。 */
   function occurrenceLaneId(occurrence: EventOccurrence): string | null {
     return laneResourceIdOf(occurrence, paramsRef.current.calendar.state.resources);
+  }
+
+  /**
+   * 操作元レーンのリソース ID を解決する。操作した DOM 要素の属するレーン
+   * （{@link laneIdFromEventTarget}）を正とし、解決できない場合のみ代表レーン
+   * （{@link occurrenceLaneId}）へフォールバックする。複数リソース割当のオカレンスは
+   * 複数の列に同時に表示されるため、「操作した列」はイベントデータからは特定できない。
+   */
+  function sourceLaneIdFor(occurrence: EventOccurrence, target: EventTarget | null): string | null {
+    const fromDom = laneIdFromEventTarget(target);
+    return fromDom !== undefined ? fromDom : occurrenceLaneId(occurrence);
   }
 
   /** clientX を含む列（なければ中心距離が最も近い列）を探す。 */
@@ -323,15 +417,19 @@ export function useResourceGridDrag(params: {
     return containing ?? nearest;
   }
 
-  /** ポインタ位置に対応する日時（スナップ済み）を返す。列が見つからなければ `null`。 */
-  function pointerDateAt(clientX: number, clientY: number): Date | null {
+  /**
+   * ポインタ位置に対応する日時（スナップ済み）を返す。列が見つからなければ `null`。
+   * @param fixedDay - 日を固定する場合、その日の開始時刻。省略時はポインタ位置の列の日を使う
+   *   （縦位置の計算にはどの列も同じ形状のため、ポインタ位置の列の矩形を使う）
+   */
+  function pointerDateAt(clientX: number, clientY: number, fixedDay?: Date): Date | null {
     const column = findColumnForClientX(clientX);
     if (column === null) {
       return null;
     }
     const { state } = paramsRef.current.calendar;
     return timeAtGridPosition({
-      day: displayDay(),
+      day: fixedDay ?? column.dayStart,
       fractionY: fractionYFromClientY(column.element.getBoundingClientRect(), clientY),
       timeZone: state.timeZone,
       snap: state.options.snapMinutes,
@@ -339,13 +437,21 @@ export function useResourceGridDrag(params: {
     });
   }
 
-  /** 現在のセッションとポインタ位置からプレビュー範囲を計算する。列が見つからなければ `null`。 */
+  /**
+   * 現在のセッションとポインタ位置からプレビュー範囲を計算する。列が見つからなければ `null`。
+   * `create` / `resize` 系は日を開始列（`session.initialDayStart`）に固定し、
+   * `move` はポインタ位置の列の日に追従する（日またぎ移動）。
+   */
   function computeRangeFromEvent(
     session: DragSession,
     clientX: number,
     clientY: number,
   ): DateRange | null {
-    const pointer = pointerDateAt(clientX, clientY);
+    const fixedDay =
+      session.mode === 'move' || session.mode === 'allday-move'
+        ? undefined
+        : session.initialDayStart;
+    const pointer = pointerDateAt(clientX, clientY, fixedDay);
     if (pointer === null) {
       return null;
     }
@@ -441,6 +547,8 @@ export function useResourceGridDrag(params: {
    * 完結させる（ドラッグ確定直後のネイティブ click 抑制を間に合わせるため）。
    *
    * @param range - 変更後の日時範囲。`null` なら時間は変更しない（リソースのみの変更）
+   * @param sourceLaneId - 操作を開始したレーンのリソース ID。複数リソース割当では
+   *   このレーンの割当だけが `resourceId`（移動先）へ変わる（{@link resourceLanePatch}）
    */
   function applyChange(
     occurrence: EventOccurrence,
@@ -448,16 +556,14 @@ export function useResourceGridDrag(params: {
     range: DateRange | null,
     resourceId: string | null,
     allDay: boolean,
+    sourceLaneId: string | null,
   ): void {
-    const patch: CalendarEventPatch = {};
+    const patch: CalendarEventPatch = {
+      ...resourceLanePatch(occurrence.event, sourceLaneId, resourceId),
+    };
     if (range !== null) {
       patch.start = range.start;
       patch.end = range.end;
-    }
-    if (resourceId !== occurrenceLaneId(occurrence)) {
-      // 未割り当てへの移動は「キーが存在し値が undefined = フィールド削除」の
-      // パッチセマンティクスに従う
-      patch.resourceId = resourceId ?? undefined;
     }
     const changes = paramsRef.current.calendar.api.updateEvent(
       occurrence.eventId,
@@ -492,23 +598,24 @@ export function useResourceGridDrag(params: {
       suppressNextClickRef.current = true;
 
       if (session.mode === 'allday-move') {
-        // 終日アイテムの列間移動: リソースのみの変更（時間は不変）
-        if (session.targetResourceId === session.initialResourceId) {
+        // 終日アイテムの列間移動: リソース変更と日数シフト（複数日表示）の合成。
+        // 時間帯（現地時刻）は変えない
+        const dayDelta = dayIndexOf(session.targetDayStart) - dayIndexOf(session.initialDayStart);
+        if (session.targetResourceId === session.initialResourceId && dayDelta === 0) {
           return;
         }
+        const shiftedRange = shiftRangeByDays(
+          { start: occurrence.start, end: occurrence.end },
+          dayDelta,
+        );
         if (
-          !isCandidateValid(
-            occurrence,
-            { start: occurrence.start, end: occurrence.end },
-            occurrence.allDay,
-            session.targetResourceId,
-          )
+          !isCandidateValid(occurrence, shiftedRange, occurrence.allDay, session.targetResourceId)
         ) {
           return;
         }
         const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
           occurrence,
-          range: { start: occurrence.start, end: occurrence.end },
+          range: shiftedRange,
           allDay: occurrence.allDay,
           resourceId: session.targetResourceId,
           action: 'move',
@@ -529,7 +636,14 @@ export function useResourceGridDrag(params: {
           }
           scope = resolved;
         }
-        applyChange(occurrence, scope, null, session.targetResourceId, occurrence.allDay);
+        applyChange(
+          occurrence,
+          scope,
+          dayDelta === 0 ? null : shiftedRange,
+          session.targetResourceId,
+          occurrence.allDay,
+          session.initialResourceId,
+        );
         return;
       }
 
@@ -564,7 +678,14 @@ export function useResourceGridDrag(params: {
         }
         recurringScope = resolved;
       }
-      applyChange(occurrence, recurringScope, range, session.targetResourceId, false);
+      applyChange(
+        occurrence,
+        recurringScope,
+        range,
+        session.targetResourceId,
+        false,
+        session.initialResourceId,
+      );
     } finally {
       paramsRef.current.calendar.api.setDragPreview(null);
     }
@@ -599,6 +720,7 @@ export function useResourceGridDrag(params: {
     occurrence: EventOccurrence | null,
     anchor: Date,
     initialResourceId: string | null,
+    initialDayStart: Date,
   ): void {
     dragSessionRef.current?.cleanup();
 
@@ -639,6 +761,8 @@ export function useResourceGridDrag(params: {
       anchor,
       targetResourceId: initialResourceId,
       initialResourceId,
+      targetDayStart: initialDayStart,
+      initialDayStart,
       baselineRange,
       hasMoved: false,
       cleanup: () => {
@@ -659,13 +783,21 @@ export function useResourceGridDrag(params: {
       const { clientX, clientY } = nativeEvent;
       updateAutoScroll(clientX, clientY);
 
-      // 横方向（リソース）の追従。create は開始列に固定、resize 系は元の列のまま
+      // 横方向（リソース・日）の追従。create は開始列に固定、resize 系は元の列のまま
       if (session.mode === 'move' || session.mode === 'allday-move') {
         const column = findColumnForClientX(clientX);
-        if (column !== null && column.resourceId !== session.targetResourceId) {
-          session.targetResourceId = column.resourceId;
-          if (column.resourceId !== session.initialResourceId) {
-            session.hasMoved = true;
+        if (column !== null) {
+          if (column.resourceId !== session.targetResourceId) {
+            session.targetResourceId = column.resourceId;
+            if (column.resourceId !== session.initialResourceId) {
+              session.hasMoved = true;
+            }
+          }
+          if (column.dayStart.getTime() !== session.targetDayStart.getTime()) {
+            session.targetDayStart = column.dayStart;
+            if (column.dayStart.getTime() !== session.initialDayStart.getTime()) {
+              session.hasMoved = true;
+            }
           }
         }
       }
@@ -673,10 +805,12 @@ export function useResourceGridDrag(params: {
       if (session.mode === 'allday-move') {
         const occurrenceForPreview = session.occurrence;
         if (occurrenceForPreview !== null) {
-          const conversionRange = {
-            start: occurrenceForPreview.start,
-            end: occurrenceForPreview.end,
-          };
+          // 複数日表示では列の日の差分だけ範囲をシフトする（時間帯は不変）
+          const dayDelta = dayIndexOf(session.targetDayStart) - dayIndexOf(session.initialDayStart);
+          const conversionRange = shiftRangeByDays(
+            { start: occurrenceForPreview.start, end: occurrenceForPreview.end },
+            dayDelta,
+          );
           const invalid = !isCandidateValid(
             occurrenceForPreview,
             conversionRange,
@@ -746,7 +880,7 @@ export function useResourceGridDrag(params: {
     setIsDragging(true);
   }
 
-  /** 空き領域での作成ドラッグを開始する（リソースは開始列に固定）。 */
+  /** 空き領域での作成ドラッグを開始する（リソースと日は開始列に固定）。 */
   function handleColumnPointerDown(
     column: ResourceColumn,
     event: ReactPointerEvent<HTMLElement>,
@@ -758,13 +892,21 @@ export function useResourceGridDrag(params: {
     const { state } = paramsRef.current.calendar;
     const rect = event.currentTarget.getBoundingClientRect();
     const anchor = timeAtGridPosition({
-      day: displayDay(),
+      day: column.date,
       fractionY: fractionYFromClientY(rect, event.clientY),
       timeZone: state.timeZone,
       snap: state.options.snapMinutes,
       ...slotTimeRangeMinutes(state.options),
     });
-    startSession('create', null, anchor, column.resource?.id ?? null);
+    startSession('create', null, anchor, column.resource?.id ?? null, column.date);
+  }
+
+  /**
+   * ポインタ位置の列の日（列が見つからなければオカレンスの属する表示日）を返す。
+   * ドラッグ開始時のセッションの基準日（`initialDayStart`）の決定に使う。
+   */
+  function initialDayStartFor(occurrence: EventOccurrence, clientX: number): Date {
+    return findColumnForClientX(clientX)?.dayStart ?? dayStartForDate(occurrence.start);
   }
 
   /** イベント本体のドラッグ（移動）を開始する。`editable: false` の場合は開始しない。 */
@@ -781,7 +923,13 @@ export function useResourceGridDrag(params: {
       return;
     }
     const anchor = pointerDateAt(event.clientX, event.clientY) ?? occurrence.start;
-    startSession(mode, occurrence, anchor, occurrenceLaneId(occurrence));
+    startSession(
+      mode,
+      occurrence,
+      anchor,
+      sourceLaneIdFor(occurrence, event.currentTarget),
+      initialDayStartFor(occurrence, event.clientX),
+    );
   }
 
   /** リサイズハンドルのドラッグを開始する。 */
@@ -803,7 +951,8 @@ export function useResourceGridDrag(params: {
       edge === 'start' ? 'resize-start' : 'resize',
       occurrence,
       anchor,
-      occurrenceLaneId(occurrence),
+      sourceLaneIdFor(occurrence, event.currentTarget),
+      initialDayStartFor(occurrence, event.clientX),
     );
   }
 
@@ -858,18 +1007,19 @@ export function useResourceGridDrag(params: {
     return viewModel.type === 'resource' ? viewModel.columns : [];
   }
 
-  /** 隣のリソース列（`direction` = -1 で左、1 で右）のリソース ID を返す。なければ `undefined`。 */
-  function adjacentResourceId(
-    resourceId: string | null,
-    direction: -1 | 1,
-  ): string | null | undefined {
-    const columns = currentColumns();
-    const index = columns.findIndex((column) => (column.resource?.id ?? null) === resourceId);
-    if (index === -1) {
-      return undefined;
-    }
-    const next = columns[index + direction];
-    return next === undefined ? undefined : (next.resource?.id ?? null);
+  /**
+   * オカレンスが属する列（指定レーンと開始日が一致する列）のインデックスを返す。
+   * 見つからなければ `-1`。
+   *
+   * @param laneId - 対象レーンのリソース ID（複数リソース割当ではフォーカス中の
+   *   列のレーン。{@link sourceLaneIdFor} で解決した値）
+   */
+  function columnIndexFor(occurrence: EventOccurrence, laneId: string | null): number {
+    const dayStart = dayStartForDate(occurrence.start);
+    return currentColumns().findIndex(
+      (column) =>
+        (column.resource?.id ?? null) === laneId && column.date.getTime() === dayStart.getTime(),
+    );
   }
 
   /** キーボード操作による変更を確定する（単発は同期完結）。 */
@@ -879,6 +1029,7 @@ export function useResourceGridDrag(params: {
     range: DateRange | null,
     resourceId: string | null,
     allDay: boolean,
+    sourceLaneId: string | null,
   ): Promise<void> {
     if (
       !isCandidateValid(
@@ -913,7 +1064,7 @@ export function useResourceGridDrag(params: {
       }
       recurringScope = resolved;
     }
-    applyChange(occurrence, recurringScope, range, resourceId, allDay);
+    applyChange(occurrence, recurringScope, range, resourceId, allDay, sourceLaneId);
   }
 
   /**
@@ -944,14 +1095,39 @@ export function useResourceGridDrag(params: {
       if (occurrence.event.editable === false) {
         return;
       }
-      const target = adjacentResourceId(
-        occurrenceLaneId(occurrence),
-        event.key === 'ArrowLeft' ? -1 : 1,
-      );
-      if (target === undefined || target === occurrenceLaneId(occurrence)) {
+      // 画面上の隣の列（リソース × 日の並び）へ移動する。複数日表示では
+      // 同一リソース内の隣の日、リソース境界では隣のリソースの端の日になり、
+      // 日の差分は開始・終了の日数シフトとして適用する。
+      // 基準列はフォーカス中の要素が属するレーン（複数リソース割当では
+      // 表示中の複数の列のうち操作した列だけが移動対象になる）
+      const sourceLaneId = sourceLaneIdFor(occurrence, event.currentTarget);
+      const columns = currentColumns();
+      const index = columnIndexFor(occurrence, sourceLaneId);
+      if (index === -1) {
         return;
       }
-      void commitKeyboardChange(occurrence, 'move', null, target, allDay).catch(reportError);
+      const current = columns[index];
+      const target = columns[index + (event.key === 'ArrowLeft' ? -1 : 1)];
+      if (current === undefined || target === undefined) {
+        return;
+      }
+      const targetLaneId = target.resource?.id ?? null;
+      const dayDelta = target.dayIndex - current.dayIndex;
+      if (dayDelta === 0 && targetLaneId === sourceLaneId) {
+        return;
+      }
+      const range =
+        dayDelta === 0
+          ? null
+          : shiftRangeByDays({ start: occurrence.start, end: occurrence.end }, dayDelta);
+      void commitKeyboardChange(
+        occurrence,
+        'move',
+        range,
+        targetLaneId,
+        allDay,
+        sourceLaneId,
+      ).catch(reportError);
       return;
     }
 
@@ -988,28 +1164,46 @@ export function useResourceGridDrag(params: {
     ) {
       return;
     }
+    // 時間のみの操作。レーンは不変（source = target）のため割当パッチは生成されない
+    const laneId = sourceLaneIdFor(occurrence, event.currentTarget);
     void commitKeyboardChange(
       occurrence,
       event.shiftKey ? 'resize' : 'move',
       range,
-      occurrenceLaneId(occurrence),
+      laneId,
       false,
+      laneId,
     ).catch(reportError);
   }
 
-  /** 終日セルのクリックで当日 1 日の終日イベントを作成する。 */
+  /** 終日セルのクリックでその列の日 1 日の終日イベントを作成する。 */
   function handleAllDayCellClick(column: ResourceColumn): void {
     if (suppressNextClickRef.current) {
       suppressNextClickRef.current = false;
       return;
     }
     const { state } = paramsRef.current.calendar;
-    const day = displayDay();
+    const day = column.date;
     const range: DateRange = {
       start: day,
       end: startOfDayInZone(addDaysInZone(day, 1, state.timeZone), state.timeZone),
     };
     void commitCreateRange(range, true, column.resource?.id ?? null).catch(reportError);
+  }
+
+  /**
+   * セルへバブルしてきたイベントが、セル内にネストされた終日アイテムのボタン
+   * （`data-koyomi-occurrence` 属性を持つ要素）由来かどうかを判定する。
+   *
+   * 終日アイテムのボタンは ARIA 上の所有関係の要請でセルの子として描画される
+   * （`use-day-drag.ts` の `originatesFromSegment` と同じ理由）。ボタンの
+   * `onKeyDown`（Enter/Space = クリック相当）は伝播を止めないため、セル側で
+   * イベントの由来を確認して終日セルの作成キー操作と二重発火しないようにする。
+   */
+  function originatesFromAllDayItem(event: { target: EventTarget }): boolean {
+    return (
+      event.target instanceof Element && event.target.closest('[data-koyomi-occurrence]') !== null
+    );
   }
 
   function getColumnProps(column: ResourceColumn): ResourceColumnProps {
@@ -1021,13 +1215,15 @@ export function useResourceGridDrag(params: {
           registryRef.current.set(column.key, {
             element,
             resourceId: column.resource?.id ?? null,
+            dayStart: column.date,
           });
         }
       },
       onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
         handleColumnPointerDown(column, event);
       },
-      'data-koyomi-resource': column.key,
+      'data-koyomi-resource': laneKeyOf(column),
+      'data-koyomi-date': column.dayKey,
     };
   }
 
@@ -1036,7 +1232,21 @@ export function useResourceGridDrag(params: {
       onClick: () => {
         handleAllDayCellClick(column);
       },
-      'data-koyomi-resource': column.key,
+      onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
+        // 終日アイテムのボタン由来のキー操作（Enter/Space 等）をセルの作成として
+        // 二重処理しない（pointerdown/click と同じ理由）
+        if (originatesFromAllDayItem(event)) {
+          return;
+        }
+        if (event.key !== 'Enter' && event.key !== ' ') {
+          return;
+        }
+        event.preventDefault();
+        handleAllDayCellClick(column);
+      },
+      tabIndex: 0,
+      'data-koyomi-resource': laneKeyOf(column),
+      'data-koyomi-date': column.dayKey,
     };
   }
 
@@ -1098,8 +1308,9 @@ export function useResourceGridDrag(params: {
     if ((preview.resourceId ?? null) !== (column.resource?.id ?? null)) {
       return null;
     }
+    // 複数日表示ではプレビュー範囲をこの列の日でクランプする（対象日以外の列には出さない）
     const timeZone: TimeZoneId = state.timeZone;
-    const dayStart = displayDay();
+    const dayStart = column.date;
     const dayEnd = startOfDayInZone(addDaysInZone(dayStart, 1, timeZone), timeZone);
     if (
       preview.range.end.getTime() <= dayStart.getTime() ||
@@ -1118,11 +1329,21 @@ export function useResourceGridDrag(params: {
   }
 
   function isAllDayPreviewTarget(column: ResourceColumn): boolean {
-    const preview = paramsRef.current.calendar.state.dragPreview;
+    const { state } = paramsRef.current.calendar;
+    const preview = state.dragPreview;
     if (preview === null || !preview.allDay) {
       return false;
     }
-    return (preview.resourceId ?? null) === (column.resource?.id ?? null);
+    if ((preview.resourceId ?? null) !== (column.resource?.id ?? null)) {
+      return false;
+    }
+    // 複数日表示ではプレビュー範囲がこの列の日と重なる場合のみ対象にする
+    // （長さ 0 の範囲でも開始日 1 日分として扱えるよう、終端を最低 1ms 確保する）
+    const timeZone: TimeZoneId = state.timeZone;
+    const dayStart = column.date;
+    const dayEnd = startOfDayInZone(addDaysInZone(dayStart, 1, timeZone), timeZone);
+    const effectiveEndMs = Math.max(preview.range.end.getTime(), preview.range.start.getTime() + 1);
+    return preview.range.start.getTime() < dayEnd.getTime() && effectiveEndMs > dayStart.getTime();
   }
 
   return {

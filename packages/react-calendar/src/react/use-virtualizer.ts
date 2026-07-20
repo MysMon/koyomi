@@ -83,6 +83,13 @@ export interface Virtualizer {
   afterSize: number;
   /** 全アイテムの合計高（px）。 */
   totalSize: number;
+  /**
+   * 可視範囲の先頭インデックス（overscan を含まない、実際に見えている範囲）。
+   * `count === 0` のときは `-1`。可視範囲の変更通知（遅延読込など）の基準に使う。
+   */
+  startIndex: number;
+  /** 可視範囲の末尾インデックス（両端含む、overscan を含まない）。`count === 0` のときは `-1`。 */
+  endIndex: number;
   /** アイテム DOM を実測登録する ref コールバックを、キーごとに返す。 */
   measureElement: (key: string) => (element: HTMLElement | null) => void;
   /** 指定インデックスを可視域へスクロールする。 */
@@ -555,6 +562,8 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
     beforeSize: result.beforeSize,
     afterSize: result.afterSize,
     totalSize: result.totalSize,
+    startIndex: result.startIndex,
+    endIndex: result.endIndex,
     measureElement,
     scrollToIndex,
   };

@@ -130,22 +130,51 @@ export function getWallClock(date: Date, timeZone: TimeZoneId): Required<WallClo
   };
 }
 
+/** 1 日のミリ秒数。 */
+const DAY_IN_MS = 86_400_000;
+
+/**
+ * 現地時刻の成分を、オフセットのない UTC 上のミリ秒として組み立てる。
+ *
+ * 実際の絶対時刻ではなく「現地時刻の成分同士の比較・差分」のための暦演算専用
+ * （{@link fromWallClock} の曖昧な時刻の判定に使う）。2 桁年の誤変換を避けるため
+ * `Date.UTC` ではなく setter で組み立てる（{@link isRealCalendarDate} と同じ理由）。
+ */
+function wallClockAsUtcMs(wall: Required<WallClockParts>): number {
+  const probe = new Date(0);
+  probe.setUTCFullYear(wall.year, wall.month - 1, wall.day);
+  probe.setUTCHours(wall.hours, wall.minutes, wall.seconds, wall.milliseconds);
+  return probe.getTime();
+}
+
 /**
  * 現地時刻の成分から絶対時刻を構築する。
  *
- * DST の切り替えで存在しない時刻が指定された場合は直後の実在時刻に繰り上げて解決し、
- * 曖昧な時刻（2 回現れる時刻）は早い方のオフセットで解決する。
+ * DST の切り替えで存在しない時刻が指定された場合は、`disambiguation` に関わらず
+ * 直後の実在時刻に繰り上げて解決する。曖昧な時刻（秋の巻き戻りで 2 回現れる時刻）は
+ * `disambiguation` に従って解決する。
  *
  * @param parts - 現地時刻の成分
  * @param timeZone - タイムゾーン
+ * @param disambiguation - 曖昧な時刻の解決方法。`'earlier'`（既定）は早い方の
+ *   オフセット（切替前）、`'later'` は遅い方のオフセット（切替後）で解決する
  * @returns 対応する絶対時刻
  * @example
  * ```ts
  * // Asia/Tokyo の 2026-07-01 10:00 → 2026-07-01T01:00:00.000Z
  * fromWallClock({ year: 2026, month: 7, day: 1, hours: 10 }, 'Asia/Tokyo');
+ * // America/New_York の 2026-11-01 01:30 は 2 回現れる（EDT → EST の巻き戻り）
+ * fromWallClock({ year: 2026, month: 11, day: 1, hours: 1, minutes: 30 }, 'America/New_York');
+ * // => 2026-11-01T05:30:00.000Z（早い方、EDT）
+ * fromWallClock({ year: 2026, month: 11, day: 1, hours: 1, minutes: 30 }, 'America/New_York', 'later');
+ * // => 2026-11-01T06:30:00.000Z（遅い方、EST）
  * ```
  */
-export function fromWallClock(parts: WallClockParts, timeZone: TimeZoneId): Date {
+export function fromWallClock(
+  parts: WallClockParts,
+  timeZone: TimeZoneId,
+  disambiguation: 'earlier' | 'later' = 'earlier',
+): Date {
   const { year, month, day, hours = 0, minutes = 0, seconds = 0, milliseconds = 0 } = parts;
   // TZDate の数値引数コンストラクタは Date コンストラクタの 2 桁年マッピング
   // （0〜99 年を 1900〜1999 年とみなす）をそのまま引き継いでしまう。
@@ -153,7 +182,29 @@ export function fromWallClock(parts: WallClockParts, timeZone: TimeZoneId): Date
   const zoned = TZDate.tz(timeZone);
   zoned.setFullYear(year, month - 1, day);
   zoned.setHours(hours, minutes, seconds, milliseconds);
-  return new Date(zoned.getTime());
+  const earlier = new Date(zoned.getTime());
+  if (disambiguation === 'earlier') {
+    return earlier;
+  }
+  // 'later': 同じ現地時刻が切替後のオフセットでも実在するかを検証する。
+  // 曖昧な時刻の 2 回目は必ず切替後のオフセットで現れるため、切替を確実に
+  // 越えている 24 時間後のオフセット（隣接する切替は数か月離れているため、
+  // 24 時間以内に 2 度目の切替はない）で候補の絶対時刻を逆算し、往復して
+  // 現地時刻が一致する場合のみ採用する（一致しなければ曖昧な時刻ではないので
+  // 'earlier' と同じ解決になる。不正なタイムゾーンでは NaN 比較が成立せず、
+  // 'earlier' と同じ Invalid Date を返す）
+  const wallMs = wallClockAsUtcMs(getWallClock(earlier, timeZone));
+  const probeInstant = earlier.getTime() + DAY_IN_MS;
+  const laterOffsetMs =
+    wallClockAsUtcMs(getWallClock(new Date(probeInstant), timeZone)) - probeInstant;
+  const candidate = new Date(wallMs - laterOffsetMs);
+  if (
+    candidate.getTime() > earlier.getTime() &&
+    wallClockAsUtcMs(getWallClock(candidate, timeZone)) === wallMs
+  ) {
+    return candidate;
+  }
+  return earlier;
 }
 
 /**
@@ -472,11 +523,12 @@ export function parseTimeOfDay(time: string): number {
 }
 
 /**
- * `'HH:mm'` 形式の時刻文字列を、表示範囲の境界（{@link CalendarOptions.slotMinTime} /
- * {@link CalendarOptions.slotMaxTime}）用に分（0〜1440）へ変換する。
+ * `'HH:mm'` 形式の時刻文字列を、日内の時間帯の境界（{@link CalendarOptions.slotMinTime} /
+ * {@link CalendarOptions.slotMaxTime} や {@link BusinessHoursRule.endTime}）用に
+ * 分（0〜1440）へ変換する。
  *
  * `'24:00'` のみ特例として `1440` を返す（{@link parseTimeOfDay} は日内の時刻専用のため
- * `'24:00'` を無効な時刻として `Error` にするが、表示範囲の終了境界は排他的な
+ * `'24:00'` を無効な時刻として `Error` にするが、排他的な終了境界は日の終端
  * `'24:00'` を指定できる必要がある）。それ以外の値は {@link parseTimeOfDay} に委譲する。
  *
  * @param time - `'HH:mm'` 形式の時刻文字列（例: `'09:00'`、`'24:00'`）

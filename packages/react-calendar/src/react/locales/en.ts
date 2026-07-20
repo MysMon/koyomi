@@ -338,6 +338,8 @@ const multiMonth: MessageCatalog['multiMonth'] = {
 const resource: MessageCatalog['resource'] = {
   unassigned: 'Unassigned',
   empty: 'No resources',
+  resourceToggleAriaLabel: (toggleTarget, collapsed) =>
+    collapsed ? `Expand ${toggleTarget.title}` : `Collapse ${toggleTarget.title}`,
 };
 
 const timeline: MessageCatalog['timeline'] = {

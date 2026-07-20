@@ -30,6 +30,7 @@ function makeOccurrence(params: {
   eventId?: string;
   allDay?: boolean;
   resourceId?: string;
+  resourceIds?: readonly string[];
 }): EventOccurrence {
   const eventId = params.eventId ?? 'ev-1';
   const allDay = params.allDay ?? false;
@@ -40,6 +41,7 @@ function makeOccurrence(params: {
     end: params.end,
     allDay,
     ...(params.resourceId !== undefined ? { resourceId: params.resourceId } : {}),
+    ...(params.resourceIds !== undefined ? { resourceIds: params.resourceIds } : {}),
   };
   return {
     key: `${eventId}@${params.start.toISOString()}`,
@@ -58,6 +60,11 @@ function resource(id: string, title?: string): CalendarResource {
   return { id, title: title ?? `リソース ${id}` };
 }
 
+/** テスト用のリソースを parentId 付きで作る。 */
+function resourceWithParent(id: string, parentId?: string): CalendarResource {
+  return { id, title: `リソース ${id}`, ...(parentId !== undefined ? { parentId } : {}) };
+}
+
 /** 既定パラメータでビューモデルを構築するヘルパ。 */
 function build(params: {
   occurrences?: readonly EventOccurrence[];
@@ -71,6 +78,8 @@ function build(params: {
   businessHours?: readonly BusinessHoursRule[];
   slotMinTime?: string;
   slotMaxTime?: string;
+  resourceViewDays?: number;
+  collapsedResourceIds?: ReadonlySet<string>;
 }) {
   return buildResourceViewModel({
     currentDate: params.currentDate ?? at('2026-07-10T09:00'),
@@ -84,6 +93,10 @@ function build(params: {
     ...(params.businessHours !== undefined ? { businessHours: params.businessHours } : {}),
     ...(params.slotMinTime !== undefined ? { slotMinTime: params.slotMinTime } : {}),
     ...(params.slotMaxTime !== undefined ? { slotMaxTime: params.slotMaxTime } : {}),
+    ...(params.resourceViewDays !== undefined ? { resourceViewDays: params.resourceViewDays } : {}),
+    ...(params.collapsedResourceIds !== undefined
+      ? { collapsedResourceIds: params.collapsedResourceIds }
+      : {}),
   });
 }
 
@@ -165,6 +178,295 @@ describe('buildResourceViewModel', () => {
       expect(vm.columns.map((column) => column.key)).toEqual(['r:unassigned', 'unassigned']);
       expect(vm.columns[0]?.resource?.title).toBe('会議室U');
       expect(vm.columns[1]?.resource).toBeNull();
+    });
+  });
+
+  describe('リソースの階層グルーピング（parentId・折りたたみ）', () => {
+    /** 「拠点 > フロア > 会議室」の 2 段階層＋フラットな 1 件のフィクスチャ。 */
+    const TREE_RESOURCES: readonly CalendarResource[] = [
+      resourceWithParent('site'),
+      resourceWithParent('floor-1', 'site'),
+      resourceWithParent('room-a', 'floor-1'),
+      resourceWithParent('room-b', 'floor-1'),
+      resourceWithParent('floor-2', 'site'),
+      resourceWithParent('room-c', 'floor-2'),
+      resourceWithParent('other'),
+    ];
+
+    it('parentId 未使用時は列が depth=0・hasChildren=false・collapsed=false で、columnGroupRows は空になる（既存挙動の回帰確認）', () => {
+      const vm = build({ resources: [resource('r1'), resource('r2')] });
+      expect(vm.columns.map((column) => column.depth)).toEqual([0, 0]);
+      expect(vm.columns.map((column) => column.hasChildren)).toEqual([false, false]);
+      expect(vm.columns.map((column) => column.collapsed)).toEqual([false, false]);
+      expect(vm.columnGroupRows).toEqual([]);
+    });
+
+    it('parentId 併用時に列がツリー順＋深さで並び、未割り当て列は常に末尾になる', () => {
+      const vm = build({
+        resources: TREE_RESOURCES,
+        occurrences: [
+          makeOccurrence({ start: at('2026-07-10T10:00'), end: at('2026-07-10T11:00') }),
+        ],
+      });
+      expect(vm.columns.map((column) => column.key)).toEqual([
+        'r:site',
+        'r:floor-1',
+        'r:room-a',
+        'r:room-b',
+        'r:floor-2',
+        'r:room-c',
+        'r:other',
+        'unassigned',
+      ]);
+      expect(vm.columns.map((column) => column.depth)).toEqual([0, 1, 2, 2, 1, 2, 0, 0]);
+      expect(vm.columns.map((column) => column.hasChildren)).toEqual([
+        true,
+        true,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+      ]);
+    });
+
+    it('親リソース自身に割り当てた予定が親の列の items に現れる', () => {
+      const vm = build({
+        resources: TREE_RESOURCES,
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceId: 'floor-1',
+          }),
+        ],
+      });
+      const floorColumn = vm.columns.find((column) => column.key === 'r:floor-1');
+      expect(floorColumn?.items).toHaveLength(1);
+    });
+
+    it('親を折りたたむと子孫の列が除外され、親の列は collapsed=true で残る', () => {
+      const vm = build({
+        resources: TREE_RESOURCES,
+        collapsedResourceIds: new Set(['floor-1']),
+      });
+      expect(vm.columns.map((column) => column.key)).toEqual([
+        'r:site',
+        'r:floor-1',
+        'r:floor-2',
+        'r:room-c',
+        'r:other',
+      ]);
+      expect(vm.columns.find((column) => column.key === 'r:floor-1')?.collapsed).toBe(true);
+    });
+
+    it('折りたたみで非表示の子リソースに割り当てた予定は未割り当て列へ合流しない（表示されないだけ）', () => {
+      const vm = build({
+        resources: TREE_RESOURCES,
+        collapsedResourceIds: new Set(['site']),
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceId: 'room-a',
+          }),
+        ],
+      });
+      // room-a の列は非表示、未割り当て列も生成されない
+      expect(vm.columns.map((column) => column.key)).toEqual(['r:site', 'r:other']);
+    });
+
+    it('columnGroupRows は深さごとの行で、親のグループセルが自身＋可視の子孫の列数を覆う', () => {
+      const vm = build({ resources: TREE_RESOURCES });
+      expect(vm.columnGroupRows).toHaveLength(2);
+      // 深さ 0 の行: site が自身 + 子孫 5 列 = 6 列、other はグループなしのスペーサー
+      expect(
+        vm.columnGroupRows[0]?.map((cell) => ({
+          id: cell.resource?.id ?? null,
+          start: cell.startColumnIndex,
+          count: cell.columnCount,
+        })),
+      ).toEqual([
+        { id: 'site', start: 0, count: 6 },
+        { id: null, start: 6, count: 1 },
+      ]);
+      // 深さ 1 の行: floor-1 / floor-2 のグループと、その外側のスペーサー
+      expect(
+        vm.columnGroupRows[1]?.map((cell) => ({
+          id: cell.resource?.id ?? null,
+          start: cell.startColumnIndex,
+          count: cell.columnCount,
+        })),
+      ).toEqual([
+        { id: null, start: 0, count: 1 },
+        { id: 'floor-1', start: 1, count: 3 },
+        { id: 'floor-2', start: 4, count: 2 },
+        { id: null, start: 6, count: 1 },
+      ]);
+      expect(vm.columnGroupRows[0]?.[0]?.depth).toBe(0);
+      expect(vm.columnGroupRows[1]?.[1]?.depth).toBe(1);
+    });
+
+    it('折りたたみ中の親はグループセルが自身の列だけを覆い、collapsed=true になる', () => {
+      const vm = build({
+        resources: TREE_RESOURCES,
+        collapsedResourceIds: new Set(['floor-1']),
+      });
+      // 可視列: site, floor-1(折りたたみ), floor-2, room-c, other
+      expect(
+        vm.columnGroupRows[1]?.map((cell) => ({
+          id: cell.resource?.id ?? null,
+          start: cell.startColumnIndex,
+          count: cell.columnCount,
+          collapsed: cell.collapsed,
+        })),
+      ).toEqual([
+        { id: null, start: 0, count: 1, collapsed: false },
+        { id: 'floor-1', start: 1, count: 1, collapsed: true },
+        { id: 'floor-2', start: 2, count: 2, collapsed: false },
+        { id: null, start: 4, count: 1, collapsed: false },
+      ]);
+    });
+
+    it('未割り当て列はどのグループにも属さないスペーサーで覆われる', () => {
+      const vm = build({
+        resources: [resourceWithParent('site'), resourceWithParent('room-a', 'site')],
+        unassignedLane: 'always',
+      });
+      expect(
+        vm.columnGroupRows[0]?.map((cell) => ({
+          id: cell.resource?.id ?? null,
+          start: cell.startColumnIndex,
+          count: cell.columnCount,
+        })),
+      ).toEqual([
+        { id: 'site', start: 0, count: 2 },
+        { id: null, start: 2, count: 1 },
+      ]);
+    });
+
+    it('複数日表示（resourceViewDays: 2）ではグループの列数が日数分に広がる', () => {
+      const vm = build({
+        resources: [resourceWithParent('site'), resourceWithParent('room-a', 'site')],
+        resourceViewDays: 2,
+      });
+      // 列はリソース優先の直積: site×2 日, room-a×2 日
+      expect(vm.columns).toHaveLength(4);
+      expect(vm.columnGroupRows[0]).toHaveLength(1);
+      expect(vm.columnGroupRows[0]?.[0]).toMatchObject({
+        startColumnIndex: 0,
+        columnCount: 4,
+      });
+    });
+  });
+
+  describe('resourceIds（複数リソース割当）', () => {
+    it('resourceIds の各リソースの列に同一オカレンスが表示される', () => {
+      const occurrence = makeOccurrence({
+        start: at('2026-07-10T10:00'),
+        end: at('2026-07-10T11:00'),
+        resourceIds: ['room-a', 'room-b'],
+      });
+      const vm = build({
+        resources: [resource('room-a'), resource('room-b'), resource('room-c')],
+        occurrences: [occurrence],
+      });
+      expect(vm.columns.map((column) => column.items.length)).toEqual([1, 1, 0]);
+      // 同一オカレンス（同じ参照）が両列に現れる
+      expect(vm.columns[0]?.items[0]?.occurrence).toBe(occurrence);
+      expect(vm.columns[1]?.items[0]?.occurrence).toBe(occurrence);
+    });
+
+    it('resourceIds 指定時は resourceId を無視する（優先規則）', () => {
+      const vm = build({
+        resources: [resource('room-a'), resource('room-b')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceId: 'room-a',
+            resourceIds: ['room-b'],
+          }),
+        ],
+      });
+      expect(vm.columns.map((column) => column.items.length)).toEqual([0, 1]);
+    });
+
+    it('resourceIds が空配列のオカレンスは未割り当て列に入る（resourceId があっても）', () => {
+      const vm = build({
+        resources: [resource('room-a')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceId: 'room-a',
+            resourceIds: [],
+          }),
+        ],
+      });
+      expect(vm.columns.map((column) => column.key)).toEqual(['r:room-a', 'unassigned']);
+      expect(vm.columns[1]?.items).toHaveLength(1);
+    });
+
+    it('参照先のない ID は除外され、存在する ID のレーンにだけ表示される', () => {
+      const vm = build({
+        resources: [resource('room-a')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceIds: ['room-a', 'ghost'],
+          }),
+        ],
+      });
+      // 存在する ID が 1 つでもあれば未割り当て列には入らない
+      expect(vm.columns.map((column) => column.key)).toEqual(['r:room-a']);
+      expect(vm.columns[0]?.items).toHaveLength(1);
+    });
+
+    it('割当がすべて参照先のない ID の場合は未割り当て列に 1 回だけ合流する', () => {
+      const vm = build({
+        resources: [resource('room-a')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceIds: ['ghost-1', 'ghost-2'],
+          }),
+        ],
+      });
+      expect(vm.columns.map((column) => column.key)).toEqual(['r:room-a', 'unassigned']);
+      expect(vm.columns[1]?.items).toHaveLength(1);
+    });
+
+    it('resourceIds 内の重複 ID があっても同じ列に二重表示されない', () => {
+      const vm = build({
+        resources: [resource('room-a')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceIds: ['room-a', 'room-a'],
+          }),
+        ],
+      });
+      expect(vm.columns[0]?.items).toHaveLength(1);
+    });
+
+    it('終日オカレンスも resourceIds の各列の allDayItems に表示される', () => {
+      const vm = build({
+        resources: [resource('room-a'), resource('room-b')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T00:00'),
+            end: at('2026-07-11T00:00'),
+            allDay: true,
+            resourceIds: ['room-a', 'room-b'],
+          }),
+        ],
+      });
+      expect(vm.columns.map((column) => column.allDayItems.length)).toEqual([1, 1]);
     });
   });
 
@@ -491,6 +793,189 @@ describe('buildResourceViewModel', () => {
       });
       expect(atStart.nowIndicatorMinutes).toBe(480);
       expect(atEnd.nowIndicatorMinutes).toBeNull();
+    });
+  });
+
+  describe('resourceViewDays（複数日表示）', () => {
+    it('省略時（既定 1）は days が表示日 1 件になり、列キーに日サフィックスが付かない（回帰ペア）', () => {
+      const vm = build({ resources: [resource('r1')] });
+      expect(vm.days).toHaveLength(1);
+      expect(vm.days[0]).toMatchObject({ key: '2026-07-10', isToday: true });
+      expect(vm.days[0]?.date).toEqual(at('2026-07-10T00:00'));
+      expect(vm.columns.map((column) => column.key)).toEqual(['r:r1']);
+      expect(vm.columns[0]).toMatchObject({
+        dayKey: '2026-07-10',
+        dayIndex: 0,
+        isToday: true,
+      });
+      expect(vm.columns[0]?.date).toEqual(at('2026-07-10T00:00'));
+    });
+
+    it('resourceViewDays: 2 では列がリソース優先（リソースごとに日を昇順で並べる）の直積になる', () => {
+      const vm = build({
+        resources: [resource('r1'), resource('r2')],
+        resourceViewDays: 2,
+      });
+      expect(vm.columns.map((column) => column.key)).toEqual([
+        'r:r1@2026-07-10',
+        'r:r1@2026-07-11',
+        'r:r2@2026-07-10',
+        'r:r2@2026-07-11',
+      ]);
+      expect(vm.columns.map((column) => column.dayIndex)).toEqual([0, 1, 0, 1]);
+      expect(vm.days.map((day) => day.key)).toEqual(['2026-07-10', '2026-07-11']);
+    });
+
+    it('未割り当て列も日ごとに生成され、末尾にまとまる（該当オカレンスが 2 日目のみでも全日分生成される）', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        resourceViewDays: 2,
+        occurrences: [
+          makeOccurrence({ start: at('2026-07-11T10:00'), end: at('2026-07-11T11:00') }),
+        ],
+      });
+      expect(vm.columns.map((column) => column.key)).toEqual([
+        'r:r1@2026-07-10',
+        'r:r1@2026-07-11',
+        'unassigned@2026-07-10',
+        'unassigned@2026-07-11',
+      ]);
+      expect(vm.columns[2]?.items).toHaveLength(0);
+      expect(vm.columns[3]?.items).toHaveLength(1);
+    });
+
+    it('オカレンスは属する日の列にのみ配置される', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        resourceViewDays: 2,
+        occurrences: [
+          makeOccurrence({
+            eventId: 'day1',
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceId: 'r1',
+          }),
+          makeOccurrence({
+            eventId: 'day2',
+            start: at('2026-07-11T10:00'),
+            end: at('2026-07-11T11:00'),
+            resourceId: 'r1',
+          }),
+        ],
+      });
+      expect(vm.columns[0]?.items.map((item) => item.occurrence.eventId)).toEqual(['day1']);
+      expect(vm.columns[1]?.items.map((item) => item.occurrence.eventId)).toEqual(['day2']);
+    });
+
+    it('日をまたぐ時間指定オカレンス（22:00〜翌 2:00）は両日の列に分割され continues が立つ', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        resourceViewDays: 2,
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-10T22:00'),
+            end: at('2026-07-11T02:00'),
+            resourceId: 'r1',
+          }),
+        ],
+      });
+      const firstDayItem = vm.columns[0]?.items[0];
+      expect(firstDayItem).toMatchObject({
+        startMinutes: 1320,
+        endMinutes: 1440,
+        continuesBefore: false,
+        continuesAfter: true,
+      });
+      const secondDayItem = vm.columns[1]?.items[0];
+      expect(secondDayItem).toMatchObject({
+        startMinutes: 0,
+        endMinutes: 120,
+        continuesBefore: true,
+        continuesAfter: false,
+      });
+    });
+
+    it('複数日の終日オカレンスは重なる各日の列の allDayItems に現れる', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        resourceViewDays: 3,
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-07-11T00:00'),
+            end: at('2026-07-13T00:00'),
+            allDay: true,
+            resourceId: 'r1',
+          }),
+        ],
+      });
+      // 表示日は 7/10〜7/12。終日オカレンス（7/11〜7/12）は 7/11・7/12 の列にのみ現れる
+      expect(vm.columns.map((column) => column.allDayItems.length)).toEqual([0, 1, 1]);
+    });
+
+    it('days[].businessHourSlots は各日の曜日基準で判定され、viewModel.businessHourSlots は先頭日の値になる', () => {
+      // 2026-07-10 は金曜（weekday: 5）、2026-07-11 は土曜（weekday: 6）。金曜だけ営業にする
+      const vm = build({
+        resourceViewDays: 2,
+        resources: [resource('r1')],
+        businessHours: [{ daysOfWeek: [5], startTime: '09:00', endTime: '18:00' }],
+      });
+      const friday = vm.days[0]?.businessHourSlots.find((slot) => slot.minutes === 540);
+      const saturday = vm.days[1]?.businessHourSlots.find((slot) => slot.minutes === 540);
+      expect(friday?.isBusinessHours).toBe(true);
+      expect(saturday?.isBusinessHours).toBe(false);
+      expect(vm.businessHourSlots).toBe(vm.days[0]?.businessHourSlots);
+    });
+
+    it('isToday は該当日の列にだけ立ち、nowIndicatorMinutes は今日が表示範囲のどこかにあれば分を返す', () => {
+      // 表示範囲 7/10〜7/11、now は 2 日目（7/11）10:30
+      const vm = build({
+        resources: [resource('r1')],
+        resourceViewDays: 2,
+        now: at('2026-07-11T10:30'),
+      });
+      expect(vm.columns.map((column) => column.isToday)).toEqual([false, true]);
+      expect(vm.days.map((day) => day.isToday)).toEqual([false, true]);
+      // viewModel.isToday は先頭日の判定（先頭日は今日ではない）
+      expect(vm.isToday).toBe(false);
+      expect(vm.nowIndicatorMinutes).toBe(10 * 60 + 30);
+    });
+
+    it('今日が表示範囲に含まれない場合は nowIndicatorMinutes が null になる', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        resourceViewDays: 2,
+        now: at('2026-07-13T10:30'),
+      });
+      expect(vm.nowIndicatorMinutes).toBeNull();
+    });
+
+    it('0 以下・小数の resourceViewDays は 1 日表示へ正規化される（壊れた表示を作らない防御）', () => {
+      const zero = build({ resources: [resource('r1')], resourceViewDays: 0 });
+      expect(zero.days).toHaveLength(1);
+      const fractional = build({ resources: [resource('r1')], resourceViewDays: 2.9 });
+      expect(fractional.days).toHaveLength(2);
+    });
+
+    it('America/New_York の DST 開始日をまたぐ 2 日表示でも各日のキーと日内の分が現地時刻基準になる', () => {
+      // 2026-03-08 は NY の DST 開始日（2:00 → 3:00）。表示範囲は 3/8〜3/9
+      const vm = build({
+        timeZone: NY,
+        currentDate: at('2026-03-08T12:00', NY),
+        now: at('2026-03-08T12:00', NY),
+        resourceViewDays: 2,
+        resources: [resource('r1')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-03-09T10:00', NY),
+            end: at('2026-03-09T11:00', NY),
+            resourceId: 'r1',
+          }),
+        ],
+      });
+      expect(vm.days.map((day) => day.key)).toEqual(['2026-03-08', '2026-03-09']);
+      const secondDayItem = vm.columns[1]?.items[0];
+      expect(secondDayItem?.startMinutes).toBe(600);
+      expect(secondDayItem?.endMinutes).toBe(660);
     });
   });
 });

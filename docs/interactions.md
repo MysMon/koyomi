@@ -193,14 +193,15 @@ function App() {
 
 | ビュー | 時間の軸 | リソースの軸 |
 | --- | --- | --- |
-| リソースビュー | 縦（列内の上下） | 横（列＝リソース） |
+| リソースビュー | 縦（列内の上下） | 横（列＝リソース × 日） |
 | タイムラインビュー | 横（行内の左右） | 縦（行＝リソース） |
 
-- **移動** — ドラッグした先の時間とリソースの両方が同時に変わります。確定時は、時間の変更と `resourceId` の変更を**1 つのパッチに合成した 1 回の `updateEvent`** として適用します（`onEventChange` には合成後の `resourceId` 付きの `EventChange` が渡されます）。リソースだけが変わり時間が変わらない操作（列/行をまたぐだけの移動）も同じ経路です
-- **リサイズ** — 時間のみが変わり、リソースは不変です（既存の時間グリッドと同じ規則）
-- **未割り当てへの移動** — 未割り当てレーン（`resource: null`）へ移動すると `{ resourceId: undefined }` のパッチが発行されます（`CalendarEventPatch` の削除セマンティクスに従い、`resourceId` フィールドが削除されます）。未割り当てレーンが存在しない場合（`unassignedLane: 'auto'` で未割り当ての予定が 1 件も無いとき）はドロップ先が無いため、この操作はできません。運用したい場合は `unassignedLane: 'always'` を指定してください（詳細は [ビュー](./views.md#年複数月リソースタイムラインビューを有効にするopt-in) を参照）
+- **移動** — ドラッグした先の時間とリソースの両方が同時に変わります。確定時は、時間の変更とリソース割当の変更を**1 つのパッチに合成した 1 回の `updateEvent`** として適用します（`onEventChange` には移動先レーンの `resourceId` 付きの `EventChange` が渡されます）。リソースだけが変わり時間が変わらない操作（列/行をまたぐだけの移動）も同じ経路です。リソースビューの複数日表示（`resourceViewDays` が `2` 以上）では、別の日の列への移動が日付の変更（日数シフト）として合成されます
+- **複数リソース割当（`resourceIds`）の予定** — 割当先の各レーンに同一オカレンスが表示され、レーン間の移動では**操作した（掴んだ）レーンの割当だけ**が移動先に変わります（他のレーンの割当は保持されます）。移動先がすでに割当済みのレーンなら割当は統合されます（重複しません）。詳細な規則は [予定の管理: 複数リソース割当](./events.md#複数リソース割当resourceids) を参照
+- **リサイズ** — 時間のみが変わり、リソースは不変です（既存の時間グリッドと同じ規則。リソースビューの複数日表示でも対象日は変わりません）
+- **未割り当てへの移動** — 未割り当てレーン（`resource: null`）へ移動すると、単一割当の予定では `{ resourceId: undefined }` のパッチが発行されます（`CalendarEventPatch` の削除セマンティクスに従い、`resourceId` フィールドが削除されます）。複数リソース割当の予定では操作したレーンの割当だけが `resourceIds` から取り除かれます。未割り当てレーンが存在しない場合（`unassignedLane: 'auto'` で未割り当ての予定が 1 件も無いとき）はドロップ先が無いため、この操作はできません。運用したい場合は `unassignedLane: 'always'` を指定してください（詳細は [ビュー](./views.md#年複数月リソースタイムラインビューを有効にするopt-in) を参照）
 - **既定作成（`onSelectRange` 未指定時の即時作成）** — 選択したレーンの `resourceId` が `createEvent` の入力に含まれます（未割り当てレーンでは `resourceId` を付けません）
-- **終日行/終日の帯** — リソースビューの終日行はクリックで当日 1 日分の終日イベントを作成でき、ドラッグで列間（リソース間）の移動ができます（リサイズはありません）。タイムラインの終日の帯は日単位スナップで横移動できます
+- **終日行/終日の帯** — リソースビューの終日行はクリックでその列の日 1 日分の終日イベントを作成でき、ドラッグで列間の移動ができます（リソース変更と日数シフトの合成。リサイズはありません）。タイムラインの終日の帯は日単位スナップで横移動できます
 - **allDay ⇔ 時間指定の変換** — 週/日ビューにあるような越境変換ドラッグは、リソース/タイムラインビューでは提供しません
 - 繰り返し予定は既存の `resolveRecurringScope` フロー（下記）にそのまま乗ります（リソース移動も this / thisAndFollowing / all の選択対象）
 
@@ -211,13 +212,15 @@ function App() {
 | `Enter` / `Space` | `onEventClick` 相当のクリック | 同左 |
 | `Delete` / `Backspace` | オカレンスを削除（繰り返しはスコープ解決） | 同左 |
 | `↑` / `↓` | ∓/± `snapMinutes` 分の移動（時間の軸） | 隣の行（リソース）への移動 |
-| `←` / `→` | 隣のリソース列への移動 | ∓/± `snapMinutes` 分の移動（時間の軸。終日の帯、または `timelineScale` が `'hour'` 以外のときは ∓/± 1 日） |
+| `←` / `→` | 隣の列（リソース × 日）への移動 | ∓/± `snapMinutes` 分の移動（時間の軸。終日の帯、または `timelineScale` が `'hour'` 以外のときは ∓/± 1 日） |
 | `Shift+↑` / `Shift+↓` | 終了時刻を ∓/± `snapMinutes` 分リサイズ | — |
 | `Shift+←` / `Shift+→` | — | 終了時刻を ∓/± `snapMinutes` 分リサイズ（`timelineScale` が `'hour'` 以外のときは終了日を ∓/± 1 日） |
 
-矢印キーの割当は「画面上でその方向に動く」という既存ビューと同じ原則に従います。リソースビューは列＝リソースなので `←`/`→` が列移動、タイムラインビューは行＝リソースなので `↑`/`↓` が行移動になり、ビューごとに軸が入れ替わりますが、いずれも視覚的な配置と一致する割当です。
+矢印キーの割当は「画面上でその方向に動く」という既存ビューと同じ原則に従います。リソースビューは列＝リソース × 日なので `←`/`→` が列移動（複数日表示では同一リソース内の隣の日 → リソース境界では隣のリソースの端の日、の順。日の差分は日数シフトとして適用）、タイムラインビューは行＝リソースなので `↑`/`↓` が行移動になり、ビューごとに軸が入れ替わりますが、いずれも視覚的な配置と一致する割当です。
 
-タイムラインビューで `CalendarResource.parentId` を使ってリソースを折りたたんでいる場合、`↑`/`↓` は非表示（祖先が折りたたまれている）行を候補から除外します。折りたたまれた親リソース自身は通常の行として作成・移動・リサイズの対象になり続けます（詳細は [ビュー: リソースの階層グルーピング](./views.md#リソースの階層グルーピングparentid折りたたみ) を参照）。
+複数リソース割当の予定は割当先の各レーンに表示されるため、矢印キーによるレーン移動もフォーカスしている（操作した）レーンの割当だけを対象にします。
+
+`CalendarResource.parentId` を使ってリソースを折りたたんでいる場合、レーン移動のキー（タイムラインの `↑`/`↓`・リソースビューの `←`/`→`）は非表示（祖先が折りたたまれている）行/列を候補から除外します。折りたたまれた親リソース自身は通常の行/列として作成・移動・リサイズの対象になり続けます（詳細は [ビュー: リソースの階層グルーピング](./views.md#リソースの階層グルーピングparentid折りたたみ) を参照）。
 
 ## 繰り返し予定の操作時のスコープ解決
 
@@ -268,6 +271,158 @@ async function resolveRecurringScope(): Promise<RecurringEditScope | null> {
 
 適用結果（`rrule` の打ち切りや例外イベントの追加など）の詳細は [繰り返し予定](./recurrence.md) を参照してください。
 
+### 完成形: 適用範囲選択ダイアログ（コピー&ペースト用）
+
+実際に動作する完成形が以下です（デモアプリ `apps/demo/src/ScopeDialog.tsx` で実際に動作しているコードそのものです）。Google カレンダーの「この予定 / これ以降のすべての予定 / すべての予定」に相当する 3 択を、`<dialog>` 要素の `showModal()` で提示します。
+
+```tsx
+import type { EventOccurrence, RecurringEditScope } from '@koyomi-cal/react';
+import { type ReactElement, useEffect, useRef } from 'react';
+
+/** スコープ選択が要求された操作の種類。 */
+export type ScopeAction = 'move' | 'resize' | 'delete' | 'update';
+
+/** `ScopeDialog` が表示すべき要求内容。 */
+export interface ScopeRequest {
+  /** 対象のオカレンス。 */
+  occurrence: EventOccurrence;
+  /** 操作の種類。 */
+  action: ScopeAction;
+}
+
+/** `ScopeDialog` の props。 */
+export interface ScopeDialogProps {
+  /** 表示中の要求。`null` なら非表示。 */
+  request: ScopeRequest | null;
+  /**
+   * 選択結果を通知する。
+   * ユーザーがキャンセル（Esc・背景クリック・キャンセルボタン）した場合は `null`。
+   */
+  onResolve: (scope: RecurringEditScope | null) => void;
+}
+
+/** 操作の種類を日本語の動詞に変換する。 */
+function actionLabel(action: ScopeAction): string {
+  switch (action) {
+    case 'move':
+      return '移動';
+    case 'resize':
+      return '時間の変更';
+    case 'delete':
+      return '削除';
+    case 'update':
+      return '変更';
+  }
+}
+
+/**
+ * 繰り返し予定の適用範囲を選択させるダイアログ。
+ *
+ * `<dialog>` 要素を使い、`request` が非 `null` になると `showModal()` で開く。
+ * Esc キー・背景クリックでキャンセル扱い（`onResolve(null)`）になる。
+ */
+export function ScopeDialog(props: ScopeDialogProps): ReactElement {
+  const { request, onResolve } = props;
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  // 選択ボタン経由で close() した場合に、close イベントでの
+  // 「キャンセル扱い」への二重通知を防ぐためのフラグ。
+  const resolvedRef = useRef(false);
+
+  useEffect(() => {
+    const dialogEl = dialogRef.current;
+    if (dialogEl === null) {
+      return;
+    }
+    if (request !== null && !dialogEl.open) {
+      dialogEl.showModal();
+    } else if (request === null && dialogEl.open) {
+      dialogEl.close();
+    }
+  }, [request]);
+
+  useEffect(() => {
+    const dialogEl = dialogRef.current;
+    if (dialogEl === null) {
+      return undefined;
+    }
+    /** Esc キー・背景クリックによるネイティブな close はキャンセル扱いにする。 */
+    function handleClose(): void {
+      if (!resolvedRef.current) {
+        onResolve(null);
+      }
+      resolvedRef.current = false;
+    }
+    dialogEl.addEventListener('close', handleClose);
+    return () => dialogEl.removeEventListener('close', handleClose);
+  }, [onResolve]);
+
+  /** 選択肢ボタンが押されたときの処理。 */
+  function choose(scope: RecurringEditScope): void {
+    resolvedRef.current = true;
+    onResolve(scope);
+    dialogRef.current?.close();
+  }
+
+  return (
+    <dialog ref={dialogRef}>
+      {request !== null && (
+        <div>
+          <h2>繰り返し予定の{actionLabel(request.action)}</h2>
+          <p>
+            「{request.occurrence.event.title}」は繰り返し予定です。どの範囲に適用しますか？
+          </p>
+          <div>
+            <button type="button" onClick={() => choose('this')}>
+              この予定のみ
+            </button>
+            <button type="button" onClick={() => choose('thisAndFollowing')}>
+              これ以降のすべての予定
+            </button>
+            <button type="button" onClick={() => choose('all')}>
+              すべての予定
+            </button>
+          </div>
+          <div>
+            <button type="button" onClick={() => dialogRef.current?.close()}>
+              キャンセル
+            </button>
+          </div>
+        </div>
+      )}
+    </dialog>
+  );
+}
+
+// 使用例:
+// const [request, setRequest] = useState<ScopeRequest | null>(null);
+// const resolverRef = useRef<((scope: RecurringEditScope | null) => void) | null>(null);
+//
+// async function resolveRecurringScope(occurrence: EventOccurrence, action: ScopeAction) {
+//   return new Promise<RecurringEditScope | null>((resolve) => {
+//     resolverRef.current = resolve;
+//     setRequest({ occurrence, action });
+//   });
+// }
+//
+// <CalendarProvider value={calendar} callbacks={{ resolveRecurringScope }}>
+//   <TimeGridView />
+// </CalendarProvider>
+// <ScopeDialog
+//   request={request}
+//   onResolve={(scope) => {
+//     const resolve = resolverRef.current;
+//     resolverRef.current = null;
+//     setRequest(null);
+//     resolve?.(scope);
+//   }}
+// />
+
+// 期待される動作:
+// - 繰り返し予定をドラッグで移動しようとすると request が設定され、showModal() でダイアログが開く
+// - 「この予定のみ」等のボタンを押すと選択した scope で Promise が解決し、ダイアログが閉じる
+// - Esc キー・背景クリックで閉じた場合は null で解決される（操作全体がキャンセルされる）
+```
+
 ## 宣言的な重なり・配置制約（eventOverlap / eventConstraint）
 
 `CalendarOptions.eventOverlap`（既定 `true`）/ `eventConstraint`（既定は未指定）で、予定の重なりやドロップ先を宣言的に制限できます。イベント個別に `CalendarEvent.overlap` / `constraint` を指定すると、そのイベントについてはオプションの既定値を上書きできます。
@@ -301,8 +456,8 @@ function App() {
 // - 営業時間外（9:00〜18:00 の外）へのドラッグも同様に無効表示・拒否される
 ```
 
-- **eventOverlap** — `false` にすると、移動・リサイズ・作成の結果が既存イベントと重なる操作を拒否します。判定対象は同一レーンの全オカレンス（リソース/タイムラインビューは同一 `resourceId`、それ以外のビューはレーン区分なし）で、`slotMinTime`/`slotMaxTime` の表示時間帯外や表示範囲外にあって画面に描画されていないオカレンスも含みます（矢印キーによる表示外への移動もすり抜けられません）。時間指定・終日は絶対時刻の区間 `[start, end)` として統一的に比較します。判定は「動かしている側」と「重ねられる側」双方の実効値（イベント個別の `overlap` が優先、省略時は `eventOverlap`）を見て、どちらかが `false` なら拒否します
-- **eventConstraint** — `'businessHours'` を指定すると `businessHours` の範囲内にのみドロップを許可します。`BusinessHoursRule` の配列を渡すと独自の範囲を指定できます（`businessHours` と同形式）。**終日イベントには適用されません**（時間帯の制約は時間指定イベントのみが対象）。`eventConstraint: 'businessHours'` を指定したのに `businessHours` が未設定（既定 `[]`）だと常に無効になる点に注意してください
+- **eventOverlap** — `false` にすると、移動・リサイズ・作成の結果が既存イベントと重なる操作を拒否します。判定対象は同一レーンの全オカレンス（リソース/タイムラインビューは割当先レーン。`resourceIds` で複数リソースに割り当てられている予定は割当先の各レーンでブロッカーになります、それ以外のビューはレーン区分なし）で、`slotMinTime`/`slotMaxTime` の表示時間帯外や表示範囲外にあって画面に描画されていないオカレンスも含みます（矢印キーによる表示外への移動もすり抜けられません）。時間指定・終日は絶対時刻の区間 `[start, end)` として統一的に比較します。判定は「動かしている側」と「重ねられる側」双方の実効値（イベント個別の `overlap` が優先、省略時は `eventOverlap`）を見て、どちらかが `false` なら拒否します
+- **eventConstraint** — `'businessHours'` を指定すると `businessHours` の範囲内にのみドロップを許可します。`BusinessHoursRule` の配列を渡すと独自の範囲を指定できます（`businessHours` と同形式）。**終日イベントには適用されません**（時間帯の制約は時間指定イベントのみが対象）。`eventConstraint: 'businessHours'` を指定したのに `businessHours` が未設定（既定 `[]`）だと常に無効になる点に注意してください（この組み合わせは開発ビルドでは `useCalendar` が `console.warn` で一度だけ警告します）。判定は日ごとに行われ、対象範囲の各日がルールに完全に収まっている必要があります。日をまたぐ時間指定イベントを許可するには、初日側の `endTime` に日の終端を表す `'24:00'` を指定したルールで各日を途切れなくカバーします（例: `[{ daysOfWeek: [0,1,2,3,4,5,6], startTime: '00:00', endTime: '24:00' }]` はすべての時間指定イベントを許可します）
 - **判定順序** — 宣言的制約（`eventOverlap`/`eventConstraint`） → `onBeforeEventChange`/`onBeforeSelectRange`/`onBeforeEventDelete` → `resolveRecurringScope` の順に判定されます。宣言的制約で拒否された場合は適用前フックを呼ばずに即座に中断します
 - **拒否時の挙動** — 適用前フックが `false` を返した場合と同じくサイレントです（`onEventChange`/`onSelectRange` は呼ばれず、ドラッグはその場で終了します）
 - **プレビューへの反映** — ドラッグ中のプレビューは違反時に `data-koyomi-invalid="true"` が付き、デフォルトテーマでは `--koyomi-invalid-color`（既定 `#d93025`、ダークテーマは `#f28b82`）でハイライトされます（`day-selection`/`timegrid-preview`/`timeline-preview`/`resource-allday-cell` が対象。適用前フックの判定とは異なり、こちらはプレビュー表示にも反映されます）
@@ -446,20 +601,79 @@ useCalendarShortcuts({
 
 移動・リサイズは最小長（時間グリッドは `snapMinutes` 分、帯は 1 日）を下回る操作を無視します。繰り返し予定では `resolveRecurringScope` が呼ばれ、適用後に `onEventChange`（削除は `onEventDelete`）が通知されます。
 
-**日セルにフォーカスした状態（月ビュー・終日行）:** `Enter` または `Space` でその日 1 日分の範囲選択（`onSelectRange`、`allDay: true`）が発火します。リストビューの予定行は Enter・Space によるクリックのみに対応します。
+**日セル・終日セルにフォーカスした状態（月ビュー・終日行・リソースビューの終日セル）:** `Enter` または `Space` でその日 1 日分の範囲選択（`onSelectRange`、`allDay: true`）が発火します。リソースビューの終日セル（`resource-allday-cell`）ではフォーカス中の列の `resourceId` が付きます。リストビューの予定行は Enter・Space によるクリックのみに対応します。
+
+`CalendarProvider` の `gridNavigation` を有効にすると、日セル・終日セルでは矢印キーによるセル間移動が使えるようになり、セル内に予定がある日の `Enter` は範囲選択ではなく最初の予定へのフォーカス移動になります（`Space` の範囲選択、予定にフォーカスした状態のキー割り当ては上表のまま変わりません）。詳細は [アクセシビリティ: grid 内のキーボードナビゲーション](./accessibility.md#grid-内のキーボードナビゲーションgridnavigation) を参照してください。
+
+## コピー&ペースト（useCalendarClipboard）
+
+`useCalendarClipboard` を使うと、イベントのコピー&ペースト（複製）を配線できます。コピーの内容はフック内部のクリップボードに保持され（OS のクリップボードは使いません）、貼り付けは `calendar.api.createEvent` でイベントを作成します。UI は提供しません（ヘッドレス）。
+
+- `copy(occurrence)` — オカレンスをコピーする
+- `paste(newStart?)` — 貼り付けてイベントを作成する。`newStart` 省略時はコピー元と同じ日時への複製になる
+- `hasClipboard` — クリップボードにコピー内容があるか（貼り付けボタンの活性化などに使う）
+- `clear()` — クリップボードを空にする
+
+**繰り返しイベントのコピーは、シリーズ全体ではなく当該オカレンスの単発化です**（Google カレンダーのコピーと同じ扱い）。コピーされた内容は `rrule` を持たない単発イベントになり、貼り付けてもシリーズは複製されません（コピー規則の詳細は [予定の管理: 複製とコピー&ペースト](./events.md#複製とコピーペースト) を参照）。
+
+`keyboardShortcuts: true`（既定は `false` の opt-in）でキーボードショートカットが有効になります。
+
+| キー | 動作 |
+| --- | --- |
+| `Ctrl/Cmd+C` | フォーカス中の予定要素（`data-koyomi-occurrence` 属性を持つ要素）のオカレンスをコピー |
+| `Ctrl/Cmd+V` | フォーカス中の日付セル（`data-koyomi-date` 属性を持つ要素）の日へ貼り付け |
+
+- `Ctrl/Cmd+C` は予定要素にフォーカスがあるときだけ動作し、それ以外では `preventDefault` も行いません（ページ上のテキストコピーを妨げません）
+- `Ctrl/Cmd+V` はフォーカスがカレンダーの DOM（`data-koyomi-*` 属性を持つ要素）の内側にあるときだけ動作します。貼り付け先の日はフォーカス中の日付セルから決まり、時間指定の予定はコピー元の時刻を維持して（終日の予定は終日のまま）その日に配置されます。カレンダー内でも日付セルが特定できない位置（ツールバー等）では、コピー元と同じ日時への複製になります
+- `input` / `textarea` / `select` / `contentEditable` にフォーカスがある間は無効です
+
+`history` に `useCalendarHistory` の戻り値を渡すと、貼り付けで作成されたイベントが履歴に積まれ、`Ctrl/Cmd+Z` で取り消せるようになります。
+
+```tsx
+import {
+  CalendarProvider,
+  CalendarView,
+  useCalendar,
+  useCalendarClipboard,
+  useCalendarHistory,
+} from '@koyomi-cal/react';
+
+function App() {
+  const calendar = useCalendar({ initialView: 'month' });
+  const history = useCalendarHistory({ calendar, keyboardShortcuts: true });
+  useCalendarClipboard({ calendar, history, keyboardShortcuts: true });
+  return (
+    <CalendarProvider value={calendar}>
+      <CalendarView />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - 予定ボタンにフォーカスして Ctrl+C → 別の日付セルにフォーカスして Ctrl+V すると、
+//   その日にコピー元の時刻を維持した複製が作成される
+// - 繰り返し予定のオカレンスをコピーした場合、貼り付けは単発イベントになる
+// - Ctrl+Z で貼り付けが取り消される（history を渡した場合）
+```
 
 ## 「+N 件」のポップオーバーを自前で組む
 
 Koyomi はポップオーバー・ダイアログなどの UI を提供しません（ヘッドレスの方針）。月ビュー・複数月ビューの「+N 件」ボタンは、隠れた予定を一覧表示するポップオーバーの起点になるよう `onOverflowClick` と `overflowButtonProps` を提供しており、[Floating UI](https://floating-ui.com/) 等の位置決めライブラリと組み合わせて自前の UI を構築できます。
 
 - `onOverflowClick(day, hiddenOccurrences, details)` — `hiddenOccurrences` が「+N 件」に集約された非表示のオカレンス一覧、`details.visibleOccurrences` がその日で表示中のオカレンス一覧（いずれも開始時刻順）。両方を合わせるとその日の全オカレンスを取得できる
-- `overflowButtonProps?: (day, hiddenOccurrences) => { 'aria-haspopup'?, 'aria-expanded'?, 'aria-controls'? }` — 「+N 件」ボタンに追加する ARIA 属性を返す。ポップオーバーの開閉状態を `aria-expanded` で示す用途に使う
+- `overflowButtonProps?: (day, hiddenOccurrences) => { 'aria-haspopup'?, 'aria-expanded'?, 'aria-controls'? }` — 「+N 件」ボタンに追加する ARIA 属性を返す。ポップオーバーの開閉状態を `aria-expanded` で示す用途に使う。属性一式は `overflowPopoverButtonProps({ open, popoverId })` ヘルパーで組み立てられる
 - ボタンは `Enter` / `Space` でもクリック相当が発火する（フォーカス済みの状態でキーボードのみでも開ける）
+- ポップオーバーを閉じたときは「+N 件」ボタンへフォーカスを戻す（規約の詳細は [アクセシビリティ: 「+N 件」ポップオーバーの ARIA 属性とフォーカス復帰](./accessibility.md#n-件ポップオーバーの-aria-属性とフォーカス復帰) 参照）
 
 ```tsx
 import { useState } from 'react';
 import { useFloating, offset, flip, shift } from '@floating-ui/react';
-import { CalendarProvider, MonthView, useCalendar } from '@koyomi-cal/react';
+import {
+  CalendarProvider,
+  MonthView,
+  overflowPopoverButtonProps,
+  useCalendar,
+} from '@koyomi-cal/react';
 import type { EventOccurrence, MonthDay } from '@koyomi-cal/react';
 
 function MonthWithOverflowPopover() {
@@ -486,10 +700,12 @@ function MonthWithOverflowPopover() {
       }}
     >
       <MonthView
-        overflowButtonProps={(day) => ({
-          'aria-haspopup': 'dialog',
-          'aria-expanded': openDay?.key === day.key,
-        })}
+        overflowButtonProps={(day) =>
+          overflowPopoverButtonProps({
+            open: openDay?.key === day.key,
+            popoverId: 'overflow-popover',
+          })
+        }
         renderDayCell={(day, ctx) =>
           day.key === openDay?.key ? (
             <div ref={refs.setReference}>{ctx.defaultContent}</div>
@@ -499,7 +715,7 @@ function MonthWithOverflowPopover() {
         }
       />
       {openDay !== null && (
-        <div ref={refs.setFloating} style={floatingStyles} role="dialog">
+        <div ref={refs.setFloating} style={floatingStyles} role="dialog" id="overflow-popover">
           {occurrences.map((occurrence) => (
             <div key={occurrence.key}>{occurrence.event.title}</div>
           ))}
@@ -512,8 +728,232 @@ function MonthWithOverflowPopover() {
 // 期待される動作:
 // - 「+N 件」をクリック（または Enter/Space）すると、その日の全予定
 //   （表示中＋非表示）が Floating UI で位置決めされたポップオーバーに一覧表示される
-// - ポップオーバーが開いている間、対応する「+N 件」ボタンの aria-expanded が true になる
+// - ポップオーバーが開いている間、対応する「+N 件」ボタンの aria-expanded が true になり、
+//   aria-controls="overflow-popover" でポップオーバー要素に関連付けられる（閉時は付かない）
 ```
+
+### 完成形: 外部ライブラリ不要のフォーカス復帰込み実装（コピー&ペースト用）
+
+位置決めライブラリを増やしたくない場合は、起点ボタンの `getBoundingClientRect` から素朴に座標を計算しても構いません。以下は実際に動作する完成形です（デモアプリ `apps/demo/src/OverflowPopover.tsx` で実際に動作しているコードそのものです）。開閉は `<dialog>` の `show()`（モードレス）で行い、開いたときの最初の focusable 要素へのフォーカス移動と、閉じたとき（Escape・外側クリック・閉じるボタン・予定選択のいずれでも）の起点ボタンへのフォーカス復帰を、`close` イベント 1 箇所に集約して扱います。
+
+```tsx
+import type { EventOccurrence, MonthDay, TimeZoneId } from '@koyomi-cal/react';
+import { getWallClock } from '@koyomi-cal/react';
+import { type ReactElement, useEffect, useLayoutEffect, useRef, useState } from 'react';
+
+/** ポップオーバーの `id`（「+N 件」ボタンの `aria-controls` の参照先）。 */
+export const OVERFLOW_POPOVER_ID = 'demo-overflow-popover';
+
+/** ポップオーバーの想定幅（px）。ビューポート端でのはみ出し防止の位置計算にも使う。 */
+const POPOVER_WIDTH = 260;
+
+/** `OverflowPopover` が表示すべき状態。 */
+export interface OverflowPopoverState {
+  /** 起点になった日。 */
+  day: MonthDay;
+  /** その日の全オカレンス（表示中＋「+N 件」に集約された分、開始時刻順）。 */
+  occurrences: readonly EventOccurrence[];
+}
+
+/** `OverflowPopover` の props。 */
+export interface OverflowPopoverProps {
+  /** 表示中の状態。`null` なら非表示。 */
+  state: OverflowPopoverState | null;
+  /** 現在の表示タイムゾーン。時刻表示に使う。 */
+  timeZone: TimeZoneId;
+  /** 一覧内の予定がクリックされたときに呼ばれる（編集ダイアログを開く想定）。 */
+  onOccurrenceSelect: (occurrence: EventOccurrence) => void;
+  /** ポップオーバーが閉じられたときに呼ばれる（起点ボタン以外の理由すべて共通）。 */
+  onClose: () => void;
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+function formatDayHeading(date: Date, timeZone: TimeZoneId): string {
+  return new Intl.DateTimeFormat('ja', { timeZone, month: 'long', day: 'numeric', weekday: 'short' }).format(date);
+}
+
+function formatOccurrenceTime(occurrence: EventOccurrence, timeZone: TimeZoneId): string {
+  if (occurrence.allDay) {
+    return '終日';
+  }
+  const wall = getWallClock(occurrence.start, timeZone);
+  return `${pad2(wall.hours)}:${pad2(wall.minutes)}`;
+}
+
+/**
+ * 起点になった「+N 件」ボタン（`data-koyomi="month-overflow"`）の DOM 要素を、
+ * 対応する日セル（`[data-koyomi="month-day"][data-koyomi-date]`）から探す。
+ */
+function findOverflowButton(dayKey: string): HTMLElement | null {
+  return document.querySelector<HTMLElement>(
+    `[data-koyomi="month-day"][data-koyomi-date="${dayKey}"] [data-koyomi="month-overflow"]`,
+  );
+}
+
+export function OverflowPopover(props: OverflowPopoverProps): ReactElement {
+  const { state, timeZone, onOccurrenceSelect, onClose } = props;
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  // 起点になった「+N 件」ボタン。閉じたときのフォーカス復帰先として保持する。
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const focusPendingRef = useRef(false);
+
+  // state が非 null になるたびに、起点ボタンの位置から表示座標を計算する。
+  useLayoutEffect(() => {
+    if (state === null) {
+      triggerRef.current = null;
+      setPosition(null);
+      return;
+    }
+    const trigger = findOverflowButton(state.day.key);
+    triggerRef.current = trigger;
+    if (trigger === null) {
+      setPosition(null);
+      return;
+    }
+    const rect = trigger.getBoundingClientRect();
+    const left = Math.min(Math.max(8, rect.left), window.innerWidth - POPOVER_WIDTH - 8);
+    setPosition({ top: rect.bottom + 4, left });
+  }, [state]);
+
+  // state の有無に応じて <dialog> の開閉を同期する。
+  useEffect(() => {
+    const dialogEl = dialogRef.current;
+    if (dialogEl === null) {
+      return;
+    }
+    if (state !== null && !dialogEl.open) {
+      dialogEl.show();
+      focusPendingRef.current = true;
+    } else if (state === null && dialogEl.open) {
+      dialogEl.close();
+    }
+  }, [state]);
+
+  // 位置決めが終わった直後に閉じるボタンへフォーカスする。
+  useEffect(() => {
+    if (state !== null && position !== null && focusPendingRef.current) {
+      focusPendingRef.current = false;
+      closeButtonRef.current?.focus();
+    }
+  }, [state, position]);
+
+  // ネイティブな close（Escape・閉じるボタン・外側クリック・予定選択いずれも close() 経由）で
+  // 起点ボタンへフォーカスを戻しつつ、呼び出し元へ通知する。
+  useEffect(() => {
+    const dialogEl = dialogRef.current;
+    if (dialogEl === null) {
+      return undefined;
+    }
+    function handleClose(): void {
+      const trigger = triggerRef.current;
+      onClose();
+      if (trigger?.isConnected) {
+        trigger.focus();
+      }
+    }
+    dialogEl.addEventListener('close', handleClose);
+    return () => dialogEl.removeEventListener('close', handleClose);
+  }, [onClose]);
+
+  // ポップオーバー外側のポインタ押下で閉じる（起点の「+N 件」ボタン自体への
+  // 押下は、そのクリックが改めて onOverflowClick を呼ぶため対象外にする）。
+  useEffect(() => {
+    if (state === null) {
+      return undefined;
+    }
+    function handlePointerDown(event: PointerEvent): void {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      const dialogEl = dialogRef.current;
+      if (dialogEl?.contains(target)) {
+        return;
+      }
+      if (target instanceof Element && target.closest('[data-koyomi="month-overflow"]') !== null) {
+        return;
+      }
+      dialogRef.current?.close();
+    }
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [state]);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      id={OVERFLOW_POPOVER_ID}
+      aria-label={state !== null ? `${formatDayHeading(state.day.date, timeZone)}の予定一覧` : undefined}
+      style={position !== null ? { position: 'fixed', margin: 0, top: position.top, left: position.left } : undefined}
+      onKeyDown={(keyEvent) => {
+        if (keyEvent.key === 'Escape') {
+          keyEvent.preventDefault();
+          dialogRef.current?.close();
+        }
+      }}
+    >
+      {state !== null && (
+        <div>
+          <div>
+            <span>{formatDayHeading(state.day.date, timeZone)}</span>
+            <button type="button" ref={closeButtonRef} aria-label="閉じる" onClick={() => dialogRef.current?.close()}>
+              ×
+            </button>
+          </div>
+          <ul>
+            {state.occurrences.map((occurrence) => (
+              <li key={occurrence.key}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOccurrenceSelect(occurrence);
+                    dialogRef.current?.close();
+                  }}
+                >
+                  <span>{formatOccurrenceTime(occurrence, timeZone)}</span>
+                  <span>{occurrence.event.title}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </dialog>
+  );
+}
+
+// 使用例（呼び出し元）:
+// <MonthView
+//   overflowButtonProps={(day) =>
+//     overflowPopoverButtonProps({
+//       open: overflowState?.day.key === day.key,
+//       popoverId: OVERFLOW_POPOVER_ID,
+//     })
+//   }
+// />
+// <OverflowPopover
+//   state={overflowState}
+//   timeZone={timeZone}
+//   onOccurrenceSelect={(occurrence) => setDialogMode({ type: 'edit', occurrence })}
+//   onClose={() => setOverflowState(null)}
+// />
+// // onOverflowClick(day, hiddenOccurrences, details) 側で、表示中＋非表示を
+// // 開始時刻順にまとめて setOverflowState({ day, occurrences }) する
+
+// 期待される動作:
+// - 「+N 件」をクリックすると、その日の起点ボタン直下にポップオーバーが開き、
+//   閉じるボタン（一覧内の最初の focusable な要素）へフォーカスが移る
+// - Escape キー・ポップオーバー外クリック・閉じるボタンのいずれで閉じても、
+//   フォーカスが起点の「+N 件」ボタンへ戻る
+// - 一覧内の予定を選択すると編集ダイアログが開く（ポップオーバー自体は閉じる）
+```
+
+複数月ビュー（`MultiMonthView`）は同じ日が隣接するミニ月グリッドに重複して現れうるため、`data-koyomi-date` による起点ボタンの一意な特定ができません。この完成形は月ビュー限定です。
 
 ## Escape / pointercancel でのドラッグキャンセル
 
@@ -598,13 +1038,24 @@ function CustomDayRow() {
 
 `containerRef` には、そのカレンダーインスタンス（`CalendarProvider` とビューコンポーネント）を描画している DOM のルート要素への ref（`useRef` の戻り値）を渡します。ドロップ先のヒットテストはこの要素の内側に限定されるため、ページ上に同じビュー種別のカレンダーが複数存在しても、ドラッグ元とは別のカレンダーの DOM 上へのドロップを誤って受理することはありません。
 
-ドラッグ中は、対応ビュー（月・週/日の時間グリッド＋終日行・リソース・タイムライン）が実際に描画されている前提で、ポインタ直下の（`containerRef` の内側にある）カレンダー要素から日時（・リソース/タイムラインビューではリソース ID）を解決し、既存のプレビュー機構（各ビューの通常のドラッグ操作と同じハイライト表示）でカレンダー上に表示します。リスト・年・複数月ビューには対応しません（ドロップ先が解決できずキャンセル扱いになります）。
+ドラッグ中は、対応ビューが実際に描画されている前提で、ポインタ直下の（`containerRef` の内側にある）カレンダー要素から日時（・リソース/タイムラインビューではリソース ID）を解決し、既存のプレビュー機構（各ビューの通常のドラッグ操作と同じハイライト表示）でカレンダー上に表示します。ただしリストビューはドロップ先の解決のみを行い、ハイライト表示はありません（そもそもリストビューには通常のドラッグ操作自体がありません）。
+
+| ビュー | ドロップ先 | 解決される範囲 |
+| --- | --- | --- |
+| 月（`month`） | 日セル | その日 1 日分の終日範囲（`allDay: true`） |
+| 週/日（`week` / `day`） | 時間グリッドの日列 | ポインタ位置の時刻から `defaultEventMinutes` 分（`snapMinutes` でスナップ） |
+| 週/日（`week` / `day`） | 終日行のセル | その日 1 日分の終日範囲 |
+| リスト（`list`） | 日セクション | その日 1 日分の終日範囲。リストビューは予定がある日だけを日セクションとして描画するため、ドロップを受け付けるのもその上に限られます |
+| 複数月（`multiMonth`） | 日セル | その日 1 日分の終日範囲（前後月の日付のセルは対象外） |
+| リソース（`resource`） | 列 / 終日セル | 時間グリッド/終日行と同じ範囲 + ドロップ先レーンの `resourceId` |
+| タイムライン（`timeline`） | 行 | ポインタ位置の時刻から `defaultEventMinutes` 分 + 行の `resourceId` |
+| 年（`year`） | —（非対応） | ドロップ先が解決できずキャンセル扱いになります |
 
 リソース/タイムラインビューで `resources` が 0 件かつ未割り当てレーンも生成されない
 場合（`unassignedLane: 'auto'` で未割り当ての予定も 1 件も無いとき）、そのビューは
 列/行を 1 つも描画しません（`ResourceViewModel.isEmpty` / `TimelineViewModel.isEmpty`）。
 ドロップ先となる列/行の DOM 要素自体が存在しないため、この状態でのドロップは
-リスト・年・複数月ビューと同様にドロップ先が解決できずキャンセル扱いになります
+年ビューと同様にドロップ先が解決できずキャンセル扱いになります
 （`unassignedLane: 'always'` を指定するか、`resources` を 1 件以上渡せば列/行が
 生成され、通常どおりドロップを受け付けます）。
 

@@ -1,11 +1,14 @@
 # 変更履歴
 
-このプロジェクトは [セマンティックバージョニング](https://semver.org/lang/ja/) に従います。
-0.x の間は API が破壊的に変わる可能性があります。
+このファイルの形式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、
+バージョン番号は [セマンティックバージョニング](https://semver.org/lang/ja/) に従います。
+0.x の間は API が破壊的に変わる可能性があります。バージョニングの運用方針の詳細は
+[docs/versioning.md](./docs/versioning.md) を参照してください。
 
-## @koyomi-cal/react 0.2.0（未リリース）
+## [Unreleased]
 
-全面監査（8 観点の並列レビューと逆説的検証）に基づく修正・拡張。
+`@koyomi-cal/react` 0.2.0 に向けた、全面監査（8 観点の並列レビューと逆説的検証）に
+基づく修正・拡張。
 
 ### 修正
 
@@ -41,6 +44,7 @@
 - **終日 ⇔ 時間指定のドラッグ変換**: 週/日ビューで終日行と時間グリッドをまたいでドラッグすると相互に変換
 - **キーボードのみでの予定操作**: 矢印キーでの移動（±snap 分 / ±1 日 / ±7 日）、Shift+矢印でのリサイズ、日セルの Enter/Space 作成
 - **RDATE 対応**: `CalendarEvent.rdates` によるパターン外オカレンスの追加（シリーズ分割時の振り分けも対応）
+- **iCalendar（ICS）入出力**: `eventsToIcs` / `eventsFromIcs`（React 非依存の `core/ics`）を追加。終日（`VALUE=DATE`）・イベント TZ（`TZID`）・`RRULE`/`EXDATE`/`RDATE`・オーバーライド（`RECURRENCE-ID`）に対応し、折り返し・エスケープは RFC 5545 準拠。UNTIL は「イベント TZ の現地時刻」と UTC 表記を相互変換し、`STATUS:CANCELLED` のオーバーライドはマスターの `exdates` に取り込む。非対応構文（VTIMEZONE 定義・EXRULE・`VALUE=PERIOD` 等）の扱いは docs/ics.md に明記
 - **hiddenWeekdays オプション**: 月・週ビューの列から任意の曜日を除外（週末非表示等）
 - **現在時刻線の追従**: `CalendarApi.refresh()` と `useCalendar` の `refreshSeconds`
 - **新コールバック**: `onEventDelete`（削除通知）、`onError`（エラー通知）。`onOverflowClick` に非表示オカレンス一覧（第 2 引数）を追加
@@ -53,7 +57,8 @@
 - **テーマ**: CSS 変数 `--koyomi-now-color`（現在時刻線の色。既定 `#ea4335`）を追加。週/日ビューの曜日ラベルに `data-koyomi="timegrid-weekday"` を追加（月・年ビューの曜日ラベルと同様のスタイルフック）。ボタン/見出しのブラウザ既定リセットのセレクタを `data-koyomi` 属性を持つ要素に限定し、`renderDayCell` 等でユーザーが差し込む独自の button/見出し要素へ波及しないようにした（見た目・詳細度は変更なし）
 - **複数タイムゾーン軸**: `timeAxisZones` オプションで週/日ビューにセカンダリタイムゾーンの時間軸を並べて表示（Google カレンダー相当。DST 切替日も日単位で正確）
 - **「+N 件」のポップオーバー基盤**: `onOverflowClick` に表示中オカレンス一覧（第 3 引数）を追加、`overflowButtonProps` で `aria-haspopup` / `aria-expanded` 等を付与可能に（ポップオーバー UI 自体はアプリ側実装）
-- **外部ドラッグ受け入れ**: `useExternalDrag` フックと `ExternalDropInfo` 型を追加。カレンダー外の DOM 要素からのドラッグを日時・リソースへ解決して `onExternalDrop` で通知（FullCalendar の Draggable 相当。イベント作成はアプリ側）
+- **外部ドラッグ受け入れ**: `useExternalDrag` フックと `ExternalDropInfo` 型を追加。カレンダー外の DOM 要素からのドラッグを日時・リソースへ解決して `onExternalDrop` で通知（FullCalendar の Draggable 相当。イベント作成はアプリ側）。対応ビューは月・週/日（時間グリッド＋終日行）・リスト（日セクション）・複数月（日セル）・リソース・タイムライン（年ビューのみ非対応）
+- **イベントの複製とコピー&ペースト**: core の純粋関数 `buildOccurrenceCopy`（コピー）/ `placeEventInputAt`（貼り付け先日時への配置）/ `pasteEventIn`（貼り付け）/ `duplicateEventIn`（複製）と `WithChanges` 変種（`CreateEventMutationResult`。undo 用の `EventChangeEntry` 付き）、および `Ctrl/Cmd+C`（フォーカス中の予定をコピー）・`Ctrl/Cmd+V`（フォーカス中の日付セルへ貼り付け）を opt-in で配線する `useCalendarClipboard` フックを追加。繰り返しイベントのコピーはシリーズ全体ではなく当該オカレンスの単発化（Google カレンダーのコピーと同じ扱い）。`history` オプションに `useCalendarHistory` の戻り値を渡すと貼り付けが undo/redo の対象になる
 - **リソース/タイムラインの仮想化**: `VirtualResourceView` / `VirtualTimelineView` を追加（可視レーンのみ描画、フォーカス保持、`scrollToResource` / `scrollToRow`）。`useVirtualizer` を水平軸・`viewportPadding` 対応に拡張
 - **ISO 週番号**: `showWeekNumbers` オプションで月・週ビューに `data-koyomi-week-number` 属性を出力（`isoWeekNumberInZone` / `isoWeekNumberOfWeek` / `parseTimeOfDay` を公開）
 - **営業時間**: `businessHours` オプションで週/日・リソースビューのスロットに `data-koyomi-business-hours` 属性、タイムラインに `timeline-business-hours` 帯を出力
@@ -107,8 +112,44 @@
 - カバレッジに下限（全体と `src/core/` の個別下限）を設定し、CI で強制
 - CI を Node 20.19.0（下限）と Node 24（最新 LTS）の 2 レグ構成に拡張。用語チェック・デモのビルド・CJS `require()` を含む pack スモークテストを追加し、publint / arethetypeswrong のバージョンを固定
 - 開発時ビルドに使う esbuild を 0.28.1 以上へ固定（GHSA-g7r4-m6w7-qqqr の解消。配布物への影響はない）
+- `publishConfig.provenance` を `true` に変更し、npm 公開物に provenance 証明（ビルド元の
+  リポジトリ・ワークフローの検証可能な来歴）を添付する
+- Playwright ベースの性能ベンチマークスイート（`bench/`、`pnpm bench`）を追加。デモの
+  本番ビルドを対象に、代表構成（1,000/10,000 イベント × 100/1,000 リソース × 仮想化
+  3 ビュー）の初回描画時間と連続スクロール中のフレーム時間を計測し、実測値を
+  [docs/performance.md](./docs/performance.md) に記録。CI には最重量構成を粗い閾値と
+  比較する性能リグレッション検出（`pnpm bench:ci`）を追加
+- デモに件数可変（スライダー）の「ストレステスト」パターン（`#/stress`）を追加。
+  イベント件数 × リソース件数 × ビューを URL のクエリと同期し、ベンチマークと
+  データ生成コードを共有して初回描画時間をその場で計測できる
+- dist を単一ファイルへの平坦化から 1 ソースモジュール = 1 ファイルの ESM 出力へ
+  変更し、利用側バンドラの tree-shaking 粒度をモジュール単位に改善（月ビューのみを
+  import する最小アプリのライブラリ寄与分で gzip 50.2 KB → 44.1 KB。公開 API・
+  import 経路は不変で、`./theme.css` エントリの実体パスのみ
+  `dist/theme/default.css` に変更）
+- バンドルサイズ検証（`pnpm bundle:check`）を追加。最小アプリ（月ビューのみ /
+  全ビュー）をビルド済み dist に対してバンドルし、未使用ビューの除外とライブラリ
+  寄与分の gzip サイズ閾値を CI で検証する
 
-## @koyomi-cal/react 0.1.0（2026-07-08）
+### ドキュメント
+
+- 採用判断に必要な情報を整備: 競合比較（[docs/comparison.md](./docs/comparison.md)）、
+  バージョニング運用ポリシー（[docs/versioning.md](./docs/versioning.md)）、パフォーマンス
+  指針（[docs/performance.md](./docs/performance.md)）、コントリビューションガイド
+  （[CONTRIBUTING.md](./CONTRIBUTING.md)）、セキュリティポリシー
+  （[SECURITY.md](./SECURITY.md)）、Issue テンプレートを新設
+- 繰り返し予定（[docs/recurrence.md](./docs/recurrence.md)）に EXRULE・複数 RRULE
+  （RRULESET 相当）が非対応であることと、代替手段（`exdates` への事前展開）を明記
+- API リファレンス（[docs/api.md](./docs/api.md)）冒頭にユースケース別の導入マップを追加
+- はじめに（[docs/getting-started.md](./docs/getting-started.md)）に「初期値としてのみ
+  有効な props」の一覧表を追加
+- スクリーンリーダー実機検証（NVDA/VoiceOver）の計画書を追加
+  （[docs/internal/a11y-screen-reader-verification.md](./docs/internal/a11y-screen-reader-verification.md)）
+- パフォーマンス（[docs/performance.md](./docs/performance.md)）にバンドルサイズと
+  tree-shaking の実測値（import 範囲別のライブラリ寄与分と、常に含まれる固定費の
+  内訳）を記録。API リファレンス・はじめにへ import 経路の説明を追加
+
+## [0.1.0] - 2026-07-08
 
 初回リリース。
 

@@ -158,6 +158,16 @@ function App() {
 
 `onEventClick` を省略した場合は何も起こりません（既定動作なし）。ダイアログや詳細パネルの実装は利用側の自由です。Koyomi はそれらの UI を提供しません。
 
+## import 経路とバンドルサイズ
+
+公開 API はすべてトップレベルエントリ `@koyomi-cal/react` から import します。パッケージは 1 ソースモジュール = 1 ファイルの ESM として公開されているため、使わないビューコンポーネントやフックはバンドラの tree-shaking でアプリのバンドルから除外されます。バンドルサイズのためにビュー別へ import を分ける必要はありません（ビュー別のサブパスエントリはありません）。
+
+- `@koyomi-cal/react` — すべての公開 API（コア + React バインディング）
+- `@koyomi-cal/react/core` — React 非依存のコアのみ（[React に依存しないコアだけを使う](#react-に依存しないコアだけを使う)）
+- `@koyomi-cal/react/theme.css` — デフォルトテーマ CSS
+
+実測値の例は [パフォーマンス: バンドルサイズと tree-shaking](./performance.md#バンドルサイズと-tree-shaking) を参照してください。
+
 ## SSR / Next.js で使う
 
 `useCalendar` は SSR（`renderToString` / Next.js の App Router 等）でも例外なく初期状態を描画できます。次の 2 点に注意してください。
@@ -178,6 +188,34 @@ console.log(calendar.getViewModel().type); // => 'month'
 ```
 
 `react` / `react-dom` は `package.json` の `peerDependencies` ですが、`@koyomi-cal/react/core` のみを使う場合は未インストールでも実行時エラーにはなりません（インストール時のピア依存の警告は無視できます。pnpm の `strict-peer-dependencies=true` 設定下ではエラーになるため、その場合は設定の緩和か react のインストールが必要です）。詳細は [API リファレンス](./api.md#koyomi-calreactcorereact-非依存の単体エントリ) を参照してください。
+
+## 初期値としてのみ有効な props
+
+Koyomi のフックの一部の props は、**マウント時の初期値としてのみ**使われます。後から
+異なる値を渡し続けても再レンダリングには反映されません（マウント後に変更した場合、
+開発ビルドでは一度だけ警告が表示されます）。動的に変更したい場合は、それぞれ対応する
+命令的な API を使ってください。
+
+| フック | 初期値専用の props | 動的に変更する方法 |
+| --- | --- | --- |
+| `useCalendar` | `events` / `resources`（`CalendarOptions` の他のオプション全般も同様） | `calendar.api.setEvents(nextEvents)` / `calendar.api.setResources(nextResources)`。ビュー・基準日・タイムゾーンは `calendar.api.setView` / `goTo` / `setTimeZone`、その他のオプションは `calendar.api.updateOptions(patch)` |
+| `useRecurrenceRuleEditor` | `start` / `timeZone` / `rrule` | `reset({ start, timeZone, rrule })` を呼ぶ（このフックを使うコンポーネントに一意な `key` を指定して再マウントする方法も引き続き使える） |
+| `useCalendarHistory` | `limit`（`createEventHistory` の `options.limit` も同様） | 動的な変更方法はない。上限を変えたい場合はコンポーネントを再マウントする（`key` を変える等） |
+
+なぜ初期値専用なのか: `useCalendar` の `events`/`resources` はカレンダーエンジン内部の
+可変な状態（イベントストア）の**種**としてのみ使われ、以後はエンジン自身が管理する
+状態が正になります。React の props を毎レンダー同期させる設計にすると、外部の
+`setEvents` による変更と props 経由の変更が競合し、どちらが優先されるか不定になって
+しまうため、あえて「初期値のみ」という規約にしています。`useRecurrenceRuleEditor` の
+`start`/`timeZone`/`rrule` も同様に、編集セッションの起点をフック内部の状態として
+一度確定させるためのものです。
+
+## サンプルをすぐに試す
+
+[examples/](../examples/) に、StackBlitz / CodeSandbox でそのまま開ける独立構成のサンプルを用意しています。
+
+- [vite-minimal](../examples/vite-minimal) — Vite + React。月ビューとドラッグ操作（作成・移動・リサイズ）の最小構成
+- [nextjs-app-router](../examples/nextjs-app-router) — Next.js App Router。SSR セットアップと `'use client'` 境界、`theme.css` の読み込み方
 
 ## 次に読む
 
