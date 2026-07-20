@@ -137,6 +137,46 @@ describe('VirtualResourceView', () => {
     expect(bodyColumns.length).toBe(headerCells.length);
   });
 
+  it('列見出しに data-koyomi-depth（階層の深さ）が付く', () => {
+    const resources: CalendarResource[] = [
+      { id: 'site', title: '本社' },
+      { id: 'floor-1', title: '1F', parentId: 'site' },
+      { id: 'room-x', title: '会議室X', parentId: 'floor-1' },
+    ];
+    const { container } = render(<Harness resources={resources} />);
+    const depths = Array.from(
+      container.querySelectorAll('[data-koyomi="resource-header-cell"]'),
+    ).map((element) => element.getAttribute('data-koyomi-depth'));
+    expect(depths).toEqual(['0', '1', '2']);
+  });
+
+  it('parentId の変更で深さが変わると data-koyomi-depth も追従する（memo が古い値を固定しない）', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(
+      <Harness
+        resources={[
+          { id: 'site', title: '本社' },
+          { id: 'floor-1', title: '1F', parentId: 'site' },
+        ]}
+        sink={sink}
+      />,
+    );
+    const depths = (): (string | null)[] =>
+      Array.from(container.querySelectorAll('[data-koyomi="resource-header-cell"]')).map(
+        (element) => element.getAttribute('data-koyomi-depth'),
+      );
+    expect(depths()).toEqual(['0', '1']);
+
+    // id・title・color が同じまま parentId だけ外す（depth 1 → 0）
+    act(() => {
+      sink.current?.api.setResources([
+        { id: 'site', title: '本社' },
+        { id: 'floor-1', title: '1F' },
+      ]);
+    });
+    expect(depths()).toEqual(['0', '0']);
+  });
+
   it('終日イベントの aria-label は通常の ResourceView と同じ形式（イベント名＋日付＋リソース名）になる', () => {
     // 回帰テスト: 仮想化版だけ aria-label がリソース名のみになっていた
     // （スクリーンリーダーにイベント内容が読み上げられない）バグの再発防止

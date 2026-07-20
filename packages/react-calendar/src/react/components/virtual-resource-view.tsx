@@ -258,6 +258,7 @@ function HeaderCellImpl(props: HeaderCellProps): ReactElement {
       data-koyomi="resource-header-cell"
       data-koyomi-column-key={column.key}
       data-koyomi-date={column.dayKey}
+      data-koyomi-depth={String(column.depth)}
       role="columnheader"
       {...(column.resource !== null ? { 'data-koyomi-resource-id': column.resource.id } : {})}
       {...(pinned === true ? { 'data-koyomi-pinned': 'true' } : {})}
@@ -273,6 +274,9 @@ const HeaderCell = memo(HeaderCellImpl, (prev, next) => {
     prev.column.key === next.column.key &&
     // 単日表示では日が変わってもキーが変わらないため、日付キーも比較する
     prev.column.dayKey === next.column.dayKey &&
+    // sameResource は id・title・color のみ比較するため、parentId の変更で
+    // 深さだけが変わったケースを取りこぼさないよう depth も比較する
+    prev.column.depth === next.column.depth &&
     sameResource(prev.column.resource, next.column.resource) &&
     prev.unassignedLabel === next.unassignedLabel &&
     prev.renderColumnHeader === next.renderColumnHeader &&
