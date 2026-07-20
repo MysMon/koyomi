@@ -15,6 +15,11 @@ TypeScript/React 製のヘッドレスカレンダーライブラリのモノレ
 | `pnpm lint` / `pnpm lint:fix` | Biome によるチェック / 自動修正 |
 | `pnpm build` | ライブラリを tsup でビルド |
 | `pnpm demo` | デモアプリ（Vite）を起動 |
+| `pnpm test:e2e` | 実ブラウザ E2E（Playwright）を実行 |
+| `pnpm bench` | 性能ベンチマークを実行し `bench/results/` に記録 |
+| `pnpm bench:ci` | 性能リグレッション検出（粗い閾値、コミット前は任意・CI では必須） |
+| `pnpm bundle:check` | バンドルサイズ・tree-shaking を検証（`pnpm build` 後） |
+| `pnpm docs:en-pairs` | 英訳ファイルの対応関係を検証 |
 
 単一テストファイルの実行: `pnpm --filter @koyomi-cal/react exec vitest run src/core/date-utils.test.ts`
 

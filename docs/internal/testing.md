@@ -34,6 +34,22 @@ Koyomi のテストの位置づけ・書き方・置き場所を定める。用�
 - 単一ファイルの実行: `pnpm --filter @koyomi-cal/react exec vitest run <path>`。コミット前は必ず `pnpm check`
 - 実ブラウザ E2E: `pnpm test:e2e`。Chromium / Firefox / WebKit で主要操作、Chromium の実タッチ入力、仮想化スクロールとフォーカス保持、キーボードのみでの予定操作（矢印キー移動・リサイズ・Delete 削除・aria-live 通知）、`gridNavigation`（roving tabindex）のセル間移動とモード分離、繰り返し編集スコープ × DST 切替日の組み合わせ、axe による WCAG 2.0/2.1/2.2 A/AA の自動検査を行う
 
+## 性能ベンチ（`pnpm bench` / `pnpm bench:ci`）
+
+- `pnpm bench` は `bench/` 配下の Playwright ベースの計測スイートを実行し、代表構成ごとの初回描画時間・スクロール性能を `bench/results/` に記録する（詳細・実測値は `docs/performance.md` の「性能ベンチマーク」節）
+- `pnpm bench:ci` は最重量構成（イベント 10,000 件 × リソース 1,000 件）のみを `bench/regression.spec.ts` の粗い閾値（`RENDER_LIMIT_MS` / `SCROLL_AVG_FRAME_LIMIT_MS`）と比較するリグレッション検出で、CI で必須（コミット前は任意）
+- **`pnpm bench:ci` が失敗したときの切り分け手順**:
+  1. まず再実行する。CI ランナーの負荷変動による flaky な超過は再実行で解消することが多い
+  2. 再実行しても失敗する場合、実装側の計算量退行（仮想化の無効化、O(n²) 化など）を疑って調査する。原因があれば実装を直す
+  3. 意図した設計変更（新機能の追加など）による正当な性能低下だと判断できる場合のみ、次の手順でしきい値を更新する
+- **しきい値の更新手順**: `pnpm bench` を再実行して新しい中央値を取り、その約 10 倍（スクロールは約 30 倍）を新しい閾値とする。`bench/regression.spec.ts` の `RENDER_LIMIT_MS` / `SCROLL_AVG_FRAME_LIMIT_MS` と、`docs/performance.md` の「性能ベンチマーク」節の実測値表・計測日を**同じ PR でセットで**更新する（どちらか一方だけの更新は行わない）
+
+## バンドルサイズ検証（`pnpm bundle:check`）
+
+- `pnpm build && pnpm bundle:check`（`scripts/check-bundle-size.mjs`）は、ビルド済み dist を最小アプリでバンドルし、tree-shaking の実効性とライブラリ寄与分の gzip サイズ（`GZIP_BUDGET_KB`）を検証する
+- **失敗時の切り分け**: `FORBIDDEN_IN_MONTH_ONLY` のマーカー文字列が月ビューのみのバンドルに含まれる（tree-shaking が壊れている）失敗と、`GZIP_BUDGET_KB` の超過（サイズ増加）失敗のどちらかをログの内容で判別する。前者はバンドル構成（`sideEffects`・import 経路）の変更が原因なので実装を直す
+- **`GZIP_BUDGET_KB` の更新基準**: 後者が機能追加による正当な増加だと判断できる場合のみ、`pnpm build && pnpm bundle:check` の実測 gzip サイズ + 約 1 割を新しい `GZIP_BUDGET_KB` とする。`scripts/check-bundle-size.mjs` の定数と、`docs/performance.md` の「バンドルサイズと tree-shaking」節の実測値表・計測日を**同じ PR でセットで**更新する
+
 ## カバレッジの考え方
 
 - 境界条件を優先する: 範囲の両端（ちょうど / 1 つ超過）、排他端（`end`・`endTime`）、DST の切替日（存在しない時刻・二重に存在する時刻）、年末年始・うるう年、空配列・0 件・`undefined` と空配列の意味差、`editable: false`
