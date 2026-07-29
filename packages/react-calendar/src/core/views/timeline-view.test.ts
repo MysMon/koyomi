@@ -77,6 +77,7 @@ function build(params: {
   timeZone?: TimeZoneId;
   businessHours?: readonly BusinessHoursRule[];
   collapsedResourceIds?: ReadonlySet<string>;
+  maxLanes?: number;
 }) {
   return buildTimelineViewModel({
     currentDate: params.currentDate ?? at('2026-07-10T09:00'),
@@ -94,6 +95,7 @@ function build(params: {
     ...(params.collapsedResourceIds !== undefined
       ? { collapsedResourceIds: params.collapsedResourceIds }
       : {}),
+    ...(params.maxLanes !== undefined ? { maxLanes: params.maxLanes } : {}),
   });
 }
 
@@ -344,6 +346,84 @@ describe('buildTimelineViewModel', () => {
     });
   });
 
+  describe('行内レーンの上限（maxLanes、opt-in）', () => {
+    /** r1 に n 件の重なる 1 時間イベントを作るヘルパ（同時刻・同リソース）。 */
+    function overlappingOccurrences(n: number): EventOccurrence[] {
+      return Array.from({ length: n }, (_, i) =>
+        makeOccurrence({
+          eventId: String.fromCharCode(97 + i), // 'a', 'b', 'c', ...
+          start: at('2026-07-10T10:00'),
+          end: at('2026-07-10T11:00'),
+          resourceId: 'r1',
+        }),
+      );
+    }
+
+    it('maxLanes 省略時は従来どおり全件表示され、hidden・overflowCount・hiddenItems は空になる', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        occurrences: overlappingOccurrences(4),
+      });
+      const row = vm.rows[0];
+      expect(row?.laneCount).toBe(4);
+      expect(row?.overflowCount).toBe(0);
+      expect(row?.hiddenItems).toEqual([]);
+      expect(row?.items.every((item) => item.hidden === false)).toBe(true);
+    });
+
+    it('使用レーン数が maxLanes ちょうど（超過なし）では、どの帯も hidden にならない', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        occurrences: overlappingOccurrences(2),
+        maxLanes: 2,
+      });
+      const row = vm.rows[0];
+      expect(row?.laneCount).toBe(2);
+      expect(row?.overflowCount).toBe(0);
+      expect(row?.hiddenItems).toEqual([]);
+      expect(row?.items.every((item) => item.hidden === false)).toBe(true);
+    });
+
+    it('使用レーン数が maxLanes を 1 超過すると、超過分だけ hidden になり overflowCount/hiddenItems に計上される', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        occurrences: overlappingOccurrences(3),
+        maxLanes: 2,
+      });
+      const row = vm.rows[0];
+      expect(row?.laneCount).toBe(2);
+      expect(row?.overflowCount).toBe(1);
+      expect(row?.hiddenItems).toHaveLength(1);
+      expect(row?.hiddenItems[0]?.eventId).toBe('c');
+      expect(
+        row?.items.filter((item) => item.hidden).map((item) => item.occurrence.eventId),
+      ).toEqual(['c']);
+      // 行の高さのフックであるレーン数は表示レーンのみ（あふれ分は含まない）
+      expect(row?.items.filter((item) => !item.hidden)).toHaveLength(2);
+    });
+
+    it('行ごとに独立して判定される（他の行は maxLanes の影響を受けない）', () => {
+      const vm = build({
+        resources: [resource('r1'), resource('r2')],
+        occurrences: [
+          ...overlappingOccurrences(3),
+          makeOccurrence({
+            eventId: 'z',
+            start: at('2026-07-10T10:00'),
+            end: at('2026-07-10T11:00'),
+            resourceId: 'r2',
+          }),
+        ],
+        maxLanes: 2,
+      });
+      const r1 = vm.rows.find((row) => row.key === 'r:r1');
+      const r2 = vm.rows.find((row) => row.key === 'r:r2');
+      expect(r1?.overflowCount).toBe(1);
+      expect(r2?.overflowCount).toBe(0);
+      expect(r2?.laneCount).toBe(1);
+    });
+  });
+
   describe('現在時刻線', () => {
     it('「今」が表示範囲内なら表示分を返す', () => {
       const vm = build({ now: at('2026-07-11T10:30') });
@@ -552,6 +632,36 @@ describe('buildTimelineViewModel', () => {
         expect(vm.slots.map((s) => s.label)).toEqual(['30', '31', '1']);
         expect(vm.slots.map((s) => s.minutes)).toEqual([0, 1440, 2880]);
         expect(vm.slots.map((s) => s.dayKey)).toEqual(['2027-01-30', '2027-01-31', '2027-02-01']);
+      });
+
+      it("locale: 'ja' では日番号がラテン数字のまま（数字体系追従の回帰確認）", () => {
+        const vm = build({
+          timelineScale: 'month',
+          currentDate: at('2027-01-30T00:00'),
+          timelineDays: 3, // 1/30, 1/31, 2/1
+          locale: 'ja',
+        });
+        expect(vm.slots.map((s) => s.label)).toEqual(['30', '31', '1']);
+      });
+
+      it("locale: 'ar-EG' では日番号がロケールの数字体系（アラビア・インド数字）に追従する", () => {
+        const vm = build({
+          timelineScale: 'month',
+          currentDate: at('2027-01-30T00:00'),
+          timelineDays: 3, // 1/30, 1/31, 2/1
+          locale: 'ar-EG',
+        });
+        expect(vm.slots.map((s) => s.label)).toEqual(['٣٠', '٣١', '١']);
+      });
+
+      it("locale: 'ar-EG' の week スケールでも日番号がアラビア・インド数字になる", () => {
+        const vm = build({
+          timelineScale: 'week',
+          currentDate: at('2027-01-30T00:00'),
+          timelineDays: 2, // 1/30, 1/31
+          locale: 'ar-EG',
+        });
+        expect(vm.slots.map((s) => s.label)).toEqual(['٣٠', '٣١']);
       });
     });
   });

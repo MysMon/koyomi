@@ -212,6 +212,54 @@ describe('buildMultiMonthViewModel', () => {
     });
   });
 
+  describe('showWeekNumbers（週番号）', () => {
+    it('省略時（既定 false）は全月で各週の weekNumber が null になる', () => {
+      const vm = build({ multiMonthCount: 2 });
+      for (const month of vm.months) {
+        for (const week of month.weeks) {
+          expect(week.weekNumber).toBeNull();
+        }
+      }
+    });
+
+    it('false を明示しても全月で各週の weekNumber が null になる', () => {
+      const vm = build({ showWeekNumbers: false, multiMonthCount: 2 });
+      for (const month of vm.months) {
+        for (const week of month.weeks) {
+          expect(week.weekNumber).toBeNull();
+        }
+      }
+    });
+
+    it('true にすると各月の各週に ISO 8601 週番号が設定される（2026-07 は第27〜31週）', () => {
+      const vm = build({ showWeekNumbers: true, multiMonthCount: 1 });
+      const julyMonth = vm.months[0];
+      expect(julyMonth?.weeks.map((week) => week.weekNumber)).toEqual([27, 28, 29, 30, 31]);
+    });
+
+    it('年跨ぎの月境界でも ISO 週番号が正しく算出される（2026-12→2027-01）', () => {
+      const vm = buildMultiMonthViewModel({
+        currentDate: at(TOKYO, 2026, 12, 7),
+        timeZone: TOKYO,
+        occurrences: [],
+        weekStartsOn: 0,
+        dayMaxEvents: 4,
+        showWeekNumbers: true,
+        multiMonthCount: 2,
+        now: at(TOKYO, 2026, 12, 7, 12, 0),
+      });
+      const decMonth = vm.months[0];
+      const janMonth = vm.months[1];
+      expect(decMonth?.key).toBe('2026-12');
+      expect(janMonth?.key).toBe('2027-01');
+      // 2026-12-31(木) を含む週は ISO 週番号で 2026年第53週
+      expect(decMonth?.weeks.at(-1)?.weekNumber).toBe(53);
+      // 2027-01-01(金) を含む週も同じ暦週（12/28〜1/3）であり、木曜(12/31)が
+      // 2026年に属するため、1 月グリッドの先頭週も 2026年第53週として現れる
+      expect(janMonth?.weeks[0]?.weekNumber).toBe(53);
+    });
+  });
+
   describe('multiMonthCount: 1 と単体月ビューの違い', () => {
     it('月境界をまたぐ帯が前後月へ伸びない点で、同じ月を表示する月ビューと異なる', () => {
       const occ = makeOccurrence('boundary', at(TOKYO, 2026, 7, 31, 9), at(TOKYO, 2026, 8, 1, 18));

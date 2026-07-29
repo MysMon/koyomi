@@ -16,9 +16,11 @@
  *
  * 繰り返しは `rrule` → `RRULE`、`exdates` → `EXDATE`、`rdates` → `RDATE`、
  * オーバーライド（`recurringEventId` + `originalStart`）→ マスターと同じ `UID` +
- * `RECURRENCE-ID` として表現する。対応範囲・非対応構文の扱いの詳細は docs/ics.md を参照。
+ * `RECURRENCE-ID` として表現する。取り込み時の `RECURRENCE-ID;RANGE=THISANDFUTURE` は
+ * 「これ以降」のシリーズ分割になる。対応範囲・非対応構文の扱いの詳細は docs/ics.md を参照。
  */
 
+import { deleteEventIn, updateEventIn } from './mutations';
 import { normalizeRRuleString } from './recurrence';
 import {
   addDaysInZone,
@@ -31,7 +33,7 @@ import {
   parseDateValue,
   type WallClockParts,
 } from './timezone';
-import type { CalendarEvent, TimeZoneId } from './types';
+import type { CalendarEvent, CalendarEventPatch, EventId, TimeZoneId } from './types';
 
 /** iCalendar の行区切り（RFC 5545）。 */
 const CRLF = '\r\n';
@@ -692,7 +694,7 @@ interface CollectedVEvent {
   rruleRaw: string | undefined;
   exdates: IcsDateValue[];
   rdates: IcsDateValue[];
-  recurrenceId: { value: IcsDateValue; raw: string } | undefined;
+  recurrenceId: { value: IcsDateValue; raw: string; thisAndFuture: boolean } | undefined;
 }
 
 /** VEVENT のプロパティ行を集約する。対応しないプロパティは無視する。 */
@@ -753,6 +755,7 @@ function collectVEventProperties(props: readonly ContentLine[]): CollectedVEvent
         collected.recurrenceId = {
           value: parseIcsDateValue(prop.value, prop.params, 'RECURRENCE-ID'),
           raw: prop.value,
+          thisAndFuture: prop.params.get('RANGE')?.toUpperCase() === 'THISANDFUTURE',
         };
         break;
       default:
@@ -807,14 +810,331 @@ function extractVEventBlocks(ics: string): ContentLine[][] {
 }
 
 /**
+ * `RECURRENCE-ID;RANGE=THISANDFUTURE` の VEVENT が要求する「これ以降」の適用内容。
+ * 全 VEVENT の組み立て後に {@link applyThisAndFutureRequests} が処理する。
+ */
+type ThisAndFutureRequest =
+  | {
+      /** 分割点以降を変更する（シリーズ分割）。 */
+      kind: 'update';
+      /** 対象マスターの `UID`。 */
+      uid: string;
+      /** `RECURRENCE-ID` の値（分割点）。 */
+      value: IcsDateValue;
+      /** オーバーライド VEVENT から作られたイベントの ID。分割後の新シリーズの ID になる。 */
+      overrideId: EventId;
+      /** 新シリーズへ反映するパッチ（オーバーライド VEVENT に存在したプロパティのみ）。 */
+      patch: CalendarEventPatch;
+    }
+  | {
+      /** 分割点以降を削除する（`STATUS:CANCELLED` との組み合わせ）。 */
+      kind: 'cancel';
+      /** 対象マスターの `UID`。 */
+      uid: string;
+      /** `RECURRENCE-ID` の値（分割点）。 */
+      value: IcsDateValue;
+    };
+
+/** VEVENT 1 件を処理した結果（{@link buildEventFromVEvent} の戻り値）。 */
+type VEventOutcome =
+  | { kind: 'event'; event: CalendarEvent; splitRequest?: ThisAndFutureRequest }
+  | { kind: 'cancelledOverride'; uid: string; value: IcsDateValue; thisAndFuture: boolean }
+  | { kind: 'skipped' };
+
+/**
+ * VEVENT 1 件分のプロパティ行から {@link CalendarEvent} を構成する
+ * （{@link eventsFromIcs} / {@link eventsFromIcsWithIssues} で共通の処理）。
+ *
+ * `STATUS:CANCELLED` の VEVENT は `RECURRENCE-ID` があればマスターの `exdates`
+ * へ変換すべきオーバーライドとして、なければ読み飛ばすものとして返す。
+ * `RECURRENCE-ID` に `RANGE=THISANDFUTURE` が付いた VEVENT は、組み立てたイベントに
+ * 加えて「これ以降」のシリーズ分割の要求（`splitRequest`）を添えて返す。
+ *
+ * @param props - VEVENT 直下のプロパティ行
+ * @param index - ICS 内の VEVENT の出現順（0 始まり。`UID` 省略時の自動生成 ID に使う）
+ * @throws `DTSTART` がない、日時・`TZID`・`RRULE` を解釈できない場合は `Error`
+ */
+function buildEventFromVEvent(props: readonly ContentLine[], index: number): VEventOutcome {
+  const collected = collectVEventProperties(props);
+  const uid = collected.uid ?? `ics-event-${index + 1}`;
+  if (collected.dtstart === undefined) {
+    throw new Error(`DTSTART のない VEVENT は取り込めません（UID: '${uid}'）`);
+  }
+  if (collected.status === 'CANCELLED') {
+    // キャンセルされたオーバーライドは「そのオカレンスの削除」= マスターの EXDATE 相当。
+    // RANGE=THISANDFUTURE 付きは「これ以降の削除」としてシリーズの打ち切りに変換する
+    if (collected.recurrenceId !== undefined) {
+      return {
+        kind: 'cancelledOverride',
+        uid,
+        value: collected.recurrenceId.value,
+        thisAndFuture: collected.recurrenceId.thisAndFuture,
+      };
+    }
+    return { kind: 'skipped' };
+  }
+  const allDay = collected.dtstart.type === 'date';
+  const timeZone = collected.dtstart.type === 'zoned' ? collected.dtstart.tzid : undefined;
+  const event: CalendarEvent = {
+    id: collected.recurrenceId !== undefined ? `${uid}@${collected.recurrenceId.raw}` : uid,
+    title: collected.summary ?? '',
+    start: toEventValue(collected.dtstart, timeZone),
+  };
+  if (allDay) {
+    event.allDay = true;
+  }
+  if (timeZone !== undefined) {
+    event.timeZone = timeZone;
+  }
+  if (collected.dtend !== undefined) {
+    event.end = toEventValue(collected.dtend, timeZone);
+  }
+  if (collected.rruleRaw !== undefined) {
+    event.rrule = untilForImport(normalizeRRuleString(collected.rruleRaw), collected.dtstart);
+  }
+  if (collected.exdates.length > 0) {
+    event.exdates = collected.exdates.map((value) => toEventValue(value, timeZone));
+  }
+  if (collected.rdates.length > 0) {
+    event.rdates = collected.rdates.map((value) => toEventValue(value, timeZone));
+  }
+  if (collected.recurrenceId !== undefined) {
+    event.recurringEventId = uid;
+    event.originalStart = toEventValue(collected.recurrenceId.value, timeZone);
+  }
+  if (collected.location !== undefined) {
+    event.location = collected.location;
+  }
+  if (collected.description !== undefined) {
+    event.description = collected.description;
+  }
+  if (collected.recurrenceId?.thisAndFuture === true) {
+    // RANGE=THISANDFUTURE はシリーズ分割の要求として返す。イベント自体は
+    // 単一オカレンスのオーバーライドのまま組み立てておき、同じ UID の
+    // 繰り返しマスターが見つからない場合のフォールバックとして使う
+    return {
+      kind: 'event',
+      event,
+      splitRequest: {
+        kind: 'update',
+        uid,
+        value: collected.recurrenceId.value,
+        overrideId: event.id,
+        patch: thisAndFuturePatch(collected, event),
+      },
+    };
+  }
+  return { kind: 'event', event };
+}
+
+/**
+ * `RANGE=THISANDFUTURE` のオーバーライド VEVENT から、分割後の新シリーズへ反映する
+ * パッチを作る。VEVENT に存在したプロパティだけを反映し、存在しないプロパティは
+ * 分割元（マスター）の値を新シリーズへ引き継がせる。`timeZone` / `allDay` は
+ * `DTSTART` の形式そのものを表すため常にパッチへ含める（オーバーライドが `TZID` や
+ * `VALUE=DATE` を持たない場合、明示的な `undefined` でマスターの値を引き継がせない）。
+ */
+function thisAndFuturePatch(collected: CollectedVEvent, event: CalendarEvent): CalendarEventPatch {
+  return {
+    start: event.start,
+    timeZone: event.timeZone,
+    allDay: event.allDay,
+    ...(collected.dtend !== undefined ? { end: event.end } : {}),
+    ...(collected.summary !== undefined ? { title: collected.summary } : {}),
+    ...(collected.location !== undefined ? { location: event.location } : {}),
+    ...(collected.description !== undefined ? { description: event.description } : {}),
+    ...(collected.rruleRaw !== undefined ? { rrule: event.rrule } : {}),
+    ...(collected.exdates.length > 0 ? { exdates: event.exdates } : {}),
+    ...(collected.rdates.length > 0 ? { rdates: event.rdates } : {}),
+  };
+}
+
+/** 解析済みの日時値を絶対時刻にする（分割点の整列・比較に使う）。 */
+function icsDateValueToInstant(value: IcsDateValue, displayTimeZone: TimeZoneId): Date {
+  switch (value.type) {
+    case 'date':
+      // 終日の分割点は表示タイムゾーンにおけるその日付の 0:00
+      return dateFromKey(value.key, displayTimeZone);
+    case 'zoned':
+      return fromWallClock(wallPartsFromLocal(value.local), value.tzid);
+    case 'utc':
+      return parseDateValue(value.iso, displayTimeZone, false);
+    case 'floating':
+      return fromWallClock(wallPartsFromLocal(value.local), displayTimeZone);
+  }
+}
+
+/**
+ * `RECURRENCE-ID;RANGE=THISANDFUTURE` の VEVENT を「これ以降」のシリーズ分割・
+ * 打ち切りとして適用する（{@link eventsFromIcs} / {@link eventsFromIcsWithIssues} で
+ * 共通の後処理）。
+ *
+ * 同じ `UID` のマスター（`rrule` または `rdates` を持つイベント）に対し、対話操作の
+ * `scope: 'thisAndFollowing'`（{@link updateEventIn} / {@link deleteEventIn}）と同じ
+ * 意味論で適用する:
+ *
+ * - 旧シリーズは分割点の直前で打ち切られ、新シリーズ（ID はオーバーライドと同じ
+ *   「`UID@RECURRENCE-ID の値`」）が分割点以降を引き継ぐ。`COUNT` は消化済み回数を
+ *   差し引いた残数になる
+ * - 分割点以降の通常オーバーライド・`EXDATE`・`RDATE` は新シリーズへ付け替えられる
+ * - 同じ `UID` に複数の分割がある場合は分割点の昇順に連鎖適用され、前の分割で
+ *   生まれた新シリーズが次の分割の対象になる
+ * - `STATUS:CANCELLED` との組み合わせは「これ以降の削除」としてシリーズを打ち切る
+ *
+ * マスターが見つからない・繰り返しを持たない場合はフォールバックとして、`update` は
+ * 単一オカレンスのオーバーライドのまま残し、`cancel` は単一オカレンスの取り消し
+ * （マスターの `exdates` への追加）にする。
+ *
+ * フローティング・終日の分割点は、`UNTIL` の取り込みと同じく実行環境のローカル
+ * タイムゾーン（表示タイムゾーンに相当）の現地時刻として解釈する。
+ */
+function applyThisAndFutureRequests(
+  events: CalendarEvent[],
+  requests: readonly ThisAndFutureRequest[],
+): CalendarEvent[] {
+  if (requests.length === 0) {
+    return events;
+  }
+  const displayTimeZone = getLocalTimeZone();
+  // UID ごとにまとめ、分割点の昇順に整列する（ICS 内の出現順には依存しない）
+  const byUid = new Map<string, { request: ThisAndFutureRequest; time: number }[]>();
+  for (const request of requests) {
+    const entry = {
+      request,
+      time: icsDateValueToInstant(request.value, displayTimeZone).getTime(),
+    };
+    const list = byUid.get(request.uid);
+    if (list === undefined) {
+      byUid.set(request.uid, [entry]);
+    } else {
+      list.push(entry);
+    }
+  }
+  let result = events;
+  for (const [uid, list] of byUid) {
+    list.sort((a, b) => a.time - b.time);
+    // 前の分割で生まれた新シリーズが次の分割の対象になる（連鎖適用）
+    let currentMasterId: EventId = uid;
+    for (const { request, time } of list) {
+      const master = result.find(
+        (event) => event.id === currentMasterId && event.recurringEventId === undefined,
+      );
+      if (
+        master === undefined ||
+        (master.rrule === undefined && (master.rdates?.length ?? 0) === 0)
+      ) {
+        // 分割対象の繰り返しマスターがない場合のフォールバック
+        if (request.kind === 'cancel') {
+          // 単一オカレンスの取り消し（applyCancelledOverrides と同じ変換）
+          result = result.map((event) =>
+            event.id === request.uid && event.recurringEventId === undefined
+              ? {
+                  ...event,
+                  exdates: [...(event.exdates ?? []), toEventValue(request.value, event.timeZone)],
+                }
+              : event,
+          );
+        }
+        // update は単一オカレンスのオーバーライドのまま残す（何もしない）
+        continue;
+      }
+      const splitPoint = new Date(time);
+      if (request.kind === 'cancel') {
+        result = deleteEventIn(
+          result,
+          master.id,
+          { occurrenceStart: splitPoint, scope: 'thisAndFollowing' },
+          {
+            displayTimeZone,
+            defaultEventMinutes: 60,
+            // 削除の経路では ID 採番は行われない（呼ばれた場合に検知できるよう例外にする）
+            generateId: () => {
+              throw new Error('シリーズ打ち切りで ID 採番が要求されました（想定外の経路）');
+            },
+          },
+        );
+        continue;
+      }
+      // オーバーライド自身は新シリーズになるため、分割前に取り除く
+      result = result.filter((event) => event.id !== request.overrideId);
+      let createdNewSeries = false;
+      result = updateEventIn(
+        result,
+        master.id,
+        request.patch,
+        { occurrenceStart: splitPoint, scope: 'thisAndFollowing' },
+        {
+          displayTimeZone,
+          // end 省略時の既定の長さ。分割ではマスターの end から長さを引き継ぐため
+          // 実質使われないが、eventsToIcs の既定値と揃えておく
+          defaultEventMinutes: 60,
+          generateId: () => {
+            createdNewSeries = true;
+            return request.overrideId;
+          },
+        },
+      );
+      if (createdNewSeries) {
+        currentMasterId = request.overrideId;
+      }
+      // 分割点が最初のオカレンスと一致した場合は新シリーズを作らずマスター自体が
+      // 変更される（scope: 'all' 相当）ため、次の分割の対象は変わらない
+    }
+  }
+  return result;
+}
+
+/**
+ * `STATUS:CANCELLED` のオーバーライドをマスターの `exdates` へ反映する
+ * （{@link eventsFromIcs} / {@link eventsFromIcsWithIssues} で共通の処理）。
+ * マスターが `events` 内にない場合（同じ ICS 内にない、または取り込みに失敗した場合）は無視する。
+ */
+function applyCancelledOverrides(
+  events: CalendarEvent[],
+  cancelledOverrides: readonly { uid: string; value: IcsDateValue }[],
+): void {
+  for (const cancelled of cancelledOverrides) {
+    const masterEvent = events.find(
+      (event) => event.id === cancelled.uid && event.recurringEventId === undefined,
+    );
+    if (masterEvent === undefined) {
+      continue;
+    }
+    masterEvent.exdates = [
+      ...(masterEvent.exdates ?? []),
+      toEventValue(cancelled.value, masterEvent.timeZone),
+    ];
+  }
+}
+
+/**
+ * VEVENT のプロパティ行から指定した名前の TEXT 値を取り出す（最後に現れたものを採用し、
+ * {@link collectVEventProperties} と同じ優先順位にする）。取り込みに失敗した VEVENT を
+ * {@link IcsImportIssue} 化する際、パースに失敗していても `UID` / `SUMMARY` を拾うために使う。
+ */
+function findRawTextValue(props: readonly ContentLine[], name: string): string | null {
+  let found: string | undefined;
+  for (const prop of props) {
+    if (prop.name === name) {
+      found = prop.value;
+    }
+  }
+  return found !== undefined ? unescapeTextValue(found) : null;
+}
+
+/**
  * iCalendar（VCALENDAR/VEVENT）文字列をイベントの配列にする。
  *
  * - `TZID` 付きの日時は `timeZone` とオフセットなし文字列（イベント TZ の現地時刻）になる
  * - `VALUE=DATE` は終日イベント（`allDay: true` と `'YYYY-MM-DD'`）になる
  * - `RECURRENCE-ID` を持つ VEVENT はオーバーライド（`recurringEventId` +
  *   `originalStart`）になり、`id` は「`UID` + `'@'` + `RECURRENCE-ID` の値」で生成される
+ * - `RECURRENCE-ID;RANGE=THISANDFUTURE` を持つ VEVENT は「これ以降」のシリーズ分割になる。
+ *   同じ `UID` のマスターの繰り返しを分割点の直前で打ち切り、分割点以降を新しい独立
+ *   イベントとして取り込む（マスターが見つからない場合は単一オカレンスのオーバーライド）
  * - `EXDATE` / `RDATE` は `exdates` / `rdates` になる。`STATUS:CANCELLED` の
  *   オーバーライドは同じ `UID` のマスターの `exdates` に変換される
+ *   （`RANGE=THISANDFUTURE` 付きは「これ以降の削除」としてシリーズを打ち切る）
  * - `VTIMEZONE` 定義・`EXRULE`・`VALUE=PERIOD` の `RDATE`・`DURATION`・`VALARM`・
  *   未対応プロパティは無視する（`TZID` は IANA タイムゾーン ID として解釈する）
  *
@@ -844,70 +1164,106 @@ export function eventsFromIcs(ics: string): CalendarEvent[] {
   const rawEvents = extractVEventBlocks(ics);
   const events: CalendarEvent[] = [];
   const cancelledOverrides: { uid: string; value: IcsDateValue }[] = [];
+  const splitRequests: ThisAndFutureRequest[] = [];
 
   for (const [index, props] of rawEvents.entries()) {
-    const collected = collectVEventProperties(props);
-    const uid = collected.uid ?? `ics-event-${index + 1}`;
-    if (collected.dtstart === undefined) {
-      throw new Error(`DTSTART のない VEVENT は取り込めません（UID: '${uid}'）`);
-    }
-    if (collected.status === 'CANCELLED') {
-      // キャンセルされたオーバーライドは「そのオカレンスの削除」= マスターの EXDATE 相当
-      if (collected.recurrenceId !== undefined) {
-        cancelledOverrides.push({ uid, value: collected.recurrenceId.value });
+    const outcome = buildEventFromVEvent(props, index);
+    if (outcome.kind === 'event') {
+      events.push(outcome.event);
+      if (outcome.splitRequest !== undefined) {
+        splitRequests.push(outcome.splitRequest);
       }
-      continue;
+    } else if (outcome.kind === 'cancelledOverride') {
+      if (outcome.thisAndFuture) {
+        splitRequests.push({ kind: 'cancel', uid: outcome.uid, value: outcome.value });
+      } else {
+        cancelledOverrides.push({ uid: outcome.uid, value: outcome.value });
+      }
     }
-    const allDay = collected.dtstart.type === 'date';
-    const timeZone = collected.dtstart.type === 'zoned' ? collected.dtstart.tzid : undefined;
-    const event: CalendarEvent = {
-      id: collected.recurrenceId !== undefined ? `${uid}@${collected.recurrenceId.raw}` : uid,
-      title: collected.summary ?? '',
-      start: toEventValue(collected.dtstart, timeZone),
-    };
-    if (allDay) {
-      event.allDay = true;
-    }
-    if (timeZone !== undefined) {
-      event.timeZone = timeZone;
-    }
-    if (collected.dtend !== undefined) {
-      event.end = toEventValue(collected.dtend, timeZone);
-    }
-    if (collected.rruleRaw !== undefined) {
-      event.rrule = untilForImport(normalizeRRuleString(collected.rruleRaw), collected.dtstart);
-    }
-    if (collected.exdates.length > 0) {
-      event.exdates = collected.exdates.map((value) => toEventValue(value, timeZone));
-    }
-    if (collected.rdates.length > 0) {
-      event.rdates = collected.rdates.map((value) => toEventValue(value, timeZone));
-    }
-    if (collected.recurrenceId !== undefined) {
-      event.recurringEventId = uid;
-      event.originalStart = toEventValue(collected.recurrenceId.value, timeZone);
-    }
-    if (collected.location !== undefined) {
-      event.location = collected.location;
-    }
-    if (collected.description !== undefined) {
-      event.description = collected.description;
-    }
-    events.push(event);
   }
 
-  for (const cancelled of cancelledOverrides) {
-    const masterEvent = events.find(
-      (event) => event.id === cancelled.uid && event.recurringEventId === undefined,
-    );
-    if (masterEvent === undefined) {
-      continue; // マスターが同じ ICS 内にないキャンセルは反映先がないため無視する
+  applyCancelledOverrides(events, cancelledOverrides);
+  return applyThisAndFutureRequests(events, splitRequests);
+}
+
+/**
+ * {@link eventsFromIcsWithIssues} が VEVENT 単位で報告する取り込み不能の内容。
+ */
+export interface IcsImportIssue {
+  /** ICS 内の VEVENT の出現順（0 始まり）。 */
+  index: number;
+  /** 取り込みに失敗した VEVENT の `UID`（省略されていた場合は `null`）。 */
+  uid: string | null;
+  /** 取り込みに失敗した VEVENT の `SUMMARY`（省略されていた場合は `null`）。 */
+  summary: string | null;
+  /** 取り込みに失敗した理由（{@link eventsFromIcs} が投げるものと同じ `Error` のメッセージ）。 */
+  message: string;
+}
+
+/**
+ * iCalendar 文字列をイベントの配列にする（{@link eventsFromIcs} の部分取り込み版）。
+ *
+ * {@link eventsFromIcs} と同じ変換規則を使うが、VEVENT 単位の不正（`DTSTART` 欠落、
+ * 日時・`TZID`・`RRULE` を解釈できない等）は例外を投げる代わりに、その VEVENT を
+ * 読み飛ばして `issues` に記録し、残りの VEVENT は取り込みを続ける。
+ *
+ * `BEGIN`/`END` の対応が取れないコンポーネント構造・`':'` のない行など、VEVENT
+ * 単位に閉じない ICS 全体の構造の不正は {@link eventsFromIcs} と同様に `Error` を投げる
+ * （個々の VEVENT の issue には変換しない）。
+ *
+ * `STATUS:CANCELLED` のオーバーライドは {@link eventsFromIcs} と同じくマスターの
+ * `exdates` へ変換されるが、マスターの VEVENT 自体が取り込みに失敗して `issues` 側に
+ * 回っている場合は、反映先がないため無視される。`RECURRENCE-ID;RANGE=THISANDFUTURE` の
+ * シリーズ分割も同様で、マスターが `issues` 側に回っている場合は分割せず
+ * 単一オカレンスのオーバーライドとして取り込む。
+ *
+ * @param ics - iCalendar 文字列（改行は CRLF / LF のどちらでもよい）
+ * @returns 取り込めたイベントの配列（`events`）と、読み飛ばした VEVENT ごとの
+ *   {@link IcsImportIssue}（`issues`、VEVENT の出現順）
+ * @throws ICS 全体の構造が不正な場合は `Error`（{@link eventsFromIcs} と同じ条件）
+ * @example
+ * ```ts
+ * const { events, issues } = eventsFromIcsWithIssues(icsText);
+ * for (const issue of issues) {
+ *   console.warn(`VEVENT #${issue.index}（UID: ${issue.uid ?? '不明'}）を読み飛ばしました: ${issue.message}`);
+ * }
+ * ```
+ */
+export function eventsFromIcsWithIssues(ics: string): {
+  events: CalendarEvent[];
+  issues: readonly IcsImportIssue[];
+} {
+  const rawEvents = extractVEventBlocks(ics);
+  const events: CalendarEvent[] = [];
+  const cancelledOverrides: { uid: string; value: IcsDateValue }[] = [];
+  const splitRequests: ThisAndFutureRequest[] = [];
+  const issues: IcsImportIssue[] = [];
+
+  for (const [index, props] of rawEvents.entries()) {
+    try {
+      const outcome = buildEventFromVEvent(props, index);
+      if (outcome.kind === 'event') {
+        events.push(outcome.event);
+        if (outcome.splitRequest !== undefined) {
+          splitRequests.push(outcome.splitRequest);
+        }
+      } else if (outcome.kind === 'cancelledOverride') {
+        if (outcome.thisAndFuture) {
+          splitRequests.push({ kind: 'cancel', uid: outcome.uid, value: outcome.value });
+        } else {
+          cancelledOverrides.push({ uid: outcome.uid, value: outcome.value });
+        }
+      }
+    } catch (error) {
+      issues.push({
+        index,
+        uid: findRawTextValue(props, 'UID'),
+        summary: findRawTextValue(props, 'SUMMARY'),
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
-    masterEvent.exdates = [
-      ...(masterEvent.exdates ?? []),
-      toEventValue(cancelled.value, masterEvent.timeZone),
-    ];
   }
 
-  return events;
+  applyCancelledOverrides(events, cancelledOverrides);
+  return { events: applyThisAndFutureRequests(events, splitRequests), issues };
 }

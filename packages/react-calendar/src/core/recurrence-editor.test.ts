@@ -4,6 +4,7 @@
  * テストプロセスは vitest.config.ts により TZ=Asia/Tokyo で実行される。
  */
 import { describe, expect, it } from 'vitest';
+import { expandRecurrence } from './recurrence';
 import {
   buildRecurrenceRuleString,
   type MonthlyRecurrencePattern,
@@ -200,6 +201,63 @@ describe('parseRecurrenceRule', () => {
       timeZone: TOKYO,
     });
     expect(result.kind).toBe('editable');
+  });
+
+  describe('weekStartsOn と WKST の受理', () => {
+    it('weekStartsOn: 0 のとき、一致する WKST=SU の明示は editable として受理される', () => {
+      const result = parseRecurrenceRule({
+        rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU;WKST=SU',
+        dtstart: TOKYO_JULY_1_9AM,
+        timeZone: TOKYO,
+        weekStartsOn: 0,
+      });
+      expect(result).toEqual({
+        kind: 'editable',
+        state: { freq: 'weekly', interval: 2, byWeekday: [2, 0], end: { type: 'never' } },
+      });
+    });
+
+    it('weekStartsOn: 0 のとき、不一致の WKST=MO の明示は unsupported（unsupportedWkst）になる', () => {
+      const result = parseRecurrenceRule({
+        rrule: 'FREQ=WEEKLY;WKST=MO',
+        dtstart: TOKYO_JULY_1_9AM,
+        timeZone: TOKYO,
+        weekStartsOn: 0,
+      });
+      expect(result.kind).toBe('unsupported');
+      expect(result.kind === 'unsupported' && result.reason).toEqual({ code: 'unsupportedWkst' });
+    });
+
+    it('weekStartsOn: 1 のとき、一致する WKST=MO の明示は editable として受理される', () => {
+      const result = parseRecurrenceRule({
+        rrule: 'FREQ=WEEKLY;WKST=MO',
+        dtstart: TOKYO_JULY_1_9AM,
+        timeZone: TOKYO,
+        weekStartsOn: 1,
+      });
+      expect(result.kind).toBe('editable');
+    });
+
+    it('weekStartsOn: 1 のとき、不一致の WKST=SU の明示は unsupported になる', () => {
+      const result = parseRecurrenceRule({
+        rrule: 'FREQ=WEEKLY;WKST=SU',
+        dtstart: TOKYO_JULY_1_9AM,
+        timeZone: TOKYO,
+        weekStartsOn: 1,
+      });
+      expect(result.kind).toBe('unsupported');
+      expect(result.kind === 'unsupported' && result.reason).toEqual({ code: 'unsupportedWkst' });
+    });
+
+    it('WKST を持たないルールは weekStartsOn: 0 でも editable として受理される', () => {
+      const result = parseRecurrenceRule({
+        rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU',
+        dtstart: TOKYO_JULY_1_9AM,
+        timeZone: TOKYO,
+        weekStartsOn: 0,
+      });
+      expect(result.kind).toBe('editable');
+    });
   });
 
   it('FREQ=HOURLY は unsupported になる', () => {
@@ -608,6 +666,80 @@ describe('buildRecurrenceRuleString', () => {
     ).not.toThrow();
   });
 
+  describe('weekStartsOn による WKST の出力', () => {
+    const biweeklySundayTuesday: RecurrenceRuleState = {
+      freq: 'weekly',
+      interval: 2,
+      byWeekday: [0, 2],
+      end: { type: 'never' },
+    };
+
+    it('weekStartsOn: 0（日曜始まり）のとき WKST=SU を出力する', () => {
+      const rrule = buildRecurrenceRuleString({
+        state: biweeklySundayTuesday,
+        dtstart: TOKYO_JULY_1_9AM,
+        timeZone: TOKYO,
+        weekStartsOn: 0,
+      });
+      expect(rrule).toContain('WKST=SU');
+    });
+
+    it('weekStartsOn: 6（土曜始まり）のとき WKST=SA を出力する', () => {
+      const rrule = buildRecurrenceRuleString({
+        state: biweeklySundayTuesday,
+        dtstart: TOKYO_JULY_1_9AM,
+        timeZone: TOKYO,
+        weekStartsOn: 6,
+      });
+      expect(rrule).toContain('WKST=SA');
+    });
+
+    it('weekStartsOn: 1（月曜始まり）のとき WKST を出力しない（RRULE の既定と同じため）', () => {
+      const rrule = buildRecurrenceRuleString({
+        state: biweeklySundayTuesday,
+        dtstart: TOKYO_JULY_1_9AM,
+        timeZone: TOKYO,
+        weekStartsOn: 1,
+      });
+      expect(rrule).not.toContain('WKST');
+    });
+
+    it('weekStartsOn 省略時は WKST を出力しない', () => {
+      const rrule = buildRecurrenceRuleString({
+        state: biweeklySundayTuesday,
+        dtstart: TOKYO_JULY_1_9AM,
+        timeZone: TOKYO,
+      });
+      expect(rrule).not.toContain('WKST');
+    });
+
+    it('freq が weekly 以外（daily）でも weekStartsOn が月曜以外なら WKST を出力する', () => {
+      const rrule = buildRecurrenceRuleString({
+        state: { freq: 'daily', interval: 1, end: { type: 'never' } },
+        dtstart: TOKYO_JULY_1_9AM,
+        timeZone: TOKYO,
+        weekStartsOn: 0,
+      });
+      expect(rrule).toContain('WKST=SU');
+    });
+
+    it('weekStartsOn: 0 で生成した RRULE は同じ weekStartsOn の parse で同じ state に戻る（往復）', () => {
+      const rrule = buildRecurrenceRuleString({
+        state: biweeklySundayTuesday,
+        dtstart: TOKYO_JULY_1_9AM,
+        timeZone: TOKYO,
+        weekStartsOn: 0,
+      });
+      const reparsed = parseRecurrenceRule({
+        rrule,
+        dtstart: TOKYO_JULY_1_9AM,
+        timeZone: TOKYO,
+        weekStartsOn: 0,
+      });
+      expect(reparsed).toEqual({ kind: 'editable', state: biweeklySundayTuesday });
+    });
+  });
+
   it('monthlyPattern と byWeekday を両方持つ state は freq に応じて無関係な方を無視する', () => {
     const state: RecurrenceRuleState = {
       freq: 'monthly',
@@ -619,5 +751,62 @@ describe('buildRecurrenceRuleString', () => {
     const rrule = buildRecurrenceRuleString({ state, dtstart: TOKYO_JULY_1_9AM, timeZone: TOKYO });
     expect(rrule).toContain('BYMONTHDAY=10');
     expect(rrule).not.toContain('BYDAY');
+  });
+});
+
+describe('エディタ状態 → buildRecurrenceRuleString → expandRecurrence（フルパイプライン）', () => {
+  it('monthlyPattern:{kind:nthWeekday,ordinal:2,weekday:2}（第 2 火曜）は実際に各月の第 2 火曜のオカレンスへ展開される', () => {
+    const state: RecurrenceRuleState = {
+      freq: 'monthly',
+      interval: 1,
+      monthlyPattern: { kind: 'nthWeekday', ordinal: 2, weekday: 2 },
+      end: { type: 'never' },
+    };
+    const dtstart = TOKYO_JULY_1_9AM; // 2026-07-01（水）。BYDAY と不一致のため評価起点にのみ使われる
+    const rrule = buildRecurrenceRuleString({ state, dtstart, timeZone: TOKYO });
+    // 正の ordinal は rrule.js の正規化で '+' が前置される
+    expect(rrule).toBe('FREQ=MONTHLY;BYDAY=+2TU');
+
+    const occurrences = expandRecurrence({
+      rrule,
+      dtstart,
+      timeZone: TOKYO,
+      range: { start: dtstart, end: new Date('2027-01-01T00:00:00Z') }, // 東京 2027-01-01 9:00 まで（排他）
+    });
+    // 2026 年の各月（7〜12月）の第 2 火曜日: 7/14, 8/11, 9/8, 10/13, 11/10, 12/8
+    expect(occurrences.map((d) => d.toISOString())).toEqual([
+      '2026-07-14T00:00:00.000Z',
+      '2026-08-11T00:00:00.000Z',
+      '2026-09-08T00:00:00.000Z',
+      '2026-10-13T00:00:00.000Z',
+      '2026-11-10T00:00:00.000Z',
+      '2026-12-08T00:00:00.000Z',
+    ]);
+  });
+
+  it('monthlyPattern:{kind:nthWeekday,ordinal:-1,weekday:5}（最終金曜）+ end:{type:count,count:3} は実際に 3 回で打ち切られる', () => {
+    const state: RecurrenceRuleState = {
+      freq: 'monthly',
+      interval: 1,
+      monthlyPattern: { kind: 'nthWeekday', ordinal: -1, weekday: 5 },
+      end: { type: 'count', count: 3 },
+    };
+    const dtstart = TOKYO_JULY_1_9AM; // 2026-07-01（水）
+    const rrule = buildRecurrenceRuleString({ state, dtstart, timeZone: TOKYO });
+    expect(rrule).toBe('FREQ=MONTHLY;BYDAY=-1FR;COUNT=3');
+
+    // 範囲を半年分に広げても COUNT=3 で打ち切られることを確認する
+    const occurrences = expandRecurrence({
+      rrule,
+      dtstart,
+      timeZone: TOKYO,
+      range: { start: dtstart, end: new Date('2027-01-01T00:00:00Z') },
+    });
+    // 各月の最終金曜日: 7/31, 8/28, 9/25（2026 年）。COUNT=3 のため 10 月以降は含まれない
+    expect(occurrences.map((d) => d.toISOString())).toEqual([
+      '2026-07-31T00:00:00.000Z',
+      '2026-08-28T00:00:00.000Z',
+      '2026-09-25T00:00:00.000Z',
+    ]);
   });
 });

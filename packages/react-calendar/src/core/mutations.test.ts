@@ -241,6 +241,37 @@ describe('createEventIn', () => {
     ).toThrow(Error);
   });
 
+  it('不正な timeZone が指定された場合は Error を投げる（メッセージに id と不正値を含む）', () => {
+    expect(() =>
+      createEventIn(
+        [],
+        {
+          id: 'bad-tz',
+          title: '不正',
+          start: new Date('2026-07-01T10:00:00Z'),
+          timeZone: 'Invalid/Zone',
+        },
+        makeContext(),
+      ),
+    ).toThrow(/bad-tz.*Invalid\/Zone/);
+  });
+
+  it('有効な timeZone・timeZone 省略はそのまま受理される', () => {
+    const withZone = createEventIn(
+      [],
+      { title: '有効', start: new Date('2026-07-01T10:00:00Z'), timeZone: 'America/New_York' },
+      makeContext(),
+    );
+    expect(withZone.created.timeZone).toBe('America/New_York');
+
+    const withoutZone = createEventIn(
+      [],
+      { title: '省略', start: new Date('2026-07-01T10:00:00Z') },
+      makeContext(),
+    );
+    expect(withoutZone.created.timeZone).toBeUndefined();
+  });
+
   it("'RRULE:' プレフィックス付きの正しい rrule は受理される", () => {
     const result = createEventIn(
       [],
@@ -318,6 +349,30 @@ describe('updateEventIn: 単発イベント', () => {
       makeContext(),
     );
     expect(cleared[0]?.rrule).toBeUndefined();
+  });
+
+  it('patch の不正な timeZone は Error を投げ、state に混入しない（メッセージに id と不正値を含む）', () => {
+    expect(() =>
+      updateEventIn([single], 'single-1', { timeZone: 'Invalid/Zone' }, undefined, makeContext()),
+    ).toThrow(/single-1.*Invalid\/Zone/);
+    // 正しい timeZone は受理される
+    const ok = updateEventIn(
+      [single],
+      'single-1',
+      { timeZone: 'America/New_York' },
+      undefined,
+      makeContext(),
+    );
+    expect(ok[0]?.timeZone).toBe('America/New_York');
+    // timeZone: undefined（カレンダーの表示タイムゾーンへのフォールバック）は検証をすり抜けず正常に削除される
+    const cleared = updateEventIn(
+      [{ ...single, timeZone: 'America/New_York' }],
+      'single-1',
+      { timeZone: undefined },
+      undefined,
+      makeContext(),
+    );
+    expect(cleared[0]?.timeZone).toBeUndefined();
   });
 
   it('存在しない id には Error を投げる（空配列を含む）', () => {
@@ -733,6 +788,26 @@ describe("updateEventIn: scope 'thisAndFollowing'（シリーズ分割）", () =
     expect(findById(result, 'ov-5').recurringEventId).toBe('gen-1');
     // 付け替え以外のフィールドは変更されない
     expect(findById(result, 'ov-5')).toEqual({ ...after, recurringEventId: 'gen-1' });
+  });
+
+  it('分割点ちょうどのオーバーライドは新シリーズへ付け替わるが、patch はそのオーバーライドには適用されない', () => {
+    const atBoundary = makeOverride({
+      id: 'ov-4',
+      start: new Date('2026-07-04T02:00:00Z'),
+      end: new Date('2026-07-04T03:00:00Z'),
+      originalStart: new Date('2026-07-04T00:00:00Z'), // ちょうど分割点（>= なので新シリーズへ）
+    });
+    const result = updateEventIn(
+      [makeMaster(), atBoundary],
+      'master-1',
+      { title: '新シリーズ' },
+      { occurrenceStart: splitPoint, scope: 'thisAndFollowing' },
+      makeContext(),
+    );
+    // オーバーライドは recurringEventId の付け替えのみ行われ、patch（title）は適用されない
+    expect(findById(result, 'ov-4')).toEqual({ ...atBoundary, recurringEventId: 'gen-1' });
+    // patch は新シリーズの初回オカレンス（マスター相当のイベント）にのみ適用される
+    expect(findById(result, 'gen-1').title).toBe('新シリーズ');
   });
 
   it('EXDATE は分割点を境（>= は新シリーズ）に振り分けられる', () => {

@@ -47,6 +47,7 @@ import {
   buildBusinessHourSlots,
   buildDayItems,
   buildSlots,
+  buildTimeAxes,
 } from './time-grid-view';
 
 /** 未割り当て列のキー（{@link UNASSIGNED_LANE_KEY} の別名。既存コードの可読性のため）。 */
@@ -64,6 +65,12 @@ const EMPTY_COLLAPSED_RESOURCE_IDS: ReadonlySet<string> = new Set();
  * 呼び出しのたびに新しい配列を割り当てないよう、モジュールで 1 本だけ保持する。
  */
 const EMPTY_COLUMN_GROUP_ROWS: readonly (readonly ResourceColumnGroupCell[])[] = [];
+
+/**
+ * あふれ（`allDayMaxEvents` 超過）のない列で共有する空の非表示終日イベント一覧。
+ * 呼び出しのたびに新しい配列を割り当てないよう、モジュールで 1 本だけ保持する。
+ */
+const EMPTY_HIDDEN_ALL_DAY_ITEMS: readonly EventOccurrence[] = [];
 
 /**
  * 可視ツリーから列グループ見出しの行（{@link ResourceViewModel.columnGroupRows}）を構築する。
@@ -197,6 +204,11 @@ function allDayItemOverlapsDay(occurrence: EventOccurrence, dayStart: Date, dayE
  * 処理内容:
  * - 表示日は `currentDate` の属する日（{@link startOfDayInZone}）から
  *   `resourceViewDays` 日分（既定 1）。`hiddenWeekdays` は日ビューと同じく適用しない
+ * - 時間軸（{@link ResourceViewModel.timeAxes}）は主軸（表示タイムゾーン）＋
+ *   `timeAxisZones` の追加軸を {@link buildTimeAxes} で合成する（週/日ビューと共有の
+ *   ロジック）。表示範囲の先頭日を基準に算出し全列で共有するが、各日の
+ *   {@link ResourceViewDay.timeAxes} は日ごとにその日自身の 0:00 を基準に個別算出する
+ *   （`timeAxisZones` 未指定時はどちらも主軸のみの 1 要素配列で、日ごとの再計算はしない）
  * - リソース一覧は {@link buildResourceTree} でツリー順（**ID 重複は先勝ち**、
  *   {@link CalendarResource.parentId} による深さ優先の行き掛け順）に並べ、
  *   {@link filterVisibleResourceTree} で `collapsedResourceIds` に含まれる祖先を持つ
@@ -217,7 +229,10 @@ function allDayItemOverlapsDay(occurrence: EventOccurrence, dayStart: Date, dayE
  *   全表示日分の列が末尾にまとまる）
  * - 各列で、終日行行きのオカレンス（{@link belongsToAllDayRow} の判定）は
  *   その列の日と重なるものを `allDayItems` に整列して入れ、それ以外は
- *   {@link buildDayItems} で日内クランプ・重なりの横並びを計算して `items` に入れる
+ *   {@link buildDayItems} で日内クランプ・重なりの横並びを計算して `items` に入れる。
+ *   `allDayMaxEvents` 指定時は `allDayItems` を先頭その件数までに制限し、残りを
+ *   {@link ResourceColumn.hiddenAllDayItems} / {@link ResourceColumn.allDayOverflowCount}
+ *   に入れる（列 = 1 日ごとに独立して判定する）
  *
  * @param params.currentDate - 表示範囲の先頭日に含まれる基準日
  * @param params.timeZone - 表示タイムゾーン
@@ -227,6 +242,9 @@ function allDayItemOverlapsDay(occurrence: EventOccurrence, dayStart: Date, dayE
  * @param params.slotMinutes - 時間軸の目盛り間隔（分）
  * @param params.locale - 時間軸ラベルの整形に使うロケール
  * @param params.now - 現在時刻（`isToday` 判定・現在時刻線に使用）
+ * @param params.timeAxisZones - 時間軸に並べる追加のタイムゾーン
+ *   （{@link ResourceViewModel.timeAxes} 参照。Google カレンダーのセカンダリタイムゾーン相当）。
+ *   省略時は `[]`（主軸のみ）
  * @param params.businessHours - 営業時間の指定一覧（{@link ResourceViewDay.businessHourSlots}
  *   を各表示日の曜日基準で算出する）。省略時は `[]`（すべて `isBusinessHours: false`）
  * @param params.slotMinTime - 表示する時間帯の開始（`'HH:mm'` 形式）。省略時は `'00:00'`
@@ -236,6 +254,8 @@ function allDayItemOverlapsDay(occurrence: EventOccurrence, dayStart: Date, dayE
  *   小数は切り捨てて 1 以上の整数へ正規化する
  * @param params.collapsedResourceIds - 折りたたみ中のリソース ID の集合
  *   （{@link CalendarState.collapsedResourceIds}）。省略時は `[]`（全展開）扱い
+ * @param params.allDayMaxEvents - 各列の終日行に表示する最大イベント数
+ *   （{@link CalendarOptions.allDayMaxEvents}）。省略時は無制限
  * @returns リソースビューのビューモデル
  * @example
  * ```ts
@@ -261,11 +281,13 @@ export function buildResourceViewModel(params: {
   slotMinutes: number;
   locale: string;
   now: Date;
+  timeAxisZones?: readonly TimeZoneId[];
   businessHours?: readonly BusinessHoursRule[];
   slotMinTime?: string;
   slotMaxTime?: string;
   resourceViewDays?: number;
   collapsedResourceIds?: ReadonlySet<string>;
+  allDayMaxEvents?: number;
 }): ResourceViewModel {
   const {
     currentDate,
@@ -276,11 +298,13 @@ export function buildResourceViewModel(params: {
     slotMinutes,
     locale,
     now,
+    timeAxisZones = [],
     businessHours = [],
     slotMinTime = '00:00',
     slotMaxTime = '24:00',
     resourceViewDays = 1,
     collapsedResourceIds = EMPTY_COLLAPSED_RESOURCE_IDS,
+    allDayMaxEvents,
   } = params;
   const slotMinTimeMinutes = parseSlotBoundaryTime(slotMinTime);
   const slotMaxTimeMinutes = parseSlotBoundaryTime(slotMaxTime);
@@ -302,6 +326,16 @@ export function buildResourceViewModel(params: {
   // 1 本だけ生成して全日で共有する（週/日ビューと同じ最適化）
   const sharedBusinessHourSlots =
     businessHours.length === 0 ? buildBusinessHourSlots(slots, 0, businessHours) : null;
+  // 表示範囲の先頭日（firstDay）基準で全列が共有する時間軸。追加軸がなければ
+  // 日別の差（DST 対応の日別算出）は生じないため、全日でこの配列を共有し、
+  // 日ごとの無駄なアロケーションを避ける（週/日ビューの sharedTimeAxes と同じ最適化）
+  const sharedTimeAxes = buildTimeAxes({
+    rangeStart: firstDay,
+    timeZone,
+    slots,
+    timeAxisZones,
+    locale,
+  });
 
   const days: ResourceViewDay[] = dayStarts.map((dayStart) => ({
     date: dayStart,
@@ -310,6 +344,13 @@ export function buildResourceViewModel(params: {
     businessHourSlots:
       sharedBusinessHourSlots ??
       buildBusinessHourSlots(slots, weekdayInZone(dayStart, timeZone), businessHours),
+    // 追加軸がある場合のみ、この日自身の 0:00 を基準に日別算出する（週/日ビューの
+    // TimeGridDay.timeAxes と同じ意味論）。追加軸がなければ日別の差は生じないため、
+    // 共有の配列を使う
+    timeAxes:
+      timeAxisZones.length === 0
+        ? sharedTimeAxes
+        : buildTimeAxes({ rangeStart: dayStart, timeZone, slots, timeAxisZones, locale }),
   }));
   const firstDayInfo = days[0];
   if (firstDayInfo === undefined) {
@@ -364,9 +405,18 @@ export function buildResourceViewModel(params: {
     }
     return days.map((day, dayIndex) => {
       const dayEnd = dayEnds[dayIndex] ?? rangeEnd;
-      const allDayItems = allDay
+      const sortedAllDayItems = allDay
         .filter((occurrence) => allDayItemOverlapsDay(occurrence, day.date, dayEnd))
         .sort(compareAllDayItems);
+      // allDayMaxEvents 指定時は先頭その件数までに制限し、残りを非表示一覧に回す
+      // （列 = 1 日ごとに独立して判定する）。未指定時は従来どおり全件を表示する
+      const overflows = allDayMaxEvents !== undefined && sortedAllDayItems.length > allDayMaxEvents;
+      const allDayItems = overflows
+        ? sortedAllDayItems.slice(0, allDayMaxEvents)
+        : sortedAllDayItems;
+      const hiddenAllDayItems = overflows
+        ? sortedAllDayItems.slice(allDayMaxEvents)
+        : EMPTY_HIDDEN_ALL_DAY_ITEMS;
       return {
         resource,
         // 表示日数 1 のときは従来の単日キーのまま（`r:${id}` / 'unassigned'）
@@ -383,6 +433,8 @@ export function buildResourceViewModel(params: {
           displayEndMinutes: slotMaxTimeMinutes,
         }),
         allDayItems,
+        allDayOverflowCount: hiddenAllDayItems.length,
+        hiddenAllDayItems,
         ...hierarchy,
       };
     });
@@ -431,6 +483,7 @@ export function buildResourceViewModel(params: {
     slots,
     slotMinTimeMinutes,
     slotMaxTimeMinutes,
+    timeAxes: sharedTimeAxes,
     nowIndicatorMinutes,
     businessHourSlots: firstDayInfo.businessHourSlots,
   };

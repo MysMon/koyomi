@@ -17,6 +17,7 @@ import { buildResourceViewModel } from './resource-view';
 
 const TOKYO = 'Asia/Tokyo';
 const NY = 'America/New_York';
+const UTC = 'UTC';
 
 /** 指定タイムゾーンの現地時刻 `'YYYY-MM-DDTHH:mm'` から絶対時刻を作るテストヘルパ。 */
 function at(isoLocal: string, timeZone: TimeZoneId = TOKYO): Date {
@@ -80,6 +81,8 @@ function build(params: {
   slotMaxTime?: string;
   resourceViewDays?: number;
   collapsedResourceIds?: ReadonlySet<string>;
+  timeAxisZones?: readonly TimeZoneId[];
+  allDayMaxEvents?: number;
 }) {
   return buildResourceViewModel({
     currentDate: params.currentDate ?? at('2026-07-10T09:00'),
@@ -97,6 +100,8 @@ function build(params: {
     ...(params.collapsedResourceIds !== undefined
       ? { collapsedResourceIds: params.collapsedResourceIds }
       : {}),
+    ...(params.timeAxisZones !== undefined ? { timeAxisZones: params.timeAxisZones } : {}),
+    ...(params.allDayMaxEvents !== undefined ? { allDayMaxEvents: params.allDayMaxEvents } : {}),
   });
 }
 
@@ -612,6 +617,91 @@ describe('buildResourceViewModel', () => {
     });
   });
 
+  describe('終日行のあふれ（allDayMaxEvents）', () => {
+    /** 7/10 を覆う単日の終日オカレンス（r1 割当）を作る。 */
+    function alldayOccurrence(eventId: string): EventOccurrence {
+      return makeOccurrence({
+        eventId,
+        start: at('2026-07-10T00:00'),
+        end: at('2026-07-11T00:00'),
+        allDay: true,
+        resourceId: 'r1',
+      });
+    }
+
+    it('ちょうど allDayMaxEvents 件なら全件が allDayItems に残り、あふれは発生しない', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        occurrences: [alldayOccurrence('a'), alldayOccurrence('b')],
+        allDayMaxEvents: 2,
+      });
+      expect(vm.columns[0]?.allDayItems.map((occurrence) => occurrence.eventId)).toEqual([
+        'a',
+        'b',
+      ]);
+      expect(vm.columns[0]?.allDayOverflowCount).toBe(0);
+      expect(vm.columns[0]?.hiddenAllDayItems).toEqual([]);
+    });
+
+    it('1 件超過すると allDayItems は先頭 allDayMaxEvents 件に制限され、残りが hiddenAllDayItems と allDayOverflowCount に入る', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        occurrences: [alldayOccurrence('a'), alldayOccurrence('b'), alldayOccurrence('c')],
+        allDayMaxEvents: 2,
+      });
+      expect(vm.columns[0]?.allDayItems.map((occurrence) => occurrence.eventId)).toEqual([
+        'a',
+        'b',
+      ]);
+      expect(vm.columns[0]?.hiddenAllDayItems.map((occurrence) => occurrence.eventId)).toEqual([
+        'c',
+      ]);
+      expect(vm.columns[0]?.allDayOverflowCount).toBe(1);
+    });
+
+    it('複数日表示では列（日）ごとに独立して制限される', () => {
+      // 7/10〜7/11 の 2 日を覆う wide + 7/10 のみの単日 2 件。7/10 列は 3 件 → 1 件あふれ、
+      // 7/11 列は wide の 1 件のみで あふれなし
+      const wide = makeOccurrence({
+        eventId: 'wide',
+        start: at('2026-07-10T00:00'),
+        end: at('2026-07-12T00:00'),
+        allDay: true,
+        resourceId: 'r1',
+      });
+      const vm = build({
+        resources: [resource('r1')],
+        occurrences: [wide, alldayOccurrence('a'), alldayOccurrence('b')],
+        resourceViewDays: 2,
+        allDayMaxEvents: 2,
+      });
+      const firstDayColumn = vm.columns.find((column) => column.dayKey === '2026-07-10');
+      const secondDayColumn = vm.columns.find((column) => column.dayKey === '2026-07-11');
+      expect(firstDayColumn?.allDayItems).toHaveLength(2);
+      expect(firstDayColumn?.allDayOverflowCount).toBe(1);
+      expect(secondDayColumn?.allDayItems.map((occurrence) => occurrence.eventId)).toEqual([
+        'wide',
+      ]);
+      expect(secondDayColumn?.allDayOverflowCount).toBe(0);
+    });
+
+    it('allDayMaxEvents 省略時は無制限で従来どおり全件が allDayItems に入る（既定の対検証）', () => {
+      const vm = build({
+        resources: [resource('r1')],
+        occurrences: [
+          alldayOccurrence('a'),
+          alldayOccurrence('b'),
+          alldayOccurrence('c'),
+          alldayOccurrence('d'),
+          alldayOccurrence('e'),
+        ],
+      });
+      expect(vm.columns[0]?.allDayItems).toHaveLength(5);
+      expect(vm.columns[0]?.allDayOverflowCount).toBe(0);
+      expect(vm.columns[0]?.hiddenAllDayItems).toEqual([]);
+    });
+  });
+
   describe('日付・現在時刻線・目盛り', () => {
     it('date/dateKey/isToday が表示日を表す', () => {
       const vm = build({});
@@ -663,6 +753,64 @@ describe('buildResourceViewModel', () => {
       expect(item?.startMinutes).toBe(600);
       expect(item?.endMinutes).toBe(660);
       expect(vm.nowIndicatorMinutes).toBe(720);
+    });
+  });
+
+  describe('timeAxes（複数タイムゾーン軸）', () => {
+    it('timeAxisZones 未指定時は主軸のみの 1 要素配列になり、内容は slots と同一', () => {
+      const vm = build({ slotMinutes: 60 });
+      expect(vm.timeAxes).toHaveLength(1);
+      expect(vm.timeAxes[0]?.timeZone).toBe(TOKYO);
+      expect(vm.timeAxes[0]?.slots).toEqual(vm.slots);
+    });
+
+    it('追加軸は timeZone と各スロットの現地時刻ラベルを持つ', () => {
+      // 表示 TZ は東京（JST=UTC+9）、追加軸は NY（この期間は EDT=UTC-4）。
+      // 東京 9:00（表示範囲の先頭日 0:00 から 540 分）は NY では前日 20:00
+      const vm = build({ slotMinutes: 60, timeAxisZones: [NY] });
+      expect(vm.timeAxes).toHaveLength(2);
+      expect(vm.timeAxes[0]?.timeZone).toBe(TOKYO);
+      expect(vm.timeAxes[1]?.timeZone).toBe(NY);
+      const nyAxisSlot9 = vm.timeAxes[1]?.slots.find((slot) => slot.minutes === 540);
+      expect(nyAxisSlot9).toEqual({ minutes: 540, label: '20:00' });
+    });
+
+    it('複数の追加軸を指定順に並べられる', () => {
+      const vm = build({ slotMinutes: 60, timeAxisZones: [NY, UTC] });
+      expect(vm.timeAxes.map((axis) => axis.timeZone)).toEqual([TOKYO, NY, UTC]);
+    });
+
+    it('timeAxisZones 未指定時は各日の timeAxes も主軸のみの 1 要素配列になり、model.timeAxes と参照を共有する（無駄な複製を作らない）', () => {
+      const vm = build({ slotMinutes: 60, resourceViewDays: 2, resources: [resource('r1')] });
+      for (const day of vm.days) {
+        expect(day.timeAxes).toBe(vm.timeAxes);
+      }
+    });
+
+    it('resourceViewDays 複数日表示では各日が自身の日付を基準にした timeAxes を持ち、追加軸側の DST 切替後も正しいラベルになる', () => {
+      // 表示 TZ は東京、追加軸は NY。表示範囲は 2026-03-08〜09（NY が 2:00→3:00 へ
+      // 切り替わる日を含む 2 日表示）。表示範囲全体で共有する 1 組の軸だけだと
+      // 切替後の日もラベルが切替前のままになってしまう（回帰対象のバグ、time-grid と同じ懸念）
+      const vm = build({
+        currentDate: at('2026-03-08T00:00'),
+        now: at('2026-03-08T00:00'),
+        resourceViewDays: 2,
+        resources: [resource('r1')],
+        slotMinutes: 60,
+        timeAxisZones: [NY],
+      });
+      const day1 = vm.days[0];
+      const day2 = vm.days[1];
+      expect(day1?.key).toBe('2026-03-08');
+      expect(day2?.key).toBe('2026-03-09');
+      expect(day1?.timeAxes[1]?.slots.find((slot) => slot.minutes === 540)).toEqual({
+        minutes: 540,
+        label: '19:00',
+      });
+      expect(day2?.timeAxes[1]?.slots.find((slot) => slot.minutes === 540)).toEqual({
+        minutes: 540,
+        label: '20:00',
+      });
     });
   });
 

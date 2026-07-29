@@ -87,7 +87,9 @@ export function belongsToAllDayRow(occurrence: EventOccurrence, timeZone: TimeZo
  * 終日行のセグメントを帯レイアウト（月ビューと同じ方式）で構築する。
  *
  * 表示範囲全体（週なら 7 列、日なら 1 列）を 1 つの帯として扱い、
- * {@link layoutBandItems} でレーンを割り当てる。あふれ制限（`maxLanes`）はない。
+ * {@link layoutBandItems} でレーンを割り当てる。`allDayMaxEvents` を指定すると
+ * レーン数がその値までに制限され、超過したセグメントは `hidden: true` になり
+ * 列ごとのあふれ件数（`overflowByCol`）に計上される（省略時は無制限）。
  *
  * `hiddenWeekdays` により一部の列が非表示の場合、`columnIndexByKey` で得た
  * 「元の列」インデックスを `visibleColByOrigCol` で「可視列」インデックスへ
@@ -102,7 +104,9 @@ export function belongsToAllDayRow(occurrence: EventOccurrence, timeZone: TimeZo
  * @param params.visibleColByOrigCol - 元の列番号 → 可視列インデックスの対応表
  * @param params.columnCount - 可視列数（結果の `startCol` / `span` はこの座標系）
  * @param params.timeZone - 表示タイムゾーン
- * @returns セグメント一覧と使用レーン数
+ * @param params.allDayMaxEvents - 表示する最大レーン数
+ *   （{@link CalendarOptions.allDayMaxEvents}）。省略時は無制限
+ * @returns セグメント一覧・使用レーン数・可視列ごとのあふれ件数
  */
 function buildAllDaySegments(
   occurrences: readonly EventOccurrence[],
@@ -113,10 +117,18 @@ function buildAllDaySegments(
     visibleColByOrigCol: ReadonlyMap<number, number>;
     columnCount: number;
     timeZone: TimeZoneId;
+    allDayMaxEvents?: number;
   },
-): { segments: EventSegment[]; laneCount: number } {
-  const { rangeStart, rangeEnd, columnIndexByKey, visibleColByOrigCol, columnCount, timeZone } =
-    params;
+): { segments: EventSegment[]; laneCount: number; overflowByCol: readonly number[] } {
+  const {
+    rangeStart,
+    rangeEnd,
+    columnIndexByKey,
+    visibleColByOrigCol,
+    columnCount,
+    timeZone,
+    allDayMaxEvents,
+  } = params;
 
   const bandInputs: BandItemInput[] = [];
   const metas: {
@@ -180,7 +192,7 @@ function buildAllDaySegments(
     });
   }
 
-  const layout = layoutBandItems(bandInputs, columnCount);
+  const layout = layoutBandItems(bandInputs, columnCount, allDayMaxEvents);
   const segments: EventSegment[] = metas.map((meta, index) => {
     // placements は入力と同数・同順のため index で対応付く（undefined は防御）
     const placement = layout.placements[index];
@@ -195,7 +207,7 @@ function buildAllDaySegments(
     };
   });
 
-  return { segments, laneCount: layout.laneCount };
+  return { segments, laneCount: layout.laneCount, overflowByCol: layout.overflowByCol };
 }
 
 /** 時間グリッド 1 日分の作業用エントリ。 */
@@ -506,7 +518,9 @@ function lowerBoundGreaterThan(sorted: readonly number[], value: number): number
  * - `allDay: true` のオカレンス、または表示タイムゾーンで複数日にまたがり
  *   （開始の日付キーと「終了の 1ms 前」の日付キーが異なる。長さ 0 は単日扱い）
  *   かつ 24 時間以上続くオカレンスは終日行のセグメントになる
- *   （帯レイアウトでレーン割当。あふれ制限はなし）
+ *   （帯レイアウトでレーン割当。`allDayMaxEvents` 指定時はレーン数が制限され、
+ *   超過分は `hidden: true` になって各日の `allDayOverflowCount` に集約される。
+ *   省略時はあふれ制限なし）
  * - それ以外（24 時間未満の時間指定イベント）は該当日の時間グリッドに配置される。
  *   日をまたぐもの（例: 22:00〜翌 2:00）は日ごとに分割される
  *
@@ -542,6 +556,9 @@ function lowerBoundGreaterThan(sorted: readonly number[], value: number): number
  * @param params.slotMinTime - 表示する時間帯の開始（`'HH:mm'` 形式）。省略時は `'00:00'`
  * @param params.slotMaxTime - 表示する時間帯の終了（`'HH:mm'` 形式、排他的。`'24:00'` も可）。
  *   省略時は `'24:00'`
+ * @param params.allDayMaxEvents - 終日行に表示する最大レーン数
+ *   （{@link CalendarOptions.allDayMaxEvents}）。省略時は無制限。指定時は超過した
+ *   セグメントを `hidden: true` にし、各日の `TimeGridDay.allDayOverflowCount` に集計する
  */
 export function buildTimeGridViewModel(params: {
   currentDate: Date;
@@ -558,6 +575,7 @@ export function buildTimeGridViewModel(params: {
   businessHours?: readonly BusinessHoursRule[];
   slotMinTime?: string;
   slotMaxTime?: string;
+  allDayMaxEvents?: number;
 }): TimeGridViewModel {
   const {
     currentDate,
@@ -574,6 +592,7 @@ export function buildTimeGridViewModel(params: {
     businessHours = [],
     slotMinTime = '00:00',
     slotMaxTime = '24:00',
+    allDayMaxEvents,
   } = params;
   const slotMinTimeMinutes = parseSlotBoundaryTime(slotMinTime);
   const slotMaxTimeMinutes = parseSlotBoundaryTime(slotMaxTime);
@@ -619,17 +638,19 @@ export function buildTimeGridViewModel(params: {
     }
   }
 
-  const { segments: allDaySegments, laneCount: allDayLaneCount } = buildAllDaySegments(
-    allDayRowOccurrences,
-    {
-      rangeStart,
-      rangeEnd,
-      columnIndexByKey,
-      visibleColByOrigCol,
-      columnCount: visibleDayIndices.length,
-      timeZone,
-    },
-  );
+  const {
+    segments: allDaySegments,
+    laneCount: allDayLaneCount,
+    overflowByCol: allDayOverflowByCol,
+  } = buildAllDaySegments(allDayRowOccurrences, {
+    rangeStart,
+    rangeEnd,
+    columnIndexByKey,
+    visibleColByOrigCol,
+    columnCount: visibleDayIndices.length,
+    timeZone,
+    ...(allDayMaxEvents !== undefined ? { allDayMaxEvents } : {}),
+  });
 
   // 各元列（非表示曜日を含む全 dayCount 列）の次の日の 0:00（排他端）。
   // 最終列は範囲終端と一致する。可視列側の buildDayItems 呼び出しと
@@ -685,7 +706,7 @@ export function buildTimeGridViewModel(params: {
   const sharedBusinessHourSlots =
     businessHours.length === 0 ? buildBusinessHourSlots(slots, 0, businessHours) : null;
 
-  const days: TimeGridDay[] = visibleDayIndices.map((index) => {
+  const days: TimeGridDay[] = visibleDayIndices.map((index, visibleCol) => {
     const dayStart = dayStarts[index];
     if (dayStart === undefined) {
       // visibleDayIndices は dayStarts の添字から作られるためここには到達しない
@@ -696,6 +717,9 @@ export function buildTimeGridViewModel(params: {
       key: dayKeys[index] ?? dateKeyInZone(dayStart, timeZone),
       isToday: isSameDayInZone(dayStart, now, timeZone),
       weekday: weekdayInZone(dayStart, timeZone),
+      // 終日行のあふれ件数（allDayMaxEvents 未指定時は全列 0）。
+      // overflowByCol は可視列の座標系なので visibleCol で対応付く
+      allDayOverflowCount: allDayOverflowByCol[visibleCol] ?? 0,
       items: buildDayItems(timedByOrigDay[index] ?? [], {
         dayStart,
         // 次の日の 0:00（非表示曜日で間引く前の、暦上連続する翌日の境界）。

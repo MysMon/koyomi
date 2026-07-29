@@ -27,7 +27,13 @@
  */
 
 import { countOccurrencesBefore, normalizeRRuleString, truncateRRule } from './recurrence';
-import { addDaysInZone, dateFromKey, dateKeyInZone, parseDateValue } from './timezone';
+import {
+  addDaysInZone,
+  dateFromKey,
+  dateKeyInZone,
+  isValidTimeZone,
+  parseDateValue,
+} from './timezone';
 import type {
   CalendarEvent,
   CalendarEventInput,
@@ -572,6 +578,8 @@ function splitAllDaySeries(
  * - 旧シリーズは分割点の直前で UNTIL 打ち切り（patch は適用しない）
  * - 新シリーズは分割点から始まり、`COUNT` は残数を引き継ぎ、patch を適用する
  * - 分割点以降（`>=`）の EXDATE・RDATE とオーバーライドは新シリーズに付け替える
+ * - 付け替えは `recurringEventId` の変更のみで、オーバーライド自身の内容には patch を適用しない
+ *   （分割点ちょうどのオカレンスが既にオーバーライドされている場合、その内容を保ったまま新シリーズへ移る）
  */
 function splitSeries(
   events: readonly CalendarEvent[],
@@ -876,11 +884,12 @@ function truncateRdateSeries(
  * 既存イベントと同じ ID が指定された場合は例外を投げる。
  * `input.rrule` がある場合は {@link normalizeRRuleString} で検証し、
  * 不正なら例外を投げる（保存は入力の文字列のまま行う）。
+ * `input.timeZone` がある場合は {@link isValidTimeZone} で検証し、不正なら例外を投げる。
  *
  * @param events - 現在のイベント一覧
  * @param input - 追加するイベント
  * @param context - 変更コンテキスト
- * @throws ID が重複している場合、または `rrule` が不正な場合は `Error`
+ * @throws ID が重複している場合、`rrule` が不正な場合、または `timeZone` が不正な場合は `Error`
  */
 export function createEventIn(
   events: readonly CalendarEvent[],
@@ -894,6 +903,9 @@ export function createEventIn(
   if (input.rrule !== undefined) {
     // 検証のみに使う（不正な RRULE はここで例外になる）
     normalizeRRuleString(input.rrule);
+  }
+  if (input.timeZone !== undefined && !isValidTimeZone(input.timeZone)) {
+    throw new Error(`イベント '${id}' の timeZone が不正です: '${input.timeZone}'`);
   }
   const created: CalendarEvent = { ...input, id };
   return { events: [...events, created], created };
@@ -918,6 +930,8 @@ export function createEventIn(
  * @param target - 繰り返しの対象オカレンスとスコープ（単発イベントでは省略）
  * @param context - 変更コンテキスト
  * @returns 更新後のイベント一覧
+ * @throws 対象イベントが存在しない場合、`rrule` が不正な場合、
+ *   または `timeZone` が不正な場合は `Error`
  */
 export function updateEventIn(
   events: readonly CalendarEvent[],
@@ -932,6 +946,11 @@ export function updateEventIn(
   // 例外化するのを防ぐ）。`rrule: undefined`（繰り返し解除）は検証対象外。
   if (patch.rrule !== undefined) {
     normalizeRRuleString(patch.rrule);
+  }
+  // 不正な timeZone を state に混入させない（createEventIn と同じ検証）。
+  // `timeZone: undefined`（カレンダーの表示タイムゾーンへのフォールバック）は検証対象外。
+  if (patch.timeZone !== undefined && !isValidTimeZone(patch.timeZone)) {
+    throw new Error(`イベント '${id}' の timeZone が不正です: '${patch.timeZone}'`);
   }
 
   // オーバーライドの ID + 'thisAndFollowing' / 'all' は親シリーズへの適用に読み替える

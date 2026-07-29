@@ -54,6 +54,7 @@ import { buildYearViewModel } from './views/year-view';
 const DEFAULT_OPTIONS: Omit<ResolvedCalendarOptions, 'now'> = {
   weekStartsOn: 0,
   dayMaxEvents: 4,
+  allDayMaxEvents: null,
   snapMinutes: 15,
   slotMinutes: 60,
   timeAxisZones: [],
@@ -61,6 +62,7 @@ const DEFAULT_OPTIONS: Omit<ResolvedCalendarOptions, 'now'> = {
   listDays: 30,
   multiMonthCount: 3,
   timelineDays: 1,
+  timelineMaxLanes: null,
   resourceViewDays: 1,
   timelineScale: 'hour',
   unassignedLane: 'auto',
@@ -133,6 +135,10 @@ function resolveOptions(
   return {
     weekStartsOn: options?.weekStartsOn ?? current.weekStartsOn,
     dayMaxEvents: normalizePositiveInt(options?.dayMaxEvents ?? current.dayMaxEvents, 1),
+    allDayMaxEvents:
+      options?.allDayMaxEvents !== undefined
+        ? normalizePositiveInt(options.allDayMaxEvents, 1)
+        : current.allDayMaxEvents,
     snapMinutes: normalizePositiveInt(options?.snapMinutes ?? current.snapMinutes, 1),
     slotMinutes: normalizePositiveInt(options?.slotMinutes ?? current.slotMinutes, 1),
     timeAxisZones:
@@ -144,6 +150,10 @@ function resolveOptions(
     listDays: normalizePositiveInt(options?.listDays ?? current.listDays, 1),
     multiMonthCount: normalizePositiveInt(options?.multiMonthCount ?? current.multiMonthCount, 1),
     timelineDays: normalizePositiveInt(options?.timelineDays ?? current.timelineDays, 1),
+    timelineMaxLanes:
+      options?.timelineMaxLanes !== undefined
+        ? normalizePositiveInt(options.timelineMaxLanes, 1)
+        : current.timelineMaxLanes,
     resourceViewDays: normalizePositiveInt(
       options?.resourceViewDays ?? current.resourceViewDays,
       1,
@@ -210,6 +220,7 @@ function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOpt
   return (
     a.weekStartsOn === b.weekStartsOn &&
     a.dayMaxEvents === b.dayMaxEvents &&
+    a.allDayMaxEvents === b.allDayMaxEvents &&
     a.snapMinutes === b.snapMinutes &&
     a.slotMinutes === b.slotMinutes &&
     a.timeAxisZones.length === b.timeAxisZones.length &&
@@ -218,6 +229,7 @@ function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOpt
     a.listDays === b.listDays &&
     a.multiMonthCount === b.multiMonthCount &&
     a.timelineDays === b.timelineDays &&
+    a.timelineMaxLanes === b.timelineMaxLanes &&
     a.resourceViewDays === b.resourceViewDays &&
     a.timelineScale === b.timelineScale &&
     a.unassignedLane === b.unassignedLane &&
@@ -242,6 +254,20 @@ function resolvedOptionsEqual(a: ResolvedCalendarOptions, b: ResolvedCalendarOpt
 function assertTimeZone(timeZone: TimeZoneId): void {
   if (!isValidTimeZone(timeZone)) {
     throw new Error(`不正なタイムゾーンです: '${timeZone}'`);
+  }
+}
+
+/**
+ * イベント一覧の `timeZone` を検証し、不正な要素があれば例外を投げる
+ * （`timeZone` 省略のイベントは検証対象外）。
+ * `createEventIn` / `updateEventIn`（`./mutations`）と同じ検証・同じメッセージ形式を、
+ * `createCalendar` の初期化・`setEvents`・`updateOptions({ events })` の各経路に適用する。
+ */
+function assertEventsTimeZones(events: readonly CalendarEvent[]): void {
+  for (const event of events) {
+    if (event.timeZone !== undefined && !isValidTimeZone(event.timeZone)) {
+      throw new Error(`イベント '${event.id}' の timeZone が不正です: '${event.timeZone}'`);
+    }
   }
 }
 
@@ -389,6 +415,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
   let onRangeChange = options?.onRangeChange;
 
   assertTimeZone(timeZone);
+  assertEventsTimeZones(events);
   assertValidDate(currentDate);
 
   const listeners = new Set<() => void>();
@@ -572,6 +599,9 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           businessHours: resolvedOptions.businessHours,
           slotMinTime: resolvedOptions.slotMinTime,
           slotMaxTime: resolvedOptions.slotMaxTime,
+          ...(resolvedOptions.allDayMaxEvents !== null
+            ? { allDayMaxEvents: resolvedOptions.allDayMaxEvents }
+            : {}),
           now,
         });
       case 'list':
@@ -598,6 +628,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           weekStartsOn: resolvedOptions.weekStartsOn,
           dayMaxEvents: resolvedOptions.dayMaxEvents,
           hiddenWeekdays: resolvedOptions.hiddenWeekdays,
+          showWeekNumbers: resolvedOptions.showWeekNumbers,
           multiMonthCount: resolvedOptions.multiMonthCount,
           now,
         });
@@ -610,10 +641,14 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           unassignedLane: resolvedOptions.unassignedLane,
           slotMinutes: resolvedOptions.slotMinutes,
           locale: resolvedOptions.locale,
+          timeAxisZones: resolvedOptions.timeAxisZones,
           businessHours: resolvedOptions.businessHours,
           slotMinTime: resolvedOptions.slotMinTime,
           slotMaxTime: resolvedOptions.slotMaxTime,
           resourceViewDays: resolvedOptions.resourceViewDays,
+          ...(resolvedOptions.allDayMaxEvents !== null
+            ? { allDayMaxEvents: resolvedOptions.allDayMaxEvents }
+            : {}),
           now,
           collapsedResourceIds,
         });
@@ -630,6 +665,9 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
           timelineScale: resolvedOptions.timelineScale,
           weekStartsOn: resolvedOptions.weekStartsOn,
           businessHours: resolvedOptions.businessHours,
+          ...(resolvedOptions.timelineMaxLanes !== null
+            ? { maxLanes: resolvedOptions.timelineMaxLanes }
+            : {}),
           now,
           collapsedResourceIds,
         });
@@ -728,6 +766,13 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       if (patch.timeZone !== undefined && patch.timeZone !== timeZone) {
         assertTimeZone(patch.timeZone);
       }
+      if (
+        patch.events !== undefined &&
+        patch.events !== events &&
+        patch.events !== lastEventsInput
+      ) {
+        assertEventsTimeZones(patch.events);
+      }
       const nextResolved = resolveOptions(patch, resolvedOptions);
 
       let changed = false;
@@ -798,6 +843,7 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
       if (next === events || next === lastEventsInput) {
         return;
       }
+      assertEventsTimeZones(next);
       // 外部同期の入口なので onEventsChange は呼ばない（呼び出しの循環防止）
       lastEventsInput = next;
       events = [...next];

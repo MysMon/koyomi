@@ -44,6 +44,8 @@ import { buildMonthViewModel } from './month-view';
  * @param params.weekStartsOn - 週の開始曜日
  * @param params.dayMaxEvents - 1 日に表示する最大イベント数
  * @param params.hiddenWeekdays - 非表示にする曜日。省略時は `[]`（すべて表示）
+ * @param params.showWeekNumbers - 各月の週行に ISO 8601 週番号（`MonthWeek.weekNumber`）を
+ *   算出するか。省略時は `false`（`weekNumber` は常に `null`）
  * @param params.multiMonthCount - 表示する月数
  * @param params.now - 現在時刻（`isToday` 判定に使用）
  * @returns 複数月ビューのビューモデル
@@ -68,6 +70,7 @@ export function buildMultiMonthViewModel(params: {
   weekStartsOn: Weekday;
   dayMaxEvents: number;
   hiddenWeekdays?: readonly Weekday[];
+  showWeekNumbers?: boolean;
   multiMonthCount: number;
   now: Date;
 }): MultiMonthViewModel {
@@ -78,6 +81,7 @@ export function buildMultiMonthViewModel(params: {
     weekStartsOn,
     dayMaxEvents,
     hiddenWeekdays,
+    showWeekNumbers,
     multiMonthCount,
     now,
   } = params;
@@ -103,6 +107,7 @@ export function buildMultiMonthViewModel(params: {
       now,
       segmentRange: { start: monthStart, end: nextMonthStart },
       ...(hiddenWeekdays !== undefined ? { hiddenWeekdays } : {}),
+      ...(showWeekNumbers !== undefined ? { showWeekNumbers } : {}),
     });
 
     months.push({
