@@ -310,13 +310,13 @@ React に依存しない処理だけを使う場合のみ
 ### 実測値の例
 
 最小アプリを esbuild 0.28.1 でバンドル（minify）した際のライブラリ寄与分
-（`react` / `react-dom` を external にした値。計測日: 2026-07-19）です。
+（`react` / `react-dom` を external にした値。計測日: 2026-07-29）です。
 
 | import する範囲 | raw | gzip |
 | --- | ---: | ---: |
-| 全ビュー + Toolbar（`CalendarView` / `Toolbar` / `useCalendar`） | 257.5 KB | 72.4 KB |
-| 月ビューのみ（`MonthView` / `CalendarProvider` / `useCalendar`） | 146.9 KB | 44.1 KB |
-| コアのみ（`@koyomi-cal/react/core` の `createCalendar`） | 102.8 KB | 30.9 KB |
+| 全ビュー + Toolbar（`CalendarView` / `Toolbar` / `useCalendar`） | 283.1 KB | 78.4 KB |
+| 月ビューのみ（`MonthView` / `CalendarProvider` / `useCalendar`） | 152.5 KB | 46.0 KB |
+| コアのみ（`@koyomi-cal/react/core` の `createCalendar`） | 104.8 KB | 31.4 KB |
 
 次のものは import する範囲によらず、`createCalendar`（`useCalendar` の内部）を
 使う限り常にバンドルに含まれます。tree-shaking では除外されない設計上の固定費

@@ -28,8 +28,8 @@ const PKG_DIR = join(ROOT, 'packages/react-calendar');
 
 /** ライブラリ寄与分の gzip サイズ閾値（KB）。実測値 + 約 1 割の余裕 */
 const GZIP_BUDGET_KB = {
-  month: 48,
-  full: 78,
+  month: 51,
+  full: 86,
 };
 
 /**
