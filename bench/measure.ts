@@ -128,6 +128,52 @@ export async function measureScroll(
   };
 }
 
+/** 編集操作ベンチマーク 1 回分の計測結果。 */
+export interface MutationSample {
+  /** 一括実行した件数（作成・更新・削除それぞれ）。 */
+  count: number;
+  /** `createEvent` を一括実行した合計所要時間（ミリ秒）。 */
+  createMs: number;
+  /** `updateEvent` を一括実行した合計所要時間（ミリ秒）。 */
+  updateMs: number;
+  /** `deleteEvent` を一括実行した合計所要時間（ミリ秒）。 */
+  deleteMs: number;
+}
+
+/**
+ * 指定構成でページを開き直し、編集操作（`createEvent`/`updateEvent`/
+ * `deleteEvent` の一括実行）の所要時間を 1 サンプル取得する。
+ *
+ * ストレステストパターンの「編集操作を計測」ボタン（`[data-stress-mutate]`）を
+ * クリックしてベンチマークを開始し、結果が `data-stress-mutate-*` 属性に
+ * 反映されるのを待つ。計測対象はカレンダーの状態規模（`config.events` /
+ * `config.resources`）であり、`config.view` は初回描画のみに影響する。
+ *
+ * @param page - Playwright のページ
+ * @param config - 計測する構成
+ * @param timeoutMs - 初回描画・計測完了を待つ上限（ミリ秒）
+ */
+export async function measureMutations(
+  page: Page,
+  config: StressConfig,
+  timeoutMs = 120_000,
+): Promise<MutationSample> {
+  await page.goto('about:blank');
+  await page.goto(stressUrl(config));
+  const frame = page.locator('[data-stress-frame]');
+  await expect(frame).toHaveAttribute('data-stress-ready', 'true', { timeout: timeoutMs });
+  await page.locator('[data-stress-mutate]').click();
+  await expect(frame).toHaveAttribute('data-stress-mutate-create-ms', /.+/, {
+    timeout: timeoutMs,
+  });
+  return {
+    count: Number(await frame.getAttribute('data-stress-mutate-count')),
+    createMs: Number(await frame.getAttribute('data-stress-mutate-create-ms')),
+    updateMs: Number(await frame.getAttribute('data-stress-mutate-update-ms')),
+    deleteMs: Number(await frame.getAttribute('data-stress-mutate-delete-ms')),
+  };
+}
+
 /** 数値配列の中央値を返す（偶数個のときは中央 2 値の平均）。 */
 export function median(values: readonly number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
