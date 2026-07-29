@@ -57,6 +57,7 @@ Everything else below links to the Japanese original. If you can read Japanese, 
   - [`useCalendarAnnouncer`](../api.md#usecalendarannouncer)
   - [`useCalendarHistory`](../api.md#usecalendarhistory)
   - [`useCalendarClipboard`](../api.md#usecalendarclipboard)
+  - [`useCalendarDuplicate`](../api.md#usecalendarduplicate)
   - [`useRecurrenceRuleEditor`](../api.md#userecurrenceruleeditor)
   - [`useCalendarShortcuts`](../api.md#usecalendarshortcuts)
   - [`useDayDrag`](../api.md#usedaydrag)

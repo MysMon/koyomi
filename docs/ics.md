@@ -6,6 +6,10 @@ Koyomi は、イベントの配列（`CalendarEvent[]`）と iCalendar（RFC 554
 
 - **`eventsToIcs(events, options?)`** — `CalendarEvent[]` → `VCALENDAR`/`VEVENT` 文字列
 - **`eventsFromIcs(ics)`** — `.ics` テキスト → `CalendarEvent[]`
+- **`eventsFromIcsWithIssues(ics)`** — `.ics` テキスト →
+  `{ events: CalendarEvent[]; issues: IcsImportIssue[] }`（不正な VEVENT を個別に
+  読み飛ばして残りを取り込む版。詳細は
+  [部分取り込みとエラー収集](#部分取り込みとエラー収集eventsfromicswithissues) を参照）
 
 どちらも React に依存しないコア関数で、`@koyomi-cal/react` と
 [`@koyomi-cal/react/core`](./api.md#koyomi-calreactcorereact-非依存の単体エントリ) の
@@ -119,7 +123,84 @@ const events = eventsFromIcs(icsText);
 | `RRULE` | `rrule`。UTC 表記の `UNTIL` はイベント TZ（`timeZone` のない UTC 形式のイベントは実行環境のローカルタイムゾーン）の現地時刻へ変換される。フローティングのイベントの `UNTIL` は現地時刻のまま取り込まれる |
 | `EXDATE` / `RDATE` | `exdates` / `rdates`（複数プロパティ・カンマ区切りの両方を合成） |
 | `RECURRENCE-ID` 付きの VEVENT | オーバーライド。`recurringEventId` に `UID`、`originalStart` に `RECURRENCE-ID` の値が入り、`id` は「`UID@RECURRENCE-ID の値`」（例: `weekly@20260713T100000`）で生成される |
-| `STATUS:CANCELLED` + `RECURRENCE-ID` | 「そのオカレンスの削除」として、同じ `UID` のマスターの `exdates` に変換される（マスターが同じ ICS 内にない場合は無視）。`RECURRENCE-ID` のない `STATUS:CANCELLED` の VEVENT は取り込まれない |
+| `RECURRENCE-ID;RANGE=THISANDFUTURE` 付きの VEVENT | 「これ以降」のシリーズ分割。同じ `UID` のマスターの繰り返しを分割点の直前で打ち切り、分割点以降を新しい独立イベントとして取り込む。詳細は [シリーズ分割](#シリーズ分割recurrence-idrangethisandfuture) を参照 |
+| `STATUS:CANCELLED` + `RECURRENCE-ID` | 「そのオカレンスの削除」として、同じ `UID` のマスターの `exdates` に変換される（マスターが同じ ICS 内にない場合は無視）。`RANGE=THISANDFUTURE` が付いている場合は「これ以降の削除」としてシリーズを打ち切る。`RECURRENCE-ID` のない `STATUS:CANCELLED` の VEVENT は取り込まれない |
+
+### シリーズ分割（RECURRENCE-ID;RANGE=THISANDFUTURE）
+
+`RECURRENCE-ID` に `RANGE=THISANDFUTURE` パラメータが付いた VEVENT は、単一オカレンスの
+オーバーライドではなく「この予定とそれ以降」の変更として取り込まれます。カレンダー上の
+対話操作（[繰り返し予定](./recurrence.md) の「これ以降のすべての予定」）と同じ意味論で、
+同じ `UID` のマスターをシリーズ分割に変換します。
+
+- **旧シリーズ** — マスターの `rrule` を分割点（`RECURRENCE-ID` の値）の直前の
+  オカレンスで `UNTIL` 打ち切りにする（`COUNT` は `UNTIL` に置き換わる）
+- **新シリーズ** — 分割点以降を引き継ぐ独立イベントになる。`id` は
+  「`UID@RECURRENCE-ID の値`」（単一オーバーライドの `id` と同じ規則）で、
+  `recurringEventId` / `originalStart` は持たない
+  - `start` はオーバーライド VEVENT の `DTSTART`（分割点から日時をずらす変更を表現できる）
+  - `rrule` はマスターの値を引き継ぎ、`COUNT` は消化済み回数（分割点より前の
+    オカレンス数）を差し引いた残数になる。オーバーライド VEVENT 自体に `RRULE` が
+    ある場合はその値を使う
+  - `SUMMARY` / `DTEND` / `LOCATION` / `DESCRIPTION` / `EXDATE` / `RDATE` は
+    オーバーライド VEVENT にあればその値を、なければマスターの値を引き継ぐ
+- **付け替え** — 分割点以降（分割点ちょうどを含む）の通常オーバーライド・`EXDATE`・
+  `RDATE` は新シリーズへ付け替えられる。分割点より前のものは旧シリーズに残る
+- **複数の分割** — 同じ `UID` に複数の `RANGE=THISANDFUTURE` がある場合は分割点の
+  昇順に連鎖適用され、前の分割で生まれた新シリーズが次の分割の対象になる
+  （ICS 内の出現順には依存しない）
+- **`STATUS:CANCELLED` との組み合わせ** — 「これ以降の削除」として、マスターを
+  分割点の直前で打ち切り、分割点以降のオーバーライド・`EXDATE`・`RDATE` を取り除く
+- **`RRULE` のないマスター** — `RDATE` のみで繰り返すマスターは、分割点より前の
+  `RDATE` を旧シリーズに、以降の `RDATE` を新シリーズに振り分けて分割する
+
+同じ `UID` のマスター（`RRULE` または `RDATE` を持つ VEVENT）が同じ ICS 内に
+見つからない場合、または `eventsFromIcsWithIssues` でマスターが `issues` 側に
+回っている場合は、分割せず単一オカレンスのオーバーライドとして取り込まれます
+（`STATUS:CANCELLED` 付きなら単一オカレンスの削除として `exdates` に変換されます）。
+
+分割点の日時は `RECURRENCE-ID` の形式に従って解釈されます。`TZID` 付きはそのタイムゾーンの
+現地時刻、UTC（末尾 `Z`）は絶対時刻、フローティングと日付形式（終日）は `UNTIL` の取り込みと
+同じく実行環境のローカルタイムゾーン（表示タイムゾーンに相当）で解釈されます。
+
+分割結果の 2 系列は独立したイベントのため、`eventsToIcs` ではそれぞれ別の `UID` の
+VEVENT として書き出されます（`RANGE=THISANDFUTURE` は出力されません）。書き出した ICS を
+再インポートしても、オカレンス展開の結果は変わりません。
+
+## 部分取り込みとエラー収集（eventsFromIcsWithIssues）
+
+`eventsFromIcs` は VEVENT 単位の不正（後述の「エラーにする」表に該当するもの）が
+1 件でもあると ICS 全体を `Error` として投げます。外部カレンダーからエクスポート
+された ICS の一部だけが壊れている場合に、正常な VEVENT だけでも取り込みたいときは
+`eventsFromIcsWithIssues(ics)` を使います。
+
+```ts
+import { eventsFromIcsWithIssues } from '@koyomi-cal/react/core';
+
+const { events, issues } = eventsFromIcsWithIssues(icsText);
+calendar.setEvents(events);
+for (const issue of issues) {
+  console.warn(`VEVENT #${issue.index}（UID: ${issue.uid ?? '不明'}）を読み飛ばしました: ${issue.message}`);
+}
+```
+
+- `events` — 取り込めた `CalendarEvent[]`（不正な VEVENT はスキップ）
+- `issues` — 読み飛ばした VEVENT ごとの `IcsImportIssue` の配列（ICS 内の出現順）
+  - `index` — ICS 内の VEVENT の出現順（0 始まり）
+  - `uid` — 対象 VEVENT の `UID`（省略されていた場合は `null`）
+  - `summary` — 対象 VEVENT の `SUMMARY`（省略されていた場合は `null`）
+  - `message` — 読み飛ばした理由（`eventsFromIcs` が投げるものと同じ `Error` のメッセージ）
+
+`STATUS:CANCELLED` のオーバーライドは `eventsFromIcs` と同じくマスターの `exdates` に
+変換されますが、マスターの VEVENT 自体が不正で `issues` 側に回っている場合は反映先が
+ないため無視されます。
+
+`BEGIN`/`END` の対応が取れないコンポーネント構造・`':'` のない行など、特定の VEVENT
+に閉じない ICS 全体の構造の不正は、`eventsFromIcs` と同様に `eventsFromIcsWithIssues`
+でも `Error` を投げます（`issues` には積まれません）。次の「非対応構文の扱い」の
+「エラーにする」表のうち、`DTSTART` のない VEVENT・無効な `TZID`・解釈できない日時値・
+不正な `RRULE` の 4 つが VEVENT 単位の issue に変換される対象で、残り 2 つ（構造の不正）
+は両 API とも常に `Error` になります。
 
 ## 非対応構文の扱い
 
@@ -135,7 +216,6 @@ RFC 5545 のうち Koyomi のイベントモデルに対応する表現がない
 | `VALUE=PERIOD` の `RDATE` | 無視（期間付き RDATE は表現できないため） |
 | `DURATION` | 無視（`DTEND` がなければ `end` なしになり、表示時は `defaultEventMinutes` が適用される） |
 | `VALARM`、`VTODO` / `VJOURNAL` / `VFREEBUSY` などの VEVENT 以外のコンポーネント | 無視 |
-| `RECURRENCE-ID` の `RANGE=THISANDFUTURE` パラメータ | 無視（常に単一オカレンスのオーバーライドとして扱う） |
 | `DTSTAMP` / `SEQUENCE` / `ORGANIZER` / `ATTENDEE` / `X-` プロパティなどの未対応プロパティ | 無視 |
 
 **エラーにする**（`Error` を投げる）:

@@ -71,6 +71,13 @@ useCalendar({ slotMinTime: '07:00', slotMaxTime: '21:00' });
   `useVirtualizer`（縦・横どちらの軸にも対応）を `buildListViewModel` 等の
   ビューモデルビルダーと組み合わせて使えます
 
+`VirtualListView` は日単位の仮想化に加え、1 日の予定件数が `sectionItemWindowThreshold`
+（既定 50）を超える日セクションではセクション内でもウィンドウ描画を行い、可視範囲＋
+overscan のイベント行だけを描画して残りをイベント行の推定高 `estimateItemHeight`
+（既定 32px）に基づく高さのスペーサーで置き換えます。1 日に数百件の予定があっても
+DOM のイベント行数は可視範囲程度に抑えられます。カスタム描画で行の実寸が既定と
+大きく異なる場合は `estimateItemHeight` を実寸に合わせるとスクロールが安定します。
+
 使用例:
 
 ```tsx
@@ -99,15 +106,27 @@ function App() {
 - **表示範囲の変化**（ビュー切替・前後移動・`goTo`）は `onRangeChange`
   （`useCalendar` のオプション）で検知します。詳細は
   [API リファレンス](./api.md#オプション) を参照してください
-- **仮想化ウィンドウの変化**（スクロールによる可視範囲の移動）は、
-  `VirtualTimelineView` の `onVisibleRangeChange` で検知します。表示範囲全体では
-  なく「いま実際に見えている行（リソース）× 日」だけが分かるため、表示範囲が
-  広い・リソースが多い画面でも可視範囲のデータだけを増分取得できます
+- **仮想化ウィンドウの変化**（スクロールによる可視範囲の移動）は、`VirtualListView` /
+  `VirtualResourceView` / `VirtualTimelineView` の `onVisibleRangeChange` で検知します。
+  表示範囲全体ではなく「いま実際に見えている」日セクション・列・行（リソース）×日
+  だけが分かるため、表示範囲が広い・リソースが多い画面でも可視範囲のデータだけを
+  増分取得できます
 
-`onVisibleRangeChange` は可視ウィンドウの内容（行・日それぞれのキー範囲）が変わった
-ときだけ 1 回発火し、マウント直後にも現在の可視範囲を 1 回通知します（初回取得に
-使えます）。通知には可視の日付範囲（`rangeStart`〜`rangeEnd`、`rangeEnd` は排他）と
-可視行のリソース一覧が含まれます。
+3 コンポーネントとも共通の流儀です。`onVisibleRangeChange` は可視ウィンドウの内容が
+変わったときだけ 1 回発火し、マウント直後にも現在の可視範囲を 1 回通知します（初回
+取得に使えます）。`rangeEnd` は翌日 0:00 の排他端で、ビューモデルの `type` がそのビュー
+以外のときは発火しません。渡される内容はコンポーネントごとに異なります。
+
+- **`VirtualListView`** — `info = { days: VisibleWindowRange; rangeStart: Date; rangeEnd: Date }`。
+  日セクションの可視範囲のみで、リソース情報は含みません
+- **`VirtualResourceView`** — `info = { columns: VisibleWindowRange; rangeStart: Date; rangeEnd: Date; resources: readonly (CalendarResource | null)[] }`。
+  `columns` は `ResourceViewModel.columns` と同じ「リソース × 日」の直積の並び
+  （`resourceViewDays` が `2` 以上のときはリソース優先・日は各リソース内で昇順）のため、
+  `rangeStart`/`rangeEnd` は可視列に含まれる日付の最小〜最大から導出されます
+  （先頭列・末尾列の日付とは限りません）
+- **`VirtualTimelineView`** — `info = { rows: VisibleWindowRange; days: VisibleWindowRange; rangeStart: Date; rangeEnd: Date; resources: readonly (CalendarResource | null)[] }`。
+  可視の日付範囲（`rangeStart`〜`rangeEnd`、`rangeEnd` は排他）と可視行のリソース一覧が
+  含まれます
 
 ```tsx
 import { useCallback, useRef } from 'react';
@@ -249,6 +268,32 @@ URL だけで同じ構成を再現できます。データはベンチマーク�
 収まっており、仮想化ビューのスクロールは件数を増やしてもフレーム落ちなしで
 維持されます。初回描画時間はイベント件数・リソース件数にほぼ比例して増え、
 最重量の 10,000 件 × 1,000 リソースでも 1.5 秒未満です。
+
+### 編集操作性能の実測値の例
+
+デモの「ストレステスト」パターンには、`createEvent`/`updateEvent`/`deleteEvent`
+を 200 件ずつ一括実行して所要時間を計測する「編集操作を計測」ボタンがあります。
+`pnpm bench` はこの操作も代表構成ごとに計測します。以下はクラウドコンテナ環境
+での実測値です。
+
+- 計測日: 2026-07-29
+- 計測環境: クラウドコンテナ（Linux 6.18.5、Intel Xeon @ 2.10 GHz × 4 コア、
+  メモリ 16 GiB）
+- Node: v22.22.2 / Chromium 149（ヘッドレス）
+- デモアプリの本番ビルド（`vite build`）
+
+編集操作（3 回の中央値、いずれも 200 件一括実行）:
+
+| イベント件数 | リソース件数 | 一括件数 | 作成 (ms) | 更新 (ms) | 削除 (ms) |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 100 | 200 | 25.9 | 55.0 | 44.8 |
+| 10,000 | 100 | 200 | 147.5 | 512.6 | 490.9 |
+| 1,000 | 1,000 | 200 | 25.3 | 56.3 | 44.9 |
+| 10,000 | 1,000 | 200 | 149.8 | 510.1 | 487.4 |
+
+作成・更新・削除いずれの所要時間もイベント総件数にほぼ比例して増え、リソース
+件数にはほとんど影響されません。最重量の 10,000 件 × 1,000 リソースでも、
+200 件一括実行の合計所要時間（作成 + 更新 + 削除）は約 1.1 秒です。
 
 ## バンドルサイズと tree-shaking
 

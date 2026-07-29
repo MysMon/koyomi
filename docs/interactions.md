@@ -4,7 +4,7 @@
 
 ## クリック・ドラッグでの予定作成
 
-空き領域のクリック・ドラッグで範囲が選択されると `onSelectRange` が呼ばれます。**省略した場合**は既定動作として、`messages.common.untitledEvent`（既定 `'(タイトルなし)'`）のタイトルの予定がその場で即時作成されます（`createEvent` 相当）。
+空き領域のクリック・ドラッグで範囲が選択されると `onSelectRange` が呼ばれます。**省略した場合**は既定動作として、`messages.common.untitledEvent`（既定 `'(タイトルなし)'`）のタイトルの予定がその場で即時作成されます（`createEvent` 相当）。このとき `onEventCreate` を指定すると、作成されたイベントと undo 用の `changes`・元になった `selection` を受け取れます（`onSelectRange` を指定した場合は呼ばれません）。
 
 コールバックには `RangeSelection` が渡されます。
 
@@ -15,6 +15,7 @@
 
 - **範囲ドラッグ** — ドラッグした始点〜終点がそのまま選択範囲になる（`snapMinutes` 単位でスナップ）
 - **クリックのみ（移動なし）** — `defaultEventMinutes` 分の長さの範囲になる
+- **キーボード（日列にフォーカスして Enter / Space）** — その列の日の表示時間帯の開始（`slotMinTime`）から `defaultEventMinutes` 分の範囲になる（リソースビューの列・タイムラインの行も同様。詳細は [キーボードのみでの予定操作](#キーボードのみでの予定操作) を参照）
 
 ```tsx
 import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
@@ -86,7 +87,7 @@ function App() {
 - **移動** — 時間グリッドでは列をまたいだ移動が可能（`snapMinutes` 単位でスナップ）。月ビュー・終日行では日単位の移動になり、期間と現地時刻（時間指定イベントの場合）が維持される
 - **リサイズ（時間グリッド）** — 予定の**下端**ハンドルで終了時刻、**上端**ハンドルで開始時刻を変更できる。いずれも最小 `snapMinutes` 分の長さが保たれる。日をまたいで表示が分割されている場合、分割された端（`continuesBefore` / `continuesAfter`）にはハンドルが出ない
 - **リサイズ（月ビュー・終日行の帯）** — 帯セグメントの**左右端**ハンドルで開始日・終了日を日単位で変更できる。最低 1 日分の長さが保たれ、時間指定の複数日イベントでは現地時刻を維持したまま日数だけが変わる
-- **終日 ⇔ 時間指定の変換** — 週/日ビューで、時間指定の予定を上部の終日行までドラッグすると**終日イベントに変換**され、終日行の予定を時間グリッドへドラッグすると**時間指定イベント**（ドロップ位置の時刻から `defaultEventMinutes` 分）**に変換**されます（Google カレンダーと同じ操作感）
+- **終日 ⇔ 時間指定の変換** — 週/日ビューで、時間指定の予定を上部の終日行までドラッグすると**終日イベントに変換**され、終日行の予定を時間グリッドへドラッグすると**時間指定イベント**（ドロップ位置の時刻から `defaultEventMinutes` 分）**に変換**されます（Google カレンダーと同じ操作感）。リソースビューでも同じ変換ドラッグが使えます（[リソースビュー・タイムラインビューのドラッグ操作](#リソースビュータイムラインビューのドラッグ操作) 参照）。フォーカス中の予定の `A` キーでも同じ変換ができます（[キーボードのみでの予定操作](#キーボードのみでの予定操作) 参照）
 - **`editable: false`** — 表示・クリックは通常どおりできるが、移動・リサイズ・**キーボードでの削除（Delete/Backspace）**はすべて無効になる。リサイズハンドル自体が描画されない
 - **タッチデバイス** — デフォルトテーマがドラッグ起点の要素に `touch-action: none` を設定しているため、ドラッグがスクロールに奪われません。独自 CSS でテーマを構築する場合は同様の設定が必要です（[テーマとスタイリング](./theming.md) 参照）。ブラウザがポインタを中断した場合（`pointercancel`）はドラッグが安全にキャンセルされます
 - **オートスクロール** — 時間グリッドの縦スクロール領域では、ドラッグ中にポインタが上下端へ近づくと自動でスクロールします
@@ -202,7 +203,8 @@ function App() {
 - **未割り当てへの移動** — 未割り当てレーン（`resource: null`）へ移動すると、単一割当の予定では `{ resourceId: undefined }` のパッチが発行されます（`CalendarEventPatch` の削除セマンティクスに従い、`resourceId` フィールドが削除されます）。複数リソース割当の予定では操作したレーンの割当だけが `resourceIds` から取り除かれます。未割り当てレーンが存在しない場合（`unassignedLane: 'auto'` で未割り当ての予定が 1 件も無いとき）はドロップ先が無いため、この操作はできません。運用したい場合は `unassignedLane: 'always'` を指定してください（詳細は [ビュー](./views.md#年複数月リソースタイムラインビューを有効にするopt-in) を参照）
 - **既定作成（`onSelectRange` 未指定時の即時作成）** — 選択したレーンの `resourceId` が `createEvent` の入力に含まれます（未割り当てレーンでは `resourceId` を付けません）
 - **終日行/終日の帯** — リソースビューの終日行はクリックでその列の日 1 日分の終日イベントを作成でき、ドラッグで列間の移動ができます（リソース変更と日数シフトの合成。リサイズはありません）。タイムラインの終日の帯は日単位スナップで横移動できます
-- **allDay ⇔ 時間指定の変換** — 週/日ビューにあるような越境変換ドラッグは、リソース/タイムラインビューでは提供しません
+- **allDay ⇔ 時間指定の変換（リソースビュー）** — 週/日ビューと同じ変換ドラッグが使えます。時間指定の予定を上部の終日行までドラッグすると**終日イベントに変換**され（変換先はドロップした列の日から暦日数分・その列のリソース割当）、終日行の予定を列本体へドラッグすると**時間指定イベント**（ドロップ位置の時刻から `defaultEventMinutes` 分・ドロップした列のリソース割当）**に変換**されます。フォーカス中の予定の `A` キーでも変換できます（[キーボードのみでの予定操作](#キーボードのみでの予定操作) 参照）。確定の扱いは週/日ビューの変換と同じで、`onBeforeEventChange` / `onOperationRejected` には `action: 'convert'`（移動先レーンの `resourceId` 付き）が渡され、繰り返し予定はスコープ解決を通ります
+- **allDay ⇔ 時間指定の変換（タイムラインビュー）** — タイムラインは終日の帯を時間指定の帯と同一のレーン空間（行）に積んで表示するため、ドラッグの行き先として区別できる終日領域が存在せず、**変換ドラッグは提供しません**。変換はフォーカス中の帯の `A` キーで行います（確定の扱いはリソースビューの変換と同じ）
 - 繰り返し予定は既存の `resolveRecurringScope` フロー（下記）にそのまま乗ります（リソース移動も this / thisAndFollowing / all の選択対象）
 
 **予定要素にフォーカスした状態（リソース/タイムラインビュー）:**
@@ -211,6 +213,7 @@ function App() {
 | --- | --- | --- |
 | `Enter` / `Space` | `onEventClick` 相当のクリック | 同左 |
 | `Delete` / `Backspace` | オカレンスを削除（繰り返しはスコープ解決） | 同左 |
+| `A` | 終日 ⇔ 時間指定の変換（時間指定 → 開始日 1 日分の終日。終日 → 開始日の `slotMinTime` から `defaultEventMinutes` 分の時間指定。レーンは不変） | 終日 ⇔ 時間指定の変換（時間指定 → 開始日 1 日分の終日。終日 → 開始日の 0:00 から `defaultEventMinutes` 分、`timelineScale` が `'hour'` 以外のときは 1 日分の時間指定。レーンは不変） |
 | `↑` / `↓` | ∓/± `snapMinutes` 分の移動（時間の軸） | 隣の行（リソース）への移動 |
 | `←` / `→` | 隣の列（リソース × 日）への移動 | ∓/± `snapMinutes` 分の移動（時間の軸。終日の帯、または `timelineScale` が `'hour'` 以外のときは ∓/± 1 日） |
 | `Shift+↑` / `Shift+↓` | 終了時刻を ∓/± `snapMinutes` 分リサイズ | — |
@@ -458,7 +461,7 @@ function App() {
 
 - **eventOverlap** — `false` にすると、移動・リサイズ・作成の結果が既存イベントと重なる操作を拒否します。判定対象は同一レーンの全オカレンス（リソース/タイムラインビューは割当先レーン。`resourceIds` で複数リソースに割り当てられている予定は割当先の各レーンでブロッカーになります、それ以外のビューはレーン区分なし）で、`slotMinTime`/`slotMaxTime` の表示時間帯外や表示範囲外にあって画面に描画されていないオカレンスも含みます（矢印キーによる表示外への移動もすり抜けられません）。時間指定・終日は絶対時刻の区間 `[start, end)` として統一的に比較します。判定は「動かしている側」と「重ねられる側」双方の実効値（イベント個別の `overlap` が優先、省略時は `eventOverlap`）を見て、どちらかが `false` なら拒否します
 - **eventConstraint** — `'businessHours'` を指定すると `businessHours` の範囲内にのみドロップを許可します。`BusinessHoursRule` の配列を渡すと独自の範囲を指定できます（`businessHours` と同形式）。**終日イベントには適用されません**（時間帯の制約は時間指定イベントのみが対象）。`eventConstraint: 'businessHours'` を指定したのに `businessHours` が未設定（既定 `[]`）だと常に無効になる点に注意してください（この組み合わせは開発ビルドでは `useCalendar` が `console.warn` で一度だけ警告します）。判定は日ごとに行われ、対象範囲の各日がルールに完全に収まっている必要があります。日をまたぐ時間指定イベントを許可するには、初日側の `endTime` に日の終端を表す `'24:00'` を指定したルールで各日を途切れなくカバーします（例: `[{ daysOfWeek: [0,1,2,3,4,5,6], startTime: '00:00', endTime: '24:00' }]` はすべての時間指定イベントを許可します）
-- **判定順序** — 宣言的制約（`eventOverlap`/`eventConstraint`） → `onBeforeEventChange`/`onBeforeSelectRange`/`onBeforeEventDelete` → `resolveRecurringScope` の順に判定されます。宣言的制約で拒否された場合は適用前フックを呼ばずに即座に中断します
+- **判定順序** — 宣言的制約（`eventOverlap`/`eventConstraint`） → `onBeforeEventChange`/`onBeforeSelectRange`/`onBeforeEventDelete` → `resolveRecurringScope` の順に判定されます。宣言的制約で拒否された場合は適用前フックを呼ばずに即座に中断します。いずれの拒否でも `onOperationRejected`（[操作拒否の通知](#操作拒否の通知onoperationrejected)）が呼ばれます
 - **拒否時の挙動** — 適用前フックが `false` を返した場合と同じくサイレントです（`onEventChange`/`onSelectRange` は呼ばれず、ドラッグはその場で終了します）
 - **プレビューへの反映** — ドラッグ中のプレビューは違反時に `data-koyomi-invalid="true"` が付き、デフォルトテーマでは `--koyomi-invalid-color`（既定 `#d93025`、ダークテーマは `#f28b82`）でハイライトされます（`day-selection`/`timegrid-preview`/`timeline-preview`/`resource-allday-cell` が対象。適用前フックの判定とは異なり、こちらはプレビュー表示にも反映されます）
 
@@ -508,17 +511,51 @@ function App() {
 
 **プレビュー表示は反映されない**: ドラッグ中に表示されるプレビュー（ハイライト）は、これらの適用前フックの結果を反映しません。判定は `pointerup` などで操作が確定するタイミングでのみ行われるため、「ドラッグ中は移動できそうに見えるが、離した瞬間に元の位置へ戻る」という見た目になります。ドラッグ中に禁止領域を視覚的に示したい場合は、アプリ側で `calendar.state.dragPreview` を見て独自にスタイリングしてください。
 
+## 操作拒否の通知（onOperationRejected）
+
+宣言的制約（`eventOverlap`/`eventConstraint`）、または適用前フック（`onBeforeEventChange`/`onBeforeSelectRange`/`onBeforeEventDelete`）によってドラッグ・キーボード操作が拒否されると、`CalendarInteractionCallbacks.onOperationRejected` が呼ばれます。ドラッグ操作は拒否されてもその場で静かに終了するだけなので、トースト表示など拒否をユーザーに知らせる UI の起点として使えます。
+
+```tsx
+import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
+import type { OperationRejection } from '@koyomi-cal/react';
+
+function App() {
+  const calendar = useCalendar({ initialView: 'week', eventOverlap: false });
+
+  function onOperationRejected(info: OperationRejection): void {
+    // 例: トーストで理由を知らせる
+    showToast(info.reason === 'constraint' ? '他の予定と重なっています' : '許可されていません');
+  }
+
+  return (
+    <CalendarProvider value={calendar} callbacks={{ onOperationRejected }}>
+      <TimeGridView />
+    </CalendarProvider>
+  );
+}
+```
+
+- **`info.action`** — 拒否された操作の種類（`'move'` / `'resize'` / `'convert'` / `'create'` / `'delete'`）
+- **`info.reason`** — `'constraint'`（宣言的制約違反）または `'rejected'`（適用前フックが `false` を返した）
+- **`info.occurrence`** — 拒否された操作の対象オカレンス。新規作成（`action: 'create'`）の拒否では対象オカレンスがまだ存在しないため省略される
+- **呼ばれないケース** — `resolveRecurringScope` が `null` を返した場合（ユーザー自身によるキャンセル）と、`editable: false` による早期終了（ドラッグ自体が開始されない、削除が行われない）はどちらも拒否ではないため呼ばれない
+- **配線される操作**: 適用前フックと同じ 4 フック（`useDayDrag` / `useTimeGridDrag` / `useResourceGridDrag` / `useTimelineDrag`）のすべての経路（移動・リサイズ・終日⇔時間指定変換・作成範囲の確定・キーボード操作・削除）で判定されます
+
+`useCalendarAnnouncer` を使っている場合は、この通知の aria-live 読み上げが自動で行われます（詳細は [アクセシビリティ: 操作拒否の通知](./accessibility.md#操作拒否の通知onoperationrejected) を参照）。
+
 ## コールバックのまとめ
 
 | コールバック | 呼ばれるタイミング | 省略時の既定動作 |
 | --- | --- | --- |
 | `onSelectRange` | 空き領域のクリック・ドラッグで範囲選択が確定したとき | `messages.common.untitledEvent`（既定 `'(タイトルなし)'`）で即時作成する |
 | `onBeforeSelectRange` | 範囲選択の確定前（`onSelectRange` より前） | 常に許可する（`true`） |
+| `onEventCreate` | `onSelectRange` を省略した場合の既定即時作成が確定した後 | （通知のみ。`changes` に作成されたイベントの after/index が入り undo に使える） |
 | `onEventClick` | 予定がクリック、または Enter・Space で選択されたとき | 何もしない |
 | `onEventChange` | ドラッグ・キーボードによる移動・リサイズが確定し、変更が適用された後 | （通知のみ。変更の適用自体は常にライブラリが行う。`changes` に影響を受けた各イベントの before/after が入り undo に使える） |
 | `onBeforeEventChange` | 移動・リサイズ・終日⇔時間指定変換の適用前（`resolveRecurringScope` より前） | 常に許可する（`true`） |
 | `onEventDelete` | キーボード（Delete/Backspace）による削除が適用された後 | （通知のみ。undo UI やトーストの起点に使える。`changes` に影響を受けた各イベントの before/after が入る） |
 | `onBeforeEventDelete` | キーボード削除の適用前（`resolveRecurringScope` より前） | 常に許可する（`true`） |
+| `onOperationRejected` | 宣言的制約違反、または `onBeforeEventChange`/`onBeforeSelectRange`/`onBeforeEventDelete` が `false` を返した直後 | 何もしない（通知のみ） |
 | `onError` | インタラクション中の非同期処理（スコープ解決や適用）が例外を投げたとき | `console.error` に出力する |
 | `resolveRecurringScope` | 繰り返し予定の移動・リサイズ・削除・更新の適用範囲を決めるとき | 常に `'this'`（この予定のみ） |
 | `onOverflowClick` | 月ビューの「+N 件」がクリックされたとき。第 2 引数で非表示のオカレンス一覧（`hiddenOccurrences`）、第 3 引数（`details`）で表示中のオカレンス一覧（`visibleOccurrences`）を受け取れる | その日の日ビューに切り替える |
@@ -586,7 +623,7 @@ useCalendarShortcuts({
 
 ## キーボードのみでの予定操作
 
-マウスを使わなくても、予定と日セルへのフォーカスだけで一通りの操作ができます（`editable: false` の予定では移動・リサイズ・削除は無効です）。
+マウスを使わなくても、予定・日セル・時間グリッドの列・タイムラインの行へのフォーカスだけで一通りの操作ができます（`editable: false` の予定では移動・リサイズ・削除は無効です）。
 
 **予定要素にフォーカスした状態:**
 
@@ -594,6 +631,7 @@ useCalendarShortcuts({
 | --- | --- | --- |
 | `Enter` / `Space` | `onEventClick` 相当のクリック | 同左 |
 | `Delete` / `Backspace` | オカレンスを削除（繰り返しはスコープ解決） | 同左 |
+| `A` | 開始日 1 日分の**終日イベントに変換** | 週/日ビューの終日行の終日の帯のみ、開始日の `slotMinTime` から `defaultEventMinutes` 分の**時間指定イベントに変換**（月ビューの帯では何もしない） |
 | `↑` / `↓` | ∓/± `snapMinutes` 分の移動 | ∓/± 7 日（1 週間）の移動 |
 | `←` / `→` | ∓/± 1 日の移動 | ∓/± 1 日の移動 |
 | `Shift+↑` / `Shift+↓` | 終了時刻を ∓/± `snapMinutes` 分リサイズ | — |
@@ -601,7 +639,13 @@ useCalendarShortcuts({
 
 移動・リサイズは最小長（時間グリッドは `snapMinutes` 分、帯は 1 日）を下回る操作を無視します。繰り返し予定では `resolveRecurringScope` が呼ばれ、適用後に `onEventChange`（削除は `onEventDelete`）が通知されます。
 
+削除確定後、フォーカスは自動的に次の予定 → 前の予定 → （月・複数月ビュー／週・日ビューの終日セルのみ）削除位置に近い日セルへ移ります（時間グリッド本体・リソースビュー・タイムラインビューには移動先の候補がないため何もしません）。詳細は [アクセシビリティ: 削除後のフォーカス管理](./accessibility.md#削除後のフォーカス管理) を参照してください。
+
+`A` キーは[終日 ⇔ 時間指定の変換](#ドラッグ移動リサイズ)のキーボード操作で、ドラッグによる変換と同じ扱い（`onBeforeEventChange` / `onOperationRejected` の `action: 'convert'`、繰り返しはスコープ解決）で確定します。リソースビュー・タイムラインビューのフォーカス中の予定でも使えます（キー割り当ては[リソースビュー・タイムラインビューのドラッグ操作](#リソースビュータイムラインビューのドラッグ操作)の表を参照。タイムラインビューでは `A` キーがこの変換の唯一の操作手段です）。大文字・小文字を区別せず、`Ctrl` / `Cmd` / `Alt` を伴う場合は反応しません。週/日ビュー・リソースビューの終日行に表示される複数日の時間指定の予定（24 時間以上の帯）では何もしません。変換が割り当てられている予定にフォーカスがある間の `A` は変換に使われ、`useCalendarShortcuts` のリストビュー切り替え（`A`）は発火しません（変換が割り当てられていない予定・セルではビュー切り替えが動作します）。
+
 **日セル・終日セルにフォーカスした状態（月ビュー・終日行・リソースビューの終日セル）:** `Enter` または `Space` でその日 1 日分の範囲選択（`onSelectRange`、`allDay: true`）が発火します。リソースビューの終日セル（`resource-allday-cell`）ではフォーカス中の列の `resourceId` が付きます。リストビューの予定行は Enter・Space によるクリックのみに対応します。
+
+**時間グリッドの日列・リソース列・タイムラインの行トラックにフォーカスした状態:** `Enter` または `Space` で時間指定の範囲選択（`onSelectRange`、`allDay: false`）が発火します。範囲は、週/日ビューの日列（`timegrid-day`）・リソースビューの列（`resource-column`）ではその列の日の表示時間帯の開始（`slotMinTime`）から `defaultEventMinutes` 分、タイムラインの行トラック（`timeline-row`）では表示範囲の先頭から `defaultEventMinutes` 分（`timelineScale` が `'hour'` 以外のときは 1 日分）です。リソース列・タイムライン行ではフォーカス中の列/行の `resourceId` が付きます（未割り当てレーンでは付きません）。`onSelectRange` を指定していればアプリへ委譲され、省略時は既定の即時作成が行われて、確定後に新規予定の要素へフォーカスが移ります（そのまま上表の矢印キー・`A` キーで日時を調整できます）。ポインタの作成と同じ[宣言的な重なり・配置制約](#宣言的な重なり配置制約eventoverlap--eventconstraint)（`eventOverlap` / `eventConstraint`）と[適用前フック](#適用前フックで操作を拒否する)（`onBeforeSelectRange`）が適用され、拒否された場合は作成されず `onOperationRejected`（`action: 'create'`）が呼ばれます。
 
 `CalendarProvider` の `gridNavigation` を有効にすると、日セル・終日セルでは矢印キーによるセル間移動が使えるようになり、セル内に予定がある日の `Enter` は範囲選択ではなく最初の予定へのフォーカス移動になります（`Space` の範囲選択、予定にフォーカスした状態のキー割り当ては上表のまま変わりません）。詳細は [アクセシビリティ: grid 内のキーボードナビゲーション](./accessibility.md#grid-内のキーボードナビゲーションgridnavigation) を参照してください。
 
@@ -610,7 +654,7 @@ useCalendarShortcuts({
 `useCalendarClipboard` を使うと、イベントのコピー&ペースト（複製）を配線できます。コピーの内容はフック内部のクリップボードに保持され（OS のクリップボードは使いません）、貼り付けは `calendar.api.createEvent` でイベントを作成します。UI は提供しません（ヘッドレス）。
 
 - `copy(occurrence)` — オカレンスをコピーする
-- `paste(newStart?)` — 貼り付けてイベントを作成する。`newStart` 省略時はコピー元と同じ日時への複製になる
+- `paste(newStart?)` — 貼り付けてイベントを作成する。`newStart` 省略時はコピー元と同じ日時への複製になる。`calendar.api.createEvent` を呼ぶ前に、宣言的制約（`eventOverlap`/`eventConstraint`/`businessHours`。判定は `isDragCandidateValid`。[宣言的な重なり・配置制約](#宣言的な重なり配置制約eventoverlap--eventconstraint) と同じ判定内容）と、適用前フック `onBeforeSelectRange`（`callbacks?: Pick<CalendarInteractionCallbacks, 'onBeforeSelectRange'>` オプションで指定。新規作成扱いのため既存オカレンスの除外は行われない）の両方を判定し、いずれかで拒否された場合はイベントを作成せず新オプション `onPasteRejected?: (info: { reason: 'constraint' | 'rejected'; input: CalendarEventInput; start: Date; allDay: boolean }) => void` を呼ぶ。`onBeforeSelectRange` が同期的な `boolean` を返す場合（未指定を含む）は `paste` も同期的に完結し、`Promise<boolean>` を返した場合のみ `paste` の戻り値も `Promise<CalendarEvent | null>` になる（`onBeforeEventChange` 等の既存コールバックと同じ「`boolean | Promise<boolean>`」の扱い）。`history` への記録・`onPaste` の呼び出しは成功時のみ行われる
 - `hasClipboard` — クリップボードにコピー内容があるか（貼り付けボタンの活性化などに使う）
 - `clear()` — クリップボードを空にする
 
@@ -654,6 +698,24 @@ function App() {
 //   その日にコピー元の時刻を維持した複製が作成される
 // - 繰り返し予定のオカレンスをコピーした場合、貼り付けは単発イベントになる
 // - Ctrl+Z で貼り付けが取り消される（history を渡した場合）
+```
+
+`onPasteRejected` を使うと、宣言的制約・`onBeforeSelectRange` による貼り付けの拒否をアプリ側に通知できます。
+
+```tsx
+const calendar = useCalendar({ initialView: 'month', eventOverlap: false });
+
+useCalendarClipboard({
+  calendar,
+  onPasteRejected: (info) => {
+    // 例: 重なり不可設定での貼り付け拒否をトーストで知らせる
+    showToast(info.reason === 'constraint' ? '他の予定と重なっています' : '許可されていません');
+  },
+});
+
+// 期待される動作:
+// - eventOverlap: false の状態で既存イベントと重なる日付セルへ Ctrl+V すると、
+//   イベントは作成されず onPasteRejected が呼ばれる
 ```
 
 ## 「+N 件」のポップオーバーを自前で組む
