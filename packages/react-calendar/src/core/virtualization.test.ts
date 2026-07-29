@@ -7,7 +7,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeWindow,
+  type SectionItemWindowInput,
   sameVisibleWindowRange,
+  sectionItemWindow,
   startForKey,
   type VisibleWindowRange,
   visibleWindowRange,
@@ -156,6 +158,137 @@ describe('computeWindow', () => {
       makeInput({ overscan: 0, viewportSize: 20, pinnedKeys: new Set(['k9']) }),
     );
     expect(result.pinnedItems[0]?.start).toBe(180); // index 9 = 9×20
+  });
+});
+
+/**
+ * {@link sectionItemWindow} 用の入力を組み立てるヘルパ。
+ * 既定は「100 件・各 10px・見出し 20px・セクション先頭 0px・ビューポート 100px・overscan 0」。
+ */
+function makeSectionInput(overrides: Partial<SectionItemWindowInput> = {}): SectionItemWindowInput {
+  return {
+    itemCount: 100,
+    sectionStart: 0,
+    headerSize: 20,
+    estimateItemSize: 10,
+    scrollOffset: 0,
+    viewportSize: 100,
+    overscan: 0,
+    ...overrides,
+  };
+}
+
+describe('sectionItemWindow', () => {
+  it('itemCount=0 のとき空の範囲（-1/-1）とゼロ詰め物を返す', () => {
+    const result = sectionItemWindow(makeSectionInput({ itemCount: 0 }));
+    expect(result).toEqual({ startIndex: -1, endIndex: -1, topPad: 0, bottomPad: 0 });
+  });
+
+  it('セクション先頭がビューポート先頭にあるとき、見出しの下に見えるアイテムだけを範囲にする', () => {
+    // アイテム列は 20px（見出し）から始まる。可視 0〜100px → アイテム列ローカル -20〜80px
+    // → index 0〜7（80px ちょうどに start を持つ index 8 は含まない）
+    const result = sectionItemWindow(makeSectionInput());
+    expect(result.startIndex).toBe(0);
+    expect(result.endIndex).toBe(7);
+    expect(result.topPad).toBe(0);
+    expect(result.bottomPad).toBe((100 - 8) * 10);
+  });
+
+  it('セクション途中へスクロールすると範囲が移動し、恒等式 topPad + 範囲件数×高さ + bottomPad = 全件×高さ を保つ', () => {
+    // 可視 520〜620px → アイテム列ローカル 500〜600px → index 50〜59
+    const result = sectionItemWindow(makeSectionInput({ scrollOffset: 520 }));
+    expect(result.startIndex).toBe(50);
+    expect(result.endIndex).toBe(59);
+    expect(result.topPad).toBe(500);
+    expect(result.bottomPad).toBe(400);
+    const rendered = (result.endIndex - result.startIndex + 1) * 10;
+    expect(result.topPad + rendered + result.bottomPad).toBe(100 * 10);
+  });
+
+  it('境界ちょうど: end == scrollOffset のアイテムは含まず、start == viewportEnd のアイテムも含まない', () => {
+    // headerSize 0・est 10。可視 50〜80px → index 4（end=50）は含まず index 5 から、
+    // index 8（start=80）は含まず index 7 まで（computeWindow と同じ排他規約）
+    const result = sectionItemWindow(
+      makeSectionInput({ headerSize: 0, scrollOffset: 50, viewportSize: 30 }),
+    );
+    expect(result.startIndex).toBe(5);
+    expect(result.endIndex).toBe(7);
+  });
+
+  it('ビューポートがセクション全体を覆うときは全件が範囲になり詰め物は 0', () => {
+    const result = sectionItemWindow(makeSectionInput({ viewportSize: 5000 }));
+    expect(result).toEqual({ startIndex: 0, endIndex: 99, topPad: 0, bottomPad: 0 });
+  });
+
+  it('セクションが完全にビューポートより上（下方向へ通過済み）でも最低 1 件（末尾）を返す', () => {
+    // セクションは 0〜1020px（見出し 20 + 100×10）。可視 2000〜2100px → 完全に範囲外
+    const result = sectionItemWindow(makeSectionInput({ scrollOffset: 2000 }));
+    expect(result.startIndex).toBe(99);
+    expect(result.endIndex).toBe(99);
+    expect(result.topPad).toBe(990);
+    expect(result.bottomPad).toBe(0);
+  });
+
+  it('セクションが完全にビューポートより下（未到達）でも最低 1 件（先頭）を返す', () => {
+    const result = sectionItemWindow(makeSectionInput({ sectionStart: 5000 }));
+    expect(result.startIndex).toBe(0);
+    expect(result.endIndex).toBe(0);
+    expect(result.topPad).toBe(0);
+    expect(result.bottomPad).toBe(990);
+  });
+
+  it('overscan が前後に指定件数を足し、端でクランプされる', () => {
+    const middle = sectionItemWindow(makeSectionInput({ scrollOffset: 520, overscan: 5 }));
+    expect(middle.startIndex).toBe(45);
+    expect(middle.endIndex).toBe(64);
+    expect(middle.topPad).toBe(450);
+    expect(middle.bottomPad).toBe((100 - 65) * 10);
+
+    const edge = sectionItemWindow(makeSectionInput({ overscan: 5 }));
+    expect(edge.startIndex).toBe(0); // 先頭より前へは広がらない
+    expect(edge.endIndex).toBe(12); // 可視末尾 7 + 5
+  });
+
+  it('overscan 省略時は既定（3 件）が前後に付く', () => {
+    const result = sectionItemWindow(makeSectionInput({ scrollOffset: 520, overscan: undefined }));
+    expect(result.startIndex).toBe(47);
+    expect(result.endIndex).toBe(62);
+  });
+
+  it('overscan が負値でも可視範囲は欠落せず 0 として扱われる', () => {
+    const result = sectionItemWindow(makeSectionInput({ scrollOffset: 520, overscan: -4 }));
+    expect(result.startIndex).toBe(50);
+    expect(result.endIndex).toBe(59);
+  });
+
+  it('headerSize の分だけアイテム列の開始位置が下へずれる', () => {
+    // headerSize 100: 可視 50〜110px → アイテム列ローカル -50〜10px → index 0 のみ
+    const withHeader = sectionItemWindow(
+      makeSectionInput({ headerSize: 100, scrollOffset: 50, viewportSize: 60 }),
+    );
+    expect(withHeader.startIndex).toBe(0);
+    expect(withHeader.endIndex).toBe(0);
+    // headerSize 0: 可視 50〜110px → index 5〜10
+    const withoutHeader = sectionItemWindow(
+      makeSectionInput({ headerSize: 0, scrollOffset: 50, viewportSize: 60 }),
+    );
+    expect(withoutHeader.startIndex).toBe(5);
+    expect(withoutHeader.endIndex).toBe(10);
+  });
+
+  it('estimateItemSize が 0・負値・NaN・Infinity のときは全件描画へ安全に縮退する', () => {
+    for (const estimateItemSize of [0, -10, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const result = sectionItemWindow(makeSectionInput({ estimateItemSize }));
+      expect(result).toEqual({ startIndex: 0, endIndex: 99, topPad: 0, bottomPad: 0 });
+    }
+  });
+
+  it('viewportSize が 0 でもスクロール位置のアイテム 1 件以上を返す', () => {
+    const result = sectionItemWindow(makeSectionInput({ scrollOffset: 520, viewportSize: 0 }));
+    expect(result.endIndex).toBeGreaterThanOrEqual(result.startIndex);
+    expect(result.startIndex).toBeGreaterThanOrEqual(0);
+    const rendered = (result.endIndex - result.startIndex + 1) * 10;
+    expect(result.topPad + rendered + result.bottomPad).toBe(1000);
   });
 });
 

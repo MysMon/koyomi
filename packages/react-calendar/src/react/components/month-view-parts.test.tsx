@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DateRange } from '../../core/types';
 import {
   formatOccurrenceRangeLabel,
+  formatTimeLabel,
   percentOfSlotRange,
   withEventColorStyle,
   withMonthLanesStyle,
@@ -51,6 +52,25 @@ describe('month-view-parts', () => {
     expect(formatOccurrenceRangeLabel(sameDay, false, 'Asia/Tokyo', 'ja', '–')).toBe(
       '7月15日 10:00–11:00',
     );
+  });
+
+  it('formatOccurrenceRangeLabel: locale=en-US では時刻部分が 12h/AM-PM 表記になる', () => {
+    const sameDay: DateRange = {
+      start: new Date('2026-07-15T01:00:00Z'), // 東京 10:00
+      end: new Date('2026-07-15T02:00:00Z'), // 東京 11:00
+    };
+    expect(formatOccurrenceRangeLabel(sameDay, false, 'Asia/Tokyo', 'en-US', '–')).toBe(
+      'July 15 10:00 AM–11:00 AM',
+    );
+  });
+
+  it('formatTimeLabel: locale=en-US では 12h/AM-PM 表記になり、ja では 24 時間制のままになる', () => {
+    const midnight = new Date('2026-07-14T15:00:00Z'); // 東京 2026-07-15 0:00
+    const morning = new Date('2026-07-15T01:00:00Z'); // 東京 10:00
+    expect(formatTimeLabel(midnight, 'Asia/Tokyo', 'ja')).toBe('0:00');
+    expect(formatTimeLabel(morning, 'Asia/Tokyo', 'ja')).toBe('10:00');
+    expect(formatTimeLabel(midnight, 'Asia/Tokyo', 'en-US')).toBe('12:00 AM');
+    expect(formatTimeLabel(morning, 'Asia/Tokyo', 'en-US')).toBe('10:00 AM');
   });
 
   it('月レーン数を 1 以上へクランプし、イベント色を必要時だけ追加する', () => {

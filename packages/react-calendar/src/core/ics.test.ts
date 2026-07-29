@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { expandEvents } from './expansion';
-import { eventsFromIcs, eventsToIcs } from './ics';
+import { eventsFromIcs, eventsFromIcsWithIssues, eventsToIcs } from './ics';
 import type { CalendarEvent } from './types';
 
 const TOKYO = 'Asia/Tokyo';
@@ -32,6 +32,16 @@ function icsText(...lines: string[]): string {
 /** Date の配列を ISO 文字列の配列に変換する（アサーションの可読性のため）。 */
 function toISO(dates: readonly Date[]): string[] {
   return dates.map((d) => d.toISOString());
+}
+
+/** 関数が投げる Error のメッセージを取り出す（投げなければテストを失敗させる）。 */
+function captureErrorMessage(fn: () => void): string {
+  try {
+    fn();
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  throw new Error('関数はエラーを投げませんでした');
 }
 
 describe('eventsToIcs', () => {
@@ -801,6 +811,432 @@ describe('eventsFromIcs', () => {
     });
   });
 
+  describe('RECURRENCE-ID;RANGE=THISANDFUTURE のシリーズ分割', () => {
+    it('時間指定シリーズを分割点で旧系列（UNTIL 打ち切り）と新系列（独立イベント）に分割する', () => {
+      const events = eventsFromIcs(
+        icsText(
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'DTSTART;TZID=Asia/Tokyo:20260706T100000',
+          'DTEND;TZID=Asia/Tokyo:20260706T110000',
+          'RRULE:FREQ=WEEKLY;BYDAY=MO',
+          'SUMMARY:週次',
+          'END:VEVENT',
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'RECURRENCE-ID;TZID=Asia/Tokyo;RANGE=THISANDFUTURE:20260727T100000',
+          'DTSTART;TZID=Asia/Tokyo:20260727T130000',
+          'DTEND;TZID=Asia/Tokyo:20260727T140000',
+          'SUMMARY:週次（午後へ変更）',
+          'END:VEVENT',
+        ),
+      );
+      expect(events).toHaveLength(2);
+      // 旧系列: 分割点直前のオカレンス（7/20 10:00）で UNTIL 打ち切り
+      expect(events[0]?.id).toBe('m1');
+      expect(events[0]?.rrule).toContain('FREQ=WEEKLY');
+      expect(events[0]?.rrule).toContain('UNTIL=20260720T100000Z');
+      // 新系列: オーバーライドの DTSTART から始まる独立イベント（オーバーライド扱いにしない）
+      expect(events[1]).toEqual({
+        id: 'm1@20260727T100000',
+        title: '週次（午後へ変更）',
+        start: '2026-07-27T13:00:00',
+        end: '2026-07-27T14:00:00',
+        timeZone: TOKYO,
+        rrule: 'FREQ=WEEKLY;BYDAY=MO',
+      });
+      const occurrences = expandEvents({
+        events,
+        range: {
+          start: new Date('2026-06-30T15:00:00Z'), // 東京 7/1 0:00
+          end: new Date('2026-08-09T15:00:00Z'), // 東京 8/10 0:00
+        },
+        displayTimeZone: TOKYO,
+        defaultEventMinutes: 60,
+      });
+      expect(
+        occurrences.map((o) => ({ title: o.event.title, start: o.start.toISOString() })),
+      ).toEqual([
+        { title: '週次', start: '2026-07-06T01:00:00.000Z' }, // 東京 10:00
+        { title: '週次', start: '2026-07-13T01:00:00.000Z' },
+        { title: '週次', start: '2026-07-20T01:00:00.000Z' },
+        { title: '週次（午後へ変更）', start: '2026-07-27T04:00:00.000Z' }, // 東京 13:00
+        { title: '週次（午後へ変更）', start: '2026-08-03T04:00:00.000Z' },
+      ]);
+    });
+
+    it('COUNT ありのシリーズは消化済み回数を差し引いた COUNT を新系列に引き継ぐ', () => {
+      const events = eventsFromIcs(
+        icsText(
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'DTSTART;TZID=Asia/Tokyo:20260801T090000',
+          'DTEND;TZID=Asia/Tokyo:20260801T093000',
+          'RRULE:FREQ=DAILY;COUNT=10',
+          'SUMMARY:朝会',
+          'END:VEVENT',
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'RECURRENCE-ID;TZID=Asia/Tokyo;RANGE=THISANDFUTURE:20260805T090000',
+          'DTSTART;TZID=Asia/Tokyo:20260805T200000',
+          'DTEND;TZID=Asia/Tokyo:20260805T203000',
+          'SUMMARY:夜会',
+          'END:VEVENT',
+        ),
+      );
+      expect(events).toHaveLength(2);
+      // 旧系列: COUNT は UNTIL 打ち切りに置き換わる（8/1〜8/4 の 4 回）
+      expect(events[0]?.rrule).toBe('FREQ=DAILY;UNTIL=20260804T090000Z');
+      // 新系列: COUNT=10 から消化済み 4 回を差し引いた残数
+      expect(events[1]?.rrule).toBe('FREQ=DAILY;COUNT=6');
+      const occurrences = expandEvents({
+        events,
+        range: {
+          start: new Date('2026-07-31T15:00:00Z'), // 東京 8/1 0:00
+          end: new Date('2026-08-14T15:00:00Z'), // 東京 8/15 0:00
+        },
+        displayTimeZone: TOKYO,
+        defaultEventMinutes: 60,
+      });
+      expect(toISO(occurrences.map((o) => o.start))).toEqual([
+        '2026-08-01T00:00:00.000Z', // 東京 9:00
+        '2026-08-02T00:00:00.000Z',
+        '2026-08-03T00:00:00.000Z',
+        '2026-08-04T00:00:00.000Z',
+        '2026-08-05T11:00:00.000Z', // 東京 20:00（新系列）
+        '2026-08-06T11:00:00.000Z',
+        '2026-08-07T11:00:00.000Z',
+        '2026-08-08T11:00:00.000Z',
+        '2026-08-09T11:00:00.000Z',
+        '2026-08-10T11:00:00.000Z',
+      ]);
+    });
+
+    it('終日シリーズは日付キー基準で分割し、新系列も終日イベントになる', () => {
+      const events = eventsFromIcs(
+        icsText(
+          'BEGIN:VEVENT',
+          'UID:ad1',
+          'DTSTART;VALUE=DATE:20260801',
+          'DTEND;VALUE=DATE:20260802',
+          'RRULE:FREQ=DAILY;COUNT=7',
+          'SUMMARY:合宿',
+          'END:VEVENT',
+          'BEGIN:VEVENT',
+          'UID:ad1',
+          'RECURRENCE-ID;VALUE=DATE;RANGE=THISANDFUTURE:20260805',
+          'DTSTART;VALUE=DATE:20260806',
+          'DTEND;VALUE=DATE:20260807',
+          'SUMMARY:合宿（1 日順延）',
+          'END:VEVENT',
+        ),
+      );
+      expect(events).toHaveLength(2);
+      expect(events[1]).toEqual({
+        id: 'ad1@20260805',
+        title: '合宿（1 日順延）',
+        start: '2026-08-06',
+        end: '2026-08-07',
+        allDay: true,
+        rrule: 'FREQ=DAILY;COUNT=3',
+      });
+      const occurrences = expandEvents({
+        events,
+        range: {
+          start: new Date('2026-07-31T15:00:00Z'), // 東京 8/1 0:00
+          end: new Date('2026-08-09T15:00:00Z'), // 東京 8/10 0:00
+        },
+        displayTimeZone: TOKYO,
+        defaultEventMinutes: 60,
+      });
+      expect(occurrences.every((o) => o.allDay)).toBe(true);
+      expect(toISO(occurrences.map((o) => o.start))).toEqual([
+        '2026-07-31T15:00:00.000Z', // 東京 8/1 0:00（旧系列 8/1〜8/4）
+        '2026-08-01T15:00:00.000Z',
+        '2026-08-02T15:00:00.000Z',
+        '2026-08-03T15:00:00.000Z',
+        '2026-08-05T15:00:00.000Z', // 東京 8/6 0:00（新系列 8/6〜8/8）
+        '2026-08-06T15:00:00.000Z',
+        '2026-08-07T15:00:00.000Z',
+      ]);
+    });
+
+    it('分割点以降の通常オーバーライド・EXDATE・RDATE は新系列に付け替える', () => {
+      const events = eventsFromIcs(
+        icsText(
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'DTSTART;TZID=Asia/Tokyo:20260706T100000',
+          'DTEND;TZID=Asia/Tokyo:20260706T110000',
+          'RRULE:FREQ=WEEKLY;BYDAY=MO',
+          'EXDATE;TZID=Asia/Tokyo:20260713T100000,20260810T100000',
+          'RDATE;TZID=Asia/Tokyo:20260717T100000,20260814T100000',
+          'SUMMARY:週次',
+          'END:VEVENT',
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'RECURRENCE-ID;TZID=Asia/Tokyo:20260803T100000',
+          'DTSTART;TZID=Asia/Tokyo:20260803T150000',
+          'DTEND;TZID=Asia/Tokyo:20260803T160000',
+          'SUMMARY:個別変更',
+          'END:VEVENT',
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'RECURRENCE-ID;TZID=Asia/Tokyo;RANGE=THISANDFUTURE:20260727T100000',
+          'DTSTART;TZID=Asia/Tokyo:20260727T100000',
+          'DTEND;TZID=Asia/Tokyo:20260727T110000',
+          'SUMMARY:名称変更後',
+          'END:VEVENT',
+        ),
+      );
+      expect(events).toHaveLength(3);
+      const oldMaster = events.find((event) => event.id === 'm1');
+      const override = events.find((event) => event.id === 'm1@20260803T100000');
+      const newSeries = events.find((event) => event.id === 'm1@20260727T100000');
+      // 分割点より前の EXDATE / RDATE は旧系列に残る
+      expect(oldMaster?.exdates).toEqual(['2026-07-13T10:00:00']);
+      expect(oldMaster?.rdates).toEqual(['2026-07-17T10:00:00']);
+      // 分割点以降の EXDATE / RDATE は新系列へ移る
+      expect(newSeries?.exdates).toEqual(['2026-08-10T10:00:00']);
+      expect(newSeries?.rdates).toEqual(['2026-08-14T10:00:00']);
+      // 分割点以降の通常オーバーライドは新系列を参照するようになる
+      expect(override?.recurringEventId).toBe('m1@20260727T100000');
+      const occurrences = expandEvents({
+        events,
+        range: {
+          start: new Date('2026-06-30T15:00:00Z'), // 東京 7/1 0:00
+          end: new Date('2026-08-15T15:00:00Z'), // 東京 8/16 0:00
+        },
+        displayTimeZone: TOKYO,
+        defaultEventMinutes: 60,
+      });
+      expect(
+        occurrences.map((o) => ({ title: o.event.title, start: o.start.toISOString() })),
+      ).toEqual([
+        { title: '週次', start: '2026-07-06T01:00:00.000Z' },
+        { title: '週次', start: '2026-07-17T01:00:00.000Z' }, // RDATE（7/13 は EXDATE）
+        { title: '週次', start: '2026-07-20T01:00:00.000Z' },
+        { title: '名称変更後', start: '2026-07-27T01:00:00.000Z' },
+        { title: '個別変更', start: '2026-08-03T06:00:00.000Z' }, // 東京 15:00（オーバーライド）
+        { title: '名称変更後', start: '2026-08-14T01:00:00.000Z' }, // RDATE（8/10 は EXDATE）
+      ]);
+    });
+
+    it('RDATE のみのシリーズは分割点以降の RDATE を新系列へ引き継いで分割する', () => {
+      const events = eventsFromIcs(
+        icsText(
+          'BEGIN:VEVENT',
+          'UID:m2',
+          'DTSTART;TZID=Asia/Tokyo:20260701T100000',
+          'DTEND;TZID=Asia/Tokyo:20260701T110000',
+          'RDATE;TZID=Asia/Tokyo:20260708T100000,20260715T100000',
+          'SUMMARY:不定期会',
+          'END:VEVENT',
+          'BEGIN:VEVENT',
+          'UID:m2',
+          'RECURRENCE-ID;TZID=Asia/Tokyo;RANGE=THISANDFUTURE:20260708T100000',
+          'DTSTART;TZID=Asia/Tokyo:20260708T130000',
+          'DTEND;TZID=Asia/Tokyo:20260708T140000',
+          'SUMMARY:不定期会（午後）',
+          'END:VEVENT',
+        ),
+      );
+      expect(events).toHaveLength(2);
+      // 旧系列は分割点より前の値だけを持つ（この例では start のみが残る）
+      expect(events[0]?.rdates).toBeUndefined();
+      // 新系列: 分割点自身は start が表し、以降の RDATE を引き継ぐ
+      expect(events[1]).toEqual({
+        id: 'm2@20260708T100000',
+        title: '不定期会（午後）',
+        start: '2026-07-08T13:00:00',
+        end: '2026-07-08T14:00:00',
+        timeZone: TOKYO,
+        rdates: ['2026-07-15T10:00:00'],
+      });
+      const occurrences = expandEvents({
+        events,
+        range: {
+          start: new Date('2026-06-30T15:00:00Z'), // 東京 7/1 0:00
+          end: new Date('2026-07-19T15:00:00Z'), // 東京 7/20 0:00
+        },
+        displayTimeZone: TOKYO,
+        defaultEventMinutes: 60,
+      });
+      expect(
+        occurrences.map((o) => ({ title: o.event.title, start: o.start.toISOString() })),
+      ).toEqual([
+        { title: '不定期会', start: '2026-07-01T01:00:00.000Z' },
+        { title: '不定期会（午後）', start: '2026-07-08T04:00:00.000Z' }, // 東京 13:00
+        { title: '不定期会（午後）', start: '2026-07-15T01:00:00.000Z' },
+      ]);
+    });
+
+    it('同じ UID に複数の分割がある場合は分割点の昇順に連鎖適用する（出現順に依存しない）', () => {
+      const events = eventsFromIcs(
+        icsText(
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'DTSTART;TZID=Asia/Tokyo:20260706T100000',
+          'DTEND;TZID=Asia/Tokyo:20260706T110000',
+          'RRULE:FREQ=WEEKLY;BYDAY=MO',
+          'SUMMARY:週次',
+          'END:VEVENT',
+          // 分割点の遅い方を先に書き、出現順ではなく分割点昇順で適用されることを確かめる
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'RECURRENCE-ID;TZID=Asia/Tokyo;RANGE=THISANDFUTURE:20260803T110000',
+          'DTSTART;TZID=Asia/Tokyo:20260803T140000',
+          'DTEND;TZID=Asia/Tokyo:20260803T150000',
+          'SUMMARY:週次（14 時に変更）',
+          'END:VEVENT',
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'RECURRENCE-ID;TZID=Asia/Tokyo;RANGE=THISANDFUTURE:20260720T100000',
+          'DTSTART;TZID=Asia/Tokyo:20260720T110000',
+          'DTEND;TZID=Asia/Tokyo:20260720T120000',
+          'SUMMARY:週次（11 時に変更）',
+          'END:VEVENT',
+        ),
+      );
+      // 1 回目の分割で生まれた新系列が 2 回目の分割のマスターになる
+      expect(events.map((event) => event.id)).toEqual([
+        'm1',
+        'm1@20260720T100000',
+        'm1@20260803T110000',
+      ]);
+      const occurrences = expandEvents({
+        events,
+        range: {
+          start: new Date('2026-06-30T15:00:00Z'), // 東京 7/1 0:00
+          end: new Date('2026-08-10T15:00:00Z'), // 東京 8/11 0:00
+        },
+        displayTimeZone: TOKYO,
+        defaultEventMinutes: 60,
+      });
+      expect(
+        occurrences.map((o) => ({ title: o.event.title, start: o.start.toISOString() })),
+      ).toEqual([
+        { title: '週次', start: '2026-07-06T01:00:00.000Z' }, // 東京 10:00
+        { title: '週次', start: '2026-07-13T01:00:00.000Z' },
+        { title: '週次（11 時に変更）', start: '2026-07-20T02:00:00.000Z' }, // 東京 11:00
+        { title: '週次（11 時に変更）', start: '2026-07-27T02:00:00.000Z' },
+        { title: '週次（14 時に変更）', start: '2026-08-03T05:00:00.000Z' }, // 東京 14:00
+        { title: '週次（14 時に変更）', start: '2026-08-10T05:00:00.000Z' },
+      ]);
+    });
+
+    it('マスターがオーバーライドより後に現れる ICS でも分割できる', () => {
+      const events = eventsFromIcs(
+        icsText(
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'RECURRENCE-ID;TZID=Asia/Tokyo;RANGE=THISANDFUTURE:20260727T100000',
+          'DTSTART;TZID=Asia/Tokyo:20260727T130000',
+          'DTEND;TZID=Asia/Tokyo:20260727T140000',
+          'SUMMARY:週次（午後へ変更）',
+          'END:VEVENT',
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'DTSTART;TZID=Asia/Tokyo:20260706T100000',
+          'DTEND;TZID=Asia/Tokyo:20260706T110000',
+          'RRULE:FREQ=WEEKLY;BYDAY=MO',
+          'SUMMARY:週次',
+          'END:VEVENT',
+        ),
+      );
+      expect(events).toHaveLength(2);
+      const newSeries = events.find((event) => event.id === 'm1@20260727T100000');
+      expect(newSeries?.recurringEventId).toBeUndefined();
+      expect(newSeries?.rrule).toBe('FREQ=WEEKLY;BYDAY=MO');
+      expect(events.find((event) => event.id === 'm1')?.rrule).toContain('UNTIL=20260720T100000Z');
+    });
+
+    it('同じ UID の繰り返しマスターが ICS 内にない場合は単一オカレンスのオーバーライドとして取り込む', () => {
+      const events = eventsFromIcs(
+        icsText(
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'RECURRENCE-ID;TZID=Asia/Tokyo;RANGE=THISANDFUTURE:20260727T100000',
+          'DTSTART;TZID=Asia/Tokyo:20260727T130000',
+          'DTEND;TZID=Asia/Tokyo:20260727T140000',
+          'SUMMARY:週次（午後へ変更）',
+          'END:VEVENT',
+        ),
+      );
+      expect(events).toEqual([
+        {
+          id: 'm1@20260727T100000',
+          title: '週次（午後へ変更）',
+          start: '2026-07-27T13:00:00',
+          end: '2026-07-27T14:00:00',
+          timeZone: TOKYO,
+          recurringEventId: 'm1',
+          originalStart: '2026-07-27T10:00:00',
+        },
+      ]);
+    });
+
+    it('同じ UID のマスターが繰り返しを持たない場合も単一オカレンスのオーバーライドとして取り込む', () => {
+      const events = eventsFromIcs(
+        icsText(
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'DTSTART;TZID=Asia/Tokyo:20260706T100000',
+          'SUMMARY:単発',
+          'END:VEVENT',
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'RECURRENCE-ID;TZID=Asia/Tokyo;RANGE=THISANDFUTURE:20260727T100000',
+          'DTSTART;TZID=Asia/Tokyo:20260727T130000',
+          'SUMMARY:変更後',
+          'END:VEVENT',
+        ),
+      );
+      expect(events).toHaveLength(2);
+      expect(events[1]?.recurringEventId).toBe('m1');
+      expect(events[1]?.originalStart).toBe('2026-07-27T10:00:00');
+    });
+
+    it('STATUS:CANCELLED と組み合わさった場合は「これ以降の削除」としてシリーズを打ち切る', () => {
+      const events = eventsFromIcs(
+        icsText(
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'DTSTART;TZID=Asia/Tokyo:20260801T090000',
+          'DTEND;TZID=Asia/Tokyo:20260801T093000',
+          'RRULE:FREQ=DAILY;COUNT=10',
+          'SUMMARY:朝会',
+          'END:VEVENT',
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'RECURRENCE-ID;TZID=Asia/Tokyo;RANGE=THISANDFUTURE:20260806T090000',
+          'DTSTART;TZID=Asia/Tokyo:20260806T090000',
+          'STATUS:CANCELLED',
+          'SUMMARY:朝会',
+          'END:VEVENT',
+        ),
+      );
+      expect(events).toHaveLength(1);
+      expect(events[0]?.rrule).toBe('FREQ=DAILY;UNTIL=20260805T090000Z');
+      const occurrences = expandEvents({
+        events,
+        range: {
+          start: new Date('2026-07-31T15:00:00Z'), // 東京 8/1 0:00
+          end: new Date('2026-08-14T15:00:00Z'), // 東京 8/15 0:00
+        },
+        displayTimeZone: TOKYO,
+        defaultEventMinutes: 60,
+      });
+      expect(toISO(occurrences.map((o) => o.start))).toEqual([
+        '2026-08-01T00:00:00.000Z',
+        '2026-08-02T00:00:00.000Z',
+        '2026-08-03T00:00:00.000Z',
+        '2026-08-04T00:00:00.000Z',
+        '2026-08-05T00:00:00.000Z',
+      ]);
+    });
+  });
+
   describe('非対応構文の扱い', () => {
     it('VTIMEZONE 定義は無視し、TZID は IANA タイムゾーン ID として解釈する', () => {
       const events = eventsFromIcs(
@@ -1056,6 +1492,181 @@ describe('eventsFromIcs', () => {
   });
 });
 
+describe('eventsFromIcsWithIssues', () => {
+  describe('正常・不正が混在する ICS', () => {
+    it('不正な VEVENT を issue にして残りを取り込む', () => {
+      const ics = icsText(
+        'BEGIN:VCALENDAR',
+        'BEGIN:VEVENT',
+        'UID:valid1',
+        'DTSTART:20260701T010000Z',
+        'SUMMARY:正常1',
+        'END:VEVENT',
+        'BEGIN:VEVENT',
+        'UID:bad1',
+        'SUMMARY:壊れたイベント',
+        'END:VEVENT',
+        'BEGIN:VEVENT',
+        'UID:valid2',
+        'DTSTART:20260702T010000Z',
+        'SUMMARY:正常2',
+        'END:VEVENT',
+        'END:VCALENDAR',
+      );
+      const { events, issues } = eventsFromIcsWithIssues(ics);
+      expect(events.map((event) => event.id)).toEqual(['valid1', 'valid2']);
+      expect(issues).toEqual([
+        {
+          index: 1,
+          uid: 'bad1',
+          summary: '壊れたイベント',
+          message: expect.stringMatching(/DTSTART/),
+        },
+      ]);
+    });
+
+    it('UID・SUMMARY のない不正な VEVENT は issue の該当項目が null になる', () => {
+      const ics = icsText('BEGIN:VEVENT', 'LOCATION:どこか', 'END:VEVENT');
+      const { events, issues } = eventsFromIcsWithIssues(ics);
+      expect(events).toEqual([]);
+      expect(issues).toEqual([
+        { index: 0, uid: null, summary: null, message: expect.stringMatching(/DTSTART/) },
+      ]);
+    });
+  });
+
+  describe('全件が不正な ICS', () => {
+    it('すべての VEVENT が issue になり events は空になる', () => {
+      const ics = icsText(
+        'BEGIN:VEVENT',
+        'UID:bad1',
+        'END:VEVENT',
+        'BEGIN:VEVENT',
+        'UID:bad2',
+        'END:VEVENT',
+      );
+      const { events, issues } = eventsFromIcsWithIssues(ics);
+      expect(events).toEqual([]);
+      expect(issues.map((issue) => ({ index: issue.index, uid: issue.uid }))).toEqual([
+        { index: 0, uid: 'bad1' },
+        { index: 1, uid: 'bad2' },
+      ]);
+    });
+  });
+
+  describe('正常な ICS のみの場合', () => {
+    it('issues が空になり、events は eventsFromIcs と同じ結果になる', () => {
+      const ics = icsText(
+        'BEGIN:VEVENT',
+        'UID:weekly',
+        'DTSTART;TZID=Asia/Tokyo:20260706T100000',
+        'RRULE:FREQ=WEEKLY;BYDAY=MO',
+        'SUMMARY:週次ミーティング',
+        'END:VEVENT',
+      );
+      const { events, issues } = eventsFromIcsWithIssues(ics);
+      expect(issues).toEqual([]);
+      expect(events).toEqual(eventsFromIcs(ics));
+    });
+  });
+
+  describe('eventsFromIcs との整合性', () => {
+    it('eventsFromIcs は従来どおり最初の不正な VEVENT で Error を投げる（メッセージも不変）', () => {
+      const ics = icsText('BEGIN:VEVENT', 'UID:bad1', 'SUMMARY:壊れたイベント', 'END:VEVENT');
+      const thrownMessage = captureErrorMessage(() => eventsFromIcs(ics));
+      expect(thrownMessage).toMatch(/DTSTART/);
+      const { issues } = eventsFromIcsWithIssues(ics);
+      expect(issues[0]?.message).toBe(thrownMessage);
+    });
+
+    it('BEGIN/END の対応が取れない構造は従来どおり両 API とも Error を投げる', () => {
+      const ics = icsText('END:VEVENT');
+      expect(() => eventsFromIcs(ics)).toThrow(Error);
+      expect(() => eventsFromIcsWithIssues(ics)).toThrow(Error);
+    });
+  });
+
+  describe('RECURRENCE-ID;RANGE=THISANDFUTURE のシリーズ分割', () => {
+    it('eventsFromIcs と同じ分割結果になる', () => {
+      const ics = icsText(
+        'BEGIN:VEVENT',
+        'UID:m1',
+        'DTSTART;TZID=Asia/Tokyo:20260706T100000',
+        'DTEND;TZID=Asia/Tokyo:20260706T110000',
+        'RRULE:FREQ=WEEKLY;BYDAY=MO',
+        'SUMMARY:週次',
+        'END:VEVENT',
+        'BEGIN:VEVENT',
+        'UID:m1',
+        'RECURRENCE-ID;TZID=Asia/Tokyo;RANGE=THISANDFUTURE:20260727T100000',
+        'DTSTART;TZID=Asia/Tokyo:20260727T130000',
+        'DTEND;TZID=Asia/Tokyo:20260727T140000',
+        'SUMMARY:週次（午後へ変更）',
+        'END:VEVENT',
+      );
+      const { events, issues } = eventsFromIcsWithIssues(ics);
+      expect(issues).toEqual([]);
+      expect(events).toEqual(eventsFromIcs(ics));
+    });
+
+    it('マスターが不正で issue に回った場合は単一オカレンスのオーバーライドとして取り込む', () => {
+      const { events, issues } = eventsFromIcsWithIssues(
+        icsText(
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'SUMMARY:壊れたマスター',
+          'END:VEVENT',
+          'BEGIN:VEVENT',
+          'UID:m1',
+          'RECURRENCE-ID;TZID=Asia/Tokyo;RANGE=THISANDFUTURE:20260727T100000',
+          'DTSTART;TZID=Asia/Tokyo:20260727T130000',
+          'SUMMARY:変更後',
+          'END:VEVENT',
+        ),
+      );
+      expect(issues).toEqual([
+        {
+          index: 0,
+          uid: 'm1',
+          summary: '壊れたマスター',
+          message: expect.stringMatching(/DTSTART/),
+        },
+      ]);
+      expect(events).toHaveLength(1);
+      expect(events[0]?.id).toBe('m1@20260727T100000');
+      expect(events[0]?.recurringEventId).toBe('m1');
+      expect(events[0]?.originalStart).toBe('2026-07-27T10:00:00');
+    });
+  });
+
+  describe('STATUS:CANCELLED のオーバーライドとの組み合わせ', () => {
+    it('マスターが不正で取り込めない場合、対応する CANCELLED オーバーライドは無視される', () => {
+      const ics = icsText(
+        'BEGIN:VEVENT',
+        'UID:weekly',
+        'SUMMARY:壊れたマスター',
+        'END:VEVENT',
+        'BEGIN:VEVENT',
+        'UID:weekly',
+        'RECURRENCE-ID:20260713T100000Z',
+        'DTSTART:20260713T100000Z',
+        'STATUS:CANCELLED',
+        'END:VEVENT',
+      );
+      const { events, issues } = eventsFromIcsWithIssues(ics);
+      expect(events).toEqual([]);
+      expect(issues).toEqual([
+        {
+          index: 0,
+          uid: 'weekly',
+          summary: '壊れたマスター',
+          message: expect.stringMatching(/DTSTART/),
+        },
+      ]);
+    });
+  });
+});
+
 describe('往復変換（round-trip）', () => {
   const source: readonly CalendarEvent[] = [
     {
@@ -1204,6 +1815,77 @@ describe('往復変換（round-trip）', () => {
         start: o.start.toISOString(),
       }));
     expect(summarize(round)).toEqual(summarize(noTzSource));
+    // 再エクスポート → 再インポートでも安定する（不動点）
+    expect(eventsFromIcs(eventsToIcs(round, { dtstamp: STAMP, timeZone: TOKYO }))).toEqual(round);
+  });
+
+  it('RANGE=THISANDFUTURE で分割した 2 系列は独立イベントとして書き出され、再インポートで安定する', () => {
+    const first = eventsFromIcs(
+      icsText(
+        'BEGIN:VEVENT',
+        'UID:m1',
+        'DTSTART;TZID=Asia/Tokyo:20260801T090000',
+        'DTEND;TZID=Asia/Tokyo:20260801T093000',
+        'RRULE:FREQ=DAILY;COUNT=10',
+        'SUMMARY:朝会',
+        'END:VEVENT',
+        'BEGIN:VEVENT',
+        'UID:m1',
+        'RECURRENCE-ID;TZID=Asia/Tokyo;RANGE=THISANDFUTURE:20260805T090000',
+        'DTSTART;TZID=Asia/Tokyo:20260805T200000',
+        'DTEND;TZID=Asia/Tokyo:20260805T203000',
+        'SUMMARY:夜会',
+        'END:VEVENT',
+      ),
+    );
+    const exported = eventsToIcs(first, { dtstamp: STAMP, timeZone: TOKYO });
+    // 分割後の 2 系列はそれぞれ独立した UID の VEVENT になる（RANGE=THISANDFUTURE は出力しない）
+    expect(exported).toContain('UID:m1\r\n');
+    expect(exported).toContain('UID:m1@20260805T090000\r\n');
+    expect(exported).not.toContain('RANGE=THISANDFUTURE');
+    expect(eventsFromIcs(exported)).toEqual(first);
+  });
+
+  it('RANGE=THISANDFUTURE の分割で付け替えたオーバーライド・EXDATE・RDATE も往復でオカレンス列が保たれる', () => {
+    const first = eventsFromIcs(
+      icsText(
+        'BEGIN:VEVENT',
+        'UID:m1',
+        'DTSTART;TZID=Asia/Tokyo:20260706T100000',
+        'DTEND;TZID=Asia/Tokyo:20260706T110000',
+        'RRULE:FREQ=WEEKLY;BYDAY=MO',
+        'EXDATE;TZID=Asia/Tokyo:20260713T100000,20260810T100000',
+        'RDATE;TZID=Asia/Tokyo:20260717T100000,20260814T100000',
+        'SUMMARY:週次',
+        'END:VEVENT',
+        'BEGIN:VEVENT',
+        'UID:m1',
+        'RECURRENCE-ID;TZID=Asia/Tokyo:20260803T100000',
+        'DTSTART;TZID=Asia/Tokyo:20260803T150000',
+        'DTEND;TZID=Asia/Tokyo:20260803T160000',
+        'SUMMARY:個別変更',
+        'END:VEVENT',
+        'BEGIN:VEVENT',
+        'UID:m1',
+        'RECURRENCE-ID;TZID=Asia/Tokyo;RANGE=THISANDFUTURE:20260727T100000',
+        'DTSTART;TZID=Asia/Tokyo:20260727T100000',
+        'DTEND;TZID=Asia/Tokyo:20260727T110000',
+        'SUMMARY:名称変更後',
+        'END:VEVENT',
+      ),
+    );
+    const round = eventsFromIcs(eventsToIcs(first, { dtstamp: STAMP, timeZone: TOKYO }));
+    const range = {
+      start: new Date('2026-06-30T15:00:00Z'), // 東京 7/1 0:00
+      end: new Date('2026-08-15T15:00:00Z'), // 東京 8/16 0:00
+    };
+    const summarize = (events: readonly CalendarEvent[]) =>
+      expandEvents({ events, range, displayTimeZone: TOKYO, defaultEventMinutes: 60 }).map((o) => ({
+        title: o.event.title,
+        start: o.start.toISOString(),
+        end: o.end.toISOString(),
+      }));
+    expect(summarize(round)).toEqual(summarize(first));
     // 再エクスポート → 再インポートでも安定する（不動点）
     expect(eventsFromIcs(eventsToIcs(round, { dtstamp: STAMP, timeZone: TOKYO }))).toEqual(round);
   });

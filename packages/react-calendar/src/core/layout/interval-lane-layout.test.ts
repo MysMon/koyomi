@@ -17,11 +17,12 @@ describe('layoutIntervalLanes', () => {
   it('重ならない区間は同じレーン 0 に詰められる', () => {
     const result = layoutIntervalLanes([item('a', 0, 60), item('b', 60, 120), item('c', 180, 240)]);
     expect(result.placements).toEqual([
-      { key: 'a', lane: 0 },
-      { key: 'b', lane: 0 },
-      { key: 'c', lane: 0 },
+      { key: 'a', lane: 0, hidden: false },
+      { key: 'b', lane: 0, hidden: false },
+      { key: 'c', lane: 0, hidden: false },
     ]);
     expect(result.laneCount).toBe(1);
+    expect(result.overflowCount).toBe(0);
   });
 
   it('接触（end === start、排他境界）は重ならないとして同じレーンに入る', () => {
@@ -33,8 +34,8 @@ describe('layoutIntervalLanes', () => {
   it('重なる区間は下のレーンへ積まれる', () => {
     const result = layoutIntervalLanes([item('a', 0, 100), item('b', 50, 150)]);
     expect(result.placements).toEqual([
-      { key: 'a', lane: 0 },
-      { key: 'b', lane: 1 },
+      { key: 'a', lane: 0, hidden: false },
+      { key: 'b', lane: 1, hidden: false },
     ]);
     expect(result.laneCount).toBe(2);
   });
@@ -58,9 +59,9 @@ describe('layoutIntervalLanes', () => {
       item('c', 120, 200),
     ]);
     expect(result.placements).toEqual([
-      { key: 'a', lane: 0 },
-      { key: 'b', lane: 1 },
-      { key: 'c', lane: 0 },
+      { key: 'a', lane: 0, hidden: false },
+      { key: 'b', lane: 1, hidden: false },
+      { key: 'c', lane: 0, hidden: false },
     ]);
     expect(result.laneCount).toBe(2);
   });
@@ -93,10 +94,73 @@ describe('layoutIntervalLanes', () => {
       item('c', 100, 200),
     ]);
     expect(result.placements).toEqual([
-      { key: 'a', lane: 0 },
-      { key: 'b', lane: 1 },
-      { key: 'c', lane: 0 },
+      { key: 'a', lane: 0, hidden: false },
+      { key: 'b', lane: 1, hidden: false },
+      { key: 'c', lane: 0, hidden: false },
     ]);
     expect(result.laneCount).toBe(2);
+  });
+
+  describe('maxLanes（あふれの非表示化、opt-in）', () => {
+    it('maxLanes 省略時は従来どおり全アイテムが表示される（hidden は常に false）', () => {
+      const result = layoutIntervalLanes([
+        item('a', 0, 100),
+        item('b', 10, 90),
+        item('c', 20, 80),
+        item('d', 30, 70),
+      ]);
+      expect(result.placements.every((p) => p.hidden === false)).toBe(true);
+      expect(result.laneCount).toBe(4);
+      expect(result.overflowCount).toBe(0);
+    });
+
+    it('使用レーン数が maxLanes ちょうど（超過なし）では、どのアイテムも hidden にならない', () => {
+      const result = layoutIntervalLanes(
+        [item('a', 0, 100), item('b', 10, 90)],
+        2, // 使用レーン数 2 = maxLanes 2（超過なし）
+      );
+      expect(result.placements).toEqual([
+        { key: 'a', lane: 0, hidden: false },
+        { key: 'b', lane: 1, hidden: false },
+      ]);
+      expect(result.laneCount).toBe(2);
+      expect(result.overflowCount).toBe(0);
+    });
+
+    it('使用レーン数が maxLanes を 1 超過すると、超過分だけ hidden になり overflowCount に計上される', () => {
+      // 全件が重なるため a→レーン0、b→レーン1、c→レーン2。maxLanes=2 なので c だけ hidden
+      const result = layoutIntervalLanes(
+        [item('a', 0, 100), item('b', 10, 90), item('c', 20, 80)],
+        2,
+      );
+      expect(result.placements).toEqual([
+        { key: 'a', lane: 0, hidden: false },
+        { key: 'b', lane: 1, hidden: false },
+        { key: 'c', lane: 2, hidden: true },
+      ]);
+      // laneCount は表示レーンのみ（hidden だけが乗るレーンは含めない）
+      expect(result.laneCount).toBe(2);
+      expect(result.overflowCount).toBe(1);
+    });
+
+    it('hidden になったアイテムもレーンを専有し、後続アイテムが割り込まない', () => {
+      // a,b,c が全件重なり maxLanes=1 → b,c が hidden。b がレーン1を専有した後、
+      // b と重ならない d（[100,200)）は空いたレーン0 ではなくレーン1 を再利用できるかを検証
+      const result = layoutIntervalLanes(
+        [
+          item('a', 0, 100),
+          item('b', 0, 100),
+          item('d', 100, 200), // a・b と接触（非重なり）だが c とも非重なり
+        ],
+        1,
+      );
+      const byKey = new Map(result.placements.map((p) => [p.key, p]));
+      expect(byKey.get('a')).toEqual({ key: 'a', lane: 0, hidden: false });
+      expect(byKey.get('b')).toEqual({ key: 'b', lane: 1, hidden: true });
+      // d は a と接触（非重なり）なのでレーン0（最小の空きレーン）に入る
+      expect(byKey.get('d')).toEqual({ key: 'd', lane: 0, hidden: false });
+      expect(result.laneCount).toBe(1);
+      expect(result.overflowCount).toBe(1);
+    });
   });
 });

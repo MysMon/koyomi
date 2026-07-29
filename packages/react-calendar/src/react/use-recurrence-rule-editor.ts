@@ -18,8 +18,9 @@ import {
 } from '../core/recurrence-editor';
 import { getWallClock, weekdayInZone } from '../core/timezone';
 import type { TimeZoneId, Weekday } from '../core/types';
+import { useOptionalCalendarContext } from './context';
 import { isDevBuild } from './is-dev-build';
-import { resolveMessageCatalog } from './locales/resolve';
+import { createMessageCatalog, resolveMessageCatalog } from './locales/resolve';
 import type { MessageCatalogOverrides } from './locales/types';
 
 /**
@@ -45,17 +46,47 @@ export interface UseRecurrenceRuleEditorOptions {
   /**
    * 文言を解決するロケール。`resolveMessageCatalog` と同じ規約で、言語サブタグ
    * （`-` より前）を大文字・小文字を無視して比較し、同梱カタログにない言語は
-   * `'ja'` にフォールバックする。省略時は `'ja'`。
+   * `'ja'` にフォールバックする。
    *
    * `start` / `timeZone` / `rrule` と異なり初期値限定ではなく、変更するたびに
    * 再解決される（編集対象の切り替えではなく表示言語の切り替えのため）。
+   *
+   * 省略時、`CalendarProvider` の配下では `state.options.locale` に自動で
+   * 連動する（Provider の `locale` を切り替えるとこのフックの文言も追従する）。
+   * `CalendarProvider` の配下でない場合、または明示的に指定した場合は `'ja'`
+   * （既定）またはその指定値になる。
    */
   locale?: string;
   /**
    * 既定の文言（{@link UseRecurrenceRuleEditorResult.description} 等）を
    * 部分的に差し替える。`locale` と同様、変更するたびに再解決される。
+   *
+   * 省略時、`CalendarProvider` の配下かつ `locale` も省略している場合に限り、
+   * Provider が解決した `recurrenceEditor` グループの文言（Provider 自身の
+   * `messages` による上書きを含む）に自動で連動する。`locale` を明示的に
+   * 指定した場合、または `CalendarProvider` の配下でない場合は既定文言
+   * （上書きなし）が基準になる。この `messages` 自体を明示的に指定した場合は、
+   * その指定値を基準カタログ（Provider 連動時は Provider のカタログ、それ以外
+   * は既定カタログ）へ重ねてマージする。
    */
   messages?: MessageCatalogOverrides;
+  /**
+   * カレンダーの週の開始曜日。RRULE の `WKST` の出力
+   * （{@link buildRecurrenceRuleString}）と受理判定（{@link parseRecurrenceRule}）
+   * に使う。月曜（`1`）以外を指定すると {@link UseRecurrenceRuleEditorResult.rruleString}
+   * に `WKST` が明示出力され、隔週（`INTERVAL` が 2 以上の weekly）の週境界が
+   * カレンダーの表示と一致する。
+   *
+   * `start` / `timeZone` / `rrule` と異なり初期値限定ではなく、変更するたびに
+   * `rruleString` の `WKST` 出力へ再反映される（`rrule` の受理判定には、マウント時
+   * または {@link UseRecurrenceRuleEditorResult.reset} 呼び出し時点の値が使われる）。
+   *
+   * 省略時、`CalendarProvider` の配下では Provider の `state.options.weekStartsOn`
+   * に自動で連動する（Provider の `weekStartsOn` を切り替えると `WKST` も追従する）。
+   * `CalendarProvider` の配下でない場合は、RRULE 既定の月曜相当として扱う
+   * （`WKST` を出力せず、`WKST=MO` の明示のみ受理する）。
+   */
+  weekStartsOn?: Weekday;
 }
 
 /** 編集対象（start/timeZone/rrule）の組。フックの内部状態と `reset` の引数で共有する。 */
@@ -167,6 +198,22 @@ export function useRecurrenceRuleEditor(
   /** setter 群から参照を安定させたまま現在の編集対象を読むためのミラー。 */
   const targetRef = useRef(target);
 
+  /**
+   * `CalendarProvider` のコンテキスト（配下でなければ `null`）。`options.locale` /
+   * `options.messages` / `options.weekStartsOn` 省略時のみ参照する（明示指定時は
+   * 無視して従来どおり解決する）。
+   */
+  const providerContext = useOptionalCalendarContext();
+
+  /**
+   * 解決済みの週の開始曜日。優先順位は「明示オプション > Provider の
+   * `state.options.weekStartsOn` > 未指定（RRULE 既定の月曜相当）」。
+   * `locale` と同様に初期値限定ではなく、変更のたびに再解決される。
+   */
+  const resolvedWeekStartsOn =
+    options.weekStartsOn ??
+    (providerContext !== null ? providerContext.state.options.weekStartsOn : undefined);
+
   /** 初回マウント時の parseRecurrenceRule の結果（state/unsupported の初期値算出に使う）。 */
   const initialParsedRef = useRef<ReturnType<typeof parseRecurrenceRule> | null>(null);
   if (initialParsedRef.current === null) {
@@ -174,6 +221,7 @@ export function useRecurrenceRuleEditor(
       rrule: options.rrule,
       dtstart: options.start,
       timeZone: options.timeZone,
+      ...(resolvedWeekStartsOn !== undefined ? { weekStartsOn: resolvedWeekStartsOn } : {}),
     });
   }
   const initialParsed = initialParsedRef.current;
@@ -190,11 +238,24 @@ export function useRecurrenceRuleEditor(
       : null,
   );
 
-  /** `options.locale` / `options.messages` から解決した文言カタログ。変更のたびに再解決する。 */
-  const catalog = useMemo(
-    () => resolveMessageCatalog(options.locale ?? 'ja', options.messages),
-    [options.locale, options.messages],
-  );
+  /**
+   * `options.locale` / `options.messages` から解決した文言カタログ。変更のたびに再解決する。
+   *
+   * 優先順位は「明示オプション > Provider > 既定 `'ja'`」。`options.locale` が
+   * 省略されていて `Provider` 配下にある間は、Provider の `state.options.locale` /
+   * 解決済みカタログ（Provider 自身の `messages` 上書きを含む）をそのまま基準にする
+   * （`options.messages` を明示指定した場合はそこへ重ねてマージする）。`options.locale`
+   * を明示指定した場合は Provider に依存せず単独で解決する（Provider の `messages`
+   * 上書きは、Provider の `locale` を使わない解決には引き継がない）。
+   */
+  const catalog = useMemo(() => {
+    if (options.locale === undefined && providerContext !== null) {
+      return options.messages !== undefined
+        ? createMessageCatalog(providerContext.messages, options.messages)
+        : providerContext.messages;
+    }
+    return resolveMessageCatalog(options.locale ?? 'ja', options.messages);
+  }, [options.locale, options.messages, providerContext]);
 
   // start/timeZone/rrule は初期値としてのみ有効。開発時のみ、マウント後に異なる
   // 値が渡されたことを一度だけ警告する（reset() か key 再マウントの運用を促す）。
@@ -274,21 +335,25 @@ export function useRecurrenceRuleEditor(
     setUnsupportedRawRRule(null);
   }, []);
 
-  const reset = useCallback((nextTarget: RecurrenceRuleEditorTarget) => {
-    const normalized = copyTarget(nextTarget);
-    const parsed = parseRecurrenceRule({
-      rrule: normalized.rrule,
-      dtstart: normalized.start,
-      timeZone: normalized.timeZone,
-    });
-    didResetRef.current = true;
-    targetRef.current = normalized;
-    setTarget(normalized);
-    setState(parsed.kind === 'editable' ? parsed.state : null);
-    setUnsupportedRawRRule(
-      parsed.kind === 'unsupported' ? { rawRRule: parsed.rawRRule, reason: parsed.reason } : null,
-    );
-  }, []);
+  const reset = useCallback(
+    (nextTarget: RecurrenceRuleEditorTarget) => {
+      const normalized = copyTarget(nextTarget);
+      const parsed = parseRecurrenceRule({
+        rrule: normalized.rrule,
+        dtstart: normalized.start,
+        timeZone: normalized.timeZone,
+        ...(resolvedWeekStartsOn !== undefined ? { weekStartsOn: resolvedWeekStartsOn } : {}),
+      });
+      didResetRef.current = true;
+      targetRef.current = normalized;
+      setTarget(normalized);
+      setState(parsed.kind === 'editable' ? parsed.state : null);
+      setUnsupportedRawRRule(
+        parsed.kind === 'unsupported' ? { rawRRule: parsed.rawRRule, reason: parsed.reason } : null,
+      );
+    },
+    [resolvedWeekStartsOn],
+  );
 
   const errors = useMemo(() => {
     if (state === null) {
@@ -318,8 +383,9 @@ export function useRecurrenceRuleEditor(
       state,
       dtstart: target.start,
       timeZone: target.timeZone,
+      ...(resolvedWeekStartsOn !== undefined ? { weekStartsOn: resolvedWeekStartsOn } : {}),
     });
-  }, [state, errors, target]);
+  }, [state, errors, target, resolvedWeekStartsOn]);
 
   const description = useMemo(() => {
     if (state === null) {

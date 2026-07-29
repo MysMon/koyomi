@@ -157,8 +157,8 @@ div[data-koyomi="timegrid"][data-koyomi-days="<可視列数>"] (style: --koyomi-
     div[data-koyomi="time-axis"][data-koyomi-timezone] × timeAxes.length  … 先頭が主軸（表示 TZ）、以降が timeAxisZones の指定順
       div[data-koyomi="time-slot-label"] × slots     … 'HH:mm'（この軸のタイムゾーンでの現地時刻）
     div[data-koyomi="timegrid-days"]
-      div[data-koyomi="timegrid-day"][data-koyomi-date][data-today?] × days
-         … useTimeGridDrag.getDayProps を展開。position: relative の基準
+      div[data-koyomi="timegrid-day"][data-koyomi-date][data-today?] (role="group", aria-label=完全な日付, tabindex="0") × days
+         … useTimeGridDrag.getDayProps を展開（tabIndex・onKeyDown による Enter/Space 作成を含む）。position: relative の基準
         div[data-koyomi="timegrid-slot"][data-koyomi-business-hours]? × slots
                                                       … 罫線。style: top %。
                                                         data-koyomi-business-hours は
@@ -353,8 +353,8 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"] (style: --koyomi-tim
     div[data-koyomi="time-axis"]
       div[data-koyomi="time-slot-label"] × slots           … 'HH:mm'
     div[data-koyomi="resource-columns"]
-      div[data-koyomi="resource-column"][data-koyomi-resource][data-koyomi-date][data-today?] × columns
-         … getColumnProps を展開。position: relative の基準。
+      div[data-koyomi="resource-column"][data-koyomi-resource][data-koyomi-date][data-today?] (role="group", aria-label=リソース名。複数日表示は「リソース名 + 日ラベル」、未割り当て列は messages.resource.unassigned, tabindex="0") × columns
+         … getColumnProps（useResourceGridDrag。tabIndex・onKeyDown による Enter/Space 作成を含む）を展開。position: relative の基準。
            data-koyomi-resource はレーンキー、data-koyomi-date は列の日付キー、
            data-today はその列の日が今日の列のみ
         div[data-koyomi="timegrid-slot"][data-koyomi-business-hours]? × slots
@@ -484,8 +484,8 @@ div[data-koyomi="timeline"][data-koyomi-days="<表示日数>"][data-koyomi-scale
            style: --koyomi-event-color（resource.color 指定時のみ）・--koyomi-timeline-row-depth。position: sticky（テーマ側）
         button[data-koyomi="timeline-row-toggle"][aria-expanded]?  … hasChildren: true の行のみ描画。
            aria-expanded は !collapsed。クリックで api.toggleResourceCollapsed(resource.id) を呼ぶ
-      div[data-koyomi="timeline-row"][data-koyomi-resource] (role="gridcell") × rows
-         … getRowProps を展開。position: relative の基準。style: --koyomi-timeline-lanes（行のレーン数）
+      div[data-koyomi="timeline-row"][data-koyomi-resource] (role="gridcell", aria-label=リソース名。未割り当て行は messages.timeline.unassigned, tabindex="0") × rows
+         … getRowProps（useTimelineDrag。tabIndex・onKeyDown による Enter/Space 作成を含む）を展開。position: relative の基準。style: --koyomi-timeline-lanes（行のレーン数）
         div[data-koyomi="timeline-business-hours"] (aria-hidden) × businessHourRanges.length
            … businessHours 該当区間の下敷き帯（全行共通。businessHours 未指定時は描画されない）。
              style: insetInlineStart/width は %（表示分 / totalMinutes）。

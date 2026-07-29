@@ -240,7 +240,75 @@ useRecurrenceRuleEditor({ start, timeZone, locale: 'en-US' });
 // => description が "Weekly on Mon, Wed" のような英語文言になる
 ```
 
-`locale` は `CalendarProvider` や `useCalendar` の `locale` オプションとは連動しません（このフックは `Provider` に依存しないため）。カレンダー本体と表示言語を揃えたい場合は、`calendar.state.options.locale` を明示的に渡してください。詳細は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照してください。
+`CalendarProvider` の配下でこのフックを使う場合、`locale` / `messages` を省略すると Provider の `locale`（`state.options.locale`）・`messages`（`recurrenceEditor` グループの上書き）に自動で連動します。Provider の `locale` を切り替えれば、このフックの `description` / `errors[].message` / `unsupported.message` も追従します。
+
+```tsx
+import { CalendarProvider, useCalendar, useRecurrenceRuleEditor } from '@koyomi-cal/react';
+
+function RecurrenceForm({ start, timeZone }: { start: Date; timeZone: string }) {
+  // calendar.state.options.locale が 'en-US' なら、editor.description も英語になる
+  const editor = useRecurrenceRuleEditor({ start, timeZone });
+  return <p>{editor.description}</p>;
+}
+
+function App() {
+  const calendar = useCalendar({ locale: 'en-US' });
+  return (
+    <CalendarProvider value={calendar}>
+      <RecurrenceForm start={new Date()} timeZone="Asia/Tokyo" />
+    </CalendarProvider>
+  );
+}
+```
+
+`locale` を明示的に指定した場合はその値が Provider より優先されます。`CalendarProvider` の配下でない場合は、明示指定しない限り `'ja'` が既定になります。詳細は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照してください。
+
+### 週の開始曜日（weekStartsOn）と WKST
+
+`INTERVAL` が 2 以上の `FREQ=WEEKLY` では、「どの曜日で週が始まるか」（RRULE の `WKST`、既定は月曜）によって隔週の対象週の区切りが変わります。たとえば `FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU` は、月曜始まりでは火曜とその後の日曜が同じ週に入りますが、日曜始まり（`WKST=SU`）では日曜が週の先頭になるため、同じルールでも展開される実日付列が変わります（`expandRecurrence` は `WKST` 付きの RRULE をそのまま正しく展開します）。
+
+カレンダーの表示上の週の開始曜日（`weekStartsOn`、既定 `0` = 日曜）と RRULE の週境界を一致させるため、`parseRecurrenceRule` / `buildRecurrenceRuleString` は `weekStartsOn` を受け取れます。
+
+```ts
+const dtstart = new Date('2026-07-01T00:00:00Z');
+
+// 生成: weekStartsOn が月曜（1）以外なら、freq によらず WKST を常に明示出力する
+buildRecurrenceRuleString({
+  state: { freq: 'weekly', interval: 2, byWeekday: [0, 2], end: { type: 'never' } },
+  dtstart,
+  timeZone: 'Asia/Tokyo',
+  weekStartsOn: 0,
+});
+// => 'FREQ=WEEKLY;INTERVAL=2;BYDAY=SU,TU;WKST=SU'
+
+// 受理: ルールの WKST が weekStartsOn と一致すれば editable
+parseRecurrenceRule({ rrule: 'FREQ=WEEKLY;WKST=SU', dtstart, timeZone: 'Asia/Tokyo', weekStartsOn: 0 });
+// => kind: 'editable'
+
+// 不一致の明示 WKST は unsupported（reason: { code: 'unsupportedWkst' }）
+parseRecurrenceRule({ rrule: 'FREQ=WEEKLY;WKST=SU', dtstart, timeZone: 'Asia/Tokyo', weekStartsOn: 1 });
+// => kind: 'unsupported'
+
+// 期待される動作:
+// - weekStartsOn を省略すると、生成は WKST を出力せず、受理は WKST=MO の明示のみ許容する
+//   （RRULE の既定の週開始が月曜のため）
+// - weekStartsOn が月曜（1）のときも WKST は出力しない（既定と同じため）
+// - WKST を持たないルールは weekStartsOn の値によらず受理される
+```
+
+`useRecurrenceRuleEditor` では `weekStartsOn` オプションで同じ接続ができます。`locale` と同様に作成時限定ではなく、変更のたびに `rruleString` の `WKST` 出力へ再反映されます（`rrule` の受理判定にはマウント時または `reset` 呼び出し時点の値が使われます）。`CalendarProvider` の配下では、省略時に Provider の `weekStartsOn`（`state.options.weekStartsOn`、既定 `0` = 日曜）に自動で連動し、明示的に指定した場合はその値が Provider より優先されます。
+
+```tsx
+// カレンダー本体と同じ週の開始曜日で WKST を出力する
+const editor = useRecurrenceRuleEditor({ start, timeZone, weekStartsOn: 0 });
+// editor.rruleString => 'FREQ=WEEKLY;INTERVAL=2;BYDAY=SU,TU;WKST=SU' のような WKST 付きの文字列
+
+// CalendarProvider の配下では省略するだけでよい（Provider の weekStartsOn に連動する）
+function RecurrenceForm({ start, timeZone }: { start: Date; timeZone: string }) {
+  const editor = useRecurrenceRuleEditor({ start, timeZone });
+  return <p>{editor.rruleString}</p>;
+}
+```
 
 ### 完成形: 繰り返しルールエディタ UI（コピー&ペースト用）
 
@@ -755,6 +823,25 @@ expandRecurrence({
 });
 // => 7/1, 8/1, 9/1, 10/1, 11/1, 12/1
 
+// 月の第 n 曜日（BYDAY=<ordinal><weekday>）。第 2 火曜、範囲を半年分に広げる
+expandRecurrence({
+  rrule: 'FREQ=MONTHLY;BYDAY=2TU',
+  dtstart,
+  timeZone: 'Asia/Tokyo',
+  range: { start: dtstart, end: new Date('2027-01-01T00:00:00Z') },
+});
+// => 7/14, 8/11, 9/8, 10/13, 11/10, 12/8（各月の第 2 火曜。dtstart(7/1・水)は BYDAY と
+//    一致しないため評価起点にのみ使われ、オカレンスには合成されない）
+
+// 最終週（ordinal: -1）。BYDAY=-1FR は各月の最終金曜
+expandRecurrence({
+  rrule: 'FREQ=MONTHLY;BYDAY=-1FR',
+  dtstart,
+  timeZone: 'Asia/Tokyo',
+  range: { start: dtstart, end: new Date('2027-01-01T00:00:00Z') },
+});
+// => 7/31, 8/28, 9/25, 10/30, 11/27, 12/25（各月の最終金曜）
+
 // 毎年。範囲を 2 年半分に広げる
 expandRecurrence({
   rrule: 'FREQ=YEARLY',
@@ -782,6 +869,25 @@ expandRecurrence({
 });
 // => 7/1, 7/2, 7/3, 7/4, 7/5（UNTIL のオカレンス自身を含む、5 回）
 ```
+
+### 展開エンジンが対応する RRULE 機能の範囲
+
+`expandRecurrence` / `previousOccurrenceStart` / `truncateRRule` / `countOccurrencesBefore` は `rrule` パッケージ（RFC 5545 実装）への委譲のため、上の代表例に載らない RRULE の構成要素も展開できます。
+
+- **`FREQ`**: `SECONDLY` / `MINUTELY` / `HOURLY` / `DAILY` / `WEEKLY` / `MONTHLY` / `YEARLY` のすべて
+- **`INTERVAL`**: 任意の正整数（`FREQ` の単位ごとの間隔）
+- **`BYDAY`**: 曜日集合（`MO,TU,...`）、および `FREQ=MONTHLY` / `YEARLY` での第 n 曜日指定（`2TU`・`-1FR` 等）
+- **`BYMONTHDAY`** / **`BYYEARDAY`**: 正負両方の値（負値は月末・年末からの逆順、複数値の指定も可）
+- **`BYMONTH`**: 対象月による絞り込み
+- **`BYWEEKNO`**: ISO 8601 の週番号（`WKST=MO` が前提）。ISO 週 1 の月曜が前年 12 月に属する年もその年の週として正しく展開されます
+- **`BYSETPOS`**: `BYDAY` 等が生成した候補集合内での順序選択（正負・複数値の指定も可）。例えば `BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1` は「月内の最終平日」を表します
+- **`BYHOUR`** / **`BYMINUTE`** / **`BYSECOND`**: 時刻による絞り込み
+- **`WKST`**: 週の開始曜日（既定 `MO`）。`INTERVAL` を伴う `WEEKLY` の週境界に影響します（[週の開始曜日（weekStartsOn）と WKST](#週の開始曜日weekstartsonと-wkst) 参照）
+- **`COUNT`** / **`UNTIL`**: 終了条件（両者は排他。`UNTIL` の現地時刻としての解釈は [タイムゾーンとの関係](#タイムゾーンとの関係) 参照）
+
+これは「繰り返しルールエディタ（構造化状態での編集）」節で説明した構造化編集の対応範囲（`FREQ=DAILY/WEEKLY/MONTHLY/YEARLY`・`INTERVAL`・`BYDAY`・`BYMONTHDAY`（単一値）・`COUNT`/`UNTIL` のみ）より広いものです。エディタの対応範囲外の RRULE（`BYSETPOS`・`BYMONTH`・`BYYEARDAY`・`BYWEEKNO` などを含むもの）は `parseRecurrenceRule` が `kind: 'unsupported'` として元の文字列をそのまま保持し構造化編集の対象外にしますが、展開そのもの（`getOccurrences` を含む表示・移動・削除などカレンダー全体の基盤）は上記の範囲内であれば正しく行われます。ICS インポートなどで外部からこれらの RRULE を持つ予定を取り込んだ場合も、オカレンスの展開・操作は通常どおり機能し、構造化エディタでの再編集のみが対応外になります。
+
+展開エンジンが対応しないのは「対応していないもの: EXRULE・複数 RRULE」節に挙げた EXRULE・複数 RRULE の合成のみです。
 
 ## 繰り返しの編集・削除とスコープ
 
@@ -862,7 +968,8 @@ calendar.updateEvent(override!.id, { title: '朝会（社内向け）' });
 対象オカレンス以降（`>=`）の EXDATE・オーバーライドは新シリーズに付け替えられます。
 
 **対象が最初のオカレンスの場合は `'all'` と同じ扱い**になり、シリーズ分割は
-起きません。
+起きません。ICS の `RECURRENCE-ID;RANGE=THISANDFUTURE` インポートも同じ意味論でシリーズを
+分割します（詳細は [iCalendar（ICS）入出力: シリーズ分割](./ics.md#シリーズ分割recurrence-idrangethisandfuture) を参照）。
 
 ```ts
 import { createCalendar } from '@koyomi-cal/react';
@@ -902,6 +1009,44 @@ calendar.updateEvent(
   { occurrenceStart: new Date('2026-07-01T00:00:00Z'), scope: 'thisAndFollowing' },
 );
 // シリーズ分割は起きず、イベントは 1 件のまま
+```
+
+分割点ちょうどのオカレンスが既にオーバーライドされている場合、そのオーバーライドは
+`recurringEventId` が新シリーズの ID に付け替わるだけで、`thisAndFollowing` の patch は
+オーバーライド自身には適用されません。patch が適用されるのは新シリーズの最初の
+オカレンス（マスター相当のイベント）のみです。
+
+```ts
+import { createCalendar } from '@koyomi-cal/react';
+
+const calendar = createCalendar({ timeZone: 'Asia/Tokyo' });
+calendar.createEvent({
+  id: 'standup',
+  title: '朝会',
+  start: '2026-07-01T09:00:00',
+  end: '2026-07-01T09:15:00',
+  rrule: 'FREQ=DAILY;COUNT=5', // 7/1〜7/5 の 5 回
+});
+// 7/3 のオカレンスをあらかじめオーバーライドしておく
+calendar.updateEvent(
+  'standup',
+  { title: '朝会（7/3 特別回）' },
+  { occurrenceStart: new Date('2026-07-03T00:00:00Z'), scope: 'this' },
+);
+
+// 7/3 を分割点にして以降のタイトルを変更する（分割点がオーバーライド済みのオカレンスと重なる）
+calendar.updateEvent(
+  'standup',
+  { title: '朝会（改称）' },
+  { occurrenceStart: new Date('2026-07-03T00:00:00Z'), scope: 'thisAndFollowing' },
+);
+
+const events = calendar.getEvents();
+const overridden = events.find((e) => e.recurringEventId !== undefined);
+// overridden.recurringEventId は新シリーズの ID に付け替わる
+// overridden.title === '朝会（7/3 特別回）'（patch の '朝会（改称）' はオーバーライドには適用されない）
+const newSeries = events.find((e) => e.id !== 'standup' && e.recurringEventId === undefined);
+// newSeries.title === '朝会（改称）'（patch は新シリーズの最初のオカレンスに適用される）
 ```
 
 ### scope: 'all' — すべて

@@ -2,7 +2,7 @@ import { render, renderHook } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { createCalendar } from '../core/calendar';
-import { CalendarProvider, useCalendarContext } from './context';
+import { CalendarProvider, useCalendarContext, useOptionalCalendarContext } from './context';
 import { enMessages } from './locales/en';
 import { jaMessages } from './locales/ja';
 import type { CalendarContextValue, UseCalendarResult } from './types';
@@ -186,5 +186,26 @@ describe('CalendarProvider / useCalendarContext', () => {
 
     expect(captured).toHaveLength(2);
     expect(captured[1]).toBe(captured[0]);
+  });
+});
+
+describe('useOptionalCalendarContext', () => {
+  it('Provider 外で呼ぶと例外を投げず null を返す', () => {
+    const { result } = renderHook(() => useOptionalCalendarContext());
+
+    expect(result.current).toBeNull();
+  });
+
+  it('Provider 配下で呼ぶと useCalendarContext と同じコンテキスト値を返す', () => {
+    const value = makeCalendarResult();
+
+    function wrapper({ children }: { children?: ReactNode }): ReactElement {
+      return <CalendarProvider value={value}>{children}</CalendarProvider>;
+    }
+
+    const { result } = renderHook(() => useOptionalCalendarContext(), { wrapper });
+
+    expect(result.current?.state).toBe(value.state);
+    expect(result.current?.messages).toEqual(jaMessages);
   });
 });

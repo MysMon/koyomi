@@ -4,7 +4,8 @@
  *
  * `CalendarProvider` の `callbacks`（{@link CalendarInteractionCallbacks}）をラップする
  * ヘルパー（`wrapCallbacks`）を返し、加えて `calendar` の状態を内部で購読する。予定の
- * 移動・リサイズ・既定即時作成・削除の確定後、および（`announce.viewChange: true` の
+ * 移動・リサイズ・既定即時作成・削除の確定後、宣言的制約・適用前フックによる操作拒否
+ * （`onOperationRejected`）の確定時、および（`announce.viewChange: true` の
  * ときのみ）ビュー・基準日・表示範囲の変更後に、中央メッセージカタログ
  * （`messages.announcer`、`messages` オプションで部分上書き可）の文言を aria-live
  * リージョンへ通知する。
@@ -26,7 +27,12 @@ import { formatOccurrenceRangeLabel } from './components/month-view-parts';
 import { createDefaultEvent } from './drag-common';
 import { resolveMessageCatalog } from './locales/resolve';
 import type { EventChangeVerb, MessageCatalogOverrides } from './locales/types';
-import type { CalendarInteractionCallbacks, EventChange, UseCalendarResult } from './types';
+import type {
+  CalendarInteractionCallbacks,
+  EventChange,
+  OperationRejection,
+  UseCalendarResult,
+} from './types';
 
 /**
  * live region 要素に spread する props。`politeness` に応じて `role` / `aria-live` が切り替わる。
@@ -65,6 +71,8 @@ export interface AnnouncerTargets {
   eventCreate?: boolean;
   /** `onEventDelete` を自動通知するか。既定 `true`。 */
   eventDelete?: boolean;
+  /** `onOperationRejected` を自動通知するか。既定 `true`。 */
+  rejection?: boolean;
   /**
    * ビュー・基準日・表示範囲の変更（`calendar` への内部購読で検知）を自動通知するか。
    *
@@ -106,6 +114,14 @@ export interface UseCalendarAnnouncerResult {
   message: string;
   /** 手動で通知する（カスタム `onSelectRange` 経路での作成確定時など）。 */
   announce: (text: string) => void;
+  /**
+   * 拒否通知を手動で行う（クリップボード操作など、4 つのドラッグ系フックを経由しない
+   * 経路での拒否確定時に使う）。`onOperationRejected` の自動ラップ（`wrapCallbacks`）と
+   * 同じ文言・同じ `announce.rejection` 判定を使う。
+   *
+   * @param info - 拒否された操作の種類・理由・対象オカレンス
+   */
+  announceOperationRejected: (info: OperationRejection) => void;
   /**
    * `CalendarInteractionCallbacks` をラップし、対象イベントの確定後に自動で `announce` する
    * 新しいコールバック集を返す。`CalendarProvider` の `callbacks` に渡す。
@@ -205,6 +221,7 @@ function currentCtx(calendar: UseCalendarResult): AnnouncerContext {
  * `CalendarProvider` の `callbacks` をラップするヘルパー
  * （{@link UseCalendarAnnouncerResult.wrapCallbacks}）を返し、加えて `calendar` の
  * 状態変更を内部で購読する。予定の移動・リサイズ・既定即時作成・削除の確定後、
+ * 宣言的制約・適用前フックによる操作拒否（`onOperationRejected`）の確定時、
  * および `announce.viewChange: true` を指定した場合はビュー・基準日・表示範囲の
  * 変更後（マウント後の変化のみ。初期マウント自体は通知しない）に、中央メッセージ
  * カタログ（`messages.announcer`、`messages` オプションで部分上書き可）の文言を
@@ -212,7 +229,10 @@ function currentCtx(calendar: UseCalendarResult): AnnouncerContext {
  *
  * カスタムの `onSelectRange`（ダイアログ等）を使う経路では作成が確定したかどうかを
  * アプリ側しか把握できないため自動通知しない。作成確定時に
- * {@link UseCalendarAnnouncerResult.announce} を手動で呼ぶこと。
+ * {@link UseCalendarAnnouncerResult.announce} を手動で呼ぶこと。4 つのドラッグ系
+ * フックを経由しない経路（クリップボード操作等）での操作拒否も同様に自動検知できない
+ * ため、拒否確定時に {@link UseCalendarAnnouncerResult.announceOperationRejected}
+ * を手動で呼ぶこと。
  *
  * live region 要素は `CalendarProvider` の配下に置く必要はない（`calendar` 以外への
  * 依存を持たないため、DOM 上の配置に制約はない）。
@@ -267,6 +287,17 @@ export function useCalendarAnnouncer(
     setMessage(text);
   }, []);
 
+  const announceOperationRejected = useCallback(
+    (info: OperationRejection) => {
+      if (targetsRef.current?.rejection ?? true) {
+        const ctx = currentCtx(calendarRef.current);
+        const catalog = resolveMessageCatalog(ctx.locale, messagesRef.current);
+        announce(catalog.announcer.operationRejected(info));
+      }
+    },
+    [announce],
+  );
+
   const wrapCallbacks = useCallback(
     (callbacks?: CalendarInteractionCallbacks): CalendarInteractionCallbacks => {
       const wrapped: CalendarInteractionCallbacks = { ...callbacks };
@@ -312,6 +343,14 @@ export function useCalendarAnnouncer(
         };
       }
 
+      {
+        const original = callbacks?.onOperationRejected;
+        wrapped.onOperationRejected = (rejection) => {
+          original?.(rejection);
+          announceOperationRejected(rejection);
+        };
+      }
+
       const originalOnSelectRange = callbacks?.onSelectRange;
       wrapped.onSelectRange = (selection) => {
         if (originalOnSelectRange !== undefined) {
@@ -324,6 +363,7 @@ export function useCalendarAnnouncer(
           calendarRef.current.api,
           selection,
           catalog.common.untitledEvent,
+          callbacks,
         );
         if (targetsRef.current?.eventCreate ?? true) {
           const rangeLabel = formatOccurrenceRangeLabel(
@@ -344,7 +384,7 @@ export function useCalendarAnnouncer(
 
       return wrapped;
     },
-    [announce],
+    [announce, announceOperationRejected],
   );
 
   // ビュー・基準日・表示範囲の変更を検知する内部購読。`calendar.api` に対して
@@ -407,7 +447,7 @@ export function useCalendarAnnouncer(
   const liveRegionProps = useMemo(() => buildLiveRegionProps(politeness), [politeness]);
 
   return useMemo(
-    () => ({ liveRegionProps, message, announce, wrapCallbacks }),
-    [liveRegionProps, message, announce, wrapCallbacks],
+    () => ({ liveRegionProps, message, announce, announceOperationRejected, wrapCallbacks }),
+    [liveRegionProps, message, announce, announceOperationRejected, wrapCallbacks],
   );
 }

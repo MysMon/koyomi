@@ -39,7 +39,7 @@ try {
 
 ## イベントごとのタイムゾーン
 
-`CalendarEvent.timeZone` を指定すると、そのイベント固有のタイムゾーンとして扱われます。省略時はカレンダーの表示タイムゾーンが使われます。
+`CalendarEvent.timeZone` を指定すると、そのイベント固有のタイムゾーンとして扱われます。省略時はカレンダーの表示タイムゾーンが使われます。不正な IANA タイムゾーン ID を指定すると `Error` になります（`createEvent` / `updateEvent` の patch・`setEvents`・`updateOptions({ events })`・作成時の初期 `events` のすべてで検証されます）。
 
 `start` / `end` に文字列を渡す場合、ISO 8601 のオフセット有無で解釈が変わります。
 
@@ -141,7 +141,7 @@ console.log(firstDayKey()); // => '2026-07-10'
 
 ## 複数タイムゾーン軸（secondary time zone）
 
-週/日ビュー（時間グリッド）の時間軸に、表示タイムゾーン以外のタイムゾーンを軸として並べられます（Google カレンダーのセカンダリタイムゾーン相当）。`CalendarOptions.timeAxisZones` に IANA タイムゾーン ID の配列を渡します（検証は `timeZone` と同じ `isValidTimeZone` の流儀で、不正な値を含むと `Error` になります）。
+週/日ビュー（時間グリッド）・リソースビューの時間軸に、表示タイムゾーン以外のタイムゾーンを軸として並べられます（Google カレンダーのセカンダリタイムゾーン相当）。`CalendarOptions.timeAxisZones` に IANA タイムゾーン ID の配列を渡します（検証は `timeZone` と同じ `isValidTimeZone` の流儀で、不正な値を含むと `Error` になります）。
 
 ```tsx
 import { createCalendar } from '@koyomi-cal/react';
@@ -203,6 +203,8 @@ if (vm.type === 'timeGrid') {
   console.log(monday?.timeAxes[1]?.slots.find((slot) => slot.minutes === 540)?.label); // => '20:00'
 }
 ```
+
+`ResourceViewModel.timeAxes` / `ResourceViewDay.timeAxes` は、リソースビューにおける `TimeGridViewModel.timeAxes` / `TimeGridDay.timeAxes` と全く同じ意味論です（`ResourceViewModel.timeAxes` は表示範囲の先頭日を基準に全列で共有する値、`ResourceViewDay.timeAxes` はその日自身の 0:00 を基準にした個別算出値）。詳細は [ビュー: 複数タイムゾーン軸](./views.md#複数タイムゾーン軸timeaxiszones) のリソースビュー節を参照してください。
 
 ## now オプション（テスト・デモでの時刻固定）
 

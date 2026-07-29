@@ -11,15 +11,19 @@
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { createCalendar } from '../core/calendar';
+import { createEventHistory } from '../core/history';
 import { parseDateValue } from '../core/timezone';
 import type { CalendarApi, CalendarEvent, CalendarResource, EventOccurrence } from '../core/types';
 import {
+  captureOccurrenceDeleteFocusContext,
   collectOverlapBlockersInRange,
   createDefaultEvent,
+  createOccurrenceDeleteFocusController,
   createOverlapBlockerCache,
   eventNotificationProps,
+  reportOperationRejected,
 } from './drag-common';
-import type { CalendarInteractionCallbacks, RangeSelection } from './types';
+import type { CalendarInteractionCallbacks, OperationRejection, RangeSelection } from './types';
 
 /** テスト用の最小限のオカレンス。 */
 function makeOccurrence(): EventOccurrence {
@@ -172,6 +176,62 @@ describe('createDefaultEvent', () => {
 
     const notApplicable = createDefaultEvent(api, { range, allDay: false });
     expect(notApplicable.resourceId).toBeUndefined();
+  });
+
+  it('callbacks.onEventCreate が指定されている場合、作成後に作成イベント・changes・selection を渡して呼ぶ', () => {
+    const api = createCalendar();
+    const selection: RangeSelection = { range, allDay: false };
+    const onEventCreate = vi.fn();
+
+    const created = createDefaultEvent(api, selection, '（無題）', { onEventCreate });
+
+    expect(onEventCreate).toHaveBeenCalledTimes(1);
+    expect(onEventCreate).toHaveBeenCalledWith({
+      event: created,
+      changes: [{ after: created, index: 0 }],
+      selection,
+    });
+  });
+
+  it('callbacks.onEventCreate 省略時は呼ばれず、例外にもならない', () => {
+    const api = createCalendar();
+    const selection: RangeSelection = { range, allDay: false };
+
+    expect(() => createDefaultEvent(api, selection, '（無題）', {})).not.toThrow();
+    expect(() => createDefaultEvent(api, selection, '（無題）')).not.toThrow();
+  });
+
+  it('既存イベントがある状態で作成した場合、changes.index は作成後の末尾位置になる', () => {
+    const api = createCalendar();
+    api.createEvent({ title: '既存1', start: range.start, end: range.end });
+    api.createEvent({ title: '既存2', start: range.start, end: range.end });
+    const selection: RangeSelection = { range, allDay: false };
+    const onEventCreate = vi.fn();
+
+    const created = createDefaultEvent(api, selection, '（無題）', { onEventCreate });
+
+    expect(onEventCreate).toHaveBeenCalledWith({
+      event: created,
+      changes: [{ after: created, index: 2 }],
+      selection,
+    });
+  });
+
+  it('onEventCreate が積んだ changes を history.push に渡すと、undo で作成したイベントが消える', () => {
+    const api = createCalendar();
+    const history = createEventHistory({ api });
+    const selection: RangeSelection = { range, allDay: false };
+    const onEventCreate: NonNullable<CalendarInteractionCallbacks['onEventCreate']> = (info) => {
+      history.push(info.changes);
+    };
+
+    createDefaultEvent(api, selection, '（無題）', { onEventCreate });
+    expect(api.getEvents()).toHaveLength(1);
+
+    const undone = history.undo();
+
+    expect(undone).toBe(true);
+    expect(api.getEvents()).toHaveLength(0);
   });
 });
 
@@ -357,5 +417,278 @@ describe('collectOverlapBlockersInRange', () => {
     expect(roomA[0]?.key).toContain('in-room-a@');
     expect(roomB).toHaveLength(1);
     expect(roomB[0]?.key).toContain('in-room-b@');
+  });
+});
+
+describe('captureOccurrenceDeleteFocusContext', () => {
+  /** `data-koyomi-occurrence` を持つ最小限の要素を作る。 */
+  function makeOccurrenceElement(key: string): HTMLDivElement {
+    const element = document.createElement('div');
+    element.setAttribute('data-koyomi-occurrence', key);
+    return element;
+  }
+
+  it('target が Element でない場合、null を返す', () => {
+    const result = captureOccurrenceDeleteFocusContext({
+      target: null,
+      occurrenceKey: 'a',
+      viewRootSelector: '[data-koyomi="month"]',
+    });
+    expect(result).toBeNull();
+  });
+
+  it('viewRootSelector に一致する祖先が見つからない場合、null を返す', () => {
+    const root = document.createElement('div'); // data-koyomi 属性なし
+    const target = makeOccurrenceElement('a');
+    root.appendChild(target);
+
+    const result = captureOccurrenceDeleteFocusContext({
+      target,
+      occurrenceKey: 'a',
+      viewRootSelector: '[data-koyomi="month"]',
+    });
+    expect(result).toBeNull();
+  });
+
+  it('DOM 順で対象キーの前後をそれぞれ次/前の予定として記録する', () => {
+    const root = document.createElement('div');
+    root.setAttribute('data-koyomi', 'month');
+    const a = makeOccurrenceElement('a');
+    const b = makeOccurrenceElement('b');
+    const c = makeOccurrenceElement('c');
+    root.append(a, b, c);
+
+    const result = captureOccurrenceDeleteFocusContext({
+      target: b,
+      occurrenceKey: 'b',
+      viewRootSelector: '[data-koyomi="month"]',
+    });
+
+    expect(result?.viewRoot).toBe(root);
+    expect(result?.nextKey).toBe('c');
+    expect(result?.prevKey).toBe('a');
+  });
+
+  it('削除対象が DOM 順の先頭の場合、前の予定は null になる', () => {
+    const root = document.createElement('div');
+    root.setAttribute('data-koyomi', 'month');
+    const a = makeOccurrenceElement('a');
+    const b = makeOccurrenceElement('b');
+    root.append(a, b);
+
+    const result = captureOccurrenceDeleteFocusContext({
+      target: a,
+      occurrenceKey: 'a',
+      viewRootSelector: '[data-koyomi="month"]',
+    });
+
+    expect(result?.nextKey).toBe('b');
+    expect(result?.prevKey).toBeNull();
+  });
+
+  it('削除対象が DOM 順の末尾の場合、次の予定は null になる', () => {
+    const root = document.createElement('div');
+    root.setAttribute('data-koyomi', 'month');
+    const a = makeOccurrenceElement('a');
+    const b = makeOccurrenceElement('b');
+    root.append(a, b);
+
+    const result = captureOccurrenceDeleteFocusContext({
+      target: b,
+      occurrenceKey: 'b',
+      viewRootSelector: '[data-koyomi="month"]',
+    });
+
+    expect(result?.nextKey).toBeNull();
+    expect(result?.prevKey).toBe('a');
+  });
+
+  it('同じキーが複数の DOM 要素に現れる場合（週またぎの帯等）、重複を排除してから前後を求める', () => {
+    const root = document.createElement('div');
+    root.setAttribute('data-koyomi', 'month');
+    const aWeek1 = makeOccurrenceElement('a'); // 週をまたぐ帯の 1 週目
+    const b = makeOccurrenceElement('b');
+    const aWeek2 = makeOccurrenceElement('a'); // 同じオカレンスの 2 週目
+    const c = makeOccurrenceElement('c');
+    root.append(aWeek1, b, aWeek2, c);
+
+    const result = captureOccurrenceDeleteFocusContext({
+      target: aWeek1,
+      occurrenceKey: 'a',
+      viewRootSelector: '[data-koyomi="month"]',
+    });
+
+    // 重複排除後の並びは [a, b, c] になるため、次は b・前はなし
+    expect(result?.nextKey).toBe('b');
+    expect(result?.prevKey).toBeNull();
+  });
+
+  it('FOCUSABLE セルに一致する祖先があれば fallbackCell として記録する', () => {
+    const root = document.createElement('div');
+    root.setAttribute('data-koyomi', 'month');
+    const cell = document.createElement('div');
+    cell.setAttribute('data-koyomi', 'month-day');
+    cell.setAttribute('data-koyomi-date', '2026-07-08');
+    const segment = makeOccurrenceElement('a');
+    cell.appendChild(segment);
+    root.appendChild(cell);
+
+    const result = captureOccurrenceDeleteFocusContext({
+      target: segment,
+      occurrenceKey: 'a',
+      viewRootSelector: '[data-koyomi="month"]',
+    });
+
+    expect(result?.fallbackCell).toBe(cell);
+  });
+
+  it('FOCUSABLE セルに一致する祖先がなければ fallbackCell は null になる', () => {
+    const root = document.createElement('div');
+    root.setAttribute('data-koyomi', 'timegrid');
+    const segment = makeOccurrenceElement('a');
+    root.appendChild(segment);
+
+    const result = captureOccurrenceDeleteFocusContext({
+      target: segment,
+      occurrenceKey: 'a',
+      viewRootSelector: '[data-koyomi="timegrid"]',
+    });
+
+    expect(result?.fallbackCell).toBeNull();
+  });
+});
+
+describe('createOccurrenceDeleteFocusController', () => {
+  /** `data-koyomi-occurrence` とフォーカス可能にする `tabIndex` を持つ要素を作る。 */
+  function makeOccurrenceElement(key: string): HTMLDivElement {
+    const element = document.createElement('div');
+    element.setAttribute('data-koyomi-occurrence', key);
+    element.tabIndex = 0;
+    return element;
+  }
+
+  it('consume: 次の予定が DOM に見つかれば、そこへフォーカスを移す', () => {
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const b = makeOccurrenceElement('b');
+    root.appendChild(b);
+    const controller = createOccurrenceDeleteFocusController();
+
+    controller.arm({ viewRoot: root, nextKey: 'b', prevKey: null, fallbackCell: null });
+    controller.consume();
+
+    expect(document.activeElement).toBe(b);
+    root.remove();
+  });
+
+  it('consume: 次の予定が見つからなければ前の予定へフォーカスを移す', () => {
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const a = makeOccurrenceElement('a');
+    root.appendChild(a);
+    const controller = createOccurrenceDeleteFocusController();
+
+    // next（'b'）は同じオカレンスの削除で DOM から既に消えている想定
+    controller.arm({ viewRoot: root, nextKey: 'b', prevKey: 'a', fallbackCell: null });
+    controller.consume();
+
+    expect(document.activeElement).toBe(a);
+    root.remove();
+  });
+
+  it('consume: 次・前のどちらも見つからない場合、fallbackCell（接続中）へフォーカスを移す', () => {
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const cell = document.createElement('div');
+    cell.tabIndex = 0;
+    root.appendChild(cell);
+    const controller = createOccurrenceDeleteFocusController();
+
+    controller.arm({ viewRoot: root, nextKey: null, prevKey: null, fallbackCell: cell });
+    controller.consume();
+
+    expect(document.activeElement).toBe(cell);
+    root.remove();
+  });
+
+  it('consume: fallbackCell が DOM から切り離されている場合、フォーカスを移さない', () => {
+    const root = document.createElement('div');
+    root.tabIndex = 0;
+    document.body.appendChild(root);
+    root.focus();
+    expect(document.activeElement).toBe(root);
+
+    const detachedCell = document.createElement('div');
+    detachedCell.tabIndex = 0;
+    const controller = createOccurrenceDeleteFocusController();
+
+    controller.arm({ viewRoot: root, nextKey: null, prevKey: null, fallbackCell: detachedCell });
+    controller.consume();
+
+    expect(document.activeElement).toBe(root); // 変化しない
+    root.remove();
+  });
+
+  it('arm(null) の場合、consume は何もしない', () => {
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const a = makeOccurrenceElement('a');
+    root.appendChild(a);
+    a.focus();
+    const controller = createOccurrenceDeleteFocusController();
+
+    controller.arm(null);
+    controller.consume();
+
+    expect(document.activeElement).toBe(a); // 変化しない
+    root.remove();
+  });
+
+  it('consume は予約を 1 回消費すると、再度呼んでも何もしない', () => {
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const a = makeOccurrenceElement('a');
+    const b = makeOccurrenceElement('b');
+    root.append(a, b);
+    const controller = createOccurrenceDeleteFocusController();
+
+    controller.arm({ viewRoot: root, nextKey: 'b', prevKey: null, fallbackCell: null });
+    controller.consume();
+    expect(document.activeElement).toBe(b);
+
+    a.focus(); // フォーカスを a に戻す
+    controller.consume(); // 予約は既に消費済みのため何もしない
+
+    expect(document.activeElement).toBe(a);
+    root.remove();
+  });
+});
+
+describe('reportOperationRejected', () => {
+  it('onOperationRejected が指定されていれば、渡された拒否内容でそのまま呼ばれる', () => {
+    const onOperationRejected = vi.fn();
+    const occurrence = makeOccurrence();
+    const rejection: OperationRejection = { action: 'move', reason: 'constraint', occurrence };
+
+    reportOperationRejected({ onOperationRejected }, rejection);
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith(rejection);
+  });
+
+  it('occurrence を持たない拒否内容（action: "create"）もそのまま渡す', () => {
+    const onOperationRejected = vi.fn();
+    const rejection: OperationRejection = { action: 'create', reason: 'rejected' };
+
+    reportOperationRejected({ onOperationRejected }, rejection);
+
+    expect(onOperationRejected).toHaveBeenCalledWith(rejection);
+  });
+
+  it('onOperationRejected 未指定、または callbacks 自体が省略されている場合は何もしない（例外を投げない）', () => {
+    const rejection: OperationRejection = { action: 'delete', reason: 'rejected' };
+
+    expect(() => reportOperationRejected({}, rejection)).not.toThrow();
+    expect(() => reportOperationRejected(undefined, rejection)).not.toThrow();
   });
 });

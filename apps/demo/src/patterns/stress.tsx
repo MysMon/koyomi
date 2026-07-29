@@ -2,9 +2,10 @@
  * @packageDocumentation
  * `StressPattern` — 「ストレステスト」パターン（`#/stress`）。
  *
- * 件数可変（スライダー）の大量データでカレンダーの初回描画時間を計測する
- * ストレステスト。データはベンチマークスイート（`bench/`）と共有する
- * 決定的な生成関数（`makeManyResources` / `makeStressEvents`）で作る。
+ * 件数可変（スライダー）の大量データでカレンダーの初回描画時間と編集操作
+ * （作成・更新・削除）の所要時間を計測するストレステスト。データはベンチマーク
+ * スイート（`bench/`）と共有する決定的な生成関数（`makeManyResources` /
+ * `makeStressEvents`）で作る。
  *
  * 設定はハッシュのクエリパラメータ（例:
  * `#/stress?events=10000&resources=100&view=timeline`）と同期し、URL だけで
@@ -16,10 +17,19 @@
  * - `data-stress-generate-ms` — データ生成の所要時間（ミリ秒）
  * - `data-stress-ready` / `data-stress-render-ms` — 初回描画の完了フラグと所要時間
  *   （マウント開始からペイント完了まで。ミリ秒）
+ * - `data-stress-mutate`（トリガー用ボタン） — クリックすると
+ *   `createEvent`/`updateEvent`/`deleteEvent` を {@link MUTATE_BATCH_SIZE} 件ずつ
+ *   一括実行する（ベンチマークはクリックでのみ計測を開始する。URL クエリや
+ *   `window` 経由のトリガーは提供しない）
+ * - `data-stress-mutate-count` / `data-stress-mutate-create-ms` /
+ *   `data-stress-mutate-update-ms` / `data-stress-mutate-delete-ms` —
+ *   直近の編集操作計測の一括件数と各フェーズの所要時間（ミリ秒）
  */
 
 import {
   CalendarProvider,
+  dateKeyInZone,
+  type EventId,
   useCalendar,
   VirtualListView,
   VirtualResourceView,
@@ -73,6 +83,23 @@ const TIMELINE_DAYS = 7;
 
 /** リストビューの表示日数。 */
 const LIST_DAYS = 30;
+
+/**
+ * 編集操作ベンチマークで一括実行する件数（`createEvent`/`updateEvent`/
+ * `deleteEvent` それぞれ）。作成した予定は計測の最後に必ず削除するため、
+ * 計測後もカレンダーのイベント総数は変化しない。
+ */
+const MUTATE_BATCH_SIZE = 200;
+
+/** 編集操作ベンチマーク 1 回分の計測結果（各フェーズの合計所要時間、ミリ秒）。 */
+interface MutationBenchmarkResult {
+  /** {@link MUTATE_BATCH_SIZE} 件の `createEvent` の合計所要時間。 */
+  createMs: number;
+  /** {@link MUTATE_BATCH_SIZE} 件の `updateEvent` の合計所要時間。 */
+  updateMs: number;
+  /** {@link MUTATE_BATCH_SIZE} 件の `deleteEvent` の合計所要時間。 */
+  deleteMs: number;
+}
 
 /** 文字列を整数として解釈し、範囲にクランプする（解釈できなければ既定値）。 */
 function clampCount(value: string | null, range: CountRange, fallback: number): number {
@@ -168,6 +195,46 @@ function StressCalendar({ config }: StressCalendarProps): ReactElement {
     };
   }, [renderStart]);
 
+  const [mutation, setMutation] = useState<MutationBenchmarkResult | null>(null);
+  const { api } = calendar;
+
+  /**
+   * 「編集操作を計測」ボタンのクリックハンドラ。
+   *
+   * `createEvent` → `updateEvent` → `deleteEvent` を {@link MUTATE_BATCH_SIZE}
+   * 件ずつ順に一括実行し、フェーズごとの合計所要時間を計測する。作成した予定は
+   * 計測の最後にすべて削除するため、計測前後でイベント総数は変化しない。
+   */
+  function runMutationBenchmark(): void {
+    const day = dateKeyInZone(new Date(), 'Asia/Tokyo');
+
+    const createStart = performance.now();
+    const createdIds: EventId[] = [];
+    for (let index = 0; index < MUTATE_BATCH_SIZE; index += 1) {
+      const created = api.createEvent({
+        title: `編集ベンチ ${index}`,
+        start: `${day}T09:00:00`,
+        end: `${day}T09:30:00`,
+      });
+      createdIds.push(created.id);
+    }
+    const createMs = performance.now() - createStart;
+
+    const updateStart = performance.now();
+    for (const id of createdIds) {
+      api.updateEvent(id, { title: '編集ベンチ（更新後）' });
+    }
+    const updateMs = performance.now() - updateStart;
+
+    const deleteStart = performance.now();
+    for (const id of createdIds) {
+      api.deleteEvent(id);
+    }
+    const deleteMs = performance.now() - deleteStart;
+
+    setMutation({ createMs, updateMs, deleteMs });
+  }
+
   return (
     <div
       className="stress-calendar"
@@ -179,12 +246,35 @@ function StressCalendar({ config }: StressCalendarProps): ReactElement {
       {...(renderMs === null
         ? {}
         : { 'data-stress-ready': 'true', 'data-stress-render-ms': renderMs.toFixed(1) })}
+      {...(mutation === null
+        ? {}
+        : {
+            'data-stress-mutate-count': MUTATE_BATCH_SIZE,
+            'data-stress-mutate-create-ms': mutation.createMs.toFixed(1),
+            'data-stress-mutate-update-ms': mutation.updateMs.toFixed(1),
+            'data-stress-mutate-delete-ms': mutation.deleteMs.toFixed(1),
+          })}
     >
       <p className="stress-measure" aria-live="polite">
         {`イベント ${config.events.toLocaleString('ja-JP')} 件 × リソース ${config.resources.toLocaleString('ja-JP')} 件 — `}
         {`データ生成 ${data.generateMs.toFixed(1)} ms / 初回描画 `}
         {renderMs === null ? '計測中…' : `${renderMs.toFixed(1)} ms`}
       </p>
+      <div className="stress-mutate-panel">
+        <button
+          type="button"
+          className="stress-mutate-button"
+          data-stress-mutate="true"
+          onClick={runMutationBenchmark}
+        >
+          {`編集操作を計測（作成・更新・削除 各 ${MUTATE_BATCH_SIZE.toLocaleString('ja-JP')} 件）`}
+        </button>
+        {mutation !== null && (
+          <p className="stress-mutate-result" aria-live="polite">
+            {`作成 ${mutation.createMs.toFixed(1)} ms / 更新 ${mutation.updateMs.toFixed(1)} ms / 削除 ${mutation.deleteMs.toFixed(1)} ms`}
+          </p>
+        )}
+      </div>
       {/* CalendarView を使わず個別ビューを描画するため、デフォルトテーマの適用
           スコープである data-koyomi="root" を自前で付ける（docs/theming.md）。 */}
       <div className="stress-calendar-frame" data-koyomi="root">

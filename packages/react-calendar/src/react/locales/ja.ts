@@ -16,6 +16,7 @@ import type {
 } from '../../core/recurrence-editor';
 import { getWallClock, weekdayInZone } from '../../core/timezone';
 import type { RecurringEditScope, TimeZoneId, Weekday } from '../../core/types';
+import type { OperationRejection } from '../types';
 import type { EventChangeVerb, MessageCatalog } from './types';
 
 /** {@link Weekday} の日本語 1 文字表記。 */
@@ -247,7 +248,7 @@ function unsupportedReasonJa(reason: RecurrenceUnsupportedReason): string {
     case 'unsupportedField':
       return `対応していない RRULE の指定です（${unsupportedFieldLabelJa(reason.field)}）`;
     case 'unsupportedWkst':
-      return '対応していない RRULE の指定です（月曜以外を指定する WKST）';
+      return '対応していない RRULE の指定です（週の開始曜日と一致しない WKST）';
     case 'unsupportedFrequency':
       return 'DAILY・WEEKLY・MONTHLY・YEARLY 以外の頻度は編集エディタでは扱えません';
     case 'countAndUntilBothSpecified':
@@ -360,6 +361,27 @@ function verbTextJa(verb: EventChangeVerb): string {
   }
 }
 
+/** {@link OperationRejection.action} の日本語表記（`operationRejected` の文中に埋め込む）。 */
+function operationActionTextJa(action: OperationRejection['action']): string {
+  switch (action) {
+    case 'move':
+      return '移動';
+    case 'resize':
+      return 'サイズ変更';
+    case 'convert':
+      return '変換';
+    case 'create':
+      return '作成';
+    case 'delete':
+      return '削除';
+  }
+}
+
+/** {@link OperationRejection.reason} の日本語の理由句（`operationRejected` の文中に埋め込む）。 */
+function operationRejectionReasonTextJa(reason: OperationRejection['reason']): string {
+  return reason === 'constraint' ? '配置の制約により' : '許可されなかったため';
+}
+
 /** `RecurringEditScope` の日本語の付記文言（`null` は付記なし）。 */
 function describeScopeJa(scope: RecurringEditScope | null): string | null {
   switch (scope) {
@@ -388,6 +410,13 @@ const announcer: MessageCatalog['announcer'] = {
     const scopeLabel = describeScopeJa(deletion.scope);
     const base = `${deletion.occurrence.event.title} を削除しました`;
     return scopeLabel === null ? base : `${base}（${scopeLabel}）`;
+  },
+  operationRejected: (info) => {
+    const actionText = operationActionTextJa(info.action);
+    const reasonText = operationRejectionReasonTextJa(info.reason);
+    return info.occurrence === undefined
+      ? `${actionText}は${reasonText}行われませんでした`
+      : `${info.occurrence.event.title}の${actionText}は${reasonText}行われませんでした`;
   },
   viewChanged: (_info, title) => `表示を${title}に切り替えました`,
 };

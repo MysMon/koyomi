@@ -171,6 +171,273 @@ describe('expandRecurrence', () => {
     ]);
   });
 
+  describe('WKST による週境界の違い（INTERVAL=2 の隔週 + 複数 BYDAY）', () => {
+    // dtstart = 2026-07-07（火）東京 9:00。BYDAY=TU,SU の隔週は「dtstart を含む週」と
+    // 1 週おきの週にだけオカレンスを置くが、どの曜日で週が始まるか（WKST、既定は月曜）
+    // によって週割りが変わり、同じルールでも実日付列が変わる。
+    const dtstart = new Date('2026-07-07T00:00:00Z');
+    // 東京の 7/7 9:00 〜 8/10 0:00（排他）
+    const range = { start: dtstart, end: new Date('2026-08-09T15:00:00Z') };
+
+    it('WKST なし（既定の月曜始まり）では月曜起点の週割りで展開される', () => {
+      const result = expandRecurrence({
+        rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU',
+        dtstart,
+        timeZone: TOKYO,
+        range,
+      });
+      // 月曜始まりの週割りでは dtstart を含む週は [7/6(月)〜7/12(日)]。
+      // 対象週は [7/6〜7/12]・[7/20〜7/26]・[8/3〜8/9] → 各週の火曜と日曜
+      expect(toISO(result)).toEqual([
+        '2026-07-07T00:00:00.000Z', // 火
+        '2026-07-12T00:00:00.000Z', // 日（月曜始まりでは dtstart と同じ週）
+        '2026-07-21T00:00:00.000Z', // 火
+        '2026-07-26T00:00:00.000Z', // 日
+        '2026-08-04T00:00:00.000Z', // 火
+        '2026-08-09T00:00:00.000Z', // 日
+      ]);
+    });
+
+    it('WKST=SU（日曜始まり）では週割りが 1 日前へずれ、日曜のオカレンスが別の週に移る', () => {
+      const result = expandRecurrence({
+        rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU;WKST=SU',
+        dtstart,
+        timeZone: TOKYO,
+        range,
+      });
+      // 日曜始まりの週割りでは dtstart を含む週は [7/5(日)〜7/11(土)] で、7/12(日) は
+      // 翌週（対象外の週）の先頭になる。対象週は [7/5〜7/11]・[7/19〜7/25]・[8/2〜8/8]
+      // → 7/7(火)、7/19(日)、7/21(火)、8/2(日)、8/4(火)（7/5 は dtstart より前のため含まない）
+      expect(toISO(result)).toEqual([
+        '2026-07-07T00:00:00.000Z', // 火
+        '2026-07-19T00:00:00.000Z', // 日
+        '2026-07-21T00:00:00.000Z', // 火
+        '2026-08-02T00:00:00.000Z', // 日
+        '2026-08-04T00:00:00.000Z', // 火
+      ]);
+    });
+  });
+
+  describe('BYDAY の第 n 曜日パターン（FREQ=MONTHLY;BYDAY=<ordinal><weekday>）', () => {
+    it('第 2 火曜（BYDAY=2TU）を複数月にわたって展開する', () => {
+      // 2026 年の各月の第 2 火曜日: 1/13, 2/10, 3/10, 4/14, 5/12, 6/9
+      const dtstart = new Date('2026-01-13T00:00:00Z'); // 東京 1/13 9:00（1 月の第 2 火曜）
+      const result = expandRecurrence({
+        rrule: 'FREQ=MONTHLY;BYDAY=2TU',
+        dtstart,
+        timeZone: TOKYO,
+        range: { start: dtstart, end: new Date('2026-07-01T00:00:00Z') }, // 東京 7/1 9:00 まで（排他）
+      });
+      expect(toISO(result)).toEqual([
+        '2026-01-13T00:00:00.000Z',
+        '2026-02-10T00:00:00.000Z',
+        '2026-03-10T00:00:00.000Z',
+        '2026-04-14T00:00:00.000Z',
+        '2026-05-12T00:00:00.000Z',
+        '2026-06-09T00:00:00.000Z',
+      ]);
+    });
+
+    it('最終金曜（BYDAY=-1FR）を年をまたいで展開する', () => {
+      // 各月の最終金曜日: 2026-11/27, 2026-12/25, 2027-01/29
+      const dtstart = new Date('2026-11-27T00:00:00Z'); // 東京 11/27 9:00（11 月の最終金曜）
+      const result = expandRecurrence({
+        rrule: 'FREQ=MONTHLY;BYDAY=-1FR',
+        dtstart,
+        timeZone: TOKYO,
+        range: { start: dtstart, end: new Date('2027-02-01T00:00:00Z') }, // 東京 2027-02-01 9:00 まで（排他）
+      });
+      expect(toISO(result)).toEqual([
+        '2026-11-27T00:00:00.000Z',
+        '2026-12-25T00:00:00.000Z',
+        '2027-01-29T00:00:00.000Z',
+      ]);
+    });
+
+    it('第 5 週（BYDAY=5FR）は 5 週目の金曜が存在しない月をスキップする', () => {
+      // 2026 年の金曜日の数（第 5 金曜の有無）: 1月=5件(5週目=30日)、2〜4月=4件（該当なしでスキップ）、
+      // 5月=5件(29日)、6月=4件（スキップ）、7月=5件(31日)
+      const dtstart = new Date('2026-01-30T00:00:00Z'); // 東京 1/30 9:00（1 月の第 5 金曜）
+      const result = expandRecurrence({
+        rrule: 'FREQ=MONTHLY;BYDAY=5FR',
+        dtstart,
+        timeZone: TOKYO,
+        range: { start: dtstart, end: new Date('2026-08-01T00:00:00Z') }, // 東京 8/1 9:00 まで（排他）
+      });
+      expect(toISO(result)).toEqual([
+        '2026-01-30T00:00:00.000Z',
+        '2026-05-29T00:00:00.000Z',
+        '2026-07-31T00:00:00.000Z',
+      ]);
+    });
+
+    it('DST 切替月をまたぐ第 2 日曜（BYDAY=2SU、America/New_York）でも現地 9:00 を維持する', () => {
+      // 2026 年の DST 開始日（3/8）はちょうど 3 月の第 2 日曜と一致する。
+      // 1・2 月は切替前（EST=UTC-5）で現地 9:00=14:00Z、3 月（切替日当日、切替は 2:00 なので
+      // 9:00 は切替後）・4 月は EDT（UTC-4）で現地 9:00=13:00Z
+      const dtstart = new Date('2026-01-11T14:00:00Z'); // NY 1/11 9:00 EST（1 月の第 2 日曜）
+      const result = expandRecurrence({
+        rrule: 'FREQ=MONTHLY;BYDAY=2SU',
+        dtstart,
+        timeZone: NY,
+        range: { start: dtstart, end: new Date('2026-05-01T00:00:00Z') },
+      });
+      expect(toISO(result)).toEqual([
+        '2026-01-11T14:00:00.000Z',
+        '2026-02-08T14:00:00.000Z',
+        '2026-03-08T13:00:00.000Z', // DST 切替日当日（切替後の EDT 9:00）
+        '2026-04-12T13:00:00.000Z',
+      ]);
+      for (const occurrence of result) {
+        const wall = getWallClock(occurrence, NY);
+        expect([wall.hours, wall.minutes]).toEqual([9, 0]);
+      }
+    });
+  });
+
+  describe('低レベル RRULE 機能（BYSETPOS・BYMONTH・BYYEARDAY・BYWEEKNO・HOURLY/MINUTELY）の展開', () => {
+    // expandRecurrence は rrule ライブラリへ委譲しているため、docs/recurrence.md の
+    // 代表例に載らないこれらの機能も構造上は展開できるはずである。ここでは各機能を
+    // RFC 5545 の定義から独立に計算した期待値と突き合わせて検証する。
+    describe('BYSETPOS（BYDAY 等が生成した月内候補集合からの順序選択）', () => {
+      it('BYSETPOS=-1 は各月の最終平日（月〜金のうち最後の日）を返す', () => {
+        // 2026 年の各月の最終日と曜日（0=日〜6=土）: 1/31=土, 2/28=土, 3/31=火,
+        // 4/30=木, 5/31=日, 6/30=火。土日なら平日まで遡る:
+        // 1月: 31(土)→30(金) / 2月: 28(土)→27(金) / 3月: 31(火、そのまま)
+        // 4月: 30(木、そのまま) / 5月: 31(日)→29(金) / 6月: 30(火、そのまま)
+        const dtstart = new Date('2026-01-30T00:00:00Z'); // 東京 1/30 9:00（1 月の最終平日）
+        const result = expandRecurrence({
+          rrule: 'FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1',
+          dtstart,
+          timeZone: TOKYO,
+          range: { start: dtstart, end: new Date('2026-07-01T00:00:00Z') }, // 東京 7/1 9:00 まで（排他）
+        });
+        expect(toISO(result)).toEqual([
+          '2026-01-30T00:00:00.000Z',
+          '2026-02-27T00:00:00.000Z',
+          '2026-03-31T00:00:00.000Z',
+          '2026-04-30T00:00:00.000Z',
+          '2026-05-29T00:00:00.000Z',
+          '2026-06-30T00:00:00.000Z',
+        ]);
+        for (const occurrence of result) {
+          const wall = getWallClock(occurrence, TOKYO);
+          expect([wall.hours, wall.minutes]).toEqual([9, 0]);
+        }
+      });
+
+      it('BYSETPOS=1,-1（複数値）は各月の最初と最後の平日をまとめて返す', () => {
+        // 2026 年の各月の 1 日の曜日: 1/1=木, 2/1=日, 3/1=日, 4/1=水。
+        // 最初の平日: 1月=1(木、そのまま) / 2月=2(月、1 は日曜のためスキップ)
+        // 3月=2(月、1 は日曜のためスキップ) / 最終平日は前のテストと同じ計算
+        const dtstart = new Date('2026-01-01T00:00:00Z'); // 東京 1/1 9:00（1 月の最初の平日）
+        const result = expandRecurrence({
+          rrule: 'FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1,-1',
+          dtstart,
+          timeZone: TOKYO,
+          range: { start: dtstart, end: new Date('2026-04-01T00:00:00Z') }, // 東京 4/1 9:00 まで（排他、4 月分は含めない）
+        });
+        expect(toISO(result)).toEqual([
+          '2026-01-01T00:00:00.000Z', // 1月 最初
+          '2026-01-30T00:00:00.000Z', // 1月 最後
+          '2026-02-02T00:00:00.000Z', // 2月 最初
+          '2026-02-27T00:00:00.000Z', // 2月 最後
+          '2026-03-02T00:00:00.000Z', // 3月 最初
+          '2026-03-31T00:00:00.000Z', // 3月 最後
+        ]);
+      });
+    });
+
+    it('BYMONTH は FREQ=YEARLY のオカレンスを指定した月にのみ絞り込む', () => {
+      const dtstart = new Date('2026-03-15T00:00:00Z'); // 東京 3/15 9:00
+      const result = expandRecurrence({
+        rrule: 'FREQ=YEARLY;BYMONTH=3,9;BYMONTHDAY=15',
+        dtstart,
+        timeZone: TOKYO,
+        range: { start: dtstart, end: new Date('2028-01-01T00:00:00Z') }, // 東京 2028-01-01 9:00 まで（排他）
+      });
+      expect(toISO(result)).toEqual([
+        '2026-03-15T00:00:00.000Z',
+        '2026-09-15T00:00:00.000Z',
+        '2027-03-15T00:00:00.000Z',
+        '2027-09-15T00:00:00.000Z',
+      ]);
+    });
+
+    it('BYYEARDAY は年内の通日（正負両方）でオカレンスを指定する', () => {
+      // 2026 年（うるう年でない）の通日: 1 日目=1/1、100 日目=1/31+2/28+3/31=90 を
+      // 消化した後の 10 日目=4/10、-1 日目（年内最後）=12/31
+      const dtstart = new Date('2026-01-01T00:00:00Z'); // 東京 1/1 9:00
+      const result = expandRecurrence({
+        rrule: 'FREQ=YEARLY;BYYEARDAY=1,100,-1',
+        dtstart,
+        timeZone: TOKYO,
+        range: { start: dtstart, end: new Date('2027-01-01T00:00:00Z') }, // 東京 2027-01-01 9:00 まで（排他、翌年の 1 日目は含めない）
+      });
+      expect(toISO(result)).toEqual([
+        '2026-01-01T00:00:00.000Z',
+        '2026-04-10T00:00:00.000Z',
+        '2026-12-31T00:00:00.000Z',
+      ]);
+    });
+
+    describe('BYWEEKNO（ISO 8601 週番号、WKST=MO 前提）', () => {
+      it('ISO 週 1 の月曜が前年 12 月に属する年跨ぎの境界でも正しく展開する', () => {
+        // ISO 8601 の週 1 は「1/4 を含む週」。各年の週 1 の月曜日:
+        // 2026 年→2025-12-29（前年 12 月、年跨ぎ）、2027 年→2027-01-04（同年内）、
+        // 2028 年→2028-01-03（同年内）。dtstart 自身が 2026 年分の週 1 の月曜
+        const dtstart = new Date('2025-12-29T00:00:00Z'); // 東京 2025-12-29 9:00（月曜、2026 年の ISO 週 1）
+        const result = expandRecurrence({
+          rrule: 'FREQ=YEARLY;BYWEEKNO=1;BYDAY=MO',
+          dtstart,
+          timeZone: TOKYO,
+          range: { start: dtstart, end: new Date('2028-02-01T00:00:00Z') },
+        });
+        expect(toISO(result)).toEqual([
+          '2025-12-29T00:00:00.000Z', // 2026 年の週 1（前年 12 月に属する）
+          '2027-01-04T00:00:00.000Z', // 2027 年の週 1
+          '2028-01-03T00:00:00.000Z', // 2028 年の週 1
+        ]);
+      });
+    });
+
+    describe('FREQ=HOURLY / FREQ=MINUTELY の基本ケース', () => {
+      it('FREQ=HOURLY;INTERVAL=6 は 6 時間おきに展開する', () => {
+        const dtstart = new Date('2026-07-01T00:00:00Z'); // 東京 7/1 9:00
+        const result = expandRecurrence({
+          rrule: 'FREQ=HOURLY;INTERVAL=6;COUNT=4',
+          dtstart,
+          timeZone: TOKYO,
+          range: { start: dtstart, end: new Date('2026-07-03T00:00:00Z') },
+        });
+        // 東京 9:00 起点で 6 時間おき: 9:00, 15:00, 21:00, 翌 3:00
+        expect(toISO(result)).toEqual([
+          '2026-07-01T00:00:00.000Z',
+          '2026-07-01T06:00:00.000Z',
+          '2026-07-01T12:00:00.000Z',
+          '2026-07-01T18:00:00.000Z',
+        ]);
+      });
+
+      it('FREQ=MINUTELY;INTERVAL=30 は 30 分おきに展開する', () => {
+        const dtstart = new Date('2026-07-01T00:00:00Z'); // 東京 7/1 9:00
+        const result = expandRecurrence({
+          rrule: 'FREQ=MINUTELY;INTERVAL=30;COUNT=4',
+          dtstart,
+          timeZone: TOKYO,
+          range: { start: dtstart, end: new Date('2026-07-03T00:00:00Z') },
+        });
+        // 東京 9:00 起点で 30 分おき: 9:00, 9:30, 10:00, 10:30
+        expect(toISO(result)).toEqual([
+          '2026-07-01T00:00:00.000Z',
+          '2026-07-01T00:30:00.000Z',
+          '2026-07-01T01:00:00.000Z',
+          '2026-07-01T01:30:00.000Z',
+        ]);
+      });
+    });
+  });
+
   it('COUNT=5 は範囲が広くても 5 回で打ち切られる', () => {
     const dtstart = new Date('2026-07-01T00:00:00Z'); // 東京 7/1 9:00
     const result = expandRecurrence({

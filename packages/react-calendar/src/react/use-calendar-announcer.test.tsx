@@ -21,7 +21,7 @@ import type {
 } from '../core/types';
 import { formatViewTitle } from './components/format';
 import type { MessageCatalogOverrides } from './locales/types';
-import type { RangeSelection } from './types';
+import type { OperationRejection, RangeSelection } from './types';
 import type { UseCalendarAnnouncerOptions } from './use-calendar-announcer';
 import { useCalendarAnnouncer } from './use-calendar-announcer';
 
@@ -519,6 +519,55 @@ describe('useCalendarAnnouncer', () => {
       expect(calendar.api.getEvents()).toHaveLength(1);
       expect(result.current.message).toBe('');
     });
+
+    it('callbacks.onEventCreate が指定されている場合、既定即時作成の代行後に作成イベント・changes・selection 付きで呼ばれる', () => {
+      const calendar = makeCalendar();
+      const onEventCreate = vi.fn();
+      const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
+      const wrapped = result.current.wrapCallbacks({ onEventCreate });
+      const selection = {
+        range: {
+          start: new Date('2026-07-16T01:00:00Z'),
+          end: new Date('2026-07-16T02:00:00Z'),
+        },
+        allDay: false,
+      };
+
+      act(() => {
+        wrapped.onSelectRange?.(selection);
+      });
+
+      const events = calendar.api.getEvents();
+      expect(events).toHaveLength(1);
+      expect(onEventCreate).toHaveBeenCalledWith({
+        event: events[0],
+        changes: [{ after: events[0], index: 0 }],
+        selection,
+      });
+    });
+
+    it('callbacks.onSelectRange が指定済みの場合、onEventCreate は呼ばれない（既定即時作成の代行自体が行われないため）', () => {
+      const calendar = makeCalendar();
+      const onSelectRange = vi.fn();
+      const onEventCreate = vi.fn();
+      const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
+      const wrapped = result.current.wrapCallbacks({ onSelectRange, onEventCreate });
+      const selection = {
+        range: {
+          start: new Date('2026-07-16T01:00:00Z'),
+          end: new Date('2026-07-16T02:00:00Z'),
+        },
+        allDay: false,
+      };
+
+      act(() => {
+        wrapped.onSelectRange?.(selection);
+      });
+
+      expect(onSelectRange).toHaveBeenCalledWith(selection);
+      expect(onEventCreate).not.toHaveBeenCalled();
+      expect(calendar.api.getEvents()).toHaveLength(0);
+    });
   });
 
   describe('wrapCallbacks - onEventDelete', () => {
@@ -556,6 +605,71 @@ describe('useCalendarAnnouncer', () => {
     });
   });
 
+  describe('wrapCallbacks - onOperationRejected', () => {
+    it('reason: "constraint"（occurrence あり）の既定文言になる', () => {
+      const calendar = makeCalendar();
+      const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
+      const wrapped = result.current.wrapCallbacks({});
+
+      act(() => {
+        wrapped.onOperationRejected?.({
+          action: 'move',
+          reason: 'constraint',
+          occurrence: makeOccurrence(),
+        });
+      });
+
+      expect(result.current.message).toBe('会議の移動は配置の制約により行われませんでした');
+    });
+
+    it('reason: "rejected"（occurrence 省略・create）の既定文言になる', () => {
+      const calendar = makeCalendar();
+      const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
+      const wrapped = result.current.wrapCallbacks({});
+
+      act(() => {
+        wrapped.onOperationRejected?.({ action: 'create', reason: 'rejected' });
+      });
+
+      expect(result.current.message).toBe('作成は許可されなかったため行われませんでした');
+    });
+
+    it('元の onOperationRejected が呼ばれる。announce: { rejection: false } なら announce されない', () => {
+      const calendar = makeCalendar();
+      const onOperationRejected = vi.fn();
+      const { result } = renderHook(() =>
+        useCalendarAnnouncer({ calendar, announce: { rejection: false } }),
+      );
+      const wrapped = result.current.wrapCallbacks({ onOperationRejected });
+      const rejection: OperationRejection = { action: 'delete', reason: 'rejected' };
+
+      act(() => {
+        wrapped.onOperationRejected?.(rejection);
+      });
+
+      expect(onOperationRejected).toHaveBeenCalledTimes(1);
+      expect(onOperationRejected).toHaveBeenCalledWith(rejection);
+      expect(result.current.message).toBe('');
+    });
+
+    it('announce.rejection の切替は、wrapCallbacks を呼び直さなくても次の呼び出しから反映される', () => {
+      const calendar = makeCalendar();
+      const { result, rerender } = renderHook(
+        ({ rejection }: { rejection: boolean }) =>
+          useCalendarAnnouncer({ calendar, announce: { rejection } }),
+        { initialProps: { rejection: false } },
+      );
+
+      const wrapped = result.current.wrapCallbacks({});
+      rerender({ rejection: true });
+      act(() => {
+        wrapped.onOperationRejected?.({ action: 'create', reason: 'constraint' });
+      });
+
+      expect(result.current.message).toBe('作成は配置の制約により行われませんでした');
+    });
+  });
+
   describe('wrapCallbacks - 関与しないキーの素通し', () => {
     it('onEventClick 等は元の callbacks と同一参照のまま返す', () => {
       const calendar = makeCalendar();
@@ -585,15 +699,45 @@ describe('useCalendarAnnouncer', () => {
       expect(wrapped.onError).toBe(onError);
     });
 
-    it('callbacks 省略時は onEventChange/onEventDelete/onSelectRange 以外のキーを持たない', () => {
+    it('callbacks 省略時は onEventChange/onEventDelete/onSelectRange/onOperationRejected 以外のキーを持たない', () => {
       const calendar = makeCalendar();
       const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
 
       const wrapped = result.current.wrapCallbacks();
 
       expect(Object.keys(wrapped).sort()).toEqual(
-        ['onEventChange', 'onEventDelete', 'onSelectRange'].sort(),
+        ['onEventChange', 'onEventDelete', 'onOperationRejected', 'onSelectRange'].sort(),
       );
+    });
+  });
+
+  describe('announceOperationRejected（手動呼び出し）', () => {
+    it('info から既定の文言を組み立てて announce する', () => {
+      const calendar = makeCalendar();
+      const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
+
+      act(() => {
+        result.current.announceOperationRejected({
+          action: 'delete',
+          reason: 'rejected',
+          occurrence: makeOccurrence(),
+        });
+      });
+
+      expect(result.current.message).toBe('会議の削除は許可されなかったため行われませんでした');
+    });
+
+    it('announce: { rejection: false } のときは何もしない', () => {
+      const calendar = makeCalendar();
+      const { result } = renderHook(() =>
+        useCalendarAnnouncer({ calendar, announce: { rejection: false } }),
+      );
+
+      act(() => {
+        result.current.announceOperationRejected({ action: 'create', reason: 'constraint' });
+      });
+
+      expect(result.current.message).toBe('');
     });
   });
 

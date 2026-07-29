@@ -149,3 +149,14 @@ export function useCalendarContext(): CalendarContextValue {
   }
   return value;
 }
+
+/**
+ * カレンダーコンテキストを取得する（`CalendarProvider` の配下でなければ `null`）。
+ *
+ * `useCalendarContext` と異なり、配下でなくても例外を投げない。`CalendarProvider`
+ * への依存を必須にしたくない一方、配下にあるときはその `locale` / `messages` に
+ * 自動で連動したいフック（`useRecurrenceRuleEditor` 等）から利用する。
+ */
+export function useOptionalCalendarContext(): CalendarContextValue | null {
+  return useContext(CalendarContext);
+}

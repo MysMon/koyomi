@@ -10,7 +10,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { measureInitialRender, measureScroll } from './measure';
+import { measureInitialRender, measureMutations, measureScroll } from './measure';
 
 /** 閾値チェックに使う構成（計測対象の中で最重量の代表構成）。 */
 const CONFIG = { events: 10_000, resources: 1_000 } as const;
@@ -25,6 +25,13 @@ const RENDER_LIMIT_MS = 15_000;
  */
 const SCROLL_AVG_FRAME_LIMIT_MS = 500;
 
+/**
+ * 編集操作（`createEvent`/`updateEvent`/`deleteEvent` を 200 件ずつ一括実行）の
+ * 合計所要時間の上限（ミリ秒）。手元実測の中央値の合計（約 1.1 秒）の約 10 倍の
+ * 粗い閾値。配列コピーが件数の 2 乗に比例するようになった場合などを検出する。
+ */
+const MUTATION_LIMIT_MS = 12_000;
+
 test('最重量構成の初回描画・スクロールが粗い閾値内に収まる', async ({ page }) => {
   const sample = await measureInitialRender(page, { ...CONFIG, view: 'timeline' });
   expect(sample.renderMs).toBeGreaterThan(0);
@@ -32,4 +39,11 @@ test('最重量構成の初回描画・スクロールが粗い閾値内に収�
 
   const metrics = await measureScroll(page, '[data-koyomi="timeline-body"]', 96, 48, 60);
   expect(metrics.avgFrameMs).toBeLessThan(SCROLL_AVG_FRAME_LIMIT_MS);
+});
+
+test('最重量構成の編集操作の一括実行が粗い閾値内に収まる', async ({ page }) => {
+  const sample = await measureMutations(page, { ...CONFIG, view: 'list' });
+  const totalMs = sample.createMs + sample.updateMs + sample.deleteMs;
+  expect(totalMs).toBeGreaterThan(0);
+  expect(totalMs).toBeLessThan(MUTATION_LIMIT_MS);
 });

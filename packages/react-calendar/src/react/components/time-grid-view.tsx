@@ -25,7 +25,14 @@
  * aria-hidden で除外。判断根拠・既知の制限の詳細は `docs/accessibility.md` 参照）。
  */
 
-import type { ReactElement, ReactNode, Ref } from 'react';
+import type {
+  CSSProperties,
+  ReactElement,
+  KeyboardEvent as ReactKeyboardEvent,
+  ReactNode,
+  PointerEvent as ReactPointerEvent,
+  Ref,
+} from 'react';
 import { memo, useCallback, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import { addDaysInZone, startOfDayInZone } from '../../core/timezone';
 import type {
@@ -43,7 +50,13 @@ import type {
 import { useCalendarContext } from '../context';
 import type { CommonMessages } from '../locales/types';
 import { scrollContainerToTime } from '../scroll-to-time';
-import type { EventContentContext, EventContentRenderer, SlotRenderContext } from '../types';
+import type {
+  EventContentContext,
+  EventContentRenderer,
+  MonthOverflowButtonProps,
+  MonthOverflowLabelContext,
+  SlotRenderContext,
+} from '../types';
 import type { DayDragHandlers } from '../use-day-drag';
 import { useDayDrag } from '../use-day-drag';
 import { defaultActiveCellKey, useGridNavigation } from '../use-grid-navigation';
@@ -107,6 +120,29 @@ export interface TimeGridViewProps {
    */
   renderDayHeader?: (day: TimeGridDay, ctx: SlotRenderContext) => ReactNode;
   /**
+   * 終日行の「+N 件」ボタン（`allday-overflow`。
+   * {@link CalendarOptions.allDayMaxEvents} 指定時のみ描画される）のラベル内容を
+   * カスタマイズする。差し替えるのはボタンの内側の内容だけで、ボタン要素・
+   * クリック配線（{@link CalendarInteractionCallbacks.onAllDayOverflowClick}）は
+   * 保持される。省略時は中央メッセージカタログの `month.overflow`
+   * （既定は「+N 件」）で整形した既定ラベルを表示する。
+   * @param day - あふれのある日
+   * @param ctx - 既定ラベルと非表示のオカレンス一覧
+   */
+  renderOverflowLabel?: (day: TimeGridDay, ctx: MonthOverflowLabelContext) => ReactNode;
+  /**
+   * 終日行の「+N 件」ボタンに追加する props を返す関数
+   * （`aria-haspopup` / `aria-expanded` など。月ビューの同名 prop と同じ連携面で、
+   * {@link overflowPopoverButtonProps} の戻り値をそのまま返せる）。
+   * 省略時は追加の props を付与しない。
+   * @param day - あふれのある日
+   * @param hiddenOccurrences - 「+N 件」に集約された非表示のオカレンス一覧（開始時刻順）
+   */
+  overflowButtonProps?: (
+    day: TimeGridDay,
+    hiddenOccurrences: readonly EventOccurrence[],
+  ) => MonthOverflowButtonProps;
+  /**
    * マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置（`'HH:mm'`）。
    * 表示時間帯制限（{@link CalendarOptions.slotMinTime}/{@link CalendarOptions.slotMaxTime}）とは
    * 独立して機能する。事後に値を変更しても再適用されない（`ref.current.scrollToTime` を使うこと）。
@@ -157,7 +193,7 @@ const DATE_TIME_FORMAT_OPTIONS: Record<DateTimeFormatterKind, Intl.DateTimeForma
   dayNumber: { day: 'numeric' },
   date: { month: 'long', day: 'numeric' },
   fullDate: { year: 'numeric', month: 'long', day: 'numeric' },
-  timeOfDay: { hour: 'numeric', minute: '2-digit', hourCycle: 'h23' },
+  timeOfDay: { hour: 'numeric', minute: '2-digit' },
 };
 
 /**
@@ -209,7 +245,10 @@ function formatFullDateLabel(date: Date, timeZone: TimeZoneId, locale: string): 
   return getDateTimeFormatter(locale, timeZone, 'fullDate').format(date);
 }
 
-/** 時刻ラベル（`'H:mm'`、時は非ゼロ埋めの 24 時間制）を Intl で生成する。 */
+/**
+ * 時刻ラベル（時は非ゼロ埋め）を Intl で生成する。`hourCycle` は固定せず、
+ * ロケールの慣習に委ねる（`ja` では `'10:00'`、`en-US` では `'10:00 AM'`）。
+ */
 function formatTimeOfDayLabel(date: Date, timeZone: TimeZoneId, locale: string): string {
   return getDateTimeFormatter(locale, timeZone, 'timeOfDay').format(date);
 }
@@ -221,9 +260,8 @@ function formatTimeOfDayLabel(date: Date, timeZone: TimeZoneId, locale: string):
  * 時間指定イベントは `'M月d日 H:mm〜H:mm'`
  * （複数日にまたがる場合は終了側にも日付を含める）。
  *
- * 時刻部分は `formatTimeOfDayLabel`（`hourCycle: 'h23'` 固定）で整形する
- * （`month-view-parts.tsx` の `formatTimeLabel` と異なり、`locale` の慣習に
- * かかわらず常に 24 時間制になる。既知の制限として今回のスコープ外）。
+ * 時刻部分は `formatTimeOfDayLabel`（`month-view-parts.tsx` の `formatTimeLabel` と
+ * 同様、`hourCycle` を固定せず `locale` の慣習に委ねる）で整形する。
  *
  * @param occurrence - 対象のオカレンス
  * @param timeZone - 表示タイムゾーン
@@ -270,6 +308,70 @@ function toDivRef(ref: Ref<HTMLElement>): (element: HTMLDivElement | null) => vo
       ref.current = element;
     }
   };
+}
+
+/**
+ * 終日行の「+N 件」ボタンでの pointerdown の伝播を止める
+ * （親の終日セルが範囲選択ドラッグを開始しないようにする。
+ * 月ビューの `month-overflow` ボタンと同じ対策）。
+ */
+function stopOverflowPointerDown(event: ReactPointerEvent<HTMLButtonElement>): void {
+  event.stopPropagation();
+}
+
+/**
+ * 終日行の「+N 件」ボタンで Enter / Space をクリック相当として扱う。
+ * jsdom を含む DOM 実装は `<button>` へのキーボード操作を自動で click に変換しない
+ * ため、明示的に `click()` を呼んで `onClick` へ橋渡しする。また、親の終日セル
+ * （`getDayCellProps` / `getAllDayCellProps` の `onKeyDown`）まで keydown が伝播すると
+ * セル側の Enter/Space（範囲選択の確定）も発火してしまうため、伝播を止める
+ * （月ビューの `month-overflow` ボタンと同じ対策）。
+ */
+function handleOverflowKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>): void {
+  if (event.key !== 'Enter' && event.key !== ' ') {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  event.currentTarget.click();
+}
+
+/**
+ * 終日行の「+N 件」ボタン（`data-koyomi="allday-overflow"`）。
+ *
+ * {@link CalendarOptions.allDayMaxEvents} のあふれがある終日セルに描画される。
+ * 位置決め（絶対配置の座標）はビューごとに異なるため `style` で受け取り、
+ * pointerdown / keydown の伝播対策とクリック配線をここに集約する。
+ * 週/日ビュー（`TimeGridView`）とリソースビュー（`ResourceView` /
+ * `VirtualResourceView`）で共有する内部コンポーネント（`index.ts` からは公開しない）。
+ */
+export function AllDayOverflowButton(props: {
+  /** 絶対配置の位置決めスタイル（列位置・レーン下端など、ビュー側で計算済みの値）。 */
+  style: CSSProperties;
+  /** ボタンに追加する props（`overflowButtonProps` の解決結果）。省略時は付与しない。 */
+  buttonProps: MonthOverflowButtonProps | undefined;
+  /** クリック（Enter / Space を含む）時のハンドラ。 */
+  onActivate: () => void;
+  /** タブ順に含めるか。既定 `true`（仮想化ビューの pinned 複製で `false` を使う）。 */
+  tabbable?: boolean;
+  /** ボタンの内側に描画するラベル内容。 */
+  children: ReactNode;
+}): ReactElement {
+  const { style, buttonProps, onActivate, tabbable, children } = props;
+  return (
+    <button
+      type="button"
+      data-koyomi="allday-overflow"
+      {...(buttonProps ?? {})}
+      style={style}
+      onPointerDown={stopOverflowPointerDown}
+      onKeyDown={handleOverflowKeyDown}
+      onClick={onActivate}
+      {...(tabbable === false ? { tabIndex: -1 } : {})}
+    >
+      {children}
+    </button>
+  );
 }
 
 /**
@@ -457,15 +559,32 @@ function samePreviewSegment(
  * ```
  */
 export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
-  const { renderEvent, renderAllDayEvent, renderDayHeader, initialScrollTime, ref } = props;
+  const {
+    renderEvent,
+    renderAllDayEvent,
+    renderDayHeader,
+    renderOverflowLabel,
+    overflowButtonProps,
+    initialScrollTime,
+    ref,
+  } = props;
   const { api, state, viewModel, callbacks, messages, renderEventContent, gridNavigation } =
     useCalendarContext();
   const commonMessages = messages.common;
   const calendar = { api, state, viewModel };
+  // viewModel.type !== 'timeGrid'（早期 return 前）でもフックは無条件に呼ぶ必要があるため、
+  // スクロール計算・A キー変換で使う表示時間帯（分）は安全な既定値へフォールバックする
+  // （VirtualResourceView の columns フォールバックと同じ方針）。
+  const slotMinTimeMinutes = viewModel.type === 'timeGrid' ? viewModel.slotMinTimeMinutes : 0;
+  const slotMaxTimeMinutes =
+    viewModel.type === 'timeGrid' ? viewModel.slotMaxTimeMinutes : MINUTES_PER_DAY;
   const dayDrag = useDayDrag({
     calendar,
     callbacks,
     defaultEventTitle: commonMessages.untitledEvent,
+    // 終日行の A キー変換（終日 → 時間指定）を有効化する。変換先の開始時刻は
+    // 表示時間帯の開始（slotMinTime）
+    keyboardTimedConversion: { rangeStartMinutes: slotMinTimeMinutes },
   });
   // roving tabindex（gridNavigation）。対象は timegrid-grid（日ヘッダー行＋終日行）の
   // 終日セルのみ（本文は grid 化していないため対象外）
@@ -485,13 +604,6 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
   // `timeGridDrag` は毎レンダー新しいオブジェクトになるため、日列・イベントボタンの
   // memo 化が効くよう、参照が変わらないラッパー経由で渡す（詳細は関数コメント参照）。
   const stableDrag = useStableColumnDrag(timeGridDrag);
-
-  // viewModel.type !== 'timeGrid'（早期 return 前）でもフックは無条件に呼ぶ必要があるため、
-  // スクロール計算に使う表示時間帯（分）は安全な既定値へフォールバックする
-  // （VirtualResourceView の columns フォールバックと同じ方針）。
-  const slotMinTimeMinutes = viewModel.type === 'timeGrid' ? viewModel.slotMinTimeMinutes : 0;
-  const slotMaxTimeMinutes =
-    viewModel.type === 'timeGrid' ? viewModel.slotMaxTimeMinutes : MINUTES_PER_DAY;
 
   const bodyRef = useRef<HTMLDivElement>(null);
 
@@ -552,6 +664,49 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
   const { timeZone, options } = state;
   const { locale } = options;
   const columnCount = days.length;
+
+  // 終日行のあふれ（allDayMaxEvents）。hidden セグメントは描画せず「+N 件」に集約する
+  // （viewType はクロージャ内では型の絞り込みが効かないため、ここで束ねておく）
+  const timeGridViewType = viewModel.viewType;
+  const visibleAllDaySegments = allDaySegments.filter((segment) => !segment.hidden);
+  const hasAllDayOverflow = days.some((day) => day.allDayOverflowCount > 0);
+  const overflowLabel = messages.month.overflow;
+
+  /** 指定列（可視列インデックス）を覆う非表示（あふれ）セグメントのオカレンス一覧を開始時刻順で返す。 */
+  function hiddenAllDayOccurrencesAt(col: number): readonly EventOccurrence[] {
+    return allDaySegments
+      .filter(
+        (segment) =>
+          segment.hidden && col >= segment.startCol && col < segment.startCol + segment.span,
+      )
+      .map((segment) => segment.occurrence)
+      .sort((a, b) => a.start.getTime() - b.start.getTime());
+  }
+
+  /** 指定列（可視列インデックス）を覆う表示中セグメントのオカレンス一覧を開始時刻順で返す。 */
+  function visibleAllDayOccurrencesAt(col: number): readonly EventOccurrence[] {
+    return visibleAllDaySegments
+      .filter((segment) => col >= segment.startCol && col < segment.startCol + segment.span)
+      .map((segment) => segment.occurrence)
+      .sort((a, b) => a.start.getTime() - b.start.getTime());
+  }
+
+  /**
+   * 「+N 件」クリック。`onAllDayOverflowClick` があればそれを呼び、
+   * なければその日の日ビューへ切り替える（月ビューの既定と同じ）。
+   */
+  function handleAllDayOverflowClick(day: TimeGridDay, col: number): void {
+    const onAllDayOverflowClick = callbacks.onAllDayOverflowClick;
+    if (onAllDayOverflowClick !== undefined) {
+      onAllDayOverflowClick(
+        { date: day.date, dayKey: day.key, view: timeGridViewType },
+        hiddenAllDayOccurrencesAt(col),
+        { visibleOccurrences: visibleAllDayOccurrencesAt(col) },
+      );
+      return;
+    }
+    selectAndGoToDay(day.date);
+  }
 
   const alldayPreviewRange = state.dragPreview?.allDay ? state.dragPreview.range : null;
   const alldaySelectionSpan =
@@ -645,7 +800,11 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
           <div
             data-koyomi="allday-cells"
             role="presentation"
-            style={{ minHeight: `calc(${allDayLaneCount} * var(--koyomi-lane-height, 24px))` }}
+            // あふれがある場合は「+N 件」ボタンの 1 行分を追加で確保する
+            // （allDayMaxEvents 未指定時は従来どおりレーン数のみ）
+            style={{
+              minHeight: `calc(${allDayLaneCount + (hasAllDayOverflow ? 1 : 0)} * var(--koyomi-lane-height, 24px))`,
+            }}
           >
             {days.map((day, col) => {
               const { ref, ...cellProps } = dayDrag.getDayCellProps(day);
@@ -669,7 +828,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
                         置かないため）。ボタンは absolute 配置で、positioned ancestor は
                         セルではなく allday-cells（position: relative）なので、列をまたぐ
                         視覚上のスパンと座標計算はレイヤー方式と変わらない */}
-                  {allDaySegments
+                  {visibleAllDaySegments
                     .filter((segment) => segment.startCol === col)
                     .map((segment) => (
                       <AllDaySegmentButton
@@ -685,6 +844,28 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
                         view={state.view}
                       />
                     ))}
+                  {/* あふれ（allDayMaxEvents 超過）のある日の「+N 件」ボタン。
+                      帯セグメントと同じく絶対配置（positioned ancestor は
+                      allday-cells）で、表示レーンの直下の行に置く */}
+                  {day.allDayOverflowCount > 0 && (
+                    <AllDayOverflowButton
+                      style={{
+                        position: 'absolute',
+                        insetInlineStart: `${(col / columnCount) * 100}%`,
+                        width: `${(1 / columnCount) * 100}%`,
+                        top: `calc(${allDayLaneCount} * var(--koyomi-lane-height, 24px))`,
+                      }}
+                      buttonProps={overflowButtonProps?.(day, hiddenAllDayOccurrencesAt(col))}
+                      onActivate={() => handleAllDayOverflowClick(day, col)}
+                    >
+                      {renderOverflowLabel
+                        ? renderOverflowLabel(day, {
+                            defaultContent: overflowLabel(day.allDayOverflowCount),
+                            hiddenOccurrences: hiddenAllDayOccurrencesAt(col),
+                          })
+                        : overflowLabel(day.allDayOverflowCount)}
+                    </AllDayOverflowButton>
+                  )}
                 </div>
               );
             })}
@@ -889,11 +1070,18 @@ function TimeGridDayColumnImpl(props: {
   const rangeWidth = slotMaxTimeMinutes - slotMinTimeMinutes;
 
   return (
+    // biome-ignore lint/a11y/useSemanticElements: 本文は grid 化しない方針（ファイル冒頭コメント参照）のため、日列は「その日の予定をまとめる」div ベースの ARIA group にする
     <div
       {...dayProps}
       ref={toDivRef(ref)}
       data-koyomi="timegrid-day"
       data-today={day.isToday ? 'true' : undefined}
+      // 列は dayProps（useTimeGridDrag.getDayProps）の tabIndex でフォーカス可能になり
+      // Enter/Space のキーボード作成対象になるため、その日の予定をまとめる group として
+      // 終日セルと同じ完全な日付をアクセシブルネームに与える（aria-label は role なしの
+      // generic ではサポートされないため、role とセットで付ける）
+      role="group"
+      aria-label={formatFullDateLabel(day.date, timeZone, locale)}
     >
       {slots.map((slot, index) => {
         // isBusinessHours なスロットのみ、次のスロット（無ければ表示時間帯の終端）までの

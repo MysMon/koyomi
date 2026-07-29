@@ -32,7 +32,7 @@ import type { TimelinePreviewSegment } from '../use-timeline-drag';
 import { useTimelineDrag } from '../use-timeline-drag';
 import { resolveEventContent, titleOnlyEventContentContext } from './event-content';
 import { withEventColorStyle } from './month-view-parts';
-import { ariaLabelWithResource } from './resource-view-parts';
+import { ariaLabelText, ariaLabelWithResource } from './resource-view-parts';
 import type { TimelineRowDragHandlers } from './timeline-view-parts';
 import {
   formatTimelineItemTimeText,
@@ -96,6 +96,8 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
   const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const timelineMessages = messages.timeline;
   const commonMessages = messages.common;
+  // 行末の「+N 件」バッジは月ビューの overflow 文言を再利用する（新規メッセージ群は追加しない）。
+  const overflowLabel = messages.month.overflow;
   const calendar = { api, state, viewModel };
   const drag = useTimelineDrag({
     calendar,
@@ -206,6 +208,7 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
             commonMessages={commonMessages}
             onToggleCollapse={onToggleCollapse}
             timelineMessages={timelineMessages}
+            overflowLabel={overflowLabel}
           />
         ))}
       </div>
@@ -237,6 +240,11 @@ interface TimelineRowGroupProps {
   onToggleCollapse: (resourceId: string) => void;
   /** 中央メッセージカタログの `timeline` グループ（折りたたみトグルボタンの aria-label 組み立てに使う）。 */
   timelineMessages: TimelineMessages;
+  /**
+   * 行末の「+N 件」バッジ（{@link TimelineRow.overflowCount}）の表示内容。
+   * 月ビューの overflow 文言（`messages.month.overflow`）を再利用する。
+   */
+  overflowLabel: (count: number) => ReactNode;
 }
 
 /** タイムラインの 1 行分（行見出し + 帯トラック）。 */
@@ -257,10 +265,14 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
     commonMessages,
     onToggleCollapse,
     timelineMessages,
+    overflowLabel,
   } = props;
   const { ref, ...rowProps } = drag.getRowProps(row);
   const resource = row.resource;
   const headerContent = resource?.title ?? unassignedLabel;
+  // timelineMaxLanes のあふれで hidden になった帯は描画しない
+  // （非表示分は行末の「+N 件」バッジ（timeline-overflow）に集約する）。
+  const visibleItems = row.items.filter((item) => !item.hidden);
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: 上記ヘッダー行と同様、div ベースの ARIA row
@@ -289,12 +301,16 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
         {renderRowHeader ? renderRowHeader(row, { defaultContent: headerContent }) : headerContent}
       </div>
       {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA gridcell（時間トラック 1 本を 1 セルとして扱う） */}
-      {/* biome-ignore lint/a11y/useFocusableInteractive: gridcell 自体はフォーカス対象にしない（内部の帯ボタンが個別にフォーカス可能） */}
+      {/* biome-ignore lint/a11y/useFocusableInteractive: tabIndex は rowProps（useTimelineDrag.getRowProps）のスプレッド経由で付与済み。静的解析ではスプレッド元を検出できないための誤検知 */}
       <div
         {...rowProps}
         ref={toDivRef(ref)}
         data-koyomi="timeline-row"
         role="gridcell"
+        // 行トラックは rowProps（useTimelineDrag.getRowProps）の tabIndex でフォーカス
+        // 可能になり Enter/Space のキーボード作成対象になるため、リソース名（未割り当て
+        // 行は unassigned の文言）をアクセシブルネームとして与える
+        aria-label={resource !== null ? resource.title : ariaLabelText(unassignedLabel)}
         style={withLaneCountStyle(row.laneCount)}
       >
         {businessHourRanges.map((range) => (
@@ -308,7 +324,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
             }}
           />
         ))}
-        {row.items.map((item) => {
+        {visibleItems.map((item) => {
           const itemProps = drag.getItemProps(item);
           const occurrence = item.occurrence;
           const isEditable = occurrence.event.editable !== false;
@@ -375,6 +391,18 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
             </button>
           );
         })}
+        {row.overflowCount > 0 && (
+          // 非表示帯は行末に集約表示するだけの静的バッジ（<button> にしない）。
+          // ボタン化・クリックでの一覧表示は、row.overflowCount / row.hiddenItems を
+          // 受け取れる renderRowHeader 等を使ってアプリ側の render prop に委ねる
+          // ヘッドレス判断（月ビューの「+N 件」ボタンのような開閉連携は持たない）。
+          <span
+            data-koyomi="timeline-overflow"
+            style={{ position: 'absolute', insetInlineEnd: 0, top: 0 }}
+          >
+            {overflowLabel(row.overflowCount)}
+          </span>
+        )}
         {preview !== null && (
           <div
             data-koyomi="timeline-preview"
@@ -413,6 +441,11 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
 const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
   return (
     sameTimelineRow(prev.row, next.row) &&
+    // sameTimelineRow（timeline-view-parts.tsx）は各アイテムの hidden・行の
+    // overflowCount/hiddenItems を見ない。あふれ表示だけが変わるケース（表示アイテムの
+    // 他フィールドは不変）を取りこぼさないよう、ここで追加分を明示的に比較する
+    prev.row.overflowCount === next.row.overflowCount &&
+    sameItemHiddenFlags(prev.row.items, next.row.items) &&
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
     prev.totalMinutes === next.totalMinutes &&
@@ -427,6 +460,24 @@ const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
     samePreviewSegment(prev.preview, next.preview) &&
     prev.commonMessages === next.commonMessages &&
     prev.onToggleCollapse === next.onToggleCollapse &&
-    prev.timelineMessages === next.timelineMessages
+    prev.timelineMessages === next.timelineMessages &&
+    prev.overflowLabel === next.overflowLabel
   );
 });
+
+/**
+ * `TimelineItem[]` の `hidden` フラグ列だけが一致するかどうかを比較する。
+ *
+ * `sameTimelineRow`（`timeline-view-parts.tsx`）は `hidden` を見ないため、
+ * 件数・並び順が同じ前提（`sameTimelineRow` 側で `sameTimelineItems` により
+ * 保証済み）で、あふれ表示の再レンダー漏れを防ぐための補助比較。
+ */
+function sameItemHiddenFlags(a: readonly TimelineItem[], b: readonly TimelineItem[]): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((item, index) => item.hidden === b[index]?.hidden);
+}

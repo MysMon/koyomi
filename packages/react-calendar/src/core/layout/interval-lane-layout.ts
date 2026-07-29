@@ -18,12 +18,28 @@ export interface IntervalLaneInput {
   end: number;
 }
 
+/** 区間レーン割当の結果（1 アイテム分）。 */
+export interface IntervalLanePlacement {
+  /** 入力アイテムのキー。 */
+  key: string;
+  /** 割り当てられたレーン番号（0 起点）。 */
+  lane: number;
+  /** あふれにより非表示にすべきか（`lane >= maxLanes` の場合 `true`）。 */
+  hidden: boolean;
+}
+
 /** 区間レーン割当の結果。 */
 export interface IntervalLaneResult {
-  /** 各アイテムのレーン番号（入力と同数。順序は入力順を維持）。 */
-  placements: readonly { key: string; lane: number }[];
-  /** 使用レーン数（0 件なら 0）。 */
+  /** 各アイテムの配置（入力と同数。順序は入力順を維持）。 */
+  placements: readonly IntervalLanePlacement[];
+  /** 表示されるレーンの数（非表示アイテムを除いた最大レーン + 1、0 件なら 0）。 */
   laneCount: number;
+  /**
+   * あふれにより非表示になったアイテムの総数（`maxLanes` 未指定・非超過なら 0）。
+   * 区間は列を持たない連続量のため、{@link ../layout/band-layout} の
+   * `overflowByCol` のような列別の内訳ではなく総数のみを返す。
+   */
+  overflowCount: number;
 }
 
 /**
@@ -34,11 +50,17 @@ export interface IntervalLaneResult {
  *    （既存の帯・時間グリッドレイアウトと同じハウスルール）
  * 2. 各区間を「既存の区間と重ならない最小のレーン」に貪欲に割り当てる
  *    （重なり判定は `[start, end)` の排他比較。接触は重ならない）
+ * 3. `maxLanes` が指定された場合、レーン番号が `maxLanes` 以上になった
+ *    アイテムは `hidden: true` とし、`overflowCount` に加算する
+ *    （{@link ../layout/band-layout} の `layoutBandItems` と同じ規則。
+ *    `hidden` になったアイテムもレーンを専有するため、後続アイテムが
+ *    そのレーンに割り込むことはない）
  *
- * `maxLanes` やあふれ集約は持たない（行の高さは `laneCount` に応じて伸びる。
- * 必要になったら {@link ../layout/band-layout} と同じ `hidden` + あふれ数の形で拡張する）。
+ * `maxLanes` 省略時（既定）は全アイテムが `hidden: false` になり、行の高さは
+ * `laneCount` に応じて伸びる。
  *
  * @param items - 入力アイテム
+ * @param maxLanes - 表示する最大レーン数。省略時は無制限
  * @returns 各アイテムの配置（入力と同数。順序は入力順を維持）
  * @example
  * ```ts
@@ -46,14 +68,44 @@ export interface IntervalLaneResult {
  *   { key: 'a', start: 0, end: 100 },
  *   { key: 'b', start: 50, end: 150 },
  * ]);
- * // => { placements: [{ key: 'a', lane: 0 }, { key: 'b', lane: 1 }], laneCount: 2 }
+ * // => {
+ * //   placements: [
+ * //     { key: 'a', lane: 0, hidden: false },
+ * //     { key: 'b', lane: 1, hidden: false },
+ * //   ],
+ * //   laneCount: 2,
+ * //   overflowCount: 0,
+ * // }
+ * ```
+ * @example
+ * ```ts
+ * // maxLanes=1 では 2 本目の区間があふれる
+ * layoutIntervalLanes(
+ *   [
+ *     { key: 'a', start: 0, end: 100 },
+ *     { key: 'b', start: 50, end: 150 },
+ *   ],
+ *   1,
+ * );
+ * // => {
+ * //   placements: [
+ * //     { key: 'a', lane: 0, hidden: false },
+ * //     { key: 'b', lane: 1, hidden: true },
+ * //   ],
+ * //   laneCount: 1,
+ * //   overflowCount: 1,
+ * // }
  * ```
  */
-export function layoutIntervalLanes(items: readonly IntervalLaneInput[]): IntervalLaneResult {
+export function layoutIntervalLanes(
+  items: readonly IntervalLaneInput[],
+  maxLanes?: number,
+): IntervalLaneResult {
   // 配置結果を入力順で確保しておき、ソート順の処理中に確定値を書き込む
-  const placements: { key: string; lane: number }[] = items.map((item) => ({
+  const placements: IntervalLanePlacement[] = items.map((item) => ({
     key: item.key,
     lane: 0,
+    hidden: false,
   }));
 
   // 入力順を保持したまま処理順を決めるため、インデックス付きでソートする
@@ -77,6 +129,8 @@ export function layoutIntervalLanes(items: readonly IntervalLaneInput[]): Interv
   // 各レーンの「最後に置いた区間の終了」。開始昇順で処理するため、
   // 新しい区間はレーン末尾の区間とだけ重なり判定すればよい
   const laneEnds: number[] = [];
+  let laneCount = 0;
+  let overflowCount = 0;
 
   for (const { item, index } of ordered) {
     // 既存の区間と重ならない（= レーン末尾の終了 <= この区間の開始）最小のレーンを探す
@@ -89,8 +143,17 @@ export function layoutIntervalLanes(items: readonly IntervalLaneInput[]): Interv
       }
     }
     laneEnds[lane] = item.end;
-    placements[index] = { key: item.key, lane };
+
+    const hidden = maxLanes !== undefined && lane >= maxLanes;
+    if (hidden) {
+      overflowCount += 1;
+    } else {
+      // laneCount は表示されるアイテムが乗るレーンのみ数える
+      laneCount = Math.max(laneCount, lane + 1);
+    }
+
+    placements[index] = { key: item.key, lane, hidden };
   }
 
-  return { placements, laneCount: laneEnds.length };
+  return { placements, laneCount, overflowCount };
 }

@@ -8,6 +8,9 @@
  * `BYDAY`（週の曜日集合、または月の第 n 曜日）・`BYMONTHDAY`（単一値）・
  * `COUNT`/`UNTIL` のみで、範囲外の指定は {@link parseRecurrenceRule} が
  * `unsupported` として元の RRULE 文字列を保持する（内容を書き換えない）。
+ * `WKST` はカレンダーの週の開始曜日（`weekStartsOn`）と接続され、
+ * {@link buildRecurrenceRuleString} が出力し {@link parseRecurrenceRule} が
+ * 一致判定する（詳細は各関数の説明を参照）。
  *
  * core は React に依存しないため、検証エラー・非対応理由は機械可読な判別
  * ユニオン（{@link RecurrenceValidationIssue}・{@link RecurrenceUnsupportedReason}）
@@ -155,13 +158,15 @@ function koyomiFrequencyFromRRule(freq: Options['freq'] | undefined): Recurrence
  * `parsed` に、編集エディタが対応しない RRULE の指定が含まれていないかを検証する。
  * 対応しない指定が見つかった場合はその理由（日本語）を返し、なければ `null`。
  *
- * `wkst` は月曜以外を明示指定した場合のみ対応外とする（既定と同じ月曜の明示は許容する）。
+ * `wkst` は、明示指定が週の開始曜日（`weekStartsOn`、省略時は RRULE 既定の月曜）と
+ * 一致する場合のみ許容し、不一致の明示指定を対応外とする（`WKST` の省略は常に許容する）。
  * 判定には正規化済みテキスト（`normalizedText`）から `WKST=` を読み取る
  * （rrule.js 内部の曜日エンコーディングに依存しないための方針）。
  */
 function unsupportedGenericFieldReason(
   parsed: Partial<Options>,
   normalizedText: string,
+  weekStartsOn: Weekday | undefined,
 ): RecurrenceUnsupportedReason | null {
   if (parsed.bysetpos !== undefined && parsed.bysetpos !== null) {
     return { code: 'unsupportedField', field: 'BYSETPOS' };
@@ -195,7 +200,7 @@ function unsupportedGenericFieldReason(
   }
   const wkstMatch = /(?:^|;)WKST=([A-Z]{2})/.exec(normalizedText);
   const wkstCode = wkstMatch?.[1];
-  if (wkstCode !== undefined && wkstCode !== 'MO') {
+  if (wkstCode !== undefined && wkstCode !== byDayCodeForWeekday(weekStartsOn ?? 1)) {
     return { code: 'unsupportedWkst' };
   }
   return null;
@@ -341,9 +346,15 @@ function resolvePatternForFrequency(
  * `BYMONTHDAY`・`COUNT`/`UNTIL` のみ）外の指定、または不正な RRULE は
  * `kind: 'unsupported'` として元の文字列をそのまま保持する（書き換えない）。
  *
+ * `WKST` は、カレンダーの週の開始曜日（`weekStartsOn`、省略時は RRULE 既定の月曜）と
+ * 一致する明示指定のみ受理し、不一致の明示指定は `kind: 'unsupported'` にする
+ * （`WKST` を持たないルールは `weekStartsOn` の値によらず受理する）。
+ *
  * @param params.rrule - RRULE 文字列。`undefined` は「繰り返しなし」を表す
  * @param params.dtstart - 繰り返しの起点（絶対時刻）
  * @param params.timeZone - イベントのタイムゾーン（`UNTIL` の解釈に使用）
+ * @param params.weekStartsOn - カレンダーの週の開始曜日（`WKST` の受理判定に使用）。
+ *   省略時は RRULE 既定の月曜（`1`）として扱う
  * @returns 変換結果
  * @example
  * ```ts
@@ -359,8 +370,9 @@ export function parseRecurrenceRule(params: {
   rrule: string | undefined;
   dtstart: Date;
   timeZone: TimeZoneId;
+  weekStartsOn?: Weekday;
 }): ParsedRecurrenceRule {
-  const { rrule, dtstart, timeZone } = params;
+  const { rrule, dtstart, timeZone, weekStartsOn } = params;
   if (rrule === undefined) {
     return { kind: 'none' };
   }
@@ -390,7 +402,7 @@ export function parseRecurrenceRule(params: {
 
   const normalizedText = normalizeRRuleString(rrule);
 
-  const genericFieldReason = unsupportedGenericFieldReason(parsed, normalizedText);
+  const genericFieldReason = unsupportedGenericFieldReason(parsed, normalizedText, weekStartsOn);
   if (genericFieldReason !== null) {
     return { kind: 'unsupported', rawRRule: rrule, reason: genericFieldReason };
   }
@@ -539,7 +551,11 @@ function formatFakeUTCAsUntil(fake: Date): string {
 }
 
 /** `state` から RRULE 本体のテキストを手組みする（検証済みであることを前提とする）。 */
-function buildRawRRuleText(state: RecurrenceRuleState, timeZone: TimeZoneId): string {
+function buildRawRRuleText(
+  state: RecurrenceRuleState,
+  timeZone: TimeZoneId,
+  weekStartsOn: Weekday | undefined,
+): string {
   const parts: string[] = [`FREQ=${state.freq.toUpperCase()}`];
   if (state.interval !== 1) {
     parts.push(`INTERVAL=${state.interval}`);
@@ -554,6 +570,12 @@ function buildRawRRuleText(state: RecurrenceRuleState, timeZone: TimeZoneId): st
       const { ordinal, weekday } = state.monthlyPattern;
       parts.push(`BYDAY=${ordinal}${byDayCodeForWeekday(weekday)}`);
     }
+  }
+  // 週の開始曜日が月曜（RRULE の既定）以外なら、freq や interval によらず WKST を
+  // 常に明示出力する（weekly 以外では展開結果に影響しない無害な指定だが、週境界の
+  // 前提をルール自体に残すことで、他アプリへ渡しても解釈がずれないようにする）
+  if (weekStartsOn !== undefined && weekStartsOn !== 1) {
+    parts.push(`WKST=${byDayCodeForWeekday(weekStartsOn)}`);
   }
   if (state.end.type === 'count') {
     parts.push(`COUNT=${state.end.count}`);
@@ -571,9 +593,15 @@ function buildRawRRuleText(state: RecurrenceRuleState, timeZone: TimeZoneId): st
  * 通し、rrule.js 自身の妥当性確認と正規化を経由させる。さらに実際の `dtstart` を
  * 付与して構築できることも確認する（`until` が `dtstart` より前でも例外にはしない）。
  *
+ * `weekStartsOn` に月曜（`1`）以外を指定すると、`freq` によらず `WKST` を常に
+ * 明示出力し、カレンダーの表示上の週境界と RRULE の週境界（`INTERVAL` が 2 以上の
+ * `FREQ=WEEKLY` の対象週の区切り）を一致させる。月曜または省略時は `WKST` を
+ * 出力しない（RRULE の既定の週開始が月曜のため）。
+ *
  * @param params.state - 変換対象の状態
  * @param params.dtstart - 繰り返しの起点（絶対時刻）
  * @param params.timeZone - イベントのタイムゾーン（`UNTIL` の変換に使用）
+ * @param params.weekStartsOn - カレンダーの週の開始曜日（`WKST` の出力に使用）
  * @returns RRULE 本体文字列
  * @throws `state` に検証エラーがある場合は `Error`
  * @example
@@ -584,21 +612,30 @@ function buildRawRRuleText(state: RecurrenceRuleState, timeZone: TimeZoneId): st
  *   timeZone: 'Asia/Tokyo',
  * });
  * // => 'FREQ=WEEKLY;BYDAY=MO,WE'
+ *
+ * buildRecurrenceRuleString({
+ *   state: { freq: 'weekly', interval: 2, byWeekday: [0, 2], end: { type: 'never' } },
+ *   dtstart: new Date('2026-07-01T00:00:00Z'),
+ *   timeZone: 'Asia/Tokyo',
+ *   weekStartsOn: 0,
+ * });
+ * // => 'FREQ=WEEKLY;INTERVAL=2;BYDAY=SU,TU;WKST=SU'
  * ```
  */
 export function buildRecurrenceRuleString(params: {
   state: RecurrenceRuleState;
   dtstart: Date;
   timeZone: TimeZoneId;
+  weekStartsOn?: Weekday;
 }): string {
-  const { state, dtstart, timeZone } = params;
+  const { state, dtstart, timeZone, weekStartsOn } = params;
   const issues = validateRecurrenceRuleState(state);
   if (issues.length > 0) {
     throw new Error(
       `不正な繰り返しルールの状態です: ${issues.map((issue) => `${issue.field}:${issue.code}`).join('、')}`,
     );
   }
-  const normalized = normalizeRRuleString(buildRawRRuleText(state, timeZone));
+  const normalized = normalizeRRuleString(buildRawRRuleText(state, timeZone, weekStartsOn));
   const parsedWithDtstart = parseRRuleOptions(normalized);
   void new RRule({ ...parsedWithDtstart, dtstart: toFakeUTC(dtstart, timeZone) });
   return normalized;

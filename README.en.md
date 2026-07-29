@@ -13,17 +13,18 @@ A headless TypeScript/React calendar library.
 
 ## Features
 
-- 📅 **8 views** — Month, week, day, and list, plus opt-in year, multi-month, resource, and timeline views (with weekend/day hiding via `hiddenWeekdays`). Resources support `parentId` hierarchical grouping and collapsing; the timeline view supports hour/day/week/month zoom levels via `timelineScale`
-- 🖱️ **Google Calendar-equivalent interactions** — Drag to create/move/resize events (including resizing from both ends), drag conversion between all-day and timed events, recurring-event editing with `'this' / 'thisAndFollowing' / 'all'` scope, and touch support. `eventOverlap` / `eventConstraint` declaratively restrict overlap and placement
-- ⌨️ **Full keyboard support** — Shortcuts plus arrow-key move/resize/delete/create for events
-- ↩️ **Undo/redo** — `useCalendarHistory` provides an undo/redo history of operations (keyboard shortcuts are opt-in)
-- ♿ **aria-live announcements** — `useCalendarAnnouncer` announces event changes, creation, deletion, and view switches to screen readers
-- 🎨 **Headless design** — Logic and markup only; styling is entirely up to you. A default theme (dark mode and RTL included) is bundled
-- 🌐 **Internationalization** — A central message catalog (`ja`/`en` bundled) follows `locale`, can be partially overridden per group via `CalendarProvider`'s `messages` prop, and supports adding your own locale. Time labels automatically follow 12/24-hour format
-- 🌏 **Multi-timezone support** — Independently switch an event's own timezone and the calendar's display timezone (built on date-fns v4 + @date-fns/tz)
-- 🔁 **RRULE support** — The major recurrence patterns of RFC 5545, plus RDATE/EXDATE equivalents (`rdates` / `exdates`) via rrule. `useRecurrenceRuleEditor` also supports editing recurrence as structured form state
-- 📜 **Large event sets** — Virtualized list rendering that only draws the visible range (`VirtualListView`, opt-in)
-- 🧪 **TDD** — Test-driven development with Vitest (2,300+ tests)
+- 📅 **8 views** — Month, week, day, list, year, multi-month, resource, and timeline. Resources support hierarchical grouping; the timeline view supports zoom-level switching
+- 🖱️ **Google Calendar-equivalent interactions** — Drag to create/move/resize (from both ends), conversion between all-day and timed events, recurring-event editing with "this / this and following / all" scope, copy & paste and duplicate, and touch support. Overlap and placement can be restricted declaratively
+- ⌨️ **Keyboard-complete** — Everything the mouse can do to an event (create, move, resize, all-day conversion, delete) can be done with the keyboard alone, and focus survives deletion
+- ♿ **Screen reader support** — Event changes, creation, deletion, rejected operations, and view switches are announced via aria-live
+- ↩️ **Undo/redo** — Undo and redo of the operation history
+- 🎨 **Headless design** — Logic and markup only; styling is entirely up to you via CSS against `data-koyomi-*` attributes. A default theme (dark mode and RTL included) is bundled
+- 🌐 **Internationalization** — A message catalog (`ja` / `en` bundled) with partial overrides and custom locales, and automatic 12/24-hour format
+- 🌏 **Multi-timezone support** — Independent per-event and display timezones, plus secondary timezone axes (built on date-fns v4 + @date-fns/tz)
+- 🔁 **Recurring events** — The major RRULE patterns of RFC 5545 plus RDATE / EXDATE, with a structured-state form editor included
+- 🗓️ **iCalendar (ICS) import/export** — `.ics` input/output that understands recurrence, overrides, and "this and following" series splits, plus partial import that skips malformed VEVENTs
+- 📜 **Large event sets and resource lists** — Virtualized views that only render the visible range, "+N more" overflow aggregation, and incremental data fetching driven by the visible range
+- 🧪 **TDD** — Test-driven development with Vitest (3,400+ tests) and real-browser E2E (including automated WCAG checks with axe)
 
 ## Documentation
 

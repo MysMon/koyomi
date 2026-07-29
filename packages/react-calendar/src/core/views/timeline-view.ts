@@ -9,7 +9,9 @@
  * （比例幅を持つ分スケールから日を抜くと帯の長さが実時間から乖離するため）。
  *
  * 行内の重なりは {@link ../layout/interval-lane-layout} の区間レーン割当で縦に積む。
- * 終日・時間指定の区別なく同じレーン空間に配置する。
+ * 終日・時間指定の区別なく同じレーン空間に配置する。`maxLanes`（opt-in、既定は無制限）を
+ * 指定すると、超過した帯は {@link TimelineItem.hidden} になり
+ * {@link TimelineRow.overflowCount} / {@link TimelineRow.hiddenItems} に集計される。
  */
 
 import { startOfMonthInZone, startOfWeekInZone } from '../date-utils';
@@ -47,6 +49,47 @@ import { buildResourceTree, filterVisibleResourceTree } from './resource-hierarc
 
 /** 1 日の分（24:00 = 1440 分）。DST 日でも表示スケールは 24 時間として扱う。 */
 const MINUTES_PER_DAY = 1440;
+
+/**
+ * week/month スケールの日番号目盛り（{@link TimelineSlot.label}）用 `Intl.NumberFormat` の
+ * キャッシュ。ロケールごとに 1 つだけ生成して使い回す（生成コストのある
+ * `Intl.NumberFormat` を目盛りの数だけ毎回 `new` しないため）。
+ */
+const dayNumberFormatterCache = new Map<string, Intl.NumberFormat>();
+
+/**
+ * `Intl.NumberFormat` をロケールごとにキャッシュして返す（week/month スケールの日番号用）。
+ */
+function getDayNumberFormatter(locale: string): Intl.NumberFormat {
+  const cached = dayNumberFormatterCache.get(locale);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const formatter = new Intl.NumberFormat(locale);
+  dayNumberFormatterCache.set(locale, formatter);
+  return formatter;
+}
+
+/**
+ * week/month スケールの日番号ラベルを、locale の数字体系に追従する形で整形する
+ * （`ar` のアラビア・インド数字等）。
+ *
+ * `Intl.DateTimeFormat` の日単体スケルトン（`day: 'numeric'`）は使わない。ロケールに
+ * よっては CLDR の標準パターンに接尾辞が付き（例: `ja` では `'30日'`）、素の日番号
+ * ラベルとして使うと既存表示が変わってしまうため、日番号（整数）を
+ * `Intl.NumberFormat` で数値として整形する。
+ *
+ * @param dayOfMonth - 月内の日（1〜31）
+ * @param locale - 整形に使うロケール（例: `'ja'`、`'ar-EG'`）
+ * @example
+ * ```ts
+ * formatTimelineDayNumberLabel(30, 'ja'); // => '30'
+ * formatTimelineDayNumberLabel(30, 'ar-EG'); // => '٣٠'
+ * ```
+ */
+function formatTimelineDayNumberLabel(dayOfMonth: number, locale: string): string {
+  return getDayNumberFormatter(locale).format(dayOfMonth);
+}
 
 /**
  * 長さ 0 のオカレンスの実効長（分）。
@@ -267,6 +310,9 @@ function buildHeaderGroups(
  *   隣接・重複する区間はマージする。省略時は `[]`
  * @param params.collapsedResourceIds - 折りたたみ中のリソース ID の集合
  *   （{@link CalendarState.collapsedResourceIds}）。省略時は `[]`（全展開）扱い
+ * @param params.maxLanes - 行内に表示する最大レーン数（{@link CalendarOptions.timelineMaxLanes}）。
+ *   省略時は無制限。指定時は超過した帯を {@link TimelineItem.hidden} にし、
+ *   {@link TimelineRow.overflowCount} / {@link TimelineRow.hiddenItems} に集計する
  * @returns タイムラインビューのビューモデル
  * @example
  * ```ts
@@ -300,6 +346,7 @@ export function buildTimelineViewModel(params: {
   now: Date;
   businessHours?: readonly BusinessHoursRule[];
   collapsedResourceIds?: ReadonlySet<string>;
+  maxLanes?: number;
 }): TimelineViewModel {
   const {
     currentDate,
@@ -315,6 +362,7 @@ export function buildTimelineViewModel(params: {
     now,
     businessHours = [],
     collapsedResourceIds = EMPTY_COLLAPSED_RESOURCE_IDS,
+    maxLanes,
   } = params;
 
   // 表示日の列挙（毎回日の開始へ再正規化する。深夜 0:00 が存在しないゾーン対策）
@@ -364,7 +412,7 @@ export function buildTimelineViewModel(params: {
       slots.push({
         minutes: dayIndex * MINUTES_PER_DAY,
         dayKey: day.key,
-        label: String(getWallClock(day.date, timeZone).day),
+        label: formatTimelineDayNumberLabel(getWallClock(day.date, timeZone).day, locale),
       });
     });
   }
@@ -462,6 +510,8 @@ export function buildTimelineViewModel(params: {
   function buildRowItems(rowOccurrences: readonly EventOccurrence[]): {
     items: TimelineItem[];
     laneCount: number;
+    overflowCount: number;
+    hiddenItems: readonly EventOccurrence[];
   } {
     const entries: RowEntry[] = [];
     for (const occurrence of rowOccurrences) {
@@ -480,17 +530,28 @@ export function buildTimelineViewModel(params: {
         // 空区間になった場合に備えて最低 1 分を確保する（レーン割当の前提を守る）
         end: Math.max(entry.endMinutes, entry.startMinutes + 1),
       })),
+      maxLanes,
     );
 
-    const items: TimelineItem[] = entries.map((entry, index) => ({
-      occurrence: entry.occurrence,
-      startMinutes: entry.startMinutes,
-      endMinutes: entry.endMinutes,
-      lane: layout.placements[index]?.lane ?? 0,
-      continuesBefore: entry.continuesBefore,
-      continuesAfter: entry.continuesAfter,
-    }));
-    return { items, laneCount: layout.laneCount };
+    const items: TimelineItem[] = [];
+    const hiddenItems: EventOccurrence[] = [];
+    entries.forEach((entry, index) => {
+      const placement = layout.placements[index];
+      const hidden = placement?.hidden ?? false;
+      items.push({
+        occurrence: entry.occurrence,
+        startMinutes: entry.startMinutes,
+        endMinutes: entry.endMinutes,
+        lane: placement?.lane ?? 0,
+        hidden,
+        continuesBefore: entry.continuesBefore,
+        continuesAfter: entry.continuesAfter,
+      });
+      if (hidden) {
+        hiddenItems.push(entry.occurrence);
+      }
+    });
+    return { items, laneCount: layout.laneCount, overflowCount: layout.overflowCount, hiddenItems };
   }
 
   const rows: TimelineRow[] = visibleTree.map((entry) => ({

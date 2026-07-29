@@ -13,6 +13,7 @@ import type {
   CalendarEvent,
   CalendarResource,
   CalendarViewType,
+  TimeZoneId,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { MessageCatalogOverrides } from '../locales/types';
@@ -59,6 +60,8 @@ interface HarnessProps {
   slotMinTime?: string;
   slotMaxTime?: string;
   resourceViewDays?: number;
+  allDayMaxEvents?: number;
+  timeAxisZones?: readonly TimeZoneId[];
   viewProps?: VirtualResourceViewProps;
   messages?: MessageCatalogOverrides;
   sink?: { current: UseCalendarResult | null };
@@ -78,6 +81,8 @@ function Harness(props: HarnessProps): ReactElement {
     ...(props.slotMinTime !== undefined ? { slotMinTime: props.slotMinTime } : {}),
     ...(props.slotMaxTime !== undefined ? { slotMaxTime: props.slotMaxTime } : {}),
     ...(props.resourceViewDays !== undefined ? { resourceViewDays: props.resourceViewDays } : {}),
+    ...(props.allDayMaxEvents !== undefined ? { allDayMaxEvents: props.allDayMaxEvents } : {}),
+    ...(props.timeAxisZones !== undefined ? { timeAxisZones: props.timeAxisZones } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -324,6 +329,33 @@ describe('VirtualResourceView', () => {
       // 差し引いた実効ビューポート 60px で計算されると、可視 3 列 + overscan で 6 列になる。
       const bodyColumns = container.querySelectorAll('[data-koyomi="resource-column"]');
       expect(bodyColumns.length).toBe(6);
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+    }
+  });
+
+  it('timeAxisZones 指定時は軸の本数ぶんガター実測幅が積算されて viewportPadding に反映される', async () => {
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    // biome-ignore lint/suspicious/noExplicitAny: DOMRect 相当を簡易に用意するためのテスト専用モック
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement): any {
+      const width = this.getAttribute('data-koyomi') === 'timegrid-axis-gutter' ? 40 : 0;
+      return { width, height: 0, top: 0, left: 0, right: width, bottom: 0, x: 0, y: 0 };
+    };
+    try {
+      const { container } = render(
+        <Harness
+          resources={makeResources(200)}
+          timeAxisZones={['America/New_York']}
+          viewProps={{ columnWidth: 28 }}
+        />,
+      );
+      await setViewport(container, 100, 0);
+
+      // 主軸 + NY の 2 軸で、ガター実測幅（40px）× 2 = 80px が viewportPadding になる
+      // （実測 ref は先頭の軸 1 つだけに付くため、軸数を掛けて合計する）。
+      // 実効ビューポート 100-80=20px は列幅 28px 未満のため可視 1 列 + overscan 既定 3 で 4 列
+      const bodyColumns = container.querySelectorAll('[data-koyomi="resource-column"]');
+      expect(bodyColumns.length).toBe(4);
     } finally {
       HTMLElement.prototype.getBoundingClientRect = originalRect;
     }
@@ -710,6 +742,40 @@ describe('VirtualResourceView - businessHours（営業時間）', () => {
   });
 });
 
+describe('VirtualResourceView - 複数タイムゾーン軸（timeAxisZones）', () => {
+  it('timeAxisZones 未指定時は時間軸の列が 1 つだけ描画される（互換維持）', () => {
+    const { container } = render(<Harness resources={makeResources(2)} />);
+    expect(container.querySelectorAll('[data-koyomi="time-axis"]')).toHaveLength(1);
+    // ヘッダー行 + 終日行の 2 箇所にガター列が 1 つずつ
+    expect(container.querySelectorAll('[data-koyomi="timegrid-axis-gutter"]')).toHaveLength(2);
+  });
+
+  it('timeAxisZones を指定すると追加の時間軸列が描画され、data-koyomi-timezone で識別できる', () => {
+    const { container } = render(
+      <Harness resources={makeResources(2)} timeAxisZones={['America/New_York']} />,
+    );
+    const axes = container.querySelectorAll('[data-koyomi="time-axis"]');
+    expect(axes).toHaveLength(2);
+    expect(axes[0]).toHaveAttribute('data-koyomi-timezone', TOKYO);
+    expect(axes[1]).toHaveAttribute('data-koyomi-timezone', 'America/New_York');
+    expect(container.querySelectorAll('[data-koyomi="timegrid-axis-gutter"]')).toHaveLength(4);
+  });
+
+  it('ヘッダーのガター列に各軸のタイムゾーンラベル（GMT オフセット）が表示され、終日行のガターには出ない', () => {
+    const { container } = render(
+      <Harness resources={makeResources(2)} timeAxisZones={['America/New_York']} />,
+    );
+    const header = container.querySelector('[data-koyomi="resource-header"]');
+    const labels = header?.querySelectorAll('[data-koyomi="time-axis-label"]');
+    expect(labels).toHaveLength(2);
+    expect(labels?.[0]?.textContent).toBe('GMT+9');
+    // NOW（2026-07-15）は夏時間中のため NY は GMT-4
+    expect(labels?.[1]?.textContent).toBe('GMT-4');
+    const alldayRow = container.querySelector('[data-koyomi="allday-row"]');
+    expect(alldayRow?.querySelector('[data-koyomi="time-axis-label"]')).toBeNull();
+  });
+});
+
 describe('VirtualResourceView - 複数日表示（resourceViewDays）', () => {
   it('resourceViewDays: 2 で列がリソース×日の直積になり、見出しに日ラベルと data-koyomi-date が付く', () => {
     const { container } = render(<Harness resources={makeResources(2)} resourceViewDays={2} />);
@@ -905,5 +971,261 @@ describe('VirtualResourceView - 初期スクロール位置（initialScrollTime�
       <Harness resources={makeResources(1)} viewProps={{ initialScrollTime: '09:00' }} />,
     );
     expect(getScroller(remounted).scrollTop).toBe((540 / 1440) * 2000);
+  });
+});
+
+describe('VirtualResourceView - onVisibleRangeChange（可視範囲の変更通知）', () => {
+  it('マウント後に現在の可視範囲（列・日付範囲・リソース）が通知される', async () => {
+    const onVisibleRangeChange = vi.fn();
+    const { container } = render(
+      <Harness resources={makeResources(5)} viewProps={{ onVisibleRangeChange }} />,
+    );
+    await setViewport(container, 1000, 0);
+
+    expect(onVisibleRangeChange).toHaveBeenCalled();
+    const info = onVisibleRangeChange.mock.calls.at(-1)?.[0];
+    // 列: 境界幅 1000px に全 5 列（各 160px）が収まる
+    expect(info.columns).toEqual({
+      startIndex: 0,
+      endIndex: 4,
+      startKey: 'r:r0',
+      endKey: 'r:r4',
+    });
+    // 日付範囲: resourceViewDays 既定（1）のため全列が同じ日（表示タイムゾーンの日境界。
+    // end は排他）
+    expect(info.rangeStart.toISOString()).toBe('2026-07-14T15:00:00.000Z');
+    expect(info.rangeEnd.toISOString()).toBe('2026-07-15T15:00:00.000Z');
+    // リソース: 可視列の順に並ぶ
+    expect(info.resources.map((r: CalendarResource | null) => r?.id ?? null)).toEqual([
+      'r0',
+      'r1',
+      'r2',
+      'r3',
+      'r4',
+    ]);
+  });
+
+  it('横スクロールで可視列が変わると通知され、同じ範囲では再通知されない', async () => {
+    const onVisibleRangeChange = vi.fn();
+    const { container } = render(
+      <Harness resources={makeResources(200)} viewProps={{ onVisibleRangeChange }} />,
+    );
+    await setViewport(container, 100, 0);
+    const callsAtTop = onVisibleRangeChange.mock.calls.length;
+
+    // 100 列分（100 × 160px = 16000px）スクロール → 可視列 100
+    await setViewport(container, 100, 16000);
+    expect(onVisibleRangeChange.mock.calls.length).toBeGreaterThan(callsAtTop);
+    const info = onVisibleRangeChange.mock.calls.at(-1)?.[0];
+    expect(info.columns.startIndex).toBe(100);
+    expect(info.columns.startKey).toBe('r:r100');
+    expect(info.resources[0]?.id).toBe('r100');
+
+    // 同じスクロール位置の scroll イベントでは再通知しない
+    const callsAfterScroll = onVisibleRangeChange.mock.calls.length;
+    await setViewport(container, 100, 16000);
+    expect(onVisibleRangeChange.mock.calls.length).toBe(callsAfterScroll);
+  });
+
+  it('コールバック未指定でも比較基準は更新され、後から指定した際に古い差分で発火しない', async () => {
+    const { container, rerender } = render(<Harness resources={makeResources(200)} />);
+    await setViewport(container, 100, 0);
+    // コールバック未登録のままスクロール（比較基準は内部で更新される）
+    await setViewport(container, 100, 16000);
+
+    const onVisibleRangeChange = vi.fn();
+    rerender(<Harness resources={makeResources(200)} viewProps={{ onVisibleRangeChange }} />);
+    // スクロール位置は変えていない（内部の比較基準と同じ範囲）ため発火しない
+    expect(onVisibleRangeChange).not.toHaveBeenCalled();
+  });
+
+  it('viewModel が resource 以外のときは通知しない', () => {
+    const onVisibleRangeChange = vi.fn();
+    render(
+      <Harness
+        initialView="month"
+        resources={makeResources(3)}
+        viewProps={{ onVisibleRangeChange }}
+      />,
+    );
+    expect(onVisibleRangeChange).not.toHaveBeenCalled();
+  });
+
+  it('複数日表示（resourceViewDays）では可視列に含まれる日付の最小〜最大から日付範囲を導出する（列順は リソース×日 の直積のため単純な先頭/末尾では求まらない）', async () => {
+    const onVisibleRangeChange = vi.fn();
+    const { container } = render(
+      <Harness
+        resources={makeResources(2)}
+        resourceViewDays={3}
+        viewProps={{ columnWidth: 100, onVisibleRangeChange }}
+      />,
+    );
+    // 列構成: r0@7/15, r0@7/16, r0@7/17, r1@7/15, r1@7/16, r1@7/17（各 100px）
+    // scrollLeft=250, clientWidth=100 → 可視列は index 2（r0@7/17）〜3（r1@7/15）
+    await setViewport(container, 100, 250);
+
+    const info = onVisibleRangeChange.mock.calls.at(-1)?.[0];
+    expect(info.columns).toEqual({
+      startIndex: 2,
+      endIndex: 3,
+      startKey: 'r:r0@2026-07-17',
+      endKey: 'r:r1@2026-07-15',
+    });
+    // 可視列の日付は 7/17（先頭）と 7/15（末尾）で並びが日付順ではないため、
+    // 最小日（7/15）〜最大日（7/17）の翌日（排他）が正しい日付範囲になる
+    expect(info.rangeStart.toISOString()).toBe('2026-07-14T15:00:00.000Z');
+    expect(info.rangeEnd.toISOString()).toBe('2026-07-17T15:00:00.000Z');
+    expect(info.resources.map((r: CalendarResource | null) => r?.id ?? null)).toEqual(['r0', 'r1']);
+  });
+});
+
+describe('VirtualResourceView - 仮想化 ARIA 列属性（aria-colcount/aria-colindex）', () => {
+  it('grid に aria-colcount（総列数）が付く', () => {
+    const { container } = render(<Harness resources={makeResources(5)} />);
+    const grid = container.querySelector('[data-koyomi="resource-grid"]');
+    expect(grid?.getAttribute('aria-colcount')).toBe('5');
+  });
+
+  it('columnheader・gridcell の aria-colindex は 1 始まりの絶対位置を持つ', async () => {
+    const { container } = render(<Harness resources={makeResources(5)} />);
+    // 5 列すべてが可視窓に収まるよう境界幅を与える（既定 overscan では窓が全件を含まない）
+    await setViewport(container, 5 * 160, 0);
+    const headerIndices = Array.from(
+      container.querySelectorAll('[data-koyomi="resource-header-cell"]'),
+    ).map((cell) => cell.getAttribute('aria-colindex'));
+    expect(headerIndices).toEqual(['1', '2', '3', '4', '5']);
+
+    const alldayIndices = Array.from(
+      container.querySelectorAll('[data-koyomi="resource-allday-cell"]'),
+    ).map((cell) => cell.getAttribute('aria-colindex'));
+    expect(alldayIndices).toEqual(['1', '2', '3', '4', '5']);
+  });
+
+  it('スクロールして可視列が変わっても aria-colindex は絶対位置を保つ（相対位置に振り直されない）', async () => {
+    const { container } = render(<Harness resources={makeResources(200)} />);
+    // 列幅既定 160px × 100 列 = 16000px スクロール → index 100（r:r100）が可視窓に入る
+    await setViewport(container, 100, 16000);
+
+    const headerCell = container.querySelector(
+      '[data-koyomi="resource-header-cell"][data-koyomi-column-key="r:r100"]',
+    );
+    if (headerCell === null) {
+      throw new Error('r:r100 の列見出しが見つかりません');
+    }
+    expect(headerCell.getAttribute('aria-colindex')).toBe('101');
+  });
+
+  it('pinned 列にも正しい aria-colindex が付く（columnheader・gridcell 両方）', async () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e0',
+        title: '予定0',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T10:00',
+        resourceId: 'r0',
+      },
+    ];
+    const { container } = render(<Harness resources={makeResources(200)} events={events} />);
+    await setViewport(container, 200, 0);
+
+    const firstItem = container.querySelector('[data-koyomi="timegrid-event"]');
+    if (firstItem === null) {
+      throw new Error('timegrid-event が見つかりません');
+    }
+    await act(async () => {
+      fireEvent.focus(firstItem);
+    });
+    await setViewport(container, 200, 20000);
+
+    const pinnedHeader = container.querySelector(
+      '[data-koyomi="resource-header-cell"][data-koyomi-pinned="true"]',
+    );
+    const pinnedAllday = container.querySelector(
+      '[data-koyomi="resource-allday-cell"][data-koyomi-pinned="true"]',
+    );
+    expect(pinnedHeader?.getAttribute('aria-colindex')).toBe('1');
+    expect(pinnedAllday?.getAttribute('aria-colindex')).toBe('1');
+  });
+
+  it('resource-grid の行（見出し行・終日行）は仮想化されないため aria-rowcount/aria-rowindex は付けない', () => {
+    const { container } = render(<Harness resources={makeResources(5)} />);
+    const grid = container.querySelector('[data-koyomi="resource-grid"]');
+    expect(grid?.hasAttribute('aria-rowcount')).toBe(false);
+    const headerRow = container.querySelector('[data-koyomi="resource-header"]');
+    const alldayRow = container.querySelector('[data-koyomi="allday-row"]');
+    expect(headerRow?.hasAttribute('aria-rowindex')).toBe(false);
+    expect(alldayRow?.hasAttribute('aria-rowindex')).toBe(false);
+  });
+});
+
+describe('VirtualResourceView - 終日行のあふれ（allDayMaxEvents）', () => {
+  /** 2026-07-15 を覆う単日の終日イベント（r0 割当）を `count` 件生成する。 */
+  function alldayEvents(count: number): CalendarEvent[] {
+    return Array.from({ length: count }, (_, index) => ({
+      id: `allday-${index}`,
+      title: `終日 ${index}`,
+      start: '2026-07-15',
+      end: '2026-07-16',
+      allDay: true,
+      resourceId: 'r0',
+    }));
+  }
+
+  it('上限を超過した終日アイテムは描画されず、「+N 件」ボタンのクリックで onAllDayOverflowClick が対象列付きで呼ばれる', () => {
+    const onAllDayOverflowClick = vi.fn();
+    const { container } = render(
+      <Harness
+        resources={makeResources(2)}
+        events={alldayEvents(3)}
+        allDayMaxEvents={2}
+        callbacks={{ onAllDayOverflowClick }}
+      />,
+    );
+    expect(container.querySelectorAll('[data-koyomi="allday-event"]')).toHaveLength(2);
+    const overflowButton = container.querySelector('[data-koyomi="allday-overflow"]');
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('overflow button not found');
+    }
+    expect(overflowButton.textContent).toBe('+1 件');
+
+    fireEvent.click(overflowButton);
+    expect(onAllDayOverflowClick).toHaveBeenCalledTimes(1);
+    const [info, hiddenOccurrences, details] = onAllDayOverflowClick.mock.calls[0] ?? [];
+    expect(info).toMatchObject({ dayKey: '2026-07-15', view: 'resource' });
+    expect(info.column?.key).toBe('r:r0');
+    expect(hiddenOccurrences).toHaveLength(1);
+    expect(details.visibleOccurrences).toHaveLength(2);
+  });
+
+  it('既定（allDayMaxEvents 未指定）では全件が描画され、あふれボタンは描画されない（対検証）', () => {
+    const { container } = render(<Harness resources={makeResources(2)} events={alldayEvents(4)} />);
+    expect(container.querySelectorAll('[data-koyomi="allday-event"]')).toHaveLength(4);
+    expect(container.querySelector('[data-koyomi="allday-overflow"]')).toBeNull();
+    const cell = container.querySelector('[data-koyomi="resource-allday-cell"]');
+    expect(cell).toHaveStyle({ minHeight: 'calc(4 * var(--koyomi-lane-height, 24px))' });
+  });
+
+  it('renderOverflowLabel と overflowButtonProps がボタンに反映される', () => {
+    const { container } = render(
+      <Harness
+        resources={makeResources(1)}
+        events={alldayEvents(3)}
+        allDayMaxEvents={2}
+        viewProps={{
+          renderOverflowLabel: (column, ctx) => (
+            <span data-testid="custom-allday-overflow">
+              {column.dayKey}:他{ctx.hiddenOccurrences.length}件
+            </span>
+          ),
+          overflowButtonProps: () => ({ 'aria-haspopup': 'dialog', 'aria-expanded': false }),
+        }}
+      />,
+    );
+    const overflowButton = container.querySelector('[data-koyomi="allday-overflow"]');
+    expect(overflowButton).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(overflowButton).toHaveAttribute('aria-expanded', 'false');
+    expect(
+      overflowButton?.querySelector('[data-testid="custom-allday-overflow"]')?.textContent,
+    ).toBe('2026-07-15:他1件');
   });
 });

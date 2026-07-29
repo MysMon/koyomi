@@ -35,6 +35,10 @@
 - コールバックなしで作成した後に `updateOptions` で `onRangeChange` を登録すると、直後のイベント・リソース変更が範囲変更として誤通知される問題を修正
 - 終日イベントの `end <= start`（終了が開始以前）が 1 日イベントに補正されて表示される問題を修正。時間指定イベントと同様、単発・RRULE・RDATE・オーバーライドの全経路でオカレンスを生成しない
 - デフォルトテーマに残っていた、実装が出力しない `[data-koyomi="month-events"]` セレクタを削除（CSS セレクタと実装の `data-koyomi` 属性の突き合わせテストを追加）
+- **[重要]** 月ビュー・週/日ビュー（時間グリッド）の aria-label 内の時刻表記、および月ビューの単日時間指定セグメントの既定表示内容（`'H:mm タイトル'`）が `hourCycle: 'h23'` 固定で、`locale: 'en-US'` でも常に 24 時間制になる問題を修正。時間軸目盛り（`formatSlotLabel`）・時間指定イベントの既定表示内容（`formatClockLabel`）と同様に locale の慣習に追従する（`ja` は表示不変、`en-US` では 12 時間制 AM/PM になる）
+- **[重要]** `CalendarEvent.timeZone` に不正な IANA タイムゾーン ID を指定すると、`createEvent`/`updateEvent` の patch・`setEvents`・`updateOptions({ events })`・`createCalendar` の初期 `events` のすべての経路で `Error` を投げるように修正。無効な値が `fromWallClock` の無言 NaN を経由し、該当イベントが全ビューから静かに消える問題を解消
+- **[重要]** `useCalendarClipboard` の `paste` が、宣言的制約（`eventOverlap`/`eventConstraint`/`businessHours`）と `onBeforeSelectRange` の判定を経ずにイベントを作成する問題を修正。`calendar.api.createEvent` を呼ぶ前にこれらを判定し、拒否された場合は新オプション `onPasteRejected` で通知する（`callbacks`（`onBeforeSelectRange` のみ受け付け）を新規追加。`paste` の戻り値型は `CalendarEvent | null` から `CalendarEvent | null | Promise<CalendarEvent | null>` に拡張）
+- タイムラインの week/month スケールの日番号目盛りが、ロケールの数字体系（`ar` のアラビア・インド数字等）に追従せず常に半角アラビア数字のままになる問題を修正
 
 ### 機能
 
@@ -78,6 +82,23 @@
 - **宣言的な重なり・配置制約**: `eventOverlap`/`eventConstraint` オプション（イベント個別には `CalendarEvent.overlap`/`constraint`）で、予定の重なり・ドロップ先を宣言的に制限できるように。違反するドラッグプレビューは `data-koyomi-invalid` 属性と `--koyomi-invalid-color` で示される
 - **タイムラインのズーム粒度**: `timelineScale`（`'hour' | 'day' | 'week' | 'month'`）でタイムラインビューの横軸の目盛り粒度を切り替え可能に。`'hour'` 以外では週/月単位のヘッダーグループ（`TimelineHeaderGroup`）に切り替わり、ドラッグ・キーボード操作も日単位スナップになる
 - **リソースの階層グルーピング**: `CalendarResource.parentId` でタイムラインビューのリソースを親子ツリーとして表示し、`CalendarApi.toggleResourceCollapsed` で折りたたみ可能に（`initialCollapsedResourceIds` で初期状態を指定）。リソースビューは対象外（常にフラット）
+- **キーボードでの作成（Enter/Space）**: 週/日ビュー（時間グリッド）・リソースビュー・タイムラインビューの空き列/行が Tab 順に入り（`tabIndex=0`、アクセシブルネーム付き）、Enter/Space で `slotMinTime` 起点（タイムラインは表示範囲先頭）・`defaultEventMinutes` 分（日系スケールは 1 日分）の時間指定予定を作成する。ポインタ作成と同じ制約判定・適用前フックが適用され、既定即時作成の確定後は新規予定へフォーカスが移る
+- **キーボードでの終日⇔時間指定変換（A キー）**: 週/日ビューでフォーカス中の予定に A キー（大文字小文字とも）を押すと、時間指定は開始日 1 日分の終日へ、終日は開始日の表示時間帯開始（`slotMinTime`）から `defaultEventMinutes` 分の時間指定へ変換する（ドラッグによる変換と同じ制約判定・適用前フック・繰り返しスコープ解決）。`useDayDrag` に opt-in の `keyboardTimedConversion` オプションを追加（`TimeGridView` が指定。月・複数月ビューでは A キーは何もしない）
+- **削除後のフォーカス管理**: キーボード削除（Delete/Backspace）確定後、フォーカスが自動的に次の予定 → 前の予定 → （月・複数月ビュー／週・日ビューの終日セルのみ）近くの日セルへ移る（時間グリッド本体・リソースビュー・タイムラインビューには移動先の候補がないため何もしない）
+- **リソース・タイムラインビューの終日⇔時間指定変換**: リソースビューに終日行 ⇔ 列本体の変換ドラッグ（ドロップ先列のリソース割当に変更）を追加し、リソース/タイムラインビューのフォーカス中の予定に A キーによる終日 ⇔ 時間指定変換を追加（タイムラインは終日の帯が時間指定の帯と同一レーン空間に表示されるため変換ドラッグは提供せず A キーのみ）
+- **onEventCreate コールバック**: `onSelectRange` 省略時の既定即時作成が確定した後に呼ばれる `onEventCreate`（`EventCreateInfo` 型。`event`/`changes`/`selection`）を追加。`changes` は `useCalendarHistory` の `push` にそのまま渡せるため、既定即時作成も undo 対象にできる
+- **操作拒否の通知**: `onOperationRejected`（宣言的制約 `eventOverlap`/`eventConstraint` 違反、または `onBeforeEventChange`/`onBeforeSelectRange`/`onBeforeEventDelete` が `false` を返した場合の拒否確定時に呼ばれる。`OperationRejection` 型（action/reason/occurrence）を公開）。`useCalendarAnnouncer` は既定でこの拒否も aria-live 通知し（`announce.rejection`、既定 `true`）、4 フックを経由しない経路向けに `announceOperationRejected` を手動呼び出し用に公開
+- **イベントの複製フック**: `useCalendarDuplicate` を追加。オカレンスを複製元と同じ日時のまま新しいイベントとして作成する（繰り返しイベントのオカレンスの複製は単発化）。`history` を渡すと undo/redo の対象になる
+- **複数月ビューの週番号**: `MultiMonthView`（複数月ビュー）が `showWeekNumbers`（ISO 8601 週番号表示）に対応し、月ビュー・週ビューと同様に `data-koyomi-week-number` 属性を出力する
+- **タイムライン行内レーンの上限**: `timelineMaxLanes` オプション（opt-in）でタイムラインビューの行内に表示する最大レーン数を制限できるように。超過分は行末の「+N 件」バッジに集約される（`TimelineItem.hidden`・`TimelineRow.overflowCount`/`hiddenItems` を追加）
+- **リソースビューのセカンダリタイムゾーン軸**: `timeAxisZones` オプションがリソースビューの時間軸にも適用され、週/日ビューと同様に複数タイムゾーンの時間軸を並べて表示できるように（`ResourceViewModel.timeAxes`/`ResourceViewDay.timeAxes` を追加）
+- **リストビューのセクション内ウィンドウ描画**: `VirtualListView` が、1 日の予定件数が `sectionItemWindowThreshold`（既定 50）を超える日セクションでもセクション内でウィンドウ描画を行い、可視範囲＋overscan のイベント行だけを描画するように（`estimateItemHeight`/`sectionItemWindowThreshold` props を追加）
+- **可視範囲通知の全仮想化ビュー対応**: `VirtualListView`/`VirtualResourceView` に `onVisibleRangeChange` を追加（`VirtualTimelineView` と同じ流儀）。可視範囲のデータだけを増分取得する遅延読込に使える
+- **仮想化ビューの集合サイズ属性**: `VirtualListView`/`VirtualTimelineView`/`VirtualResourceView` に、可視窓分の要素しか DOM に存在しなくてもスクリーンリーダーが全体の集合サイズ・絶対位置を把握できるよう ARIA 属性を追加（`VirtualListView` の日セクションに `aria-setsize`/`aria-posinset`、`VirtualTimelineView` の grid に `aria-rowcount`/`aria-rowindex`、`VirtualResourceView` の grid に `aria-colcount`/`aria-colindex`）
+- **iCalendar 部分取り込み**: `eventsFromIcsWithIssues(ics)` を追加。VEVENT 単位の不正（DTSTART 欠落・無効な TZID・解釈できない日時値/RRULE）はその VEVENT だけをスキップして `IcsImportIssue`（`index`/`uid`/`summary`/`message`）として収集し、残りの VEVENT は取り込む。`eventsFromIcs` の挙動（全体を Error として投げる）は変更なし
+- **ICS のシリーズ分割インポート**: `RECURRENCE-ID;RANGE=THISANDFUTURE` を「これ以降」のシリーズ分割として取り込む（旧系列は UNTIL 打ち切り、新系列は COUNT 残数を引き継ぐ独立イベント。分割点以降のオーバーライド・EXDATE・RDATE は新系列へ付け替え。`STATUS:CANCELLED` との組み合わせは「これ以降の削除」。マスターが同じ ICS 内にない場合は単一オカレンスのオーバーライド）
+- **weekStartsOn と RRULE WKST の接続**: 繰り返しルールエディタの `weekStartsOn` と RRULE の `WKST` を接続（月曜以外の `weekStartsOn` で `WKST` を明示出力、一致する明示 `WKST` を受理、`useRecurrenceRuleEditor` は `CalendarProvider` の `weekStartsOn` に自動連動）
+- **Toolbar のカスタマイズ用 render prop**: `Toolbar` に `renderTitle`/`renderNavButtonContent`/`renderViewButtonContent` を追加。タイトル・today/prev/next ボタン・ビュー切替ボタンの内側の内容をカスタマイズできる（外側の要素・`data-koyomi-*` 属性・`aria-*` 属性・クリック配線は保持される）
 
 ### 変更
 

@@ -10,6 +10,7 @@
 import type { ReactNode } from 'react';
 import type {
   CalendarApi,
+  CalendarEvent,
   CalendarState,
   CalendarViewModel,
   CalendarViewType,
@@ -18,6 +19,7 @@ import type {
   EventOccurrence,
   MonthDay,
   RecurringEditScope,
+  ResourceColumn,
 } from '../core/types';
 import type { MessageCatalog } from './locales/types';
 
@@ -202,6 +204,23 @@ export interface RangeSelection {
 }
 
 /**
+ * `onSelectRange` 省略時の既定即時作成が確定した際に
+ * {@link CalendarInteractionCallbacks.onEventCreate} へ渡される内容。
+ */
+export interface EventCreateInfo {
+  /** 作成されたイベント。 */
+  event: CalendarEvent;
+  /**
+   * 作成による変更（undo の実装に使う）。作成されたイベント 1 件の
+   * `{ after, index }` エントリのみを含む配列。`useCalendarHistory` の
+   * `push` にそのまま渡せる。
+   */
+  changes: readonly EventChangeEntry[];
+  /** 作成の元になった範囲選択。 */
+  selection: RangeSelection;
+}
+
+/**
  * ドラッグ・リサイズによるイベント変更の内容。
  */
 export interface EventChange {
@@ -291,6 +310,27 @@ export interface OverflowClickDetails {
 }
 
 /**
+ * 週/日ビュー・リソースビューの終日行の「+N 件」ボタン
+ * （`data-koyomi="allday-overflow"`。{@link CalendarOptions.allDayMaxEvents} 指定時のみ
+ * 描画される）のクリック時に、
+ * {@link CalendarInteractionCallbacks.onAllDayOverflowClick} の第 1 引数として
+ * 渡される対象情報。
+ */
+export interface AllDayOverflowInfo {
+  /** 対象の日の開始時刻（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
+  date: Date;
+  /** 対象の日の `'YYYY-MM-DD'` キー。 */
+  dayKey: string;
+  /** どのビューの終日行か。 */
+  view: 'week' | 'day' | 'resource';
+  /**
+   * リソースビュー（`view: 'resource'`）の場合の対象列。
+   * 週/日ビューでは省略される。
+   */
+  column?: ResourceColumn;
+}
+
+/**
  * 月ビュー・複数月ビューの「+N 件」ボタンに追加する props。
  *
  * 自前のポップオーバー UI と組み合わせる際、ボタンがポップアップを持つこと
@@ -304,6 +344,29 @@ export interface MonthOverflowButtonProps {
   'aria-expanded'?: boolean;
   /** 開いたポップアップ要素の id（`aria-controls` として関連付ける）。 */
   'aria-controls'?: string;
+}
+
+/**
+ * 宣言的制約（`eventOverlap` / `eventConstraint`）、または適用前フック
+ * （`onBeforeEventChange` / `onBeforeSelectRange` / `onBeforeEventDelete`）によって
+ * 操作が拒否されたときに {@link CalendarInteractionCallbacks.onOperationRejected} へ
+ * 渡される内容。
+ */
+export interface OperationRejection {
+  /** 拒否された操作の種類。`'convert'` は終日 ⇔ 時間指定イベントの変換。 */
+  action: 'move' | 'resize' | 'convert' | 'create' | 'delete';
+  /**
+   * 拒否の理由。
+   * - `'constraint'` — 宣言的制約（`eventOverlap` / `eventConstraint`）違反
+   * - `'rejected'` — `onBeforeEventChange` / `onBeforeSelectRange` / `onBeforeEventDelete`
+   *   が `false`（または `Promise<false>`）を返したことによる拒否
+   */
+  reason: 'constraint' | 'rejected';
+  /**
+   * 拒否された操作の対象オカレンス。新規作成（`action: 'create'`）の拒否では
+   * 対象オカレンスがまだ存在しないため省略される。
+   */
+  occurrence?: EventOccurrence;
 }
 
 /**
@@ -341,16 +404,20 @@ export interface MonthOverflowLabelContext extends SlotRenderContext {
  * すべて省略可能で、省略時は次の既定動作になる:
  * - `onSelectRange` — 既定タイトル（既定 `'(タイトルなし)'`。各ビューは
  *   `messages.common.untitledEvent` を渡す）でイベントを即時作成する
+ * - `onEventCreate` — 通知のみの用途（既定即時作成自体はライブラリが行う）
  * - `onEventClick` — 何もしない
  * - `resolveRecurringScope` — `'this'`（この予定のみ）を返す
  * - `onEventChange` — 通知のみの用途（変更の適用はライブラリが行う）
  * - `onEventDelete` — 通知のみの用途（削除の適用はライブラリが行う）
  * - `onError` — console.error に出力する
  * - `onOverflowClick` — その日の日ビューに切り替える
+ * - `onAllDayOverflowClick` — 週/日ビューではその日の日ビューに切り替える。
+ *   リソースビューでは何もしない
  * - `onDayNumberClick` — その日の日ビューに切り替える
  * - `onBeforeEventChange` — 常に許可する（`true`）
  * - `onBeforeSelectRange` — 常に許可する（`true`）
  * - `onBeforeEventDelete` — 常に許可する（`true`）
+ * - `onOperationRejected` — 何もしない（通知のみの用途）
  * - `onEventDoubleClick` / `onEventContextMenu` / `onEventHover` / `onEventHoverEnd` —
  *   何もしない（未指定時は対応する DOM イベントリスナー自体を要素に付けない）
  */
@@ -417,6 +484,16 @@ export interface CalendarInteractionCallbacks {
    */
   onBeforeSelectRange?: (selection: RangeSelection) => boolean | Promise<boolean>;
   /**
+   * `onSelectRange` を省略した場合の既定即時作成が確定した後に呼ばれる。
+   * `onSelectRange` を指定した場合は既定即時作成自体が行われないため呼ばれない。
+   *
+   * `changes`（{@link EventChangeEntry} 一覧）は `useCalendarHistory` の `push` に
+   * そのまま渡せる形で入っており、既定即時作成を undo（元に戻す）対応にする用途に使う。
+   *
+   * @param info - 作成されたイベント・undo 用の変更内容・元になった範囲選択
+   */
+  onEventCreate?: (info: EventCreateInfo) => void;
+  /**
    * ドラッグ移動・リサイズが確定し、変更が適用された後に呼ばれる。
    */
   onEventChange?: (change: EventChange) => void;
@@ -460,6 +537,25 @@ export interface CalendarInteractionCallbacks {
    */
   onBeforeEventDelete?: (occurrence: EventOccurrence) => boolean | Promise<boolean>;
   /**
+   * 宣言的制約（`eventOverlap` / `eventConstraint`）、または適用前フック
+   * （`onBeforeEventChange` / `onBeforeSelectRange` / `onBeforeEventDelete`）によって
+   * 操作が拒否されたときに呼ばれる。
+   *
+   * ドラッグ・キーボード操作いずれの経路でも、拒否が確定した時点（宣言的制約の判定
+   * 直後、または適用前フックが `false` を返した直後）で呼ばれる。トースト表示など、
+   * 拒否をユーザーに知らせる UI の起点に使う（{@link useCalendarAnnouncer} を使う
+   * 場合は aria-live 通知も自動で行われる）。
+   *
+   * `resolveRecurringScope` が `null` を返した場合（繰り返しスコープの選択を
+   * ユーザーがキャンセルした場合）はここでは呼ばれない（ユーザー自身による
+   * キャンセルであり、宣言的制約・適用前フックによる拒否ではないため）。
+   * 同様に `editable: false` による早期終了（ドラッグ自体が開始されない、
+   * 削除が行われない）でも呼ばれない。
+   *
+   * @param info - 拒否された操作の種類・理由・対象オカレンス
+   */
+  onOperationRejected?: (info: OperationRejection) => void;
+  /**
    * インタラクション中の非同期処理（`resolveRecurringScope` や変更の適用）が
    * 例外を投げた場合に呼ばれる。省略時は console.error に出力される。
    */
@@ -488,6 +584,27 @@ export interface CalendarInteractionCallbacks {
    */
   onOverflowClick?: (
     day: MonthDay,
+    hiddenOccurrences: readonly EventOccurrence[],
+    details: OverflowClickDetails,
+  ) => void;
+  /**
+   * 週/日ビュー・リソースビューの終日行の「+N 件」
+   * （`data-koyomi="allday-overflow"`。{@link CalendarOptions.allDayMaxEvents} 指定時のみ
+   * 描画される）がクリックされたときに呼ばれる。
+   *
+   * 省略時は、週/日ビューでは対象日の日ビューへ切り替わる（月ビューの
+   * `onOverflowClick` の既定と同じ）。リソースビューでは何もしない
+   * （切り替え先の既定ビューが定まらないため。ポップオーバー等の UI は
+   * このコールバックで実装する）。
+   *
+   * @param info - 対象の日とビュー種別（リソースビューでは対象列 `column` も含む）
+   * @param hiddenOccurrences - 「+N 件」に集約された非表示のオカレンス一覧（開始時刻順）
+   * @param details - 追加情報（表示中のオカレンス一覧 `visibleOccurrences` など）。
+   *   `hiddenOccurrences` と組み合わせることで、その終日行の全オカレンスを
+   *   表示中／非表示の区別付きで取得できる
+   */
+  onAllDayOverflowClick?: (
+    info: AllDayOverflowInfo,
     hiddenOccurrences: readonly EventOccurrence[],
     details: OverflowClickDetails,
   ) => void;

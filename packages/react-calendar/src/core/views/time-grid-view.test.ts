@@ -400,6 +400,66 @@ describe('buildTimeGridViewModel', () => {
     });
   });
 
+  describe('終日行のあふれ（allDayMaxEvents）', () => {
+    /** 7/1 を覆う単日の終日オカレンスを `count` 件生成する。 */
+    function alldayOccurrences(count: number): EventOccurrence[] {
+      return Array.from({ length: count }, (_, index) =>
+        occurrence({
+          id: `allday-${index}`,
+          start: at('2026-07-01T00:00', TOKYO),
+          end: at('2026-07-02T00:00', TOKYO),
+          allDay: true,
+        }),
+      );
+    }
+
+    it('ちょうど allDayMaxEvents 件なら全件表示され、あふれは発生しない', () => {
+      const model = build({ occurrences: alldayOccurrences(2), allDayMaxEvents: 2 });
+      expect(model.allDaySegments).toHaveLength(2);
+      expect(model.allDaySegments.every((segment) => !segment.hidden)).toBe(true);
+      expect(model.allDayLaneCount).toBe(2);
+      expect(model.days.every((day) => day.allDayOverflowCount === 0)).toBe(true);
+    });
+
+    it('allDayMaxEvents を 1 件超過すると超過分が hidden になり、その日の allDayOverflowCount に計上される', () => {
+      const model = build({ occurrences: alldayOccurrences(3), allDayMaxEvents: 2 });
+      expect(model.allDaySegments.filter((segment) => segment.hidden)).toHaveLength(1);
+      // 表示レーン数は上限のまま（hidden 分のレーンは数えない）
+      expect(model.allDayLaneCount).toBe(2);
+      expect(dayByKey(model, '2026-07-01').allDayOverflowCount).toBe(1);
+      // 覆っていない日には計上されない
+      expect(dayByKey(model, '2026-07-02').allDayOverflowCount).toBe(0);
+    });
+
+    it('複数日を覆う hidden セグメントは覆う各日の allDayOverflowCount に計上される', () => {
+      // 0:00 開始の単日終日 2 件が先にレーン 0/1 を取り、10:00 開始で
+      // 7/1〜7/3 を覆う 50 時間の時間指定オカレンスがレーン 2 → hidden になる
+      const trip = occurrence({
+        id: 'trip',
+        start: at('2026-07-01T10:00', TOKYO),
+        end: at('2026-07-03T12:00', TOKYO),
+      });
+      const model = build({
+        occurrences: [...alldayOccurrences(2), trip],
+        allDayMaxEvents: 2,
+      });
+      const hiddenSegment = model.allDaySegments.find((segment) => segment.hidden);
+      expect(hiddenSegment?.occurrence.eventId).toBe('trip');
+      expect(dayByKey(model, '2026-07-01').allDayOverflowCount).toBe(1);
+      expect(dayByKey(model, '2026-07-02').allDayOverflowCount).toBe(1);
+      expect(dayByKey(model, '2026-07-03').allDayOverflowCount).toBe(1);
+      expect(dayByKey(model, '2026-07-04').allDayOverflowCount).toBe(0);
+    });
+
+    it('allDayMaxEvents 省略時は無制限で、hidden も allDayOverflowCount も発生しない（既定の対検証）', () => {
+      const model = build({ occurrences: alldayOccurrences(5) });
+      expect(model.allDaySegments).toHaveLength(5);
+      expect(model.allDaySegments.every((segment) => !segment.hidden)).toBe(true);
+      expect(model.allDayLaneCount).toBe(5);
+      expect(model.days.every((day) => day.allDayOverflowCount === 0)).toBe(true);
+    });
+  });
+
   describe('振り分けの境界', () => {
     it('長さ 0 の予定は単日扱いで時間グリッドに入る', () => {
       const occ = occurrence({

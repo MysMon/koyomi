@@ -40,23 +40,38 @@ import {
   useRef,
   useState,
 } from 'react';
+import { addDaysInZone } from '../../core/timezone';
 import type {
   BusinessHourSlot,
+  CalendarResource,
   EventOccurrence,
   PositionedOccurrence,
   ResourceColumn,
+  TimeAxis,
   TimeSlot,
   TimeZoneId,
 } from '../../core/types';
+import {
+  sameVisibleWindowRange,
+  type VisibleWindowRange,
+  visibleWindowRange,
+} from '../../core/virtualization';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
 import type { CommonMessages } from '../locales/types';
 import { scrollContainerToTime } from '../scroll-to-time';
-import type { EventContentContext, EventContentRenderer, SlotRenderContext } from '../types';
+import type {
+  EventContentContext,
+  EventContentRenderer,
+  MonthOverflowButtonProps,
+  MonthOverflowLabelContext,
+  SlotRenderContext,
+} from '../types';
 import type { ResourceGridDragHandlers, ResourcePreviewSegment } from '../use-resource-grid-drag';
 import { useResourceGridDrag } from '../use-resource-grid-drag';
 import { useVirtualizer } from '../use-virtualizer';
 import { resolveEventContent } from './event-content';
+import { formatTimeZoneLabel } from './format';
 import {
   percentOfSlotRange,
   withEventColorStyle,
@@ -79,6 +94,7 @@ import {
   sameSlots,
   toDivRef,
 } from './resource-view-parts';
+import { AllDayOverflowButton } from './time-grid-view';
 
 /** `columnWidth` 省略時の列幅（px、既定テーマの `--koyomi-resource-column-width` と同じ値）。 */
 const DEFAULT_COLUMN_WIDTH = 160;
@@ -105,6 +121,21 @@ export interface VirtualResourceViewProps {
   renderAllDayItem?: (occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode;
   /** 列見出しの内容をカスタマイズする関数（第 2 引数に既定内容）。 */
   renderColumnHeader?: (column: ResourceColumn, ctx: SlotRenderContext) => ReactNode;
+  /**
+   * 終日行の「+N 件」ボタン（`allday-overflow`。
+   * {@link CalendarOptions.allDayMaxEvents} 指定時のみ描画される）のラベル内容を
+   * カスタマイズする（`ResourceView` の同名 prop と同じ）。省略時は中央メッセージ
+   * カタログの `month.overflow`（既定は「+N 件」）で整形した既定ラベルを表示する。
+   */
+  renderOverflowLabel?: (column: ResourceColumn, ctx: MonthOverflowLabelContext) => ReactNode;
+  /**
+   * 終日行の「+N 件」ボタンに追加する props を返す関数（`ResourceView` の同名 prop
+   * と同じ。`overflowPopoverButtonProps` の戻り値をそのまま返せる）。
+   */
+  overflowButtonProps?: (
+    column: ResourceColumn,
+    hiddenOccurrences: readonly EventOccurrence[],
+  ) => MonthOverflowButtonProps;
   /** 列 1 本分の幅（px）。既定 160（`--koyomi-resource-column-width` の既定値と同じ）。 */
   columnWidth?: number;
   /** 前後 overscan 列数。既定 3。 */
@@ -116,11 +147,42 @@ export interface VirtualResourceViewProps {
    */
   initialScrollTime?: string;
   /**
+   * 可視ウィンドウ（列の可視範囲）が変わったときに呼ばれるコールバック。
+   *
+   * `CalendarOptions.onRangeChange` と同じ流儀で、可視範囲の計算結果（列のインデックス
+   * 範囲とキー範囲）が直前の通知内容と異なる場合のみ 1 回発火する。マウント直後にも
+   * 現在の可視範囲を 1 回通知する（初回の増分データ取得に使えるようにするため）。
+   * スクロール・表示範囲の移動・リソース一覧の変更など発火の契機は問わず、内容が
+   * 同じ間は再通知しない。ビューモデルが `'resource'` 以外のときは発火しない。
+   */
+  onVisibleRangeChange?: (info: ResourceVisibleRangeChangeInfo) => void;
+  /**
    * {@link VirtualResourceViewHandle}（スクロール操作などの命令的 API）を受け取る ref。
    */
   // React 本体の RefAttributes と同じく明示的な undefined を許容する
   // （exactOptionalPropertyTypes 下で `ref={maybeUndefined}` を書けるようにするため）
   ref?: Ref<VirtualResourceViewHandle> | undefined;
+}
+
+/**
+ * {@link VirtualResourceViewProps.onVisibleRangeChange} に渡される、変更後の可視ウィンドウ。
+ *
+ * 列（横方向）の可視ウィンドウ（overscan を含まない、実際に見えている範囲）と、
+ * そこから導出した日付範囲・リソース一覧を持つ。列は「リソース × 日」の直積
+ * （{@link ResourceViewModel.columns} と同じ並び）のため、可視列の日付は先頭/末尾の
+ * 列の日付とは限らない（可視列に含まれる日付の最小〜最大から求める）。
+ * 可視範囲のデータだけを増分取得する遅延読込（`docs/performance.md` のレシピ参照）の
+ * 入力に使う。
+ */
+export interface ResourceVisibleRangeChangeInfo {
+  /** 列の可視ウィンドウ。キーは {@link ResourceColumn.key}。 */
+  columns: VisibleWindowRange;
+  /** 可視列に含まれる日付のうち最小の日の開始（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
+  rangeStart: Date;
+  /** 可視列に含まれる日付のうち最大の日の翌日 0:00（排他。{@link CalendarRangeChangeInfo.rangeEnd} と同じ流儀）。 */
+  rangeEnd: Date;
+  /** 可視列のリソース（列順。未割り当て列は `null`）。 */
+  resources: readonly (CalendarResource | null)[];
 }
 
 /** {@link VirtualResourceView} が `ref` 経由で公開する命令的 API。 */
@@ -204,6 +266,40 @@ function columnPositionStyle(extra: {
   return { position: 'absolute', insetInlineStart: `${extra.left ?? 0}px`, top: 0, bottom: 0 };
 }
 
+/**
+ * 時間軸ガター（`timegrid-axis-gutter` / `time-axis`）の sticky 位置を、軸のインデックスに
+ * 応じてずらすための inline style（`resource-view.tsx` の同名関数と同じ理由・同じ計算式。
+ * デフォルトテーマは軸を一律 `inset-inline-start: 0` の sticky として扱うため、
+ * 軸が複数になると重なってしまうのを防ぐ）。
+ *
+ * @param index - `TimeAxis` 配列中のこの軸のインデックス（0 が主軸）
+ */
+function axisStickyOffsetStyle(index: number): CSSProperties {
+  return { insetInlineStart: `calc(${index} * var(--koyomi-time-axis-width, 56px))` };
+}
+
+/**
+ * 時間軸の列 1 本分（主軸または {@link CalendarOptions.timeAxisZones} の追加軸）。
+ * `data-koyomi-timezone` でどのタイムゾーンの軸かを識別できる（`ResourceView`・
+ * 週/日ビューの同名コンポーネントと同じ構造）。
+ */
+function TimeAxisColumn(props: { axis: TimeAxis; index: number }): ReactElement {
+  const { axis, index } = props;
+  return (
+    <div
+      data-koyomi="time-axis"
+      data-koyomi-timezone={axis.timeZone}
+      style={axisStickyOffsetStyle(index)}
+    >
+      {axis.slots.map((slot) => (
+        <div key={slot.minutes} data-koyomi="time-slot-label">
+          {slot.label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** `HeaderCellImpl` の props。 */
 interface HeaderCellProps {
   column: ResourceColumn;
@@ -218,6 +314,13 @@ interface HeaderCellProps {
   locale: string;
   pinned?: boolean;
   left?: number;
+  /**
+   * 仮想化: ARIA grid パターンの `aria-colindex`（全列中の絶対位置、1 始まり）。
+   * DOM 上には可視窓分の列しか存在しないため、スクリーンリーダーが列の絶対位置を
+   * 把握できるよう明示する。可視窓・pinned のいずれで描画されても列の絶対位置を表す
+   * （可視範囲内の相対位置には振り直さない）。
+   */
+  ariaColIndex?: number;
 }
 
 /** リソースビューの列見出しセル 1 件分。 */
@@ -232,6 +335,7 @@ function HeaderCellImpl(props: HeaderCellProps): ReactElement {
     locale,
     pinned,
     left,
+    ariaColIndex,
   } = props;
   const defaultContent = resourceColumnHeaderContent(
     column.resource?.title ?? unassignedLabel,
@@ -262,6 +366,7 @@ function HeaderCellImpl(props: HeaderCellProps): ReactElement {
       role="columnheader"
       {...(column.resource !== null ? { 'data-koyomi-resource-id': column.resource.id } : {})}
       {...(pinned === true ? { 'data-koyomi-pinned': 'true' } : {})}
+      {...(ariaColIndex !== undefined ? { 'aria-colindex': ariaColIndex } : {})}
       style={style}
     >
       {renderColumnHeader ? renderColumnHeader(column, { defaultContent }) : defaultContent}
@@ -285,7 +390,8 @@ const HeaderCell = memo(HeaderCellImpl, (prev, next) => {
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
     prev.pinned === next.pinned &&
-    prev.left === next.left
+    prev.left === next.left &&
+    prev.ariaColIndex === next.ariaColIndex
   );
 });
 
@@ -309,12 +415,32 @@ interface AllDayCellProps {
   left?: number;
   /** 仮想化: 終日アイテムをタブ順に含めるか。既定 `true`（`false` で `tabIndex=-1`）。 */
   itemTabbable?: boolean;
+  /**
+   * 仮想化: ARIA grid パターンの `aria-colindex`（全列中の絶対位置、1 始まり）。
+   * {@link HeaderCellProps.ariaColIndex} と同じ趣旨。
+   */
+  ariaColIndex?: number;
   /** 終日アイテムの表示内容のカスタマイズ関数（省略時はタイトルのみ）。 */
   renderAllDayItem:
     | ((occurrence: EventOccurrence, ctx: EventContentContext) => ReactNode)
     | undefined;
   /** ビュー横断のイベント内容レンダラー（`CalendarProvider` の `renderEventContent`）。 */
   renderEventContent: EventContentRenderer | undefined;
+  /** 「+N 件」ラベルの既定内容（中央メッセージカタログの `month.overflow`）。 */
+  overflowLabel: (count: number) => ReactNode;
+  /** 「+N 件」ラベルの内容のカスタマイズ関数（{@link VirtualResourceViewProps.renderOverflowLabel}）。 */
+  renderOverflowLabel:
+    | ((column: ResourceColumn, ctx: MonthOverflowLabelContext) => ReactNode)
+    | undefined;
+  /** 「+N 件」ボタンに追加する props を返す関数（{@link VirtualResourceViewProps.overflowButtonProps}）。 */
+  overflowButtonProps:
+    | ((
+        column: ResourceColumn,
+        hiddenOccurrences: readonly EventOccurrence[],
+      ) => MonthOverflowButtonProps)
+    | undefined;
+  /** 「+N 件」クリック時のハンドラ（親で解決済み。参照が安定していること）。 */
+  onOverflowClick: (column: ResourceColumn) => void;
   /** 中央メッセージカタログの `common` グループ（イベント aria-label・区切り記号の組み立てに使う）。 */
   commonMessages: CommonMessages;
 }
@@ -335,16 +461,22 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
     pinned,
     left,
     itemTabbable,
+    ariaColIndex,
     renderAllDayItem,
     renderEventContent,
+    overflowLabel,
+    renderOverflowLabel,
+    overflowButtonProps,
+    onOverflowClick,
     commonMessages,
   } = props;
   const style: CSSProperties = {
     flex: `0 0 ${columnWidth}px`,
     // テーマ CSS 側は既定 160px（--koyomi-resource-column-width）の min-width を持つため、
     // columnWidth がそれと異なる値のときに衝突しないよう明示的に上書きする。
+    // あふれ（allDayMaxEvents 超過）がある列は「+N 件」ボタンの 1 行分を追加する
     minWidth: `${columnWidth}px`,
-    minHeight: `calc(${Math.max(2, column.allDayItems.length)} * var(--koyomi-lane-height, 24px))`,
+    minHeight: `calc(${Math.max(2, column.allDayItems.length + (column.allDayOverflowCount > 0 ? 1 : 0))} * var(--koyomi-lane-height, 24px))`,
     ...columnPositionStyle({
       ...(pinned !== undefined ? { pinned } : {}),
       ...(left !== undefined ? { left } : {}),
@@ -368,6 +500,7 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
       data-koyomi-preview-target={isPreviewTarget ? 'true' : undefined}
       data-koyomi-invalid={isPreviewTarget && isPreviewInvalid ? 'true' : undefined}
       {...(pinned === true ? { 'data-koyomi-pinned': 'true' } : {})}
+      {...(ariaColIndex !== undefined ? { 'aria-colindex': ariaColIndex } : {})}
       style={style}
     >
       {column.allDayItems.map((occurrence, lane) => (
@@ -386,6 +519,28 @@ function AllDayCellImpl(props: AllDayCellProps): ReactElement {
           {...(itemTabbable === false ? { tabbable: false } : {})}
         />
       ))}
+      {/* あふれ（allDayMaxEvents 超過）のある列の「+N 件」ボタン
+          （ResourceView と同じ配置。表示アイテムの直下の行に絶対配置する） */}
+      {column.allDayOverflowCount > 0 && (
+        <AllDayOverflowButton
+          style={{
+            position: 'absolute',
+            insetInlineStart: '0%',
+            width: '100%',
+            top: `calc(${column.allDayItems.length} * var(--koyomi-lane-height, 24px))`,
+          }}
+          buttonProps={overflowButtonProps?.(column, column.hiddenAllDayItems)}
+          onActivate={() => onOverflowClick(column)}
+          {...(itemTabbable === false ? { tabbable: false } : {})}
+        >
+          {renderOverflowLabel
+            ? renderOverflowLabel(column, {
+                defaultContent: overflowLabel(column.allDayOverflowCount),
+                hiddenOccurrences: column.hiddenAllDayItems,
+              })
+            : overflowLabel(column.allDayOverflowCount)}
+        </AllDayOverflowButton>
+      )}
     </div>
   );
 }
@@ -397,6 +552,12 @@ const AllDayCell = memo(AllDayCellImpl, (prev, next) => {
     prev.column.dayKey === next.column.dayKey &&
     sameResource(prev.column.resource, next.column.resource) &&
     sameEventOccurrences(prev.column.allDayItems, next.column.allDayItems) &&
+    prev.column.allDayOverflowCount === next.column.allDayOverflowCount &&
+    sameEventOccurrences(prev.column.hiddenAllDayItems, next.column.hiddenAllDayItems) &&
+    prev.overflowLabel === next.overflowLabel &&
+    prev.renderOverflowLabel === next.renderOverflowLabel &&
+    prev.overflowButtonProps === next.overflowButtonProps &&
+    prev.onOverflowClick === next.onOverflowClick &&
     prev.unassignedLabel === next.unassignedLabel &&
     prev.columnWidth === next.columnWidth &&
     prev.drag === next.drag &&
@@ -409,6 +570,7 @@ const AllDayCell = memo(AllDayCellImpl, (prev, next) => {
     prev.pinned === next.pinned &&
     prev.left === next.left &&
     prev.itemTabbable === next.itemTabbable &&
+    prev.ariaColIndex === next.ariaColIndex &&
     prev.renderAllDayItem === next.renderAllDayItem &&
     prev.renderEventContent === next.renderEventContent &&
     prev.commonMessages === next.commonMessages
@@ -745,14 +907,33 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
     renderEvent,
     renderAllDayItem,
     renderColumnHeader,
+    renderOverflowLabel,
+    overflowButtonProps,
     columnWidth = DEFAULT_COLUMN_WIDTH,
     overscan,
     initialScrollTime,
+    onVisibleRangeChange,
     ref,
   } = props;
   const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const resourceMessages = messages.resource;
   const commonMessages = messages.common;
+  const overflowLabel = messages.month.overflow;
+
+  // 終日行の「+N 件」クリック。onAllDayOverflowClick があれば対象列付きで呼ぶ
+  // （省略時は何もしない。ResourceView と同じ既定）。memo 化した AllDayCell の
+  // props に渡すため useCallback で参照を安定させる
+  const onAllDayOverflowClickCallback = callbacks.onAllDayOverflowClick;
+  const handleAllDayOverflowClick = useCallback(
+    (column: ResourceColumn): void => {
+      onAllDayOverflowClickCallback?.(
+        { date: column.date, dayKey: column.dayKey, view: 'resource', column },
+        column.hiddenAllDayItems,
+        { visibleOccurrences: column.allDayItems },
+      );
+    },
+    [onAllDayOverflowClickCallback],
+  );
   const calendar = { api, state, viewModel };
   const drag = useResourceGridDrag({
     calendar,
@@ -768,6 +949,9 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
   const slotMinTimeMinutes = viewModel.type === 'resource' ? viewModel.slotMinTimeMinutes : 0;
   const slotMaxTimeMinutes =
     viewModel.type === 'resource' ? viewModel.slotMaxTimeMinutes : MINUTES_PER_DAY;
+  // 時間軸（主軸＋ timeAxisZones の追加軸）の本数。ガター実測幅（gutterWidth）の
+  // 積算に使うため、早期 return 前でも安全な既定値（主軸のみ想定の 1）にフォールバックする
+  const axisCount = viewModel.type === 'resource' ? viewModel.timeAxes.length : 1;
 
   // 縦横のスクロールはルート（[data-koyomi="resource"]）が一括で担う（見出し行は
   // sticky）。scrollToTime / initialScrollTime のスクロール量は、見出しを除いた
@@ -781,6 +965,9 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
 
   // 時間軸の余白列（axis-gutter）の実測幅。スクロールコンテナ内でリソース列より
   // 「前」に同居する固定表示の列なので、その分だけ可視ビューポートを差し引く。
+  // ref は先頭（主軸）のガター 1 つだけに付けるが、追加軸（timeAxisZones）も同じ
+  // CSS 変数（--koyomi-time-axis-width）幅を共有するため、実測値に軸の本数
+  // （axisCount）を掛けて全ガター分の合計幅にする。
   const gutterRef = useRef<HTMLDivElement>(null);
   const [gutterWidth, setGutterWidth] = useState(0);
   useLayoutEffect(() => {
@@ -788,16 +975,16 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
     if (element === null) {
       return;
     }
-    setGutterWidth(element.getBoundingClientRect().width);
+    setGutterWidth(element.getBoundingClientRect().width * axisCount);
     if (typeof ResizeObserver === 'undefined') {
       return;
     }
     const observer = new ResizeObserver(() => {
-      setGutterWidth(element.getBoundingClientRect().width);
+      setGutterWidth(element.getBoundingClientRect().width * axisCount);
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [axisCount]);
 
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const focusedOccurrenceRef = useRef<string | null>(null);
@@ -822,6 +1009,63 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
     ...(overscan !== undefined ? { overscan } : {}),
     ...(pinnedKeys !== undefined ? { pinnedKeys } : {}),
   });
+
+  // 可視ウィンドウの変更通知（onVisibleRangeChange）。
+  // 列（横方向）の可視範囲（overscan を含まない）を core の純粋計算
+  // （visibleWindowRange / sameVisibleWindowRange）でキー付きスナップショットにし、
+  // 直前の通知内容と異なるときだけ 1 回発火する（onRangeChange と同じ流儀）。
+  // 比較基準の更新はコールバックの登録有無に関わらず常に行う（未登録で作成 →
+  // 後から登録、という順序でも誤発火しないようにするため）。
+  // virtualizer はレンダーごとに新しいオブジェクトのため、可視範囲のフィールドだけを
+  // 取り出して useMemo の依存にする（VirtualTimelineView と同じ方針）。
+  const { startIndex: columnStartIndex, endIndex: columnEndIndex } = virtualizer;
+  const columnsRange = useMemo(
+    () =>
+      visibleWindowRange({ startIndex: columnStartIndex, endIndex: columnEndIndex }, getItemKey),
+    [columnStartIndex, columnEndIndex, getItemKey],
+  );
+  const isResourceView = viewModel.type === 'resource';
+  const timeZoneId = state.timeZone;
+  const lastNotifiedColumnsRangeRef = useRef<VisibleWindowRange | null>(null);
+  useEffect(() => {
+    if (!enabled || !isResourceView) {
+      return;
+    }
+    const changed = !sameVisibleWindowRange(lastNotifiedColumnsRangeRef.current, columnsRange);
+    lastNotifiedColumnsRangeRef.current = columnsRange;
+    if (!changed || onVisibleRangeChange === undefined) {
+      return;
+    }
+    if (columnsRange.startIndex < 0) {
+      return;
+    }
+    const visibleColumns = columns.slice(columnsRange.startIndex, columnsRange.endIndex + 1);
+    if (visibleColumns.length === 0) {
+      return;
+    }
+    // 列は「リソース × 日」の直積（リソース優先・日は各リソース内で昇順）のため、
+    // 可視列の並びは日付順とは限らない。先頭/末尾の列の日付ではなく、可視列に
+    // 含まれる日付の最小〜最大を走査して求める。
+    let minTime = Number.POSITIVE_INFINITY;
+    let maxTime = Number.NEGATIVE_INFINITY;
+    for (const column of visibleColumns) {
+      const time = column.date.getTime();
+      if (time < minTime) {
+        minTime = time;
+      }
+      if (time > maxTime) {
+        maxTime = time;
+      }
+    }
+    onVisibleRangeChange({
+      columns: columnsRange,
+      // 公開境界での複製（呼び出し側が rangeStart を変更しても内部状態に影響しない
+      // ようにするため。onRangeChange の currentDate と同じ扱い）
+      rangeStart: new Date(minTime),
+      rangeEnd: addDaysInZone(new Date(maxTime), 1, timeZoneId),
+      resources: visibleColumns.map((column) => column.resource),
+    });
+  }, [enabled, isResourceView, columnsRange, onVisibleRangeChange, columns, timeZoneId]);
 
   useImperativeHandle(
     ref,
@@ -925,7 +1169,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
     return null;
   }
 
-  const { slots, nowIndicatorMinutes, isEmpty } = viewModel;
+  const { days, slots, timeAxes, nowIndicatorMinutes, isEmpty } = viewModel;
   const { timeZone, options } = state;
   const { locale } = options;
   // 複数日表示（resourceViewDays >= 2）では列見出し・終日セルの aria-label に日ラベルを付ける
@@ -958,12 +1202,34 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
       onFocus={handleFocus}
       onBlur={handleBlur}
     >
+      {/* aria-colcount: DOM 上には可視窓分の列しか存在しないため、総列数を明示する。
+          見出し行・終日行は仮想化されない（常に両方 DOM に存在する）ため aria-rowcount は不要 */}
       {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA grid（ResourceView と同じ方針） */}
-      <div data-koyomi="resource-grid" role="grid">
+      <div data-koyomi="resource-grid" role="grid" aria-colcount={columns.length}>
         {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA row */}
         {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない */}
         <div data-koyomi="resource-header" role="row">
-          <div ref={gutterRef} data-koyomi="timegrid-axis-gutter" role="presentation" />
+          {timeAxes.map((axis, index) => (
+            <div
+              // biome-ignore lint/suspicious/noArrayIndexKey: timeAxes は options 由来の固定順の配列（並べ替わらない）
+              key={`${index}-${axis.timeZone}`}
+              // ガター実測幅（gutterWidth）は先頭の軸 1 つだけを実測し、軸の本数を
+              // 掛けて求める（全軸が同じ CSS 変数幅を共有するため）
+              ref={index === 0 ? gutterRef : undefined}
+              data-koyomi="timegrid-axis-gutter"
+              data-koyomi-timezone={axis.timeZone}
+              role="presentation"
+              style={axisStickyOffsetStyle(index)}
+            >
+              {/* 軸がどのタイムゾーンの時刻かを示す GMT オフセットラベル（視覚補助。
+                  週/日ビューの timegrid-header と同じ規則） */}
+              {days[0] !== undefined && (
+                <span data-koyomi="time-axis-label" aria-hidden="true">
+                  {formatTimeZoneLabel(days[0].date, axis.timeZone, locale)}
+                </span>
+              )}
+            </div>
+          ))}
           <div data-koyomi="resource-headers" role="presentation">
             <div
               data-koyomi="resource-header-spacer"
@@ -983,6 +1249,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                   multiDay={multiDay}
                   timeZone={timeZone}
                   locale={locale}
+                  ariaColIndex={item.index + 1}
                 />
               ) : null;
             })}
@@ -1006,6 +1273,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                   locale={locale}
                   pinned
                   left={item.start}
+                  ariaColIndex={item.index + 1}
                 />
               ) : null;
             })}
@@ -1014,7 +1282,16 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
         {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA row */}
         {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない */}
         <div data-koyomi="allday-row" role="row">
-          <div data-koyomi="timegrid-axis-gutter" role="presentation" />
+          {timeAxes.map((axis, index) => (
+            <div
+              // biome-ignore lint/suspicious/noArrayIndexKey: 上記見出し行の gutter と同じ理由（固定順の配列）
+              key={`${index}-${axis.timeZone}`}
+              data-koyomi="timegrid-axis-gutter"
+              data-koyomi-timezone={axis.timeZone}
+              role="presentation"
+              style={axisStickyOffsetStyle(index)}
+            />
+          ))}
           <div data-koyomi="resource-allday-cells" role="presentation">
             <div
               data-koyomi="resource-allday-spacer"
@@ -1039,7 +1316,12 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                   locale={locale}
                   renderAllDayItem={renderAllDayItem}
                   renderEventContent={renderEventContent}
+                  overflowLabel={overflowLabel}
+                  renderOverflowLabel={renderOverflowLabel}
+                  overflowButtonProps={overflowButtonProps}
+                  onOverflowClick={handleAllDayOverflowClick}
                   commonMessages={commonMessages}
+                  ariaColIndex={item.index + 1}
                 />
               ) : null;
             })}
@@ -1067,8 +1349,13 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
                   pinned
                   left={item.start}
                   itemTabbable={false}
+                  ariaColIndex={item.index + 1}
                   renderAllDayItem={renderAllDayItem}
                   renderEventContent={renderEventContent}
+                  overflowLabel={overflowLabel}
+                  renderOverflowLabel={renderOverflowLabel}
+                  overflowButtonProps={overflowButtonProps}
+                  onOverflowClick={handleAllDayOverflowClick}
                   commonMessages={commonMessages}
                 />
               ) : null;
@@ -1077,13 +1364,10 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
         </div>
       </div>
       <div ref={bodyRef} data-koyomi="resource-body">
-        <div data-koyomi="time-axis">
-          {slots.map((slot) => (
-            <div key={slot.minutes} data-koyomi="time-slot-label">
-              {slot.label}
-            </div>
-          ))}
-        </div>
+        {timeAxes.map((axis, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 上記見出し行の gutter と同じ理由（固定順の配列）
+          <TimeAxisColumn key={`${index}-${axis.timeZone}`} axis={axis} index={index} />
+        ))}
         <div data-koyomi="resource-columns">
           <div
             data-koyomi="resource-columns-spacer"

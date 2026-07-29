@@ -18,6 +18,8 @@ function row(overrides: Partial<TimelineRow> = {}): TimelineRow {
     key: 'r:r1',
     items: [],
     laneCount: 0,
+    overflowCount: 0,
+    hiddenItems: [],
     depth: 0,
     hasChildren: false,
     collapsed: false,

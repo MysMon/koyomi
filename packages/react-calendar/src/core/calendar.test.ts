@@ -109,6 +109,20 @@ describe('createCalendar', () => {
       ).toThrow();
     });
 
+    it('初期 events に不正な timeZone を含むイベントがあると Error になる（メッセージに id と不正値を含む）', () => {
+      expect(() =>
+        createCalendar({
+          timeZone: 'Asia/Tokyo',
+          events: [{ ...MEETING, timeZone: 'Invalid/Zone' }],
+        }),
+      ).toThrow(/meeting.*Invalid\/Zone/);
+    });
+
+    it('初期 events の timeZone が有効・省略なら従来どおり作成できる', () => {
+      const calendar = makeCalendar({ events: [MEETING, DAILY] });
+      expect(calendar.getEvents()).toEqual([MEETING, DAILY]);
+    });
+
     it('showWeekNumbers / businessHours は省略時にそれぞれ false / 空配列になる', () => {
       const calendar = makeCalendar();
       expect(calendar.getState().options.showWeekNumbers).toBe(false);
@@ -564,6 +578,34 @@ describe('createCalendar', () => {
       expect(onEventsChange).not.toHaveBeenCalled();
     });
 
+    it('updateOptions({ events }) に不正な timeZone を含むイベントがあると Error になる（メッセージに id と不正値を含む）', () => {
+      const calendar = makeCalendar();
+      expect(() =>
+        calendar.updateOptions({ events: [{ ...MEETING, timeZone: 'Invalid/Zone' }] }),
+      ).toThrow(/meeting.*Invalid\/Zone/);
+    });
+
+    it('updateOptions は不正な timeZone を含む events パッチ全体を原子的に拒否する（他フィールドも巻き戻る）', () => {
+      const calendar = makeCalendar({ events: [MEETING] });
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+      const before = calendar.getState();
+
+      expect(() =>
+        calendar.updateOptions({
+          timeZone: 'America/New_York',
+          events: [{ ...MEETING, timeZone: 'Invalid/Zone' }],
+          resources: [ROOM],
+        }),
+      ).toThrow();
+
+      expect(calendar.getState()).toBe(before);
+      expect(calendar.getState().timeZone).toBe('Asia/Tokyo');
+      expect(calendar.getEvents()).toEqual([MEETING]);
+      expect(calendar.getResources()).toEqual([]);
+      expect(listener).not.toHaveBeenCalled();
+    });
+
     it('updateOptions({ onEventsChange }) でコールバックを差し替えられる', () => {
       const first = vi.fn();
       const second = vi.fn();
@@ -708,6 +750,19 @@ describe('createCalendar', () => {
       const deleteChanges = calendar.deleteEvent(created.id);
       expect(deleteChanges).toEqual([{ before: { ...created, title: 'b' }, index: 0 }]);
       expect(calendar.getEvents()).toEqual([]);
+    });
+
+    it('setEvents に不正な timeZone を含むイベントを渡すと Error になり、内部状態は変更されない（メッセージに id と不正値を含む）', () => {
+      const calendar = makeCalendar({ events: [MEETING] });
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+
+      expect(() => calendar.setEvents([{ ...MEETING, timeZone: 'Invalid/Zone' }])).toThrow(
+        /meeting.*Invalid\/Zone/,
+      );
+
+      expect(calendar.getEvents()).toEqual([MEETING]);
+      expect(listener).not.toHaveBeenCalled();
     });
 
     it('setEvents は一覧を置き換えるが onEventsChange は呼ばない', () => {
@@ -1142,17 +1197,29 @@ describe('createCalendar', () => {
       expect(weekVm.weekNumber).not.toBeNull();
     });
 
-    it('複数月ビューは showWeekNumbers: true を指定しても各月グリッドの weekNumber が常に null になる', () => {
-      const calendar = createCalendar({
+    it('複数月ビューで showWeekNumbers: true にすると各月グリッドの weekNumber に値が入り、省略時は null のままになる', () => {
+      const withWeekNumbers = createCalendar({
         timeZone: 'Asia/Tokyo',
         now: () => new Date('2026-07-07T12:00:00Z'),
         initialDate: new Date('2026-07-07T12:00:00Z'),
         initialView: 'multiMonth',
         showWeekNumbers: true,
       });
-      const vm = calendar.getViewModel();
+      const vm = withWeekNumbers.getViewModel();
       if (vm.type !== 'multiMonth') throw new Error('unreachable');
       for (const month of vm.months) {
+        expect(month.weeks.some((week) => week.weekNumber !== null)).toBe(true);
+      }
+
+      const withoutWeekNumbers = createCalendar({
+        timeZone: 'Asia/Tokyo',
+        now: () => new Date('2026-07-07T12:00:00Z'),
+        initialDate: new Date('2026-07-07T12:00:00Z'),
+        initialView: 'multiMonth',
+      });
+      const defaultVm = withoutWeekNumbers.getViewModel();
+      if (defaultVm.type !== 'multiMonth') throw new Error('unreachable');
+      for (const month of defaultVm.months) {
         for (const week of month.weeks) {
           expect(week.weekNumber).toBeNull();
         }
@@ -1554,6 +1621,173 @@ describe('createCalendar', () => {
       expect(vm.scale).toBe('week');
       expect(vm.headerGroups).not.toBeNull();
       expect(calendar.getState().options.timelineScale).toBe('week');
+    });
+
+    it('timelineMaxLanes の既定は無制限で、レーン数が増えても overflowCount は 0 のまま', () => {
+      const calendar = makeCalendar({
+        resources: [ROOM],
+        events: [
+          {
+            id: 'a',
+            title: 'A',
+            start: '2026-07-15T09:00',
+            end: '2026-07-15T10:00',
+            resourceId: 'room-1',
+          },
+          {
+            id: 'b',
+            title: 'B',
+            start: '2026-07-15T09:00',
+            end: '2026-07-15T10:00',
+            resourceId: 'room-1',
+          },
+          {
+            id: 'c',
+            title: 'C',
+            start: '2026-07-15T09:00',
+            end: '2026-07-15T10:00',
+            resourceId: 'room-1',
+          },
+        ],
+      });
+      calendar.setView('timeline');
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'timeline') throw new Error('unreachable');
+      expect(calendar.getState().options.timelineMaxLanes).toBeNull();
+      expect(vm.rows[0]?.laneCount).toBe(3);
+      expect(vm.rows[0]?.overflowCount).toBe(0);
+      expect(vm.rows[0]?.items.every((item) => item.hidden === false)).toBe(true);
+    });
+
+    it('timelineMaxLanes を指定すると、超過するレーンの帯が非表示になり overflowCount/hiddenItems に計上される', () => {
+      const calendar = makeCalendar({
+        resources: [ROOM],
+        events: [
+          {
+            id: 'a',
+            title: 'A',
+            start: '2026-07-15T09:00',
+            end: '2026-07-15T10:00',
+            resourceId: 'room-1',
+          },
+          {
+            id: 'b',
+            title: 'B',
+            start: '2026-07-15T09:00',
+            end: '2026-07-15T10:00',
+            resourceId: 'room-1',
+          },
+          {
+            id: 'c',
+            title: 'C',
+            start: '2026-07-15T09:00',
+            end: '2026-07-15T10:00',
+            resourceId: 'room-1',
+          },
+        ],
+        timelineMaxLanes: 2,
+      });
+      calendar.setView('timeline');
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'timeline') throw new Error('unreachable');
+      const row = vm.rows[0];
+      expect(row?.laneCount).toBe(2);
+      expect(row?.overflowCount).toBe(1);
+      expect(row?.hiddenItems).toHaveLength(1);
+      expect(row?.items.filter((item) => item.hidden)).toHaveLength(1);
+
+      // updateOptions でも反映される
+      calendar.updateOptions({ timelineMaxLanes: 1 });
+      const vm2 = calendar.getViewModel();
+      if (vm2.type !== 'timeline') throw new Error('unreachable');
+      expect(vm2.rows[0]?.laneCount).toBe(1);
+      expect(vm2.rows[0]?.overflowCount).toBe(2);
+    });
+
+    it('timelineMaxLanes に 0 以下・小数を渡すと 1 以上の整数へ正規化される', () => {
+      const calendar = makeCalendar({ timelineMaxLanes: 0 });
+      expect(calendar.getState().options.timelineMaxLanes).toBe(1);
+
+      calendar.updateOptions({ timelineMaxLanes: 2.9 });
+      expect(calendar.getState().options.timelineMaxLanes).toBe(2);
+    });
+
+    it('allDayMaxEvents の既定は無制限で、終日イベントが何件でも hidden にならない', () => {
+      const calendar = makeCalendar({
+        events: [
+          { id: 'a', title: 'A', start: '2026-07-15', end: '2026-07-16', allDay: true },
+          { id: 'b', title: 'B', start: '2026-07-15', end: '2026-07-16', allDay: true },
+          { id: 'c', title: 'C', start: '2026-07-15', end: '2026-07-16', allDay: true },
+        ],
+      });
+      calendar.setView('week');
+      const vm = calendar.getViewModel();
+      if (vm.type !== 'timeGrid') throw new Error('unreachable');
+      expect(calendar.getState().options.allDayMaxEvents).toBeNull();
+      expect(vm.allDaySegments).toHaveLength(3);
+      expect(vm.allDaySegments.every((segment) => !segment.hidden)).toBe(true);
+      expect(vm.days.every((day) => day.allDayOverflowCount === 0)).toBe(true);
+    });
+
+    it('allDayMaxEvents を指定すると週/日ビューの終日行とリソースビューの終日アイテムに上限が適用される', () => {
+      const calendar = makeCalendar({
+        resources: [ROOM],
+        events: [
+          {
+            id: 'a',
+            title: 'A',
+            start: '2026-07-15',
+            end: '2026-07-16',
+            allDay: true,
+            resourceId: 'room-1',
+          },
+          {
+            id: 'b',
+            title: 'B',
+            start: '2026-07-15',
+            end: '2026-07-16',
+            allDay: true,
+            resourceId: 'room-1',
+          },
+          {
+            id: 'c',
+            title: 'C',
+            start: '2026-07-15',
+            end: '2026-07-16',
+            allDay: true,
+            resourceId: 'room-1',
+          },
+        ],
+        allDayMaxEvents: 2,
+      });
+      calendar.setView('week');
+      const weekVm = calendar.getViewModel();
+      if (weekVm.type !== 'timeGrid') throw new Error('unreachable');
+      expect(weekVm.allDaySegments.filter((segment) => segment.hidden)).toHaveLength(1);
+      expect(weekVm.allDayLaneCount).toBe(2);
+      expect(weekVm.days.find((day) => day.key === '2026-07-15')?.allDayOverflowCount).toBe(1);
+
+      calendar.setView('resource');
+      const resourceVm = calendar.getViewModel();
+      if (resourceVm.type !== 'resource') throw new Error('unreachable');
+      expect(resourceVm.columns[0]?.allDayItems).toHaveLength(2);
+      expect(resourceVm.columns[0]?.allDayOverflowCount).toBe(1);
+      expect(resourceVm.columns[0]?.hiddenAllDayItems).toHaveLength(1);
+
+      // updateOptions でも反映される
+      calendar.updateOptions({ allDayMaxEvents: 1 });
+      const resourceVm2 = calendar.getViewModel();
+      if (resourceVm2.type !== 'resource') throw new Error('unreachable');
+      expect(resourceVm2.columns[0]?.allDayItems).toHaveLength(1);
+      expect(resourceVm2.columns[0]?.allDayOverflowCount).toBe(2);
+    });
+
+    it('allDayMaxEvents に 0 以下・小数を渡すと 1 以上の整数へ正規化される', () => {
+      const calendar = makeCalendar({ allDayMaxEvents: 0 });
+      expect(calendar.getState().options.allDayMaxEvents).toBe(1);
+
+      calendar.updateOptions({ allDayMaxEvents: 2.9 });
+      expect(calendar.getState().options.allDayMaxEvents).toBe(2);
     });
 
     it("unassignedLane の既定は 'auto'（該当オカレンスがなければ未割り当て列/行を生成しない）", () => {

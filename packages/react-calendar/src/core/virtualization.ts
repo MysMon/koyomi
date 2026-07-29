@@ -226,6 +226,124 @@ function makeVirtualItem(
 }
 
 /**
+ * {@link sectionItemWindow} の入力。
+ *
+ * 「セクション（見出し＋等高アイテム列）」のうち、ビューポートに重なるアイテム範囲を
+ * 求めるための情報。セクション自体の位置（`sectionStart`）は外側のウィンドウイング
+ * （{@link computeWindow} の `VirtualItem.start`）と同じ絶対座標系（px）で渡す。
+ */
+export interface SectionItemWindowInput {
+  /** セクション内のアイテム総数。 */
+  itemCount: number;
+  /** セクションの開始位置（px、スクロールコンテナ先端基準の絶対座標系）。 */
+  sectionStart: number;
+  /** セクション見出しの高さ（px）。アイテム列は `sectionStart + headerSize` から始まる。 */
+  headerSize: number;
+  /** アイテム 1 件の推定高（px）。セクション内は等高とみなして計算する。 */
+  estimateItemSize: number;
+  /** スクロール位置（px、コンテナ先端基準）。 */
+  scrollOffset: number;
+  /** ビューポート（スクロールコンテナ）の可視高（px）。 */
+  viewportSize: number;
+  /** 前後に余分に描画するアイテム数（ちらつき防止）。既定 3。 */
+  overscan?: number | undefined;
+}
+
+/**
+ * {@link sectionItemWindow} の結果。
+ *
+ * - `startIndex` / `endIndex` — 描画すべきアイテム範囲（overscan 込み・両端含む）。
+ *   `itemCount === 0` なら共に `-1`。`itemCount > 0` なら最低 1 件を含む。
+ * - `topPad` / `bottomPad` — 範囲の前後に置く詰め物の高さ（px）。常に
+ *   `topPad + 範囲件数 × estimateItemSize + bottomPad === itemCount × estimateItemSize`
+ *   が成り立つ（等高前提のため）。
+ */
+export interface SectionItemWindowResult {
+  startIndex: number;
+  endIndex: number;
+  topPad: number;
+  bottomPad: number;
+}
+
+/**
+ * セクション（見出し＋等高アイテム列）内で描画すべきアイテム範囲を計算する純関数。
+ *
+ * 外側のウィンドウイング（{@link computeWindow}）が「どのセクションを描画するか」を
+ * 決めるのに対し、本関数は「そのセクションの中のどのアイテムを描画するか」を決める。
+ * 1 セクションに大量のアイテムがある場合（リストビューの 1 日に数百件の予定など）の
+ * 二段目のウィンドウイングに使う。アイテムは等高（`estimateItemSize`）とみなすため、
+ * 範囲・詰め物は O(1) の割り算で求まる。
+ *
+ * 境界の規約は {@link computeWindow} と同じ:
+ * - `end > scrollOffset` を満たす最初のアイテムが可視の先頭、`start < viewportEnd` を
+ *   満たす最後のアイテムが可視の末尾（両端ちょうどは含まない）。
+ * - 可視アイテムが無い（セクションが完全にビューポート外）でも `itemCount > 0` なら
+ *   最低 1 件を返し、恒等式を保つ。
+ * - `estimateItemSize` が 0 以下・非有限のときは範囲を求められないため、全件描画へ
+ *   安全に縮退する（`topPad` / `bottomPad` は 0）。
+ *
+ * @param input - セクション位置・アイテム高・スクロール状態（{@link SectionItemWindowInput}）
+ * @returns 描画すべきアイテム範囲と前後の詰め物 px（{@link SectionItemWindowResult}）
+ *
+ * @example
+ * ```ts
+ * const window = sectionItemWindow({
+ *   itemCount: 300,
+ *   sectionStart: 1200,
+ *   headerSize: 24,
+ *   estimateItemSize: 32,
+ *   scrollOffset: 1500,
+ *   viewportSize: 600,
+ * });
+ * // items[window.startIndex..window.endIndex] を描画し、
+ * // 上下に window.topPad / window.bottomPad の詰め物を置く
+ * ```
+ */
+export function sectionItemWindow(input: SectionItemWindowInput): SectionItemWindowResult {
+  const {
+    itemCount,
+    sectionStart,
+    headerSize,
+    estimateItemSize,
+    scrollOffset,
+    viewportSize,
+    overscan = DEFAULT_OVERSCAN,
+  } = input;
+
+  if (itemCount <= 0) {
+    return { startIndex: -1, endIndex: -1, topPad: 0, bottomPad: 0 };
+  }
+  // 推定高が 0 以下・非有限では範囲の割り算が成立しないため、全件描画へ縮退する。
+  if (!Number.isFinite(estimateItemSize) || estimateItemSize <= 0) {
+    return { startIndex: 0, endIndex: itemCount - 1, topPad: 0, bottomPad: 0 };
+  }
+
+  // アイテム列ローカル座標（アイテム i は [i×est, (i+1)×est) を占める）での可視範囲。
+  const itemsStart = sectionStart + headerSize;
+  const visibleStart = scrollOffset - itemsStart;
+  const visibleEnd = visibleStart + Math.max(0, viewportSize);
+
+  // end > visibleStart を満たす最初のアイテム / start < visibleEnd を満たす最後のアイテム
+  // （computeWindow と同じ排他規約）。範囲外は [0, itemCount-1] にクランプし最低 1 件を保証する。
+  const firstVisible = Math.floor(visibleStart / estimateItemSize);
+  const lastVisible = Math.ceil(visibleEnd / estimateItemSize) - 1;
+  const startIndex = Math.min(Math.max(0, firstVisible), itemCount - 1);
+  const endIndex = Math.max(startIndex, Math.min(lastVisible, itemCount - 1));
+
+  // overscan を前後に足す（負値・小数は 0 以上の整数に正規化する）。
+  const safeOverscan = Math.max(0, Math.floor(overscan));
+  const windowStart = Math.max(0, startIndex - safeOverscan);
+  const windowEnd = Math.min(itemCount - 1, endIndex + safeOverscan);
+
+  return {
+    startIndex: windowStart,
+    endIndex: windowEnd,
+    topPad: windowStart * estimateItemSize,
+    bottomPad: (itemCount - 1 - windowEnd) * estimateItemSize,
+  };
+}
+
+/**
  * 可視ウィンドウ（スクロールで実際に見えている範囲。overscan を含まない）の
  * インデックス範囲とキー範囲。
  *

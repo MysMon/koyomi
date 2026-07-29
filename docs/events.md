@@ -16,7 +16,7 @@
 | `start` | `Date \| string` | 開始日時。終日イベントの場合は日付（`'YYYY-MM-DD'` も可）。 |
 | `end` | `Date \| string`（省略可） | 終了日時（**排他的**）。終日イベントの場合は日付（排他的）。省略時は、時間指定イベントは開始から `defaultEventMinutes` 分、終日イベントは 1 日とみなします。 |
 | `allDay` | `boolean`（省略可） | 終日イベントかどうか。既定は `false`。 |
-| `timeZone` | `string`（省略可） | このイベントのタイムゾーン（IANA ID）。繰り返しの展開（現地時刻の維持、DST 跨ぎ）に使用します。省略時はカレンダーの表示タイムゾーン。 |
+| `timeZone` | `string`（省略可） | このイベントのタイムゾーン（IANA ID）。繰り返しの展開（現地時刻の維持、DST 跨ぎ）に使用します。省略時はカレンダーの表示タイムゾーン。不正な IANA タイムゾーン ID を指定すると `Error` になります。 |
 | `rrule` | `string`（省略可） | RFC 5545 の繰り返しルール。詳細は [繰り返し予定](./recurrence.md) を参照。 |
 | `exdates` | `readonly (Date \| string)[]`（省略可） | 繰り返しから除外するオカレンスの開始日時（EXDATE 相当）。 |
 | `rdates` | `readonly (Date \| string)[]`（省略可） | 繰り返しに追加するオカレンスの開始日時（RDATE 相当）。`rrule` と併用可。 |
@@ -312,8 +312,44 @@ const result = pasteEventInWithChanges(
 ```
 
 キーボードショートカット（`Ctrl/Cmd+C` / `Ctrl/Cmd+V`）でこれらを配線する React フック
-`useCalendarClipboard` は [インタラクション: コピー&ペースト](./interactions.md#コピーペーストusecalendarclipboard) を
+`useCalendarClipboard` の `paste` は、`calendar.api.createEvent` を呼ぶ前に宣言的制約
+（`eventOverlap` / `eventConstraint` / `businessHours`）と適用前フック `onBeforeSelectRange`
+（`callbacks` オプションで指定）の両方を判定し、いずれかで拒否された場合はイベントを作成せず
+`onPasteRejected` を呼びます（`history` への記録・`onPaste` の呼び出しは成功時のみ）。
+詳細は [インタラクション: コピー&ペースト](./interactions.md#コピーペーストusecalendarclipboard) を
 参照してください。
+
+### 複製を配線する useCalendarDuplicate
+
+`duplicateEventIn` / `buildOccurrenceCopy` + `calendar.api.createEvent` を React に
+配線する専用フックとして `useCalendarDuplicate` があります。オカレンスを複製元と
+同じ日時のまま新しいイベントとして作成する 1 回の呼び出しで完結し、
+`useCalendarClipboard` と異なり内部にクリップボード状態を持ちません。
+
+```tsx
+import { useCalendar, useCalendarDuplicate, useCalendarHistory } from '@koyomi-cal/react';
+
+function App() {
+  const calendar = useCalendar();
+  const history = useCalendarHistory({ calendar });
+  const { duplicate } = useCalendarDuplicate({ calendar, history });
+
+  // occurrence は EventOccurrence（例: イベントクリックハンドラで受け取ったもの）
+  function handleDuplicateClick(occurrence: EventOccurrence) {
+    duplicate(occurrence); // 複製が作成され、Ctrl+Z で取り消せる
+  }
+  // ...
+}
+```
+
+繰り返しイベントのオカレンスの複製は、コピー&ペーストと同様に**シリーズ全体では
+なく当該オカレンスの単発化**になります（`rrule` / `exdates` / `rdates` を引き継がない）。
+複製先は複製元と同じ日時のため、`useCalendarClipboard` の貼り付けと異なり宣言的制約
+（`eventOverlap` 等）や `onBeforeSelectRange` の判定は行いません。`history` を渡すと
+複製も undo/redo の対象になり、`onDuplicate` は複製が作成されたときに呼ばれます。
+対象オカレンスの元イベントが呼び出し時点で既に削除されている場合、`duplicate` は
+イベントを作成せず `null` を返します。キーボードショートカットは提供しません
+（ブラウザ既定の `Ctrl/Cmd+D` と衝突するため）。
 
 ## パッチ規則（applyPatch）
 
@@ -521,6 +557,7 @@ function App() {
       <CalendarProvider
         value={calendar}
         callbacks={{
+          onEventCreate: (info) => history.push(info.changes),
           onEventChange: (change) => history.push(change.changes),
           onEventDelete: (deletion) => history.push(deletion.changes),
         }}
@@ -533,6 +570,7 @@ function App() {
 
 // 期待される動作:
 // - 予定をドラッグ移動すると history.canUndo が true になる
+//   （onSelectRange を省略した場合の既定即時作成でも history.canUndo が true になる）
 // - 「元に戻す」を押すと移動前の状態に戻り、history.canRedo が true になる
 // - keyboardShortcuts: true のため Ctrl/Cmd+Z（undo）・Ctrl/Cmd+Shift+Z または
 //   Ctrl/Cmd+Y（redo）でも同じ操作ができる（input 等にフォーカス中は無効）
@@ -542,9 +580,10 @@ function App() {
   内、または `api.updateEvent` / `deleteEvent` の戻り値（`EventChangeEntry[]`）を得た
   直後に呼びます。`api.createEvent` の戻り値は作成された `CalendarEvent` 単体なので、
   `history.push([{ after: created }])` のように 1 件のエントリに包んで積みます。
-  `changes` が空配列なら何もしません。`onSelectRange` を省略した場合の
-  既定即時作成は `changes` を取得する手段がないため、履歴に積めません（既定即時作成の
-  通知を扱いたい場合は [アクセシビリティ: 変更の読み上げ通知](./accessibility.md#変更の読み上げ通知usecalendarannouncer) の `useCalendarAnnouncer` を参照してください）
+  `changes` が空配列なら何もしません。`onSelectRange` を省略した場合の既定即時作成は、
+  `onEventCreate` コールバック（`CalendarInteractionCallbacks.onEventCreate`）が
+  `event`・`changes`・`selection` を受け取れるため、`history.push(info.changes)` で
+  履歴に積めます（`onEventCreate` は `onSelectRange` を指定した場合は呼ばれません）
 - **`undo()` / `redo()`** — 直前の操作を取り消す・やり直す。`push` を呼んだ直後に
   `undo` すると `redo` が使えるようになり、`undo` を跨いで新たに `push` すると
   `redo` スタックは破棄されます

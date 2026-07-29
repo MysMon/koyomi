@@ -306,7 +306,8 @@ export interface EventSegment {
   /** イベントの実際の終了がこの週より後にあるか（「続く→」表示用）。 */
   continuesAfter: boolean;
   /**
-   * あふれ（`dayMaxEvents` 超過）により非表示にすべきセグメントか。
+   * あふれ（月ビューの `dayMaxEvents`、または週/日ビューの終日行の
+   * `allDayMaxEvents` の超過）により非表示にすべきセグメントか。
    * `true` のセグメントは「+N 件」に集約される。
    */
   hidden: boolean;
@@ -403,6 +404,12 @@ export interface TimeGridDay {
   weekday: Weekday;
   /** この日に配置された時間指定イベント。 */
   items: readonly PositionedOccurrence[];
+  /**
+   * この日の終日行で「+N 件」に集約された非表示セグメントの数
+   * （{@link CalendarOptions.allDayMaxEvents} の超過により `hidden: true` になった、
+   * この日の列を覆うセグメントの数）。`allDayMaxEvents` 未指定時は常に `0`。
+   */
+  allDayOverflowCount: number;
   /**
    * この日自身の 0:00 を基準に算出した主軸＋追加軸（{@link CalendarOptions.timeAxisZones}）の
    * 時間軸配列。{@link TimeGridViewModel.timeAxes}（表示範囲の最初の日を基準にした、
@@ -655,8 +662,23 @@ export interface ResourceColumn {
   /**
    * この列の終日イベント（開始昇順 → 長い順 → キー辞書順。レーン = 配列順に縦積み）。
    * 列 = 1 日のため帯の水平スパンは常に 1 で、レーン割当は単純な縦積みでよい。
+   * {@link CalendarOptions.allDayMaxEvents} 指定時は先頭 `allDayMaxEvents` 件に
+   * 制限され、残りは {@link ResourceColumn.hiddenAllDayItems} に入る。
    */
   allDayItems: readonly EventOccurrence[];
+  /**
+   * この列の終日行で「+N 件」に集約された非表示の終日イベント数
+   * （{@link ResourceColumn.hiddenAllDayItems} の件数と同数）。
+   * {@link CalendarOptions.allDayMaxEvents} 未指定時は常に `0`。
+   */
+  allDayOverflowCount: number;
+  /**
+   * あふれ（{@link CalendarOptions.allDayMaxEvents} 超過）により非表示になった
+   * この列の終日イベント一覧（`allDayItems` と同じ並び順の続き）。
+   * 「+N 件」のポップオーバー等から参照できるようにする、月ビューの
+   * `hiddenOccurrencesAt` と同じ思想の一覧。`allDayMaxEvents` 未指定時は空配列。
+   */
+  hiddenAllDayItems: readonly EventOccurrence[];
   /**
    * ツリー内の深さ（0 起点）。{@link CalendarResource.parentId} を使わない場合・
    * 未割り当て列は常に `0`（{@link TimelineRow.depth} と同じ規則）。
@@ -717,6 +739,15 @@ export interface ResourceViewDay {
    * `businessHours` 未指定時はすべて `isBusinessHours: false`。
    */
   businessHourSlots: readonly BusinessHourSlot[];
+  /**
+   * この日自身の 0:00 を基準に算出した主軸＋追加軸（{@link CalendarOptions.timeAxisZones}）の
+   * 時間軸配列。{@link ResourceViewModel.timeAxes}（表示範囲の先頭日を基準にした、
+   * 全列で共有する 1 組の値）とは異なり、こちらは日ごとに個別計算されるため、
+   * 追加軸のタイムゾーンで表示範囲の途中に DST 切替がある場合でも、切替後の日の
+   * ラベルが正しいオフセットになる（{@link TimeGridDay.timeAxes} と同じ意味論）。
+   * `timeAxisZones` 未指定時は主軸のみの 1 要素配列。
+   */
+  timeAxes: readonly TimeAxis[];
 }
 
 /** リソースビューのビューモデル。 */
@@ -762,6 +793,14 @@ export interface ResourceViewModel {
   slotMinTimeMinutes: number;
   /** {@link CalendarOptions.slotMaxTime} を分に変換した値（1〜1440）。 */
   slotMaxTimeMinutes: number;
+  /**
+   * 主軸（表示タイムゾーン）と追加軸（{@link CalendarOptions.timeAxisZones}）を
+   * 合わせた時間軸の配列（{@link TimeGridViewModel.timeAxes} と同じ意味論）。表示範囲の
+   * 先頭日を基準に算出し、全列で共有する 1 組の値。日ごとに正確な値が必要な場合は
+   * {@link ResourceViewDay.timeAxes} を使う。`timeAxisZones` 未指定時は主軸のみの
+   * 1 要素配列になる。
+   */
+  timeAxes: readonly TimeAxis[];
   /**
    * 現在時刻線の位置（その日の 0:00 からの分）。表示範囲に今日が含まれない場合、
    * または現在時刻が表示時間帯（`slotMinTimeMinutes`〜`slotMaxTimeMinutes`）の外にある
@@ -811,6 +850,12 @@ export interface TimelineItem {
   endMinutes: number;
   /** 縦方向のレーン番号（行内 0 起点）。同じレーンの帯同士は重ならない。 */
   lane: number;
+  /**
+   * {@link CalendarOptions.timelineMaxLanes} のあふれにより非表示にすべきか。
+   * `true` の帯は行末の「+N 件」バッジに集約される（{@link TimelineRow.overflowCount}）。
+   * `timelineMaxLanes` 未指定時は常に `false`。
+   */
+  hidden: boolean;
   /** オカレンスが表示範囲より前から続いているか。 */
   continuesBefore: boolean;
   /** オカレンスが表示範囲より後に続くか。 */
@@ -835,10 +880,25 @@ export interface TimelineRow {
   resource: CalendarResource | null;
   /** 行キー（{@link ResourceColumn.key} と同じ `r:${id}` / `'unassigned'` 形式）。 */
   key: string;
-  /** この行の帯（終日・時間指定の区別なく同じレーン空間に配置。表示分の開始昇順）。 */
+  /**
+   * この行の帯（終日・時間指定の区別なく同じレーン空間に配置。表示分の開始昇順）。
+   * {@link CalendarOptions.timelineMaxLanes} のあふれで `hidden: true` になった帯も含む
+   * （非表示の描画要否は `hidden` を見て判断する。{@link EventSegment} と同じ規則）。
+   */
   items: readonly TimelineItem[];
-  /** この行のレーン数（0 件なら 0）。 */
+  /** この行の表示レーン数（あふれで非表示になった帯のレーンは含まない。0 件なら 0）。 */
   laneCount: number;
+  /**
+   * {@link CalendarOptions.timelineMaxLanes} のあふれにより非表示になった帯の数。
+   * 未指定・非超過なら `0`。
+   */
+  overflowCount: number;
+  /**
+   * あふれにより非表示になった帯のオカレンス一覧（表示分の開始昇順）。
+   * 「+N 件」バッジのカスタム描画（`renderRowHeader` 等）から参照できるようにする、
+   * 月ビューの `hiddenOccurrencesAt` と同じ思想の一覧（`overflowCount` 件と同数）。
+   */
+  hiddenItems: readonly EventOccurrence[];
   /**
    * ツリー内の深さ（0 起点）。{@link CalendarResource.parentId} を使わない場合・
    * 未割り当て行は常に `0`。
@@ -1023,6 +1083,20 @@ export interface CalendarOptions {
   weekStartsOn?: Weekday;
   /** 月ビューで 1 日に表示する最大イベント数。超過分は「+N 件」に集約。既定は `4`。 */
   dayMaxEvents?: number;
+  /**
+   * 週/日ビュー・リソースビューの終日行に表示する最大イベント数（opt-in）。
+   * 省略時は無制限。
+   *
+   * 指定すると、週/日ビューでは終日行のレーン数がこの値までに制限され、超過した
+   * セグメントは非表示（{@link EventSegment.hidden}）になり、該当日の
+   * 「+N 件」ボタン（`data-koyomi="allday-overflow"`）に集約される
+   * （{@link TimeGridDay.allDayOverflowCount}）。リソースビューでは各列の
+   * {@link ResourceColumn.allDayItems} が先頭この値までに制限され、残りは
+   * {@link ResourceColumn.hiddenAllDayItems} / {@link ResourceColumn.allDayOverflowCount}
+   * に入る。終日行の高さは表示レーン数（超過分を含まない）に追従する。
+   * 0 以下・非有限は `1` へ、小数は切り捨てて 1 以上の整数へ正規化される。
+   */
+  allDayMaxEvents?: number;
   /** ドラッグ操作のスナップ間隔（分）。既定は `15`。 */
   snapMinutes?: number;
   /** 時間グリッドの目盛り間隔（分）。既定は `60`。 */
@@ -1050,6 +1124,16 @@ export interface CalendarOptions {
    * `next()` / `prev()` の移動単位にもなる。
    */
   timelineDays?: number;
+  /**
+   * タイムラインビューの行内に表示する最大レーン数（opt-in）。省略時は無制限。
+   *
+   * 指定すると、行内で時間が重なる帯を積んだ結果このレーン数を超える帯は
+   * 非表示になり、行末の「+N 件」バッジ（`data-koyomi="timeline-overflow"`）に
+   * 集約される（{@link TimelineRow.overflowCount} / {@link TimelineRow.hiddenItems}）。
+   * 行の高さは表示レーン数（超過分を含まない）に追従する。
+   * 0 以下・非有限は `1` へ、小数は切り捨てて 1 以上の整数へ正規化される。
+   */
+  timelineMaxLanes?: number;
   /**
    * リソースビューが表示する日数。既定は `1`。
    * `2` 以上を指定すると、列がリソース × 日の直積になる
@@ -1218,6 +1302,8 @@ export interface ResolvedCalendarOptions {
   weekStartsOn: Weekday;
   /** 月ビューで 1 日に表示する最大イベント数。 */
   dayMaxEvents: number;
+  /** 週/日ビュー・リソースビューの終日行に表示する最大イベント数。無制限は `null`。 */
+  allDayMaxEvents: number | null;
   /** ドラッグ操作のスナップ間隔（分）。 */
   snapMinutes: number;
   /** 時間グリッドの目盛り間隔（分）。 */
@@ -1232,6 +1318,8 @@ export interface ResolvedCalendarOptions {
   multiMonthCount: number;
   /** タイムラインビューが表示する日数。 */
   timelineDays: number;
+  /** タイムラインビューの行内に表示する最大レーン数。無制限は `null`。 */
+  timelineMaxLanes: number | null;
   /** リソースビューが表示する日数。 */
   resourceViewDays: number;
   /** タイムラインビューの横軸のズーム粒度。 */

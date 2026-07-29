@@ -127,6 +127,40 @@ function App() {
 
 優先順位はスロット単位で判定されます。たとえば `TimeGridView` に `renderEvent` だけを渡した場合、時間指定ブロックは `renderEvent` が、終日行の帯は引き続き `renderEventContent` が描画します。
 
+## Toolbar のカスタマイズ
+
+`Toolbar` はタイトルとナビゲーション/ビュー切替ボタンの内側の内容を差し替える 3 つの render prop を持ちます。差し替えの境界は上記の[共通ルール](#差し替えの境界仕様)と同じで、外側の要素（`<h2>` / `<button>`）・`data-koyomi-*` 属性・`aria-*` 属性・クリック配線（`today`/`prev`/`next`/ビュー切替の各操作）は常に保持されます。
+
+| render prop | 対象 | `ctx` の追加フィールド |
+| --- | --- | --- |
+| `renderTitle` | `h2[data-koyomi="title"]` の内側 | `view` — 現在のビュー。`title` — 整形済みのタイトル文字列（`defaultContent` と同じ内容） |
+| `renderNavButtonContent` | today/prev/next ボタンの内側 | `action` — `'today' \| 'prev' \| 'next'` |
+| `renderViewButtonContent` | ビュー切替ボタン（`toolbar-views` 配下）の内側 | `view` — そのボタンが切り替える対象のビュー。`active` — 選択中かどうか（ボタンの `aria-pressed` と同じ値） |
+
+```tsx
+// 例: today ボタンにアイコンを添え、選択中のビューのボタンにチェックマークを付ける
+<Toolbar
+  renderNavButtonContent={(ctx) => (
+    <>
+      {ctx.action === 'today' && <HomeIcon />}
+      {ctx.defaultContent}
+    </>
+  )}
+  renderViewButtonContent={(ctx) => (
+    <>
+      {ctx.defaultContent}
+      {ctx.active && <CheckIcon />}
+    </>
+  )}
+/>
+
+// 期待される動作:
+// - today ボタンの内側だけアイコン付きになる（aria-label・onClick は不変）
+// - 選択中のビューのボタンにだけチェックマークが付く（aria-pressed の管理はライブラリ側のまま）
+```
+
+文言そのもの（today/prev/next の `aria-label`、ビュー切替ボタンの表示文字列）を差し替えたい場合は、render prop ではなく `CalendarProvider` の `messages` prop（`messages.toolbar`）を使ってください。詳細は [API リファレンス: Toolbar](./api.md#toolbar) を参照してください。
+
 ## レシピ
 
 ### タイトルより上に別の情報を出す

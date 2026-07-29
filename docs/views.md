@@ -10,7 +10,7 @@ Koyomi は月・週・日・リスト（スケジュール）・年・複数月�
 
 ### 週/日ビュー（week / day）
 
-`TimeGridView` が描画します。上部に日ヘッダー（曜日と日番号のボタン）、その下に終日イベント行、本体には時間軸（`slotMinutes` 間隔の目盛り）と日列が並びます。日ヘッダーの日番号ボタンをクリックするとその日の日ビューに切り替わります（`callbacks.onDayNumberClick` を指定すると既定の画面遷移を差し替えられます。[インタラクション](./interactions.md) 参照）。日列には時間指定の予定がブロックとして配置され、上端・下端にリサイズ用のハンドルがあります。表示範囲に「今日」が含まれる場合は現在時刻を示す線も表示されます。`week` は 7 日分（`hiddenWeekdays` 指定時はその分少ない列数）、`day` は 1 日分の列になります。
+`TimeGridView` が描画します。上部に日ヘッダー（曜日と日番号のボタン）、その下に終日イベント行、本体には時間軸（`slotMinutes` 間隔の目盛り）と日列が並びます。日ヘッダーの日番号ボタンをクリックするとその日の日ビューに切り替わります（`callbacks.onDayNumberClick` を指定すると既定の画面遷移を差し替えられます。[インタラクション](./interactions.md) 参照）。日列には時間指定の予定がブロックとして配置され、上端・下端にリサイズ用のハンドルがあります。表示範囲に「今日」が含まれる場合は現在時刻を示す線も表示されます。`week` は 7 日分（`hiddenWeekdays` 指定時はその分少ない列数）、`day` は 1 日分の列になります。終日行に表示する予定の数は `allDayMaxEvents` で制限できます（超過分はその日の「+N 件」ボタンに集約されます。詳細は [終日行のあふれ上限（allDayMaxEvents）](#終日行のあふれ上限alldaymaxevents) を参照）。
 
 表示する時間帯は `slotMinTime`/`slotMaxTime` で制限でき、初期スクロール位置は `initialScrollTime`/`scrollToTime` で指定できます（詳細は [表示時間帯（slotMinTime/slotMaxTime）](#表示時間帯slotmintimeslotmaxtime) と [初期スクロール位置（initialScrollTime / scrollToTime）](#初期スクロール位置initialscrolltime--scrolltotime) を参照）。
 
@@ -36,9 +36,9 @@ Koyomi は月・週・日・リスト（スケジュール）・年・複数月�
 
 `ResourceView` が描画します。時間グリッドを「列 = リソース」で描きます（週/日ビューの「列 = 日」をリソースに置き換えたもの。Google カレンダーの会議室日表示相当）。表示日数は `resourceViewDays`（既定 `1`）で指定でき、`2` 以上にすると列が**リソース × 日の直積**になります。グルーピング順は**リソース優先**（各リソースの中に日が昇順で並ぶ。FullCalendar の resourceTimeGrid の既定 `datesAboveResources: false` と同じ一般的な並び）です。`hiddenWeekdays` は日ビューと同じく無視され、常に `resourceViewDays` 日の連続した並びになります。
 
-構成は週/日ビューに準じます。上部にリソース列見出し行（列見出しにはリソースの `color` が反映され、複数日表示では「リソース名 + 日ラベル」（例: `会議室A 15 (水)`）になります）、その下に終日行、本体には時間軸と各リソースの時間指定イベント列が並びます。列順は `resources` の並び順（`parentId` 使用時はツリー順。詳細は [リソースの階層グルーピング](#リソースの階層グルーピングparentid折りたたみ)）です。割当を持たない予定、または割当がすべて `resources` に存在しない ID を指す予定（参照先のないリソース ID）は「未割り当て」列に表示されます。未割り当て列は既定（`unassignedLane: 'auto'`）では該当する予定があるときだけ末尾に現れ、`unassignedLane: 'always'` を指定すると常に表示されます（詳細は下記の[関連オプション](#関連オプション)）。複数リソース割当（`resourceIds`）の予定は割当先の各列に表示されます（詳細は [予定の管理: 複数リソース割当](./events.md#複数リソース割当resourceids)）。
+構成は週/日ビューに準じます。上部にリソース列見出し行（列見出しにはリソースの `color` が反映され、複数日表示では「リソース名 + 日ラベル」（例: `会議室A 15 (水)`）になります）、その下に終日行、本体には時間軸と各リソースの時間指定イベント列が並びます。列順は `resources` の並び順（`parentId` 使用時はツリー順。詳細は [リソースの階層グルーピング](#リソースの階層グルーピングparentid折りたたみ)）です。割当を持たない予定、または割当がすべて `resources` に存在しない ID を指す予定（参照先のないリソース ID）は「未割り当て」列に表示されます。未割り当て列は既定（`unassignedLane: 'auto'`）では該当する予定があるときだけ末尾に現れ、`unassignedLane: 'always'` を指定すると常に表示されます（詳細は下記の[関連オプション](#関連オプション)）。複数リソース割当（`resourceIds`）の予定は割当先の各列に表示されます（詳細は [予定の管理: 複数リソース割当](./events.md#複数リソース割当resourceids)）。終日行に表示する予定の数は `allDayMaxEvents` で制限できます（超過分はその列の「+N 件」ボタンに集約されます。詳細は [終日行のあふれ上限（allDayMaxEvents）](#終日行のあふれ上限alldaymaxevents) を参照）。
 
-インタラクションは `useResourceGridDrag` が提供します。縦方向（時間）は週/日ビューと同じ操作、横方向はドラッグで別の列へ移動できます。複数日表示では別の日の列への移動が日付の変更（日数シフト）になり、予定の作成・移動・リサイズが確定すると、時間・日付の変更とリソース割当の変更が 1 回の更新にまとめて適用されます（作成・リサイズの対象日は開始列の日に固定されます）。複数リソース割当の予定を別の列へ動かした場合は、**操作した列の割当だけ**が移動先に変わります。キーボードは `↑`/`↓` が時間の移動・`Shift+↑`/`Shift+↓` がリサイズ、**`←`/`→` が隣の列への移動**です（画面上の視覚軸に対応する操作。複数日表示では同一リソース内の隣の日 → リソース境界では隣のリソースの端の日、の順に移ります。詳細は [インタラクション](./interactions.md) を参照）。終日 ⇔ 時間指定の変換ドラッグは提供しません。
+インタラクションは `useResourceGridDrag` が提供します。縦方向（時間）は週/日ビューと同じ操作、横方向はドラッグで別の列へ移動できます。複数日表示では別の日の列への移動が日付の変更（日数シフト）になり、予定の作成・移動・リサイズが確定すると、時間・日付の変更とリソース割当の変更が 1 回の更新にまとめて適用されます（作成・リサイズの対象日は開始列の日に固定されます）。複数リソース割当の予定を別の列へ動かした場合は、**操作した列の割当だけ**が移動先に変わります。キーボードは `↑`/`↓` が時間の移動・`Shift+↑`/`Shift+↓` がリサイズ、**`←`/`→` が隣の列への移動**です（画面上の視覚軸に対応する操作。複数日表示では同一リソース内の隣の日 → リソース境界では隣のリソースの端の日、の順に移ります。詳細は [インタラクション](./interactions.md) を参照）。終日 ⇔ 時間指定の変換は、週/日ビューと同じ変換ドラッグ（時間指定の予定を終日行へドラッグすると、ドロップした列の日から暦日数分・その列のリソース割当の終日イベントに変換。終日行の予定を列本体へドラッグすると、ドロップ位置の時刻から `defaultEventMinutes` 分・その列のリソース割当の時間指定イベントに変換）と、フォーカス中の予定の `A` キー（時間指定 → 開始日 1 日分の終日、終日 → 開始日の `slotMinTime` から `defaultEventMinutes` 分の時間指定。レーンは不変）で行えます（詳細は [インタラクション: リソースビュー・タイムラインビューのドラッグ操作](./interactions.md#リソースビュータイムラインビューのドラッグ操作) を参照）。
 
 `CalendarResource.parentId` を指定すると、親リソースの列グループ見出し行と折りたたみトグルが表示されます（詳細は [リソースの階層グルーピング](#リソースの階層グルーピングparentid折りたたみ) を参照）。
 
@@ -48,9 +48,9 @@ Koyomi は月・週・日・リスト（スケジュール）・年・複数月�
 
 `TimelineView` が描画します。横 = 時間、行 = リソースの帯表示で、`timelineDays`（既定 `1`）日分を横に連結します（FullCalendar の resourceTimeline 相当）。`hiddenWeekdays` は無視され、常に `timelineDays` 日の連続した並びになります。
 
-構成は、左にリソース行見出し列（`position: sticky` で固定）、右に横スクロールする本体（日ヘッダー・時間目盛り・各リソース行の帯）です。行の考え方はリソースビューと同じで、割当が対応しない予定は「未割り当て」行に入り、`unassignedLane` オプションで生成規則を制御します。複数リソース割当（`resourceIds`）の予定は割当先の各行に表示されます（詳細は [予定の管理: 複数リソース割当](./events.md#複数リソース割当resourceids)）。終日イベントはその日の全幅の帯として、時間指定イベントと同じレーン空間に配置されます。
+構成は、左にリソース行見出し列（`position: sticky` で固定）、右に横スクロールする本体（日ヘッダー・時間目盛り・各リソース行の帯）です。行の考え方はリソースビューと同じで、割当が対応しない予定は「未割り当て」行に入り、`unassignedLane` オプションで生成規則を制御します。複数リソース割当（`resourceIds`）の予定は割当先の各行に表示されます（詳細は [予定の管理: 複数リソース割当](./events.md#複数リソース割当resourceids)）。終日イベントはその日の全幅の帯として、時間指定イベントと同じレーン空間に配置されます。`timelineMaxLanes` を指定すると、行内のレーン数に上限を設けて超過分を「+N 件」に集約できます（既定は無制限。詳細は [タイムライン行内レーンの上限](#タイムライン行内レーンの上限timelinemaxlanes) を参照）。
 
-インタラクションは `useTimelineDrag` が提供します。横方向（時間）へのドラッグで移動・リサイズ、縦方向（行）へのドラッグでリソース間の移動ができます。複数リソース割当の予定を別の行へ動かした場合は、**操作した行の割当だけ**が移動先に変わります。キーボードは `←`/`→` が時間の移動・`Shift+←`/`Shift+→` がリサイズ、**`↑`/`↓` が隣の行への移動**です（リソースビューとは軸が異なりますが、いずれも「画面上でその方向に動く」という同じ原則によるものです）。終日 ⇔ 時間指定の変換ドラッグは提供しません。
+インタラクションは `useTimelineDrag` が提供します。横方向（時間）へのドラッグで移動・リサイズ、縦方向（行）へのドラッグでリソース間の移動ができます。複数リソース割当の予定を別の行へ動かした場合は、**操作した行の割当だけ**が移動先に変わります。キーボードは `←`/`→` が時間の移動・`Shift+←`/`Shift+→` がリサイズ、**`↑`/`↓` が隣の行への移動**です（リソースビューとは軸が異なりますが、いずれも「画面上でその方向に動く」という同じ原則によるものです）。タイムラインは終日の帯を時間指定の帯と同一のレーン空間（行）に積んで表示するため、ドラッグの行き先として区別できる終日領域が存在せず、終日 ⇔ 時間指定の変換ドラッグは提供しません。変換はフォーカス中の帯の `A` キーで行います（時間指定 → 開始日 1 日分の終日、終日 → 開始日の 0:00 から `defaultEventMinutes` 分、`timelineScale` が `'hour'` 以外のときは 1 日分の時間指定。レーンは不変）。
 
 `CalendarResource.parentId` を指定すると、リソースを親子関係のツリーとして表示できます（会議室を「拠点 > フロア > 会議室」のように階層化する用途）。詳細は [リソースの階層グルーピング](#リソースの階層グルーピングparentid折りたたみ) を参照してください。横軸の表示単位は `timelineScale` で時刻・日・週・月に切り替えられます（詳細は [タイムラインのズーム粒度](#タイムラインのズーム粒度timelinescale) を参照）。
 
@@ -214,10 +214,10 @@ calendar.today(); // now() が指す日（この例では 2026-07-15）に戻る
 | `ListViewModel` | `'list'` | `days`（予定がある日だけの `ListDay[]`）、`isEmpty` |
 | `YearViewModel` | `'year'` | `anchor`（表示対象年の1月1日）、`months`（`YearMonth[]`、12件）、`weekdays`（曜日の並び） |
 | `MultiMonthViewModel` | `'multiMonth'` | `anchor`（先頭月の1日）、`months`（`MultiMonthMonth[]`、`multiMonthCount` 件）、`weekdays`（曜日の並び） |
-| `ResourceViewModel` | `'resource'` | `date`（先頭日）、`days`（`ResourceViewDay[]`、`resourceViewDays` 日分）、`columns`（`ResourceColumn[]`。リソース × 日の直積。リソースはツリー順（`parentId` 未使用時は `resources` の並び順）＋末尾に未割り当て列）、`columnGroupRows`（`ResourceColumnGroupCell[][]`。列グループ見出しの行。子を持つリソースがなければ空配列）、`isEmpty`、`slots`（時間軸の目盛り）、`nowIndicatorMinutes` |
+| `ResourceViewModel` | `'resource'` | `date`（先頭日）、`days`（`ResourceViewDay[]`、`resourceViewDays` 日分）、`columns`（`ResourceColumn[]`。リソース × 日の直積。リソースはツリー順（`parentId` 未使用時は `resources` の並び順）＋末尾に未割り当て列）、`columnGroupRows`（`ResourceColumnGroupCell[][]`。列グループ見出しの行。子を持つリソースがなければ空配列）、`isEmpty`、`slots`（時間軸の目盛り）、`timeAxes`（主軸＋追加軸の時間軸配列、[複数タイムゾーン軸](#複数タイムゾーン軸timeaxiszones)参照）、`nowIndicatorMinutes` |
 | `TimelineViewModel` | `'timeline'` | `days`（`timelineDays` 日分）、`rows`（`TimelineRow[]`。`resources` の並び順＋末尾に未割り当て行）、`isEmpty`、`slots`（`TimelineSlot[]`）、`totalMinutes`、`nowIndicatorMinutes` |
 
-`MonthWeek.days` は `MonthDay[]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `overflowCount` など）、`TimeGridDay.items` は `PositionedOccurrence[]`（`startMinutes` / `endMinutes` / `left` / `width` など割合ベースの配置情報）を持ちます。`YearMonth.weeks` は `YearDay[][]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `eventCount` を持ち、前後月の日付は `eventCount: 0` に固定）です。`MultiMonthMonth.weeks` は月ビューと同じ `MonthWeek[]` です（前後月の日付セルにはセグメントを配置しない点だけが月ビューと異なります）。`ResourceColumn`（`resource` / `key` / `date` / `dayKey` / `isToday` / `dayIndex` / `items`（`PositionedOccurrence[]`）/ `allDayItems` / `depth` / `hasChildren` / `collapsed`）は週/日ビューと同じ配置計算を列（リソース × 日）ごとに行った結果です（`depth` / `hasChildren` / `collapsed` は `parentId` によるツリー内の情報）。`TimelineRow`（`resource` / `key` / `items`（`TimelineItem[]`）/ `laneCount`）の `TimelineItem` は `startMinutes` / `endMinutes` が「表示分」（範囲先頭からの分。全日を等幅 1440 分として扱う座標系）で表され、`lane` で行内の縦位置を示します。詳細なフィールドは各型の TSDoc を参照してください。
+`MonthWeek.days` は `MonthDay[]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `overflowCount` など）、`TimeGridDay.items` は `PositionedOccurrence[]`（`startMinutes` / `endMinutes` / `left` / `width` など割合ベースの配置情報）を持ちます。`YearMonth.weeks` は `YearDay[][]`（各日の `date` / `key` / `inCurrentMonth` / `isToday` / `eventCount` を持ち、前後月の日付は `eventCount: 0` に固定）です。`MultiMonthMonth.weeks` は月ビューと同じ `MonthWeek[]` です（前後月の日付セルにはセグメントを配置しない点だけが月ビューと異なります）。`ResourceColumn`（`resource` / `key` / `date` / `dayKey` / `isToday` / `dayIndex` / `items`（`PositionedOccurrence[]`）/ `allDayItems` / `allDayOverflowCount` / `hiddenAllDayItems` / `depth` / `hasChildren` / `collapsed`）は週/日ビューと同じ配置計算を列（リソース × 日）ごとに行った結果です（`depth` / `hasChildren` / `collapsed` は `parentId` によるツリー内の情報）。`TimelineRow`（`resource` / `key` / `items`（`TimelineItem[]`）/ `laneCount` / `overflowCount` / `hiddenItems`）の `TimelineItem` は `startMinutes` / `endMinutes` が「表示分」（範囲先頭からの分。全日を等幅 1440 分として扱う座標系）で表され、`lane` で行内の縦位置、`hidden` で `timelineMaxLanes` によるあふれの非表示対象かどうかを示します（詳細は [タイムライン行内レーンの上限](#タイムライン行内レーンの上限timelinemaxlanes) を参照）。詳細なフィールドは各型の TSDoc を参照してください。
 
 `type` で分岐すれば、ビューごとの情報を型安全に扱えます。
 
@@ -286,17 +286,19 @@ function BareMonthGrid() {
 | --- | --- | --- | --- |
 | `weekStartsOn` | `Weekday`（`0`〜`6`、`0` = 日曜） | `0` | 月ビューの週の並び、週ビューの開始曜日、年ビューのミニ月グリッドの週の並び、複数月ビューの各月グリッドの週の並び、ナビゲーションの起点 |
 | `dayMaxEvents` | `number` | `4` | 月ビュー・複数月ビューで 1 日に表示する予定の最大数。超過分は「+N 件」に集約される |
+| `allDayMaxEvents` | `number` | 未指定（無制限） | 週/日・リソースビューの終日行に表示する予定の最大数。超過分は「+N 件」に集約される。詳細は [終日行のあふれ上限（allDayMaxEvents）](#終日行のあふれ上限alldaymaxevents) を参照 |
 | `slotMinutes` | `number` | `60` | 週/日ビュー（時間グリッド）の時間軸の目盛り間隔（分） |
-| `timeAxisZones` | `readonly TimeZoneId[]` | `[]` | 週/日ビューの時間軸に並べる追加のタイムゾーン（Google カレンダーのセカンダリタイムゾーン相当）。詳細は [複数タイムゾーン軸](#複数タイムゾーン軸timeaxiszones) を参照 |
+| `timeAxisZones` | `readonly TimeZoneId[]` | `[]` | 週/日・リソースビューの時間軸に並べる追加のタイムゾーン（Google カレンダーのセカンダリタイムゾーン相当）。詳細は [複数タイムゾーン軸](#複数タイムゾーン軸timeaxiszones) を参照 |
 | `listDays` | `number` | `30` | リストビューが表示する日数。`next()`/`prev()` の移動単位にもなる |
 | `multiMonthCount` | `number` | `3` | 複数月ビューが表示する月数。`next()`/`prev()` の移動単位にもなる |
 | `hiddenWeekdays` | `readonly Weekday[]` | `[]` | 月・週・複数月ビューの列から除外する曜日（下記参照）。年・日・リソース・タイムラインビューは無視する。リストビューは対象外（そもそも受け取らない） |
 | `resources` | `readonly CalendarResource[]` | `[]` | リソースビュー・タイムラインビューの列/行になるリソース一覧（表示順）。他ビューには影響しない。詳細は [予定の管理: リソース](./events.md#リソース) を参照 |
 | `resourceViewDays` | `number` | `1` | リソースビューが表示する日数。`2` 以上で列がリソース × 日の直積（リソース優先のグルーピング順）になる。`next()`/`prev()` の移動単位にもなる |
 | `timelineDays` | `number` | `1` | タイムラインビューが表示する日数。`next()`/`prev()` の移動単位にもなる |
+| `timelineMaxLanes` | `number` | 未指定（無制限） | タイムラインビューの行内に表示する最大レーン数。超過分は「+N 件」に集約される。詳細は [タイムライン行内レーンの上限](#タイムライン行内レーンの上限timelinemaxlanes) を参照 |
 | `timelineScale` | `'hour' \| 'day' \| 'week' \| 'month'` | `'hour'` | タイムラインビューの横軸のズーム粒度。詳細は [タイムラインのズーム粒度](#タイムラインのズーム粒度timelinescale) を参照 |
 | `unassignedLane` | `'auto' \| 'always'` | `'auto'` | リソース/タイムラインビューの未割り当てレーンの生成規則。`'auto'` は該当する予定があるときのみ末尾に生成、`'always'` は常に生成する（「未割り当てへ戻す」D&D を使う場合に必要。詳細は [対象ビューを有効にする](#年複数月リソースタイムラインビューを有効にするopt-in) を参照） |
-| `showWeekNumbers` | `boolean` | `false` | 月ビューの週行・週ビューのヘッダーに ISO 8601 週番号を表示するか。複数月ビューは対象外（週番号は算出されない）。詳細は [週番号](#週番号showweeknumbers) を参照 |
+| `showWeekNumbers` | `boolean` | `false` | 月ビュー・複数月ビューの週行、週ビューのヘッダーに ISO 8601 週番号を表示するか。詳細は [週番号](#週番号showweeknumbers) を参照 |
 | `businessHours` | `readonly BusinessHoursRule[]` | `[]` | 週/日・リソース・タイムラインビューの営業時間の指定。詳細は [営業時間](#営業時間businesshours) を参照 |
 | `eventOverlap` | `boolean` | `true` | イベントの重なりを許可するかどうかの既定値。詳細は [インタラクション: 宣言的な重なり・配置制約](./interactions.md#宣言的な重なり配置制約eventoverlap--eventconstraint) を参照 |
 | `eventConstraint` | `'businessHours' \| readonly BusinessHoursRule[]` | 未指定 | イベントのドロップ先を制限する既定値。詳細は [インタラクション: 宣言的な重なり・配置制約](./interactions.md#宣言的な重なり配置制約eventoverlap--eventconstraint) を参照 |
@@ -404,7 +406,8 @@ function Agenda() {
 - `CalendarView` を使っている場合は、`<CalendarView virtualizeList />`（必要に応じて `listEstimateDayHeight` / `listOverscan`）で list ビューだけを仮想化に切り替えられます。`renderListEvent` などのリスト系 props はそのまま転送されます。
 - `data-koyomi-virtualized="true"` が付き、`role="list"` / 日セクションの `role="listitem"` と件数入りの `aria-label` が付与されます。日セクションの内容（`data-koyomi-*` 構造）は `ListView` と完全に一致します。
 - フォーカス中の日セクションは、スクロールで可視窓の外に出ても DOM を保持し続けます（pinned セクション）。この pinned セクション内の操作要素は `tabIndex={-1}` になりタブ順から外れます（窓内に戻ると既定の `tabIndex` に戻ります）。`VirtualResourceView` / `VirtualTimelineView` の pinned 列・行も同じ規則です。
-- **注意**: 仮想化中はブラウザのページ内検索（Ctrl+F）が窓の外の予定に届きません。また「1 日あたり数百件」のような 1 セクション内の大量予定は仮想化の対象外です。
+- **1 日に大量の予定があるセクション**は、日単位の仮想化に加えてセクション内でもウィンドウ描画されます。1 日の予定件数が `sectionItemWindowThreshold`（既定 50）を超えるセクションでは、可視範囲＋overscan のイベント行だけを描画し、残りはイベント行の推定高 `estimateItemHeight`（既定 32）に基づく高さのスペーサー（`div[data-koyomi="list-event-spacer"]`、`data-edge="before"` / `"after"`）で置き換えます。閾値以下のセクションは全イベント行を描画します。ウィンドウ描画中のセクションでは各イベント行にオカレンスキー属性 `data-koyomi-occurrence` が付き、フォーカス中のイベント行は描画範囲の外に出ても描画され続けます（`data-koyomi-pinned="true"` が付き `tabIndex={-1}` でタブ順から外れます。pinned 日セクションと同じ規則）。日セクションの `aria-label` の件数は描画範囲ではなくその日の全予定件数を表します。
+- **注意**: 仮想化中はブラウザのページ内検索（Ctrl+F）が窓の外の予定（ウィンドウ描画中のセクションでは描画範囲外のイベント行を含む）に届きません。
 
 ### 独自 UI へ組み込む（useVirtualizer）
 
@@ -445,7 +448,7 @@ handleRef.current?.scrollToResource('crane-5');
 
 ## 複数タイムゾーン軸（timeAxisZones）
 
-週/日ビュー（時間グリッド）の時間軸に、表示タイムゾーン以外の時間軸を並べて表示できます（Google カレンダーのセカンダリタイムゾーン相当）。`CalendarOptions.timeAxisZones` に IANA タイムゾーン ID の配列を渡すと、その順番で追加の軸が主軸（表示タイムゾーン）の右に並びます。省略時は主軸のみです。
+週/日ビュー（時間グリッド）・リソースビューの時間軸に、表示タイムゾーン以外の時間軸を並べて表示できます（Google カレンダーのセカンダリタイムゾーン相当）。`CalendarOptions.timeAxisZones` に IANA タイムゾーン ID の配列を渡すと、その順番で追加の軸が主軸（表示タイムゾーン）の右に並びます。省略時は主軸のみです。
 
 ```tsx
 import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
@@ -472,15 +475,51 @@ function App() {
 // - 不正な IANA タイムゾーン ID を含めると Error になる（timeZone と同じ検証規則）
 ```
 
+### 週/日ビュー（TimeGridView）
+
 `buildTimeGridViewModel` の結果（`TimeGridViewModel.timeAxes`）は、先頭が主軸（`slots` と同内容）、以降が `timeAxisZones` の指定順の追加軸です。各追加軸のラベルは、表示範囲の最初の日を基準に主軸の現地時刻を維持した絶対時刻を算出し、それを追加軸のタイムゾーンへ変換して求めます。固定オフセットの加算ではなく実際のタイムゾーン変換のため、その日が追加軸側の DST 切替日であれば、切替前後でラベルのオフセットも正しく変わります。
 
 ただし `TimeGridViewModel.timeAxes` は週全体で 1 組だけ（表示範囲の最初の日基準）を共有するため、`viewType: 'week'` で追加軸のタイムゾーンが表示範囲の途中に DST 切替を挟む場合、切替後の日については実際のオフセットとずれます（`TimeGridView` が単一の軸列しか描画しないための制約）。日ごとに正しいオフセットが必要な場合は各日の `TimeGridDay.timeAxes`（その日自身の 0:00 を基準に個別算出）を使ってください。
 
 `timeAxisZones` 未指定時は `timeAxes`（`TimeGridViewModel` / 各 `TimeGridDay` とも）が主軸のみの 1 要素配列になります。
 
+### リソースビュー（ResourceView / VirtualResourceView）
+
+リソースビューも同じ `timeAxisZones` を共有し、`ResourceViewModel.timeAxes` として週/日ビューと同じ形（先頭が主軸、以降が指定順の追加軸）で参照できます。算出方法・DOM（`data-koyomi="time-axis"` / `timegrid-axis-gutter` と `data-koyomi-timezone` 属性、ヘッダー行の GMT オフセットラベル）も週/日ビューと共通です。
+
+```tsx
+import { CalendarProvider, ResourceView, useCalendar } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
+
+function App() {
+  const calendar = useCalendar({
+    initialView: 'resource',
+    timeZone: 'Asia/Tokyo',
+    timeAxisZones: ['America/New_York'],
+    resources: [{ id: 'room-a', title: '会議室A' }],
+  });
+
+  return (
+    <CalendarProvider value={calendar}>
+      <ResourceView />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - 時間軸に「東京の時刻」列と「NY の時刻」列の 2 本が並ぶ（列見出し・終日行のガター
+//   （[data-koyomi="timegrid-axis-gutter"]）・本文の時間軸（[data-koyomi="time-axis"]）が
+//   いずれも軸数ぶん描画される）
+// - 各軸の DOM には data-koyomi-timezone="<IANA タイムゾーン ID>" が付く
+```
+
+`ResourceViewModel.timeAxes` は表示範囲の先頭日を基準に全列で共有する 1 組の値です。`resourceViewDays` で複数日表示にしている場合、追加軸のタイムゾーンが表示範囲の途中で DST 切替を挟むと、切替後の日については実際のオフセットとずれます（週/日ビューの週表示と同じ制約）。日ごとに正しいオフセットが必要な場合は各日の `ResourceViewDay.timeAxes`（その日自身の 0:00 を基準に個別算出）を使ってください。
+
+`timeAxisZones` 未指定時は `timeAxes`（`ResourceViewModel` / 各 `ResourceViewDay` とも）が主軸のみの 1 要素配列になります。
+
 ## 週番号（showWeekNumbers）
 
-`CalendarOptions.showWeekNumbers`（既定 `false`）を `true` にすると、月ビューは各週行に、週ビューはヘッダー行に ISO 8601 週番号（月曜始まりで数える週番号）が表示されます。
+`CalendarOptions.showWeekNumbers`（既定 `false`）を `true` にすると、月ビュー・複数月ビューは各週行に、週ビューはヘッダー行に ISO 8601 週番号（月曜始まりで数える週番号）が表示されます。
 
 ```tsx
 import { CalendarProvider, MonthView, useCalendar } from '@koyomi-cal/react';
@@ -506,7 +545,7 @@ function App() {
 
 `MonthWeek.weekNumber` / `TimeGridViewModel.weekNumber`（`viewType: 'day'` では常に `null`）としてビューモデルからも参照できます。属性のみを付与するヘッドレスな設計のため、実際に数字を表示するには CSS（`content: attr(data-koyomi-week-number)` 等）や `renderDayCell` 等のカスタム描画スロットを使ってください。`showWeekNumbers` 未指定時（既定）は `weekNumber` が常に `null` で、DOM 属性も出力されません。
 
-複数月ビュー（MultiMonthView）は showWeekNumbers の対象外です。`buildMultiMonthViewModel` は showWeekNumbers を受け取らず内部の `buildMonthViewModel` 呼び出しにも渡さないため、`showWeekNumbers: true` を指定していても各月グリッドの `MonthWeek.weekNumber` は常に `null` のままで、`data-koyomi-week-number` 属性も出力されません。
+複数月ビュー（MultiMonthView）も showWeekNumbers の対象です。`showWeekNumbers: true` を指定すると、表示中の全ての月グリッドで各週行の `MonthWeek.weekNumber` が算出され、`data-koyomi-week-number` 属性も月ビューと同じ規則で出力されます。
 
 ## 営業時間（businessHours）
 
@@ -606,6 +645,8 @@ function App() {
 
 `TimeGridViewModel`/`ResourceViewModel` の `slotMinTimeMinutes`/`slotMaxTimeMinutes`（分換算の数値、既定では `0`/`1440`）としてビューモデルからも参照できます。表示時間帯の外に現在時刻がある場合、`nowIndicator`/`nowIndicatorMinutes` は `null` になります。
 
+終日の帯を `A` キーで時間指定に変換したときの変換先の開始時刻は `slotMinTime` です（詳細は [インタラクション: キーボードのみでの予定操作](./interactions.md#キーボードのみでの予定操作) を参照）。
+
 ## 初期スクロール位置（initialScrollTime / scrollToTime）
 
 週/日ビュー・リソースビューは、マウント時に一度だけ指定時刻の位置へスクロールする `initialScrollTime` prop を持ちます（`CalendarOptions` ではなく、`TimeGridView`/`ResourceView`/`VirtualResourceView` それぞれの props です）。表示時間帯制限（`slotMinTime`/`slotMaxTime`）とは独立して機能し、両方を併用できます。
@@ -682,6 +723,66 @@ function App() {
 `timelineScale` が `'hour'` 以外のとき、終日イベントに加えて時間指定イベントのドラッグ・キーボード操作も日単位スナップ（`daySnap`）になります。ドラッグ中に `updateOptions` で `timelineScale` を変更しても、進行中のセッションには反映されません（次回のドラッグから新しい設定が使われます）。
 
 DOM 上はルート要素に `data-koyomi-scale="hour\|day\|week\|month"` が付き、CSS 変数 `--koyomi-timeline-slot-width`（既定 `96px`。`'hour'` 以外のときの 1 日分の幅）が既存の `--koyomi-timeline-day-width`（`'hour'` のときの 1 日分の幅）と役割分担します。詳細は [テーマとスタイリング](./theming.md) を参照してください。
+
+## タイムライン行内レーンの上限（timelineMaxLanes）
+
+`CalendarOptions.timelineMaxLanes`（既定は未指定 = 無制限。opt-in）で、タイムラインビューの行内に表示する最大レーン数を制限できます。指定すると、行内で時間が重なる帯を積んだ結果このレーン数を超える帯は非表示になり、行末の「+N 件」バッジ（`[data-koyomi="timeline-overflow"]`）に集約されます。行の高さは表示レーン数（あふれ分を除く）にのみ追従するため、多数の予定が同時刻に集中しても行が際限なく伸びなくなります。
+
+```tsx
+import { CalendarProvider, TimelineView, useCalendar } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
+
+function App() {
+  const calendar = useCalendar({
+    initialView: 'timeline',
+    resources: [{ id: 'crane-1', title: 'クレーン1号機' }],
+    timelineMaxLanes: 3,
+  });
+  return (
+    <CalendarProvider value={calendar}>
+      <TimelineView />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - 同時刻に 4 件以上重なる行は先頭 3 件のみ帯として描画される
+// - 4 件目以降は行末に「+N 件」バッジで集約表示される
+```
+
+0 以下・非有限は `1` へ、小数は切り捨てて 1 以上の整数へ正規化されます。ビューモデルでは `TimelineRow.overflowCount`（あふれ件数）・`TimelineRow.hiddenItems`（あふれたオカレンス一覧、開始分昇順）・`TimelineItem.hidden`（個々の帯があふれで非表示かどうか）で参照できます。`TimelineRow.laneCount` は表示レーンのみを数え、あふれ分のレーンは含みません。
+
+「+N 件」バッジの表示内容は `messages.month.overflow` を再利用します（月ビューと同じ「+N 件」文言。専用のメッセージは追加していません）。バッジは非対話の `<span>` で、月ビューの「+N 件」ボタンのようなクリックでの一覧表示・ポップオーバー連携は提供しません（ヘッドレスの判断として、ボタン化やクリック時の一覧表示が必要な場合は `TimelineView`/`VirtualTimelineView` の `renderRowHeader` から `row.overflowCount` / `row.hiddenItems` を参照してアプリ側で実装してください）。
+
+## 終日行のあふれ上限（allDayMaxEvents）
+
+`CalendarOptions.allDayMaxEvents`（既定は未指定 = 無制限。opt-in）で、週/日ビューとリソースビューの終日行に表示する予定の最大数を制限できます。指定すると、超過した分は非表示になり、あふれのある日（リソースビューでは列）の「+N 件」ボタン（`[data-koyomi="allday-overflow"]`）に集約されます。終日行の高さは表示分（あふれ分を除くレーン数＋「+N 件」ボタンの 1 行）にのみ追従するため、同じ日に多数の終日予定が集中しても終日行が際限なく伸びなくなります。
+
+```tsx
+import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
+import '@koyomi-cal/react/theme.css';
+
+function App() {
+  const calendar = useCalendar({
+    initialView: 'week',
+    allDayMaxEvents: 2,
+  });
+  return (
+    <CalendarProvider value={calendar}>
+      <TimeGridView />
+    </CalendarProvider>
+  );
+}
+
+// 期待される動作:
+// - 終日行のレーンが 3 本以上必要な日でも、帯は 2 レーン分だけ描画される
+// - あふれのある日の終日セルに「+N 件」ボタンが表示される
+// - ボタンをクリックするとその日の日ビューに切り替わる（既定動作）
+```
+
+0 以下・非有限は `1` へ、小数は切り捨てて 1 以上の整数へ正規化されます。ビューモデルでは、週/日ビューは `TimeGridDay.allDayOverflowCount`（その日のあふれ件数）と `EventSegment.hidden`（個々の帯があふれで非表示かどうか）で参照できます（`TimeGridViewModel.allDayLaneCount` は表示レーンのみを数えます）。リソースビューは列（リソース × 日）ごとに独立して判定され、`ResourceColumn.allDayItems`（先頭 `allDayMaxEvents` 件に制限された表示分）・`ResourceColumn.hiddenAllDayItems`（あふれたオカレンス一覧）・`ResourceColumn.allDayOverflowCount`（あふれ件数）で参照できます。
+
+「+N 件」ボタンの表示内容は `messages.month.overflow` を再利用します（月ビューと同じ「+N 件」文言。専用のメッセージは追加していません）。クリック時の動作は `callbacks.onAllDayOverflowClick` で差し替えられます（対象の日・ビュー種別（リソースビューでは対象列 `column` も）・非表示のオカレンス一覧・表示中のオカレンス一覧が渡されます）。省略時は、週/日ビューではその日の日ビューに切り替わり（月ビューの `onOverflowClick` の既定と同じ）、リソースビューでは何もしません。ボタンのラベル内容は各ビューの `renderOverflowLabel` prop で差し替えられ、自前ポップオーバーの開閉状態を支援技術に伝える `aria-*` 属性は `overflowButtonProps` prop（`overflowPopoverButtonProps` ヘルパーの戻り値をそのまま返せます）で付与できます（いずれも月ビューの同名 prop と同じ連携面です）。
 
 ## リソースの階層グルーピング（parentId・折りたたみ）
 

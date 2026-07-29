@@ -8,6 +8,9 @@
  *   構成 × ビューごとに {@link RUNS} 回計測し、中央値を採用する
  * - **スクロール性能** — リソース/タイムラインビューのスクロールコンテナを
  *   1 フレームごとに一定量スクロールしたときのフレーム時間（平均・最大）
+ * - **編集操作性能** — `createEvent`/`updateEvent`/`deleteEvent` を
+ *   一定件数ずつ一括実行したときの各フェーズの合計所要時間。構成ごとに
+ *   {@link RUNS} 回計測し、中央値を採用する
  *
  * 結果は `bench/results/latest.json`（機械可読）と `bench/results/latest.md`
  * （`docs/performance.md` へ転記できる Markdown 表）に保存し、標準出力にも表示する。
@@ -21,6 +24,7 @@ import { join } from 'node:path';
 import { test } from '@playwright/test';
 import {
   measureInitialRender,
+  measureMutations,
   measureScroll,
   median,
   type ScrollMetrics,
@@ -68,8 +72,24 @@ interface ScrollResult extends ScrollMetrics {
   direction: string;
 }
 
+/** 編集操作の計測結果 1 行分。 */
+interface MutationResult {
+  kind: 'mutation';
+  events: number;
+  resources: number;
+  /** 一括実行した件数（作成・更新・削除それぞれ）の中央値。 */
+  count: number;
+  /** `createEvent` 一括実行の合計所要時間の中央値（ミリ秒）。 */
+  createMs: number;
+  /** `updateEvent` 一括実行の合計所要時間の中央値（ミリ秒）。 */
+  updateMs: number;
+  /** `deleteEvent` 一括実行の合計所要時間の中央値（ミリ秒）。 */
+  deleteMs: number;
+}
+
 const renderResults: RenderResult[] = [];
 const scrollResults: ScrollResult[] = [];
+const mutationResults: MutationResult[] = [];
 let browserVersion = '';
 
 test.describe.configure({ mode: 'serial' });
@@ -134,10 +154,31 @@ for (const config of CONFIGS) {
       ...metrics,
     });
   });
+
+  test(`編集操作: イベント ${config.events} 件 × リソース ${config.resources} 件`, async ({
+    page,
+  }) => {
+    // ビューは計測結果に影響しない（作成・更新・削除はカレンダーの状態規模
+    // ＝ config.events/config.resources にのみ依存する）ため、初回描画が
+    // 最も軽い list ビューに固定する
+    const samples = [];
+    for (let run = 0; run < RUNS; run += 1) {
+      samples.push(await measureMutations(page, { ...config, view: 'list' }));
+    }
+    mutationResults.push({
+      kind: 'mutation',
+      events: config.events,
+      resources: config.resources,
+      count: median(samples.map((sample) => sample.count)),
+      createMs: median(samples.map((sample) => sample.createMs)),
+      updateMs: median(samples.map((sample) => sample.updateMs)),
+      deleteMs: median(samples.map((sample) => sample.deleteMs)),
+    });
+  });
 }
 
 test.afterAll(() => {
-  if (renderResults.length === 0 && scrollResults.length === 0) {
+  if (renderResults.length === 0 && scrollResults.length === 0 && mutationResults.length === 0) {
     return;
   }
   const cpu = cpus()[0];
@@ -167,6 +208,14 @@ test.afterAll(() => {
         `| ${row.events.toLocaleString('ja-JP')} | ${row.resources.toLocaleString('ja-JP')} | ${row.view} | ${row.direction} | ${row.avgFrameMs.toFixed(1)} | ${row.maxFrameMs.toFixed(1)} |`,
     ),
   ].join('\n');
+  const mutationTable = [
+    '| イベント件数 | リソース件数 | 一括件数 | 作成 (ms) | 更新 (ms) | 削除 (ms) |',
+    '| ---: | ---: | ---: | ---: | ---: | ---: |',
+    ...mutationResults.map(
+      (row) =>
+        `| ${row.events.toLocaleString('ja-JP')} | ${row.resources.toLocaleString('ja-JP')} | ${row.count.toLocaleString('ja-JP')} | ${row.createMs.toFixed(1)} | ${row.updateMs.toFixed(1)} | ${row.deleteMs.toFixed(1)} |`,
+    ),
+  ].join('\n');
 
   const markdown = [
     '# ベンチマーク結果',
@@ -187,6 +236,10 @@ test.afterAll(() => {
     '',
     scrollTable,
     '',
+    `## 編集操作性能（createEvent/updateEvent/deleteEvent の一括実行、${RUNS} 回の中央値）`,
+    '',
+    mutationTable,
+    '',
   ].join('\n');
 
   // `pnpm bench` はリポジトリルートで実行する規約（CLAUDE.md）のため、
@@ -195,7 +248,7 @@ test.afterAll(() => {
   mkdirSync(resultsDir, { recursive: true });
   writeFileSync(
     join(resultsDir, 'latest.json'),
-    `${JSON.stringify({ environment, runs: RUNS, renderResults, scrollResults }, null, 2)}\n`,
+    `${JSON.stringify({ environment, runs: RUNS, renderResults, scrollResults, mutationResults }, null, 2)}\n`,
   );
   writeFileSync(join(resultsDir, 'latest.md'), markdown);
 

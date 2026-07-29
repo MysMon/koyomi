@@ -31,6 +31,40 @@ const VIEW_BUTTON_DEFS: Record<CalendarViewType, { action: string }> = {
  */
 const DEFAULT_TOOLBAR_VIEWS: readonly CalendarViewType[] = ['month', 'week', 'day', 'list'];
 
+/**
+ * {@link ToolbarProps.renderTitle} に渡されるコンテキスト。
+ */
+export interface ToolbarTitleContext {
+  /** 省略時にライブラリが描画する既定の内容（整形済みのタイトル文字列）。 */
+  defaultContent: ReactNode;
+  /** タイトルの対象となっている現在のビュー。 */
+  view: CalendarViewType;
+  /** 整形済みのタイトル文字列（`defaultContent` と同じ内容）。 */
+  title: string;
+}
+
+/**
+ * {@link ToolbarProps.renderNavButtonContent} に渡されるコンテキスト。
+ */
+export interface ToolbarNavButtonContext {
+  /** どのナビゲーションボタンに対する描画か。 */
+  action: 'today' | 'prev' | 'next';
+  /** 省略時にライブラリが描画する既定の内容。 */
+  defaultContent: ReactNode;
+}
+
+/**
+ * {@link ToolbarProps.renderViewButtonContent} に渡されるコンテキスト。
+ */
+export interface ToolbarViewButtonContext {
+  /** ボタンが切り替える対象のビュー。 */
+  view: CalendarViewType;
+  /** このビューが現在選択中か（ボタンの `aria-pressed` と同じ値）。 */
+  active: boolean;
+  /** 省略時にライブラリが描画する既定の内容。 */
+  defaultContent: ReactNode;
+}
+
 /** {@link Toolbar} の props。 */
 export interface ToolbarProps {
   /**
@@ -39,6 +73,67 @@ export interface ToolbarProps {
    * 新ビューのボタンを出す場合はここに含める（例: `['month', 'week', 'day', 'list', 'year']`）。
    */
   views?: readonly CalendarViewType[];
+
+  /**
+   * タイトル（`h2[data-koyomi="title"]`）の内側の内容を差し替える。
+   *
+   * 外側の `<h2>` 要素と `data-koyomi="title"` 属性は保持される（差し替わるのは内側の内容のみ）。
+   * 省略時は整形済みのタイトル文字列がそのまま描画される（既定の見た目は不変）。
+   *
+   * @example タイトルの前にアイコンを添える
+   * ```tsx
+   * <Toolbar
+   *   renderTitle={(ctx) => (
+   *     <>
+   *       <CalendarIcon />
+   *       {ctx.defaultContent}
+   *     </>
+   *   )}
+   * />
+   * ```
+   */
+  renderTitle?: (ctx: ToolbarTitleContext) => ReactNode;
+
+  /**
+   * today/prev/next ナビゲーションボタンの内側の内容を差し替える。
+   *
+   * 外側の `<button>` 要素・`data-koyomi-action` 属性・`aria-label`・クリック配線は
+   * 保持される（差し替わるのは内側の内容のみ）。省略時は既定の内容
+   * （today は `messages.toolbar.today`、prev/next は `‹`/`›`）がそのまま描画される。
+   *
+   * @example prev/next を矢印アイコンに差し替える
+   * ```tsx
+   * <Toolbar
+   *   renderNavButtonContent={(ctx) => {
+   *     if (ctx.action === 'prev') return <ChevronLeftIcon />;
+   *     if (ctx.action === 'next') return <ChevronRightIcon />;
+   *     return ctx.defaultContent;
+   *   }}
+   * />
+   * ```
+   */
+  renderNavButtonContent?: (ctx: ToolbarNavButtonContext) => ReactNode;
+
+  /**
+   * ビュー切替ボタン（`toolbar-views` 配下）の内側の内容を差し替える。
+   *
+   * 外側の `<button>` 要素・`data-koyomi-action` 属性・`aria-pressed`・クリック配線は
+   * 保持される（差し替わるのは内側の内容のみ）。省略時は既定の表示文字列
+   * （`messages.toolbar[view]`）がそのまま描画される。
+   *
+   * @example 選択中のビューのボタンにチェックマークを添える
+   * ```tsx
+   * <Toolbar
+   *   renderViewButtonContent={(ctx) => (
+   *     <>
+   *       {ctx.defaultContent}
+   *       {ctx.active && <CheckIcon />}
+   *     </>
+   *   )}
+   * />
+   * ```
+   */
+  renderViewButtonContent?: (ctx: ToolbarViewButtonContext) => ReactNode;
 }
 
 /**
@@ -91,7 +186,12 @@ export function Toolbar(props: ToolbarProps): ReactElement {
           aria-label={ariaLabelText(toolbarMessages.today)}
           onClick={() => api.today()}
         >
-          {toolbarMessages.today}
+          {props.renderNavButtonContent
+            ? props.renderNavButtonContent({
+                action: 'today',
+                defaultContent: toolbarMessages.today,
+              })
+            : toolbarMessages.today}
         </button>
         <button
           type="button"
@@ -100,7 +200,9 @@ export function Toolbar(props: ToolbarProps): ReactElement {
           aria-label={toolbarMessages.prev}
           onClick={() => api.prev()}
         >
-          ‹
+          {props.renderNavButtonContent
+            ? props.renderNavButtonContent({ action: 'prev', defaultContent: '‹' })
+            : '‹'}
         </button>
         <button
           type="button"
@@ -109,26 +211,34 @@ export function Toolbar(props: ToolbarProps): ReactElement {
           aria-label={toolbarMessages.next}
           onClick={() => api.next()}
         >
-          ›
+          {props.renderNavButtonContent
+            ? props.renderNavButtonContent({ action: 'next', defaultContent: '›' })
+            : '›'}
         </button>
       </div>
-      <h2 data-koyomi="title">{title}</h2>
+      <h2 data-koyomi="title">
+        {props.renderTitle ? props.renderTitle({ defaultContent: title, view, title }) : title}
+      </h2>
       {/* biome-ignore lint/a11y/useSemanticElements: DOM 仕様（components-dom.md）で
           toolbar-views は div[role="group"] と定めている。fieldset はテーマなしでの
           既定描画（枠線・余白）が大きく変わるためヘッドレス用途に不向き */}
       <div data-koyomi="toolbar-views" role="group" aria-label={toolbarMessages.viewsGroup}>
         {(props.views ?? DEFAULT_TOOLBAR_VIEWS).map((buttonView) => {
           const def = VIEW_BUTTON_DEFS[buttonView];
+          const active = view === buttonView;
+          const defaultContent = toolbarMessages[buttonView];
           return (
             <button
               key={buttonView}
               type="button"
               data-koyomi="button"
               data-koyomi-action={def.action}
-              aria-pressed={view === buttonView}
+              aria-pressed={active}
               onClick={() => api.setView(buttonView)}
             >
-              {toolbarMessages[buttonView]}
+              {props.renderViewButtonContent
+                ? props.renderViewButtonContent({ view: buttonView, active, defaultContent })
+                : defaultContent}
             </button>
           );
         })}

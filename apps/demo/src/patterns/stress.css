@@ -59,6 +59,34 @@
   color: var(--demo-muted);
 }
 
+.stress-pattern .stress-mutate-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+}
+
+.stress-pattern .stress-mutate-button {
+  font: inherit;
+  font-size: 13px;
+  color: var(--demo-fg);
+  background-color: var(--demo-surface);
+  border: 1px solid var(--demo-accent);
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.stress-pattern .stress-mutate-button:hover {
+  background-color: color-mix(in srgb, var(--demo-accent) 14%, var(--demo-surface));
+}
+
+.stress-pattern .stress-mutate-result {
+  margin: 0;
+  font-size: 12px;
+  color: var(--demo-muted);
+}
+
 .stress-pattern .stress-calendar-frame {
   background-color: var(--demo-surface);
   border: 1px solid var(--demo-border);

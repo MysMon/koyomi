@@ -9,6 +9,7 @@ Koyomi の各ビューが実装している WAI-ARIA パターン、キーボー
 - 「今日」を表す要素には `aria-current="date"` を、全ビューで一貫して付与します（[今日・現在の状態表現](#今日現在の状態表現) 参照）
 - キーボード操作は Tab/Shift+Tab による通常のフォーカス移動 + フォーカス中の予定・日セルでのショートカット（矢印キーでの移動・リサイズ、Enter/Space での確定・作成）です。APG の grid パターンが定める矢印キーでのセル間移動（roving tabindex）は `CalendarProvider` の `gridNavigation` で有効化できます（既定は無効。[grid 内のキーボードナビゲーション](#grid-内のキーボードナビゲーションgridnavigation) 参照）
 - デフォルトテーマは `prefers-reduced-motion: reduce` に追従し、視差効果を減らす設定のユーザーには `transition` / `animation` を無効化します（詳細は [テーマとスタイリング: motion の削減](./theming.md#motion-の削減prefers-reduced-motion) 参照）
+- 仮想化コンポーネント（`VirtualListView` / `VirtualTimelineView` / `VirtualResourceView`）は可視窓分の要素しか DOM に存在しないため、スクリーンリーダーが全体の集合サイズ・絶対位置を把握できるよう `aria-setsize`/`aria-posinset`・`aria-rowcount`/`aria-rowindex`・`aria-colcount`/`aria-colindex` を付与します。値は仮想化ウィンドウの絶対インデックス由来で、可視窓・pinned のどちらで描画されても振り直されません（詳細は [ビューごとの ARIA パターン](#ビューごとの-aria-パターン) の各ビュー節を参照）
 
 ## ビューごとの ARIA パターン
 
@@ -26,19 +27,22 @@ Koyomi の各ビューが実装している WAI-ARIA パターン、キーボー
 
 - 複数タイムゾーンの軸（`timeAxisZones`）分だけ並ぶ左端の余白列（`timegrid-axis-gutter`）は、見出しでもデータでもない純粋な空きスペースなので `role="presentation"` にします
 - 終日の帯（`allday-event`）は複数日/複数列にまたがり得ますが、DOM 上は**帯が表示範囲内で始まる日の `allday-cell`（`gridcell`）の子**として所有させます（表示範囲より前から続く帯は先頭のセル。ResourceView の終日アイテムと同じ正当なネスト）。帯を `role="presentation"` のレイヤーに置く方式は、レイヤー自身の意味論しか消えず内部の focusable なボタンが grid の子孫として露出したままになるため採用しません。帯ボタンの positioned ancestor はセルではなく `allday-cells`（`position: relative`）なので、視覚上の列スパンはセルの所有関係と無関係に絶対配置で実現されます。範囲選択プレビュー（`day-selection`）も `allday-cells` 直下に置かれ、focusable を含まないため `aria-hidden` でアクセシビリティツリーから除外されます
+- `VirtualResourceView`（列を横方向に仮想化した opt-in 版）は `resource-grid` に `aria-colcount`（総列数）を持ち、`columnheader`（列見出しセル）・`gridcell`（終日セル）には `aria-colindex`（1 始まりの絶対位置）が付きます。値は仮想化ウィンドウの絶対インデックス由来のため、可視窓・pinned のどちらで描画されても振り直されません。見出し行・終日行自体は仮想化されず常に両方 DOM に存在するため、`aria-rowcount`/`aria-rowindex` は付けません（本文の連続時間軸は grid の外側にあるため対象外）
 - **本文（時間軸 + 日/リソース列）は grid 化しません。** 時間指定の予定は「その日/リソースの列内で、開始〜終了分に応じた % 位置に絶対配置される」ため、月ビューの日セルのような「1 つの離散セル」に対応付けられません。行に相当するもの（時刻）を刻み分（`slotMinutes`）ごとの実セルとして DOM 化することも理論上は可能ですが、既存の「列 1 つ = 1 つの `<div>`、予定はその中に絶対配置」という実装を丸ごと再構成する必要があり、ドラッグ操作の座標計算・既存テスト・パフォーマンスへの影響が大きいため見送りました。
-  `role="grid"` の owned elements（実際に子孫として許される要素）は WAI-ARIA の grid パターン上 row / rowgroup に限られます。本文コンテナに `role="presentation"` を付けるだけでは、内部の `<button>`（予定・リサイズハンドル等）はそれ自身の役割を保ったままアクセシビリティツリーに残り、`role="presentation"` の要素は「素通しの層」としてツリーから除かれるため、結果として `<button>` が grid の直接の子孫であるかのように扱われてしまいます（row/rowgroup 以外の要素が grid の子孫になる、無効な構造）。これを避けるため、日ヘッダー行・終日行だけを専用のラッパー要素（`timegrid-grid` / `resource-grid`）にまとめてそこにだけ `role="grid"` を付け、本文（`timegrid-body` / `resource-body`）はこのラッパーの**外側**（兄弟要素）に置いています。本文コンテナ自体には role を付けません（そもそも grid の子孫ではないため、presentation で打ち消す必要がない）。内部の予定ボタン・日/リソースセルは role なし + 完全な `aria-label` で個別に読み上げられます
+  `role="grid"` の owned elements（実際に子孫として許される要素）は WAI-ARIA の grid パターン上 row / rowgroup に限られます。本文コンテナに `role="presentation"` を付けるだけでは、内部の `<button>`（予定・リサイズハンドル等）はそれ自身の役割を保ったままアクセシビリティツリーに残り、`role="presentation"` の要素は「素通しの層」としてツリーから除かれるため、結果として `<button>` が grid の直接の子孫であるかのように扱われてしまいます（row/rowgroup 以外の要素が grid の子孫になる、無効な構造）。これを避けるため、日ヘッダー行・終日行だけを専用のラッパー要素（`timegrid-grid` / `resource-grid`）にまとめてそこにだけ `role="grid"` を付け、本文（`timegrid-body` / `resource-body`）はこのラッパーの**外側**（兄弟要素）に置いています。本文コンテナ自体には role を付けません（そもそも grid の子孫ではないため、presentation で打ち消す必要がない）。内部の予定ボタンは `<button>` + 完全な `aria-label` で個別に読み上げられ、日列（`timegrid-day`）・リソース列（`resource-column`）自体は `role="group"` + `aria-label`（完全な日付・リソース名）のフォーカス可能な要素として、Enter / Space によるキーボード作成の対象になります（[キーボード操作](#キーボード操作) 参照）
 
 ### リストビュー（ListView / VirtualListView）
 
-行・列からなる表形式ではなく、日付ごとに独立した `<section>`（見出し + 予定ボタンの単純な縦並び）の一覧なので、grid パターンは適用しません。仮想化版（`VirtualListView`）は `role="list"` / `role="listitem"` の [ARIA list パターン](https://www.w3.org/WAI/ARIA/apg/patterns/listbox/) 相当の属性を持ちます（非仮想化の `ListView` は素の `<section>` の並びで、明示的な `role="list"` は付けません。文書の一部として自然にセクションの連なりが読み上げられるため）。
+行・列からなる表形式ではなく、日付ごとに独立した `<section>`（見出し + 予定ボタンの単純な縦並び）の一覧なので、grid パターンは適用しません。仮想化版（`VirtualListView`）は `role="list"` / `role="listitem"` の [ARIA list パターン](https://www.w3.org/WAI/ARIA/apg/patterns/listbox/) 相当の属性を持ちます（非仮想化の `ListView` は素の `<section>` の並びで、明示的な `role="list"` は付けません。文書の一部として自然にセクションの連なりが読み上げられるため）。各日セクション（`listitem`）には `aria-setsize`（全日セクション数）と `aria-posinset`（1 始まりの絶対位置）が付き、スクロールで可視窓が変わっても pinned セクションを含め絶対位置を保ちます（値は仮想化ウィンドウの絶対インデックス由来）。
 
 ### タイムラインビュー（TimelineView）
 
 行 = リソース、列 = 時間という構造ですが、週/日・リソースビューと異なり**列が「時間トラック 1 本」の 1 種類しかありません**（日ごとに区切られた離散列を持たない）。そのため各行は「行見出し（`rowheader`）+ 時間トラック（`gridcell`）」という固定 2 セルの単純な形になり、他ビューでは grid 化を見送った「連続時間軸の本文」も含めて `role="grid"` で完全に構成できます。
 
 - ヘッダー行: `timeline-corner`（左上の空き、`role="presentation"`）+ `timeline-axis`（日ヘッダーと時刻目盛りをまとめた 1 つの `columnheader`）
-- 各行: `timeline-resource-header`（`rowheader`）+ `timeline-row`（`gridcell`。中に複数の帯 `<button>` を含む。1 つのセルが複数の focusable な要素を持つこと自体は APG のグリッドパターンで許容されています）
+- 各行: `timeline-resource-header`（`rowheader`）+ `timeline-row`（`gridcell`。リソース名の `aria-label` を持つフォーカス可能なセルで、Enter / Space によるキーボード作成の対象。中に複数の帯 `<button>` を含む。1 つのセルが複数の focusable な要素を持つこと自体は APG のグリッドパターンで許容されています）
+
+行を縦方向に仮想化した opt-in 版（`VirtualTimelineView`）では、外側の `role="grid"` が `aria-rowcount`（ヘッダー行 1 + データ行数）を持ち、ヘッダー行は `aria-rowindex="1"`、各データ行（`timeline-row-group`）は `aria-rowindex`（絶対位置 + 2）を持ちます。値は仮想化ウィンドウの絶対インデックス由来のため、可視窓・pinned のどちらで描画されても振り直されません。
 
 ## 今日・現在の状態表現
 
@@ -57,12 +61,27 @@ Koyomi の各ビューが実装している WAI-ARIA パターン、キーボー
 
 ## キーボード操作
 
-予定の作成・移動・リサイズ・削除に関するキーボード操作の詳細（フォーカス対象ごとのキー割り当て、`resolveRecurringScope` との連携、`editable: false` の扱いなど）は [インタラクション（作成・移動・リサイズ）](./interactions.md#キーボードのみでの予定操作) にまとめています。要点だけ抜粋すると次のとおりです。
+予定の作成・移動・リサイズ・変換・削除に関するキーボード操作の詳細（フォーカス対象ごとのキー割り当て、`resolveRecurringScope` との連携、`editable: false` の扱いなど）は [インタラクション（作成・移動・リサイズ）](./interactions.md#キーボードのみでの予定操作) にまとめています。要点だけ抜粋すると次のとおりです。
 
-- 既定では予定要素・日セルはすべて `tabIndex={0}` で通常の Tab 順に含まれ、フォーカスは実装固有の roving tabindex ではなく**ブラウザ標準のフォーカス移動**に従います
+- 既定では予定要素・日セルに加えて、週/日・リソースビューの時間グリッドの列とタイムラインの行トラックもすべて `tabIndex={0}` で通常の Tab 順に含まれ、フォーカスは実装固有の roving tabindex ではなく**ブラウザ標準のフォーカス移動**に従います
 - フォーカス中の予定に対する矢印キーは「画面上でその方向に動く」操作（移動・リサイズ）に割り当てられており、[インタラクション](./interactions.md#リソースビュータイムラインビューのドラッグ操作) にビューごとの対応表があります
-- ビュー切替・日付移動などのグローバルなショートカットは `useCalendarShortcuts` が提供します（[インタラクション](./interactions.md#キーボードショートカット) 参照）
+- フォーカス中の時間グリッドの列（週/日・リソースビュー）・タイムラインの行トラックの `Enter` / `Space` は時間指定の予定の作成に割り当てられており、既定の即時作成が確定すると新規予定へフォーカスが移ってそのまま矢印キーで調整できます（[インタラクション](./interactions.md#キーボードのみでの予定操作) 参照）
+- 週/日・リソース・タイムラインビューのフォーカス中の予定に対する `A` キーは終日 ⇔ 時間指定の変換に割り当てられています。週/日・リソースビューでは変換ドラッグ（終日行 ⇔ 時間グリッド/リソース列）と同じ操作をキーボードだけで行え、タイムラインビュー（終日の帯が時間指定の帯と同一のレーン空間に並ぶため変換ドラッグを提供しない）では `A` キーがこの変換の唯一の操作手段です（[インタラクション](./interactions.md#キーボードのみでの予定操作) 参照）
+- ビュー切替・日付移動などのグローバルなショートカットは `useCalendarShortcuts` が提供します（[インタラクション](./interactions.md#キーボードショートカット) 参照）。予定にフォーカスがある間に予定側のキー操作（`A` キー等）として認識された keydown は既定動作が抑制されるため、グローバルショートカットと二重には反応しません
 - 日セルを矢印キーで移動する roving tabindex は `CalendarProvider` の `gridNavigation` で有効化できます（[grid 内のキーボードナビゲーション](#grid-内のキーボードナビゲーションgridnavigation) 参照）
+
+## 削除後のフォーカス管理
+
+予定を Delete / Backspace キーで削除すると、削除された要素がアンマウントされてフォーカスがビュー外（`<body>` 等）へ落ちないよう、次の優先順位でフォーカス先を自動的に決めます（設定不要・常に有効）。
+
+1. 削除した予定と同じビュー内で、削除確定前の DOM 順（読み上げ順）で次に位置する予定
+2. 次の予定がなければ、同じ基準で前に位置する予定
+3. 前後どちらの予定もなければ（削除後にそのビューへ予定が 1 件も残らない場合等）、削除位置に最も近い、[grid 内のキーボードナビゲーション](#grid-内のキーボードナビゲーションgridnavigation)の対象セル相当の要素（月・複数月ビューの日セル、週/日ビューの終日セル）
+4. 3 の対象もない場合（週/日ビューの時間グリッド本体、リソースビュー、タイムラインビュー）はフォーカスを移しません
+
+- **対象** — Delete/Backspace で削除できるすべての予定要素（月・複数月ビューの帯、週/日ビューの時間指定の予定・終日の帯、リソースビュー、タイムラインビュー）
+- **DOM 順の判定** — 週をまたぐ帯や複数リソース割当の予定のように、同じ予定が複数の DOM 要素として現れる場合は、削除対象と同じ予定を重複として扱い、次/前の判定から除きます
+- **フォーカス移動の条件** — 削除が実際に適用された場合（`onBeforeEventDelete` 等で拒否されなかった場合）のみフォーカスを移します
 
 ## grid 内のキーボードナビゲーション（gridNavigation）
 
@@ -125,9 +144,41 @@ function App() {
 | 週/日ビュー | 終日セル（本文の時間グリッドは grid 化していないため対象外。[ビューごとの ARIA パターン](#ビューごとの-aria-パターン) 参照） |
 | リソースビューの終日セル・タイムラインビュー | 対象外（[既知の制限](#既知の制限) 参照） |
 
+## 操作拒否の通知（onOperationRejected）
+
+宣言的制約（`eventOverlap`/`eventConstraint`）、または適用前フック（`onBeforeEventChange`/`onBeforeSelectRange`/`onBeforeEventDelete`）によってドラッグ・キーボード操作が拒否されても、ドラッグ操作はその場で静かに終了するだけで、視覚的な変化以外の手がかりがありません。スクリーンリーダー利用者はこの視覚的な変化にも気付けないため、`CalendarInteractionCallbacks.onOperationRejected` で拒否をアプリ側に通知できます。
+
+```tsx
+import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
+import type { OperationRejection } from '@koyomi-cal/react';
+
+function App() {
+  const calendar = useCalendar({ initialView: 'week', eventOverlap: false });
+
+  function onOperationRejected(info: OperationRejection): void {
+    // 例: トーストで理由を知らせる
+    showToast(info.reason === 'constraint' ? '他の予定と重なっています' : '許可されていません');
+  }
+
+  return (
+    <CalendarProvider value={calendar} callbacks={{ onOperationRejected }}>
+      <TimeGridView />
+    </CalendarProvider>
+  );
+}
+```
+
+- **`info.action`** — 拒否された操作の種類（`'move'` / `'resize'` / `'convert'` / `'create'` / `'delete'`）
+- **`info.reason`** — `'constraint'`（宣言的制約違反）または `'rejected'`（適用前フックが `false` を返した）
+- **`info.occurrence`** — 拒否された操作の対象オカレンス。新規作成（`action: 'create'`）の拒否では対象オカレンスがまだ存在しないため省略される
+- **呼ばれないケース** — `resolveRecurringScope` が `null` を返した場合（ユーザー自身によるキャンセル）と、`editable: false` による早期終了（ドラッグ自体が開始されない、削除が行われない）はどちらも拒否ではないため呼ばれない
+- **配線される操作**: `onBeforeEventChange` 等の適用前フックと同じ 4 フック（`useDayDrag` / `useTimeGridDrag` / `useResourceGridDrag` / `useTimelineDrag`）のすべての経路（移動・リサイズ・終日⇔時間指定変換・作成範囲の確定・キーボード操作・削除）で判定されます
+
+`useCalendarAnnouncer` を使っている場合は、この通知の aria-live 読み上げが次の節のとおり自動で行われます。
+
 ## 変更の読み上げ通知（useCalendarAnnouncer）
 
-予定の移動・リサイズ・既定即時作成・削除、およびビュー・基準日・表示範囲の変更を `aria-live` リージョンで通知したい場合は `useCalendarAnnouncer` フックが使えます。`CalendarProvider` の `callbacks` をラップするヘルパーを返し、加えて `calendar` の状態変更を内部で購読する、opt-in のヘッドレスなフックです。
+予定の移動・リサイズ・既定即時作成・削除、操作の拒否（`onOperationRejected`）、およびビュー・基準日・表示範囲の変更を `aria-live` リージョンで通知したい場合は `useCalendarAnnouncer` フックが使えます。`CalendarProvider` の `callbacks` をラップするヘルパーを返し、加えて `calendar` の状態変更を内部で購読する、opt-in のヘッドレスなフックです。
 
 ```tsx
 import { CalendarProvider, CalendarView, useCalendar, useCalendarAnnouncer } from '@koyomi-cal/react';
@@ -155,8 +206,8 @@ function App() {
 //   スタイルで視覚的には非表示になる
 ```
 
-- **自動通知の対象** — `wrapCallbacks` でラップした `onEventChange`（移動・リサイズ・終日⇔時間指定変換）・`onEventDelete`（キーボード削除）・`onSelectRange` 未指定時の既定即時作成、いずれも確定後に通知します（`announce` オプションの `eventChange` / `eventCreate` / `eventDelete` で個別に無効化できます。既定はすべて `true`）。**カスタムの `onSelectRange`（ダイアログ等）を使う経路では、作成が確定したかどうかをアプリ側しか把握できないため自動通知しません**。作成確定時に `announcer.announce(text)` を手動で呼んでください
-- **ビュー変更の通知** — `announce: { viewChange: true }` を指定すると、`calendar` への内部購読によってビュー・基準日・表示範囲の変更後（マウント後の変化のみ。初期マウント自体は通知しません）に自動で通知されます。他の 3 項目と異なり**既定は `false`**（opt-in）です。配線に `useCalendar` の `onRangeChange` は不要です（内部で `calendar.api.subscribe` を直接購読するため、`useCalendar` の `onRangeChange` 枠とは独立です）
+- **自動通知の対象** — `wrapCallbacks` でラップした `onEventChange`（移動・リサイズ・終日⇔時間指定変換）・`onEventDelete`（キーボード削除）・`onSelectRange` 未指定時の既定即時作成・`onOperationRejected`（[操作拒否の通知](#操作拒否の通知onoperationrejected)）、いずれも確定後に通知します（`announce` オプションの `eventChange` / `eventCreate` / `eventDelete` / `rejection` で個別に無効化できます。既定はすべて `true`）。**カスタムの `onSelectRange`（ダイアログ等）を使う経路では、作成が確定したかどうかをアプリ側しか把握できないため自動通知しません**。作成確定時に `announcer.announce(text)` を手動で呼んでください。同様に、4 つのドラッグ系フックを経由しない経路（クリップボード操作等）での操作拒否も自動検知できないため、拒否確定時に `announcer.announceOperationRejected(info)` を手動で呼んでください（`wrapCallbacks` の `onOperationRejected` と同じ文言・同じ `announce.rejection` 判定を使います）
+- **ビュー変更の通知** — `announce: { viewChange: true }` を指定すると、`calendar` への内部購読によってビュー・基準日・表示範囲の変更後（マウント後の変化のみ。初期マウント自体は通知しません）に自動で通知されます。他の項目と異なり**既定は `false`**（opt-in）です。配線に `useCalendar` の `onRangeChange` は不要です（内部で `calendar.api.subscribe` を直接購読するため、`useCalendar` の `onRangeChange` 枠とは独立です）
 - **`politeness`**（既定 `'polite'`）— `'assertive'` にすると `role="alert"` / `aria-live="assertive"` になります
 - **通知文言** — `calendar` の `state.options.locale` から自動的に中央メッセージカタログ（`messages.announcer`）が解決されるため、`useCalendar` の `locale` を切り替えれば通知文言も追従します。`messages`（`MessageCatalogOverrides`）を渡すと `announcer` グループの文言を部分的に上書きできます（`CalendarProvider` の `messages` prop とは独立して解決されるため、揃えたい場合は同じ値を両方に渡してください）。カスタム関数は `eventChanged(change, verb, rangeLabel, resourceLabel)` のように、既に整形済みの日時範囲ラベル・リソース名・変更種別（`EventChangeVerb`）を直接受け取って全文を組み立てます。詳細は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照してください
 - 同一文言の連続通知（同じ予定を同じ内容で 2 回移動した場合等）でも、末尾に不可視トークンが交互に付くことでスクリーンリーダーが再読み上げできます
@@ -227,7 +278,7 @@ WCAG 2.2 の A / AA 達成基準ごとの適合状況の一覧です。ヘッド
 | --- | --- | --- | --- |
 | 1.1.1 非テキストコンテンツ | A | 機械検証済み | 画像は使用せず、装飾要素（現在時刻線・範囲選択プレビュー）は `aria-hidden`。ボタン名の欠落は axe（`button-name`）が検出 |
 | 1.2.1〜1.2.5 時間依存メディア | A/AA | 該当なし | 音声・映像を出力しない |
-| 1.3.1 情報及び関係性 | A | 機械検証済み | grid / list 構造の妥当性は axe（`aria-required-children` 等）に加えて各ビューの結合テストでも検証 |
+| 1.3.1 情報及び関係性 | A | 機械検証済み | grid / list 構造の妥当性は axe（`aria-required-children` 等）に加えて各ビューの結合テストでも検証。仮想化ビューの `aria-setsize`/`aria-posinset`・`aria-rowcount`/`aria-rowindex`・`aria-colcount`/`aria-colindex`（[全体方針](#全体方針)参照）も含む |
 | 1.3.2 意味のある順序 | A | 未検証 | DOM 順が読み上げ順（日付順・時刻順）に一致する設計 |
 | 1.3.3 感覚的な特徴 | A | 該当なし | 形・位置だけに依存する指示文を出力しない |
 | 1.3.4 表示の向き | AA | 該当なし | 画面の向きを固定しない |
@@ -257,7 +308,7 @@ WCAG 2.2 の A / AA 達成基準ごとの適合状況の一覧です。ヘッド
 | 2.5.2 ポインタのキャンセル | A | 単体検証済み | 操作の確定は `pointerup` 時のみ。Escape・`pointercancel` での中断を結合テストで検証 |
 | 2.5.3 名前 (name) のラベル | A | 未検証 | `aria-label` は可視テキスト（タイトル）を先頭に含む形式（axe の該当ルールは experimental のため自動検査対象外） |
 | 2.5.4 動きによる起動 | A | 該当なし | デバイスの動きで起動する機能を持たない |
-| 2.5.7 ドラッグ動作 | AA | 単体検証済み | すべてのドラッグ操作（作成・移動・リサイズ）に単一クリック・キーボード（矢印キー等）の代替がある。結合テストと実ブラウザ E2E で検証 |
+| 2.5.7 ドラッグ動作 | AA | 単体検証済み | すべてのドラッグ操作（作成・移動・リサイズ・終日⇔時間指定変換）に単一クリック・キーボード（矢印キー・`A` キー等）の代替がある。結合テスト（一部は実ブラウザ E2E も）で検証 |
 | 2.5.8 ターゲットのサイズ（最低限） | AA | 機械検証済み | デフォルトテーマの月ビュー（日番号・イベント帯・「+N 件」は高さ 24px 以上）。他ビューの小さなターゲット（タイムラインの折りたたみトグル等）は未検証 |
 | 3.1.1 / 3.1.2 言語 | A/AA | 該当なし | ページの `lang` は利用側の責務。ライブラリの文言はメッセージカタログでロケールに追従する |
 | 3.2.1 フォーカス時 / 3.2.2 入力時 | A | 未検証 | フォーカス・入力だけでは文脈の変化を起こさない設計 |
