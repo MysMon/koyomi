@@ -90,3 +90,51 @@ test('editable: false の予定は矢印キーでも Delete でも変更され�
   await expect(chip).toHaveCount(1);
   await expect(liveRegion(page)).toHaveText('');
 });
+
+test('時間グリッドの日列で Enter を押すと予定が作成され、フォーカスが新規予定へ移る', async ({
+  page,
+}) => {
+  // 「ヘッドレス」パターンは onSelectRange を指定しないため、Enter 作成は
+  // 既定の即時作成（createDefaultEvent）を経由し、確定後に新規予定の要素へ
+  // フォーカスが移る（onSelectRange 自前実装の #/basic では委譲されフォーカス移動はない）
+  await page.getByRole('link', { name: /ヘッドレス/ }).click();
+  await page.locator('[data-koyomi-action="view-week"]').click();
+
+  const today = page.locator('[data-koyomi="timegrid-day"][data-today="true"]');
+  await today.focus();
+  await page.keyboard.press('Enter');
+
+  const created = timegridEvent(page, '(タイトルなし)');
+  await expect(created).toBeVisible();
+  await expect(created).toBeFocused();
+  // 作成範囲は slotMinTime（既定 0:00）から defaultEventMinutes（既定 60 分）分
+  await expect(created).toHaveAttribute('aria-label', /0:00〜1:00/);
+});
+
+test('フォーカス中の時間指定の予定で A キーを押すと終日イベントに変換される', async ({ page }) => {
+  const chip = timegridEvent(page, '商談: A社様');
+  await expect(chip).toHaveAttribute('aria-label', /10:00〜11:00/);
+
+  await chip.focus();
+  await page.keyboard.press('a');
+
+  // 時間グリッドの帯は消え、終日行の帯として作り直される
+  await expect(timegridEvent(page, '商談: A社様')).toHaveCount(0);
+  await expect(
+    page.locator('[data-koyomi="allday-event"]', { hasText: '商談: A社様' }),
+  ).toBeVisible();
+});
+
+test('同時刻に重なる予定を Delete で削除すると、フォーカスが同じビュー内の別の予定へ移る', async ({
+  page,
+}) => {
+  // 「商談: A社様」「採用面接」は今日 10:00〜11:00 に重なるサンプル予定
+  const first = timegridEvent(page, '商談: A社様');
+  const second = timegridEvent(page, '採用面接');
+
+  await first.focus();
+  await page.keyboard.press('Delete');
+
+  await expect(first).toHaveCount(0);
+  await expect(second).toBeFocused();
+});

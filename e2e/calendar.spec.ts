@@ -322,26 +322,66 @@ test('VirtualTimelineView の横スクロールで時間軸の窓が追従し、
 /** axe の検査対象タグ（WCAG 2.0 / 2.1 / 2.2 の A・AA）。 */
 const AXE_WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
-test('主要画面に WCAG 2.0/2.1/2.2 A/AA の自動検出違反がない', async ({ page }) => {
-  // 5 タグ分の走査（特に target-size の近接ターゲット判定）はイベント数に比例して
-  // 時間がかかり、ライト・ダークの 2 回で既定の 30 秒を超えるため延長する
-  test.setTimeout(120_000);
-  // CSS transition を無効化してから走査する。テーマ切替直後は background-color の
-  // 遷移中で、axe が「切替後の文字色 × 遷移途中の背景色」という実在しない
-  // 組み合わせのコントラストを検出してしまうため、確定後の配色のみを検査対象にする
-  await page.addStyleTag({
-    content: '*, *::before, *::after { transition: none !important; }',
-  });
-  const lightResults = await new AxeBuilder({ page })
-    .withTags(AXE_WCAG_TAGS)
-    .exclude('[data-koyomi="timegrid-now-indicator"]')
-    .analyze();
-  expect(lightResults.violations).toEqual([]);
+/**
+ * #/basic の全 8 ビューぶんの `data-koyomi-action` とテスト名用の表示名。
+ *
+ * `disableRules` は、そのビューで恒常的に無効化する axe ルール（`docs/accessibility.md`
+ * の WCAG 2.2 適合状況表に記載の、機械検証の対象外とする既知の設計上の理由がある
+ * 項目のみ）。週/日ビューの終日行・タイムラインビューの帯は下記のとおり
+ * `target-size`（2.5.8）が構造的に検証不能なため対象外にする。
+ *
+ * - 週/日ビュー（`allday-cell`） — 終日セル（`role="gridcell"`）は空き領域クリックで
+ *   終日イベントを作成するための独立したポインタ/キーボードターゲットだが、
+ *   その日の全終日レーンが（オーバーフローの余白なく）既存の帯で埋まっている日は、
+ *   セル自身の露出領域がレーン間の 2px の視覚的な区切り分しか残らない
+ *   （覆っている帯自体は 24px 四方を満たす正当なターゲット）。空き領域が実在しない
+ *   以上、セルの独立ターゲットとしての露出面積を確保しようがない
+ * - タイムラインビュー（`timeline-item`） — 帯の幅は開始・終了時刻に比例する
+ *   位置情報そのもの（Essential Exception 相当）で、短時間の予定は自然に
+ *   24px を下回る。幅を強制的に広げると隣接する帯と視覚的に重なり、
+ *   時刻の表現が壊れる
+ */
+const AXE_VIEWS: readonly { action: string; label: string; disableRules?: readonly string[] }[] = [
+  { action: 'view-month', label: '月' },
+  { action: 'view-week', label: '週', disableRules: ['target-size'] },
+  { action: 'view-day', label: '日', disableRules: ['target-size'] },
+  { action: 'view-list', label: 'リスト' },
+  { action: 'view-year', label: '年' },
+  { action: 'view-multimonth', label: '複数月' },
+  { action: 'view-resource', label: 'リソース' },
+  { action: 'view-timeline', label: 'タイムライン', disableRules: ['target-size'] },
+];
 
-  await page.getByRole('button', { name: /ダークモード/ }).click();
-  const darkResults = await new AxeBuilder({ page })
-    .withTags(AXE_WCAG_TAGS)
-    .exclude('[data-koyomi="timegrid-now-indicator"]')
-    .analyze();
-  expect(darkResults.violations).toEqual([]);
-});
+for (const { action, label, disableRules } of AXE_VIEWS) {
+  test(`${label}ビューに WCAG 2.0/2.1/2.2 A/AA の自動検出違反がない`, async ({ page }) => {
+    // 5 タグ分の走査（特に target-size の近接ターゲット判定）はイベント数に比例して
+    // 時間がかかり、ライト・ダークの 2 回で既定の 30 秒を超えるため延長する
+    test.setTimeout(120_000);
+    await page.locator(`[data-koyomi-action="${action}"]`).click();
+
+    // CSS transition を無効化してから走査する。テーマ切替直後は background-color の
+    // 遷移中で、axe が「切替後の文字色 × 遷移途中の背景色」という実在しない
+    // 組み合わせのコントラストを検出してしまうため、確定後の配色のみを検査対象にする
+    await page.addStyleTag({
+      content: '*, *::before, *::after { transition: none !important; }',
+    });
+    const lightBuilder = new AxeBuilder({ page })
+      .withTags(AXE_WCAG_TAGS)
+      .exclude('[data-koyomi="timegrid-now-indicator"]');
+    if (disableRules !== undefined) {
+      lightBuilder.disableRules([...disableRules]);
+    }
+    const lightResults = await lightBuilder.analyze();
+    expect(lightResults.violations).toEqual([]);
+
+    await page.getByRole('button', { name: /ダークモード/ }).click();
+    const darkBuilder = new AxeBuilder({ page })
+      .withTags(AXE_WCAG_TAGS)
+      .exclude('[data-koyomi="timegrid-now-indicator"]');
+    if (disableRules !== undefined) {
+      darkBuilder.disableRules([...disableRules]);
+    }
+    const darkResults = await darkBuilder.analyze();
+    expect(darkResults.violations).toEqual([]);
+  });
+}
