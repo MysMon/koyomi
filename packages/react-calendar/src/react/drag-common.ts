@@ -25,6 +25,10 @@
  * - {@link checkBeforeEventChange} / {@link checkBeforeSelectRange} /
  *   {@link checkBeforeEventDelete} — 適用前フック（`onBeforeEventChange` 等）の
  *   判定（4フック共通。`use-day-drag.ts` を含む）
+ * - {@link reportOperationRejected} — 拒否通知 `onOperationRejected` の呼び出し
+ *   （4フック共通。`isDragCandidateValid` が `false` を返した箇所（`reason: 'constraint'`）、
+ *   および適用前フックが `false` を返した箇所（`reason: 'rejected'`）の両方、
+ *   拒否が確定した直後（早期 return の直前）から呼ぶ）
  * - {@link autoScrollVelocity} — オートスクロールの速度計算（3フック共通）
  * - {@link createAutoScrollLoop} — オートスクロールの rAF ループ管理（3フック共通。
  *   軸（縦/横）だけが違う）
@@ -36,6 +40,13 @@
  * - {@link createDefaultEvent} — `onSelectRange` 未指定時の既定即時作成
  *   （3フックに加え `use-day-drag.ts` と `use-calendar-announcer.ts` も含む 5 箇所共通。
  *   タイトル・`allDay` / `resourceId` の付与規則をここに集約し、複製を禁止する）
+ * - {@link captureOccurrenceDeleteFocusContext} / {@link createOccurrenceDeleteFocusController} —
+ *   キーボード削除後のフォーカス管理（4フック共通。`use-day-drag.ts` を含む）
+ * - {@link originatesFromOccurrenceElement} — 列/行/セルへバブルしてきたイベントが、
+ *   内側にネストされた予定要素（`data-koyomi-occurrence`）由来かどうかの判定
+ *   （3フックのキーボード作成の二重処理防止で共通）
+ * - {@link createCreatedEventFocusController} — キーボード作成による既定即時作成の
+ *   確定後、新規予定の要素へフォーカスを移す管理（3フック共通）
  *
  * 逆に、`startSession` 本体（`DragSession` の構造・pointermove 時の座標→日時変換や
  * レーン追従ロジック・`cancelSession`/`commitSession` の中身）は意図的に共通化して
@@ -54,12 +65,19 @@ import type {
   CalendarApi,
   CalendarEvent,
   DateRange,
+  EventChangeEntry,
   EventOccurrence,
   RecurringEditScope,
   TimeZoneId,
 } from '../core/types';
 import { resourceIdFromLaneKey } from '../core/views/lane-key';
-import type { CalendarInteractionCallbacks, EventChangeProposal, RangeSelection } from './types';
+import type {
+  CalendarInteractionCallbacks,
+  EventChangeProposal,
+  EventCreateInfo,
+  OperationRejection,
+  RangeSelection,
+} from './types';
 
 /**
  * オカレンスの代表レーンのリソース ID（未割り当ては `null`）を返す。
@@ -391,6 +409,29 @@ export function checkBeforeEventDelete(
 }
 
 /**
+ * 拒否通知 `onOperationRejected` を呼ぶ（未指定なら何もしない）。
+ *
+ * `isDragCandidateValid` が `false` を返した箇所（`reason: 'constraint'`）と、
+ * `checkBeforeEventChange` / `checkBeforeSelectRange` / `checkBeforeEventDelete` が
+ * `false` を返した箇所（`reason: 'rejected'`）の両方で、4 つのドラッグ系フックが
+ * 拒否が確定した直後（早期 return の直前）から呼ぶ。
+ *
+ * `resolveRecurringScope` が `null` を返した場合（繰り返しスコープの選択を
+ * ユーザーがキャンセルした場合）や `editable: false` による早期終了では呼ばない
+ * （拒否ではなくユーザー自身によるキャンセル、または操作自体が開始されないため）。
+ *
+ * @param callbacks - インタラクションコールバック。`onOperationRejected` が
+ *   未指定なら何もしない
+ * @param rejection - 拒否の内容
+ */
+export function reportOperationRejected(
+  callbacks: CalendarInteractionCallbacks | undefined,
+  rejection: OperationRejection,
+): void {
+  callbacks?.onOperationRejected?.(rejection);
+}
+
+/**
  * ドラッグ中のポインタ位置からオートスクロールの速度を計算する。
  *
  * 軸に依存しない（呼び出し側がどちらの軸で使うかを決める）。`pointer` がスクロール
@@ -628,6 +669,9 @@ const FALLBACK_DEFAULT_EVENT_TITLE = '(タイトルなし)';
  * タイトル・`allDay` / `resourceId` の付与規則をここに集約し、複製を禁止する
  * （呼び出し元ごとに個別実装すると、将来これらの扱いが変わったときに乖離するため）。
  *
+ * `callbacks.onEventCreate`（{@link CalendarInteractionCallbacks.onEventCreate}）が
+ * 指定されている場合、作成後に undo 対応用の `changes` を組み立てて呼ぶ。
+ *
  * @param api - 対象カレンダーの `CalendarApi`
  * @param selection - 作成する範囲・終日フラグ・（リソース/タイムラインビューでの）対象レーンの
  *   リソース ID。`resourceId` を省略（`undefined`）した場合はリソース対象外ビュー、
@@ -635,19 +679,278 @@ const FALLBACK_DEFAULT_EVENT_TITLE = '(タイトルなし)';
  *   （文字列の場合のみ含める）
  * @param defaultEventTitle - 作成するイベントのタイトル。省略時は `'(タイトルなし)'`
  *   （呼び出し元は中央メッセージカタログの `common.untitledEvent` を渡す）
+ * @param callbacks - `onEventCreate` の呼び出しに使うインタラクションコールバック
  * @returns 作成されたイベント
  */
 export function createDefaultEvent(
   api: CalendarApi,
   selection: RangeSelection,
   defaultEventTitle: string = FALLBACK_DEFAULT_EVENT_TITLE,
+  callbacks?: CalendarInteractionCallbacks,
 ): CalendarEvent {
   const { range, allDay, resourceId } = selection;
-  return api.createEvent({
+  const created = api.createEvent({
     title: defaultEventTitle,
     start: range.start,
     end: range.end,
     ...(allDay ? { allDay: true } : {}),
     ...(typeof resourceId === 'string' ? { resourceId } : {}),
   });
+  const onEventCreate = callbacks?.onEventCreate;
+  if (onEventCreate !== undefined) {
+    const changes: readonly EventChangeEntry[] = [
+      { after: created, index: api.getEvents().length - 1 },
+    ];
+    const info: EventCreateInfo = { event: created, changes, selection };
+    onEventCreate(info);
+  }
+  return created;
+}
+
+/**
+ * フォーカス移動先になり得るセル要素のセレクタ。`use-grid-navigation.ts` の
+ * 非公開定数 `FOCUSABLE_CELL_SELECTOR` と同じ対象
+ * （月・複数月ビューの日セル、週/日ビューの終日セル、年ビューの日ボタン）を指す。
+ *
+ * オカレンス削除後のフォーカス復帰（{@link captureOccurrenceDeleteFocusContext}）専用に
+ * ここへ複製する。`use-grid-navigation.ts` はビルトインビュー専用の非公開モジュールで
+ * この定数を export していないため import できない。対象セルの仕様を変える際は
+ * 両ファイルを同期させること。
+ */
+const FOCUSABLE_CELL_SELECTOR = [
+  '[data-koyomi="month-day"][data-koyomi-date]',
+  '[data-koyomi="allday-cell"][data-koyomi-date]',
+  '[data-koyomi="year-day"][data-koyomi-date]:not([data-outside])',
+].join(', ');
+
+/**
+ * キーボード削除後のフォーカス復帰に使う、削除確定前に記録しておく情報。
+ * {@link captureOccurrenceDeleteFocusContext} で作り、
+ * {@link OccurrenceDeleteFocusController.arm} に渡す。
+ */
+export interface OccurrenceDeleteFocusContext {
+  /** 削除対象オカレンスが属するビューのルート要素。削除後の再検索の基点にする。 */
+  readonly viewRoot: Element;
+  /**
+   * ビュールート内で削除対象の次に位置する予定のキー（無ければ `null`）。
+   * 削除対象と同じキーの要素（月ビューの週またぎの帯・複数リソース割当のオカレンス等、
+   * 同じオカレンスが複数の DOM 要素を持つ場合）は重複排除した上で前後を求める。
+   */
+  readonly nextKey: string | null;
+  /** ビュールート内で削除対象の前に位置する予定のキー（無ければ `null`）。 */
+  readonly prevKey: string | null;
+  /**
+   * 削除対象の位置から最も近い、フォーカス移動先になり得るセル（{@link FOCUSABLE_CELL_SELECTOR}
+   * に一致する祖先要素）。無ければ `null`。
+   */
+  readonly fallbackCell: HTMLElement | null;
+}
+
+/**
+ * 削除確定前に、キーボード削除後のフォーカス復帰に必要な情報を記録する。
+ *
+ * `target` から最も近い `viewRootSelector` に一致するビュールート要素を探し、その内側の
+ * `[data-koyomi-occurrence]` を DOM 順に列挙する（キーの重複は最初の出現だけを残す）。
+ * 削除対象キー（`occurrenceKey`）の直前・直後のキーを「前の予定」「次の予定」の候補として
+ * 記録し、削除確定後（{@link createOccurrenceDeleteFocusController} 経由）に実際の
+ * フォーカス移動へ使う。
+ *
+ * ビュールートが見つからない場合は `null` を返す。呼び出し元はこの場合フォーカス復帰を
+ * 行わない（`onKeyDownCapture` 等の想定外の DOM 構造からの呼び出しへの安全策）。
+ *
+ * @param params.target - 削除を発生させたキーボード操作イベントの `target`
+ * @param params.occurrenceKey - 削除対象オカレンスのキー
+ * @param params.viewRootSelector - ビュールート要素を特定するセレクタ（呼び出し元のビューの
+ *   `data-koyomi` 属性値。複数候補がある場合はカンマ区切り）
+ * @returns 記録したコンテキスト。ビュールートが見つからなければ `null`
+ */
+export function captureOccurrenceDeleteFocusContext(params: {
+  target: EventTarget | null;
+  occurrenceKey: string;
+  viewRootSelector: string;
+}): OccurrenceDeleteFocusContext | null {
+  const { target, occurrenceKey, viewRootSelector } = params;
+  if (!(target instanceof Element)) {
+    return null;
+  }
+  const viewRoot = target.closest(viewRootSelector);
+  if (viewRoot === null) {
+    return null;
+  }
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  for (const element of Array.from(viewRoot.querySelectorAll('[data-koyomi-occurrence]'))) {
+    const key = element.getAttribute('data-koyomi-occurrence');
+    if (key !== null && !seen.has(key)) {
+      seen.add(key);
+      keys.push(key);
+    }
+  }
+  const index = keys.indexOf(occurrenceKey);
+  const nextKey = index >= 0 ? (keys[index + 1] ?? null) : null;
+  const prevKey = index >= 0 ? (keys[index - 1] ?? null) : null;
+  return {
+    viewRoot,
+    nextKey,
+    prevKey,
+    fallbackCell: target.closest<HTMLElement>(FOCUSABLE_CELL_SELECTOR),
+  };
+}
+
+/**
+ * `viewRoot` 内で `key` に一致する `[data-koyomi-occurrence]` 要素を探す。
+ * 見つからなければ `null`（削除によりその予定自体が消えた場合を含む）。
+ */
+function findOccurrenceElementByKey(viewRoot: Element, key: string): HTMLElement | null {
+  for (const element of Array.from(
+    viewRoot.querySelectorAll<HTMLElement>('[data-koyomi-occurrence]'),
+  )) {
+    if (element.getAttribute('data-koyomi-occurrence') === key) {
+      return element;
+    }
+  }
+  return null;
+}
+
+/**
+ * 削除後、次の予定 → 前の予定 → 削除位置から最も近い FOCUSABLE セル → 何もしない、
+ * の優先順でフォーカスを移す（{@link createOccurrenceDeleteFocusController} 内部専用）。
+ * DOM 更新完了後（呼び出し元の `useLayoutEffect`）に呼ばれる前提のため、
+ * `nextKey`/`prevKey` は再レンダー後の DOM から探し直す。
+ */
+function focusAfterOccurrenceDelete(context: OccurrenceDeleteFocusContext): void {
+  const { viewRoot, nextKey, prevKey, fallbackCell } = context;
+  const next = nextKey === null ? null : findOccurrenceElementByKey(viewRoot, nextKey);
+  if (next !== null) {
+    next.focus({ preventScroll: true });
+    return;
+  }
+  const prev = prevKey === null ? null : findOccurrenceElementByKey(viewRoot, prevKey);
+  if (prev !== null) {
+    prev.focus({ preventScroll: true });
+    return;
+  }
+  if (fallbackCell?.isConnected) {
+    fallbackCell.focus({ preventScroll: true });
+  }
+}
+
+/** {@link createOccurrenceDeleteFocusController} が返すコントローラ。 */
+export interface OccurrenceDeleteFocusController {
+  /**
+   * 削除が実際に適用された直後（`api.deleteEvent` 呼び出しの直後、`await` を挟まず
+   * 同じ同期区間内）に呼ぶ。次の再レンダー（DOM 更新）後に一度だけフォーカス解決を
+   * 試みるよう予約する。`context` が `null` なら何も予約しない
+   * （{@link captureOccurrenceDeleteFocusContext} がビュールートを見つけられなかった場合）。
+   */
+  arm(context: OccurrenceDeleteFocusContext | null): void;
+  /**
+   * 予約されたフォーカス解決を消費する。呼び出し元フックの、依存配列なし（＝毎レンダー
+   * 実行される）の `useLayoutEffect` から呼ぶこと（`virtual-resource-view.tsx` の
+   * pinned フォーカス復元と同じ「DOM 更新完了後まで待つ」パターン）。予約がなければ
+   * 何もしない。
+   */
+  consume(): void;
+}
+
+/**
+ * オカレンス削除後のフォーカス復帰を管理するコントローラを作る。
+ *
+ * 4 つのドラッグ系フック（`use-day-drag` / `use-time-grid-drag` / `use-resource-grid-drag` /
+ * `use-timeline-drag`）が `useRef(createOccurrenceDeleteFocusController())` で 1 つ保持する。
+ *
+ * @returns 空のコントローラ（未予約の状態）
+ */
+export function createOccurrenceDeleteFocusController(): OccurrenceDeleteFocusController {
+  let pending: OccurrenceDeleteFocusContext | null = null;
+  return {
+    arm(context: OccurrenceDeleteFocusContext | null): void {
+      pending = context;
+    },
+    consume(): void {
+      if (pending === null) {
+        return;
+      }
+      const context = pending;
+      pending = null;
+      focusAfterOccurrenceDelete(context);
+    },
+  };
+}
+
+/**
+ * 列/行/セルへバブルしてきたイベントが、内側にネストされた予定要素
+ * （`data-koyomi-occurrence` 属性を持つ要素）由来かどうかを判定する。
+ *
+ * 予定要素側のキー操作（Enter/Space によるクリック相当等）は伝播を止めない
+ * （カレンダー外側の祖先の利用側リスナーへそのまま届ける方針）ため、列/行/セル側が
+ * この判定でイベントの由来を確認し、自身のキーボード作成として二重処理しないようにする
+ * （`use-day-drag.ts` のセルと同じ規則）。
+ *
+ * @param target - 列/行/セルの keydown / pointerdown イベントの `target`
+ * @returns 予定要素（またはその子孫）由来なら `true`
+ */
+export function originatesFromOccurrenceElement(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('[data-koyomi-occurrence]') !== null;
+}
+
+/**
+ * キーボード作成による既定即時作成の確定後、新規予定の要素へフォーカスを移すために
+ * 作成確定時に記録しておく情報。{@link CreatedEventFocusController.arm} に渡す。
+ */
+export interface CreatedEventFocusContext {
+  /** 作成操作が行われたビューのルート要素。作成後の要素検索の基点にする。 */
+  readonly viewRoot: Element;
+  /**
+   * 作成されたイベントの先頭オカレンスのキー。既定即時作成は単発イベントを作るため、
+   * `occurrenceKey(作成イベントの id, 作成範囲の start)`（`core/expansion.ts`）で求まる。
+   */
+  readonly occurrenceKey: string;
+}
+
+/** {@link createCreatedEventFocusController} が返すコントローラ。 */
+export interface CreatedEventFocusController {
+  /**
+   * 既定即時作成（{@link createDefaultEvent}）が適用された直後（`await` を挟まず同じ
+   * 同期区間内）に呼ぶ。次の再レンダー（DOM 更新）後に一度だけフォーカス移動を
+   * 試みるよう予約する。`context` が `null` なら何も予約しない。
+   */
+  arm(context: CreatedEventFocusContext | null): void;
+  /**
+   * 予約されたフォーカス移動を消費する。呼び出し元フックの、依存配列なし（＝毎レンダー
+   * 実行される）の `useLayoutEffect` から呼ぶこと
+   * （{@link OccurrenceDeleteFocusController.consume} と同じパターン）。予約がなければ
+   * 何もしない。対象キーの要素が見つからない場合（`onBeforeSelectRange` 以降に
+   * イベントが消えた場合等）はフォーカスを移さない。
+   */
+  consume(): void;
+}
+
+/**
+ * キーボード作成による既定即時作成の確定後のフォーカス移動を管理するコントローラを作る。
+ *
+ * キーボード作成を持つ 3 つのドラッグ系フック（`use-time-grid-drag` /
+ * `use-resource-grid-drag` / `use-timeline-drag`）が
+ * `useRef(createCreatedEventFocusController())` で 1 つ保持する。ポインタの作成経路では
+ * 予約しない（フォーカス移動はキーボード作成の既定即時作成が成功したときのみ）。
+ *
+ * @returns 空のコントローラ（未予約の状態）
+ */
+export function createCreatedEventFocusController(): CreatedEventFocusController {
+  let pending: CreatedEventFocusContext | null = null;
+  return {
+    arm(context: CreatedEventFocusContext | null): void {
+      pending = context;
+    },
+    consume(): void {
+      if (pending === null) {
+        return;
+      }
+      const context = pending;
+      pending = null;
+      findOccurrenceElementByKey(context.viewRoot, context.occurrenceKey)?.focus({
+        preventScroll: true,
+      });
+    },
+  };
 }

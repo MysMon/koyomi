@@ -53,6 +53,7 @@ function Harness(props: {
   callbacks?: CalendarInteractionCallbacks;
   dayMaxEvents?: number;
   hiddenWeekdays?: readonly Weekday[];
+  showWeekNumbers?: boolean;
   multiMonthCount?: number;
   renderEvent?: (segment: EventSegment, ctx: EventContentContext) => ReactElement;
   renderDayCell?: (day: MonthDay, ctx: SlotRenderContext) => ReactNode;
@@ -76,6 +77,7 @@ function Harness(props: {
     // 未指定時はキー自体を省く（month-view.test.tsx の Harness と同じ方針）
     ...(props.dayMaxEvents !== undefined ? { dayMaxEvents: props.dayMaxEvents } : {}),
     ...(props.hiddenWeekdays !== undefined ? { hiddenWeekdays: props.hiddenWeekdays } : {}),
+    ...(props.showWeekNumbers !== undefined ? { showWeekNumbers: props.showWeekNumbers } : {}),
     ...(props.multiMonthCount !== undefined ? { multiMonthCount: props.multiMonthCount } : {}),
   });
   // apiRef 経由でテストから calendar.api を直接参照できるようにする
@@ -656,5 +658,24 @@ describe('MultiMonthView - クリック操作', () => {
       new Date('2026-07-09T15:00:00Z').getTime(), // 2026-07-10 0:00 JST
     );
     expect(apiRef.current?.getState().view).toBe('multiMonth');
+  });
+});
+
+describe('MultiMonthView - showWeekNumbers（週番号）', () => {
+  it('省略時（既定 false）は data-koyomi-week-number 属性が付かない', () => {
+    const { container } = render(<Harness />);
+    expect(container.querySelectorAll('[data-koyomi-week-number]')).toHaveLength(0);
+  });
+
+  it('true にすると全月の各週行に data-koyomi-week-number 属性が付く（2026-07 は第27〜31週）', () => {
+    const { container } = render(<Harness showWeekNumbers multiMonthCount={1} />);
+    const weeks = container.querySelectorAll('[data-koyomi="month-week"]');
+    expect(Array.from(weeks).map((week) => week.getAttribute('data-koyomi-week-number'))).toEqual([
+      '27',
+      '28',
+      '29',
+      '30',
+      '31',
+    ]);
   });
 });

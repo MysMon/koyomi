@@ -22,6 +22,12 @@ import { Toolbar } from './toolbar';
 /** テスト用の固定「現在時刻」。東京の 2026-07-15 10:00。 */
 const NOW = new Date('2026-07-15T01:00:00Z');
 
+/** render props（`renderTitle` 等）のうちテストで使うものだけを束ねた型。 */
+type ToolbarRenderProps = Pick<
+  ToolbarProps,
+  'renderTitle' | 'renderNavButtonContent' | 'renderViewButtonContent'
+>;
+
 /**
  * `useCalendar` を呼び出し `Toolbar` を包んで描画するテスト用ラッパ。
  * `capture.current` から最新の `UseCalendarResult` を取得できる。
@@ -33,6 +39,7 @@ function renderToolbar(
   multiMonthCount?: number,
   timelineDays?: number,
   locale?: string,
+  renderProps?: ToolbarRenderProps,
 ) {
   const capture: { current: UseCalendarResult | null } = { current: null };
 
@@ -50,7 +57,7 @@ function renderToolbar(
     capture.current = calendar;
     return (
       <CalendarProvider value={calendar} {...(messages !== undefined ? { messages } : {})}>
-        <Toolbar {...(views !== undefined ? { views } : {})} />
+        <Toolbar {...(views !== undefined ? { views } : {})} {...(renderProps ?? {})} />
       </CalendarProvider>
     );
   }
@@ -478,5 +485,151 @@ describe('Toolbar', () => {
     const { container } = renderToolbar('week', { common: { rangeSeparator: ' – ' } });
     const title = container.querySelector('[data-koyomi="title"]');
     expect(title?.textContent).toBe('7月12日 – 7月18日');
+  });
+
+  describe('renderTitle（タイトルの内側の内容を差し替える render prop）', () => {
+    it('renderTitle を指定すると渡された ctx（defaultContent/view/title）でタイトルの内側を差し替えられる', () => {
+      const { container } = renderToolbar(
+        'month',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          renderTitle: (ctx) => `[${ctx.view}] ${ctx.defaultContent} / ${ctx.title}`,
+        },
+      );
+      const title = container.querySelector('[data-koyomi="title"]');
+      expect(title?.textContent).toBe('[month] 2026年7月 / 2026年7月');
+    });
+
+    it('renderTitle を指定しても外側の h2 要素と data-koyomi="title" 属性は保持される', () => {
+      const { container } = renderToolbar(
+        'month',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          renderTitle: (ctx) => <strong>{ctx.defaultContent}</strong>,
+        },
+      );
+      const title = container.querySelector('[data-koyomi="title"]');
+      expect(title?.tagName).toBe('H2');
+      expect(title?.querySelector('strong')?.textContent).toBe('2026年7月');
+    });
+
+    it('renderTitle 省略時は既定のタイトル文字列がそのまま描画される（回帰）', () => {
+      const { container } = renderToolbar('month');
+      const title = container.querySelector('[data-koyomi="title"]');
+      expect(title?.textContent).toBe('2026年7月');
+    });
+  });
+
+  describe('renderNavButtonContent（today/prev/next ボタンの内側の内容を差し替える render prop）', () => {
+    it('renderNavButtonContent を指定すると today/prev/next それぞれの ctx.action と ctx.defaultContent が渡り、内側を差し替えられる', () => {
+      const { container } = renderToolbar(
+        'month',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          renderNavButtonContent: (ctx) => `<${ctx.action}:${ctx.defaultContent}>`,
+        },
+      );
+      expect(container.querySelector('[data-koyomi-action="today"]')?.textContent).toBe(
+        '<today:今日>',
+      );
+      expect(container.querySelector('[data-koyomi-action="prev"]')?.textContent).toBe('<prev:‹>');
+      expect(container.querySelector('[data-koyomi-action="next"]')?.textContent).toBe('<next:›>');
+    });
+
+    it('renderNavButtonContent を指定しても外側の aria-label・data-koyomi-action・クリック配線は保持される', () => {
+      const { container, capture } = renderToolbar(
+        'month',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { renderNavButtonContent: () => 'カスタム' },
+      );
+      const today = container.querySelector('[data-koyomi-action="today"]');
+      expect(today?.getAttribute('aria-label')).toBe('今日');
+      expect(today?.textContent).toBe('カスタム');
+
+      const next = container.querySelector('[data-koyomi-action="next"]');
+      if (next === null) {
+        throw new Error('next ボタンが見つかりません');
+      }
+      fireEvent.click(next);
+      // クリック配線（api.next()）は保持され、内側の内容（「カスタム」）はそのまま
+      expect(capture.current?.api.getState().currentDate).not.toEqual(NOW);
+      expect(container.querySelector('[data-koyomi-action="next"]')?.textContent).toBe('カスタム');
+    });
+
+    it('renderNavButtonContent 省略時は既定の内容（today の文言・‹/›）がそのまま描画される（回帰）', () => {
+      const { container } = renderToolbar('month');
+      expect(container.querySelector('[data-koyomi-action="today"]')?.textContent).toBe('今日');
+      expect(container.querySelector('[data-koyomi-action="prev"]')?.textContent).toBe('‹');
+      expect(container.querySelector('[data-koyomi-action="next"]')?.textContent).toBe('›');
+    });
+  });
+
+  describe('renderViewButtonContent（ビュー切替ボタンの内側の内容を差し替える render prop）', () => {
+    it('renderViewButtonContent を指定すると ctx.view/ctx.active/ctx.defaultContent が渡り、選択中のボタンだけ内容を出し分けられる', () => {
+      const { container } = renderToolbar(
+        'month',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          renderViewButtonContent: (ctx) =>
+            `${ctx.defaultContent}${ctx.active ? '(active)' : ''}[${ctx.view}]`,
+        },
+      );
+      expect(container.querySelector('[data-koyomi-action="view-month"]')?.textContent).toBe(
+        '月(active)[month]',
+      );
+      expect(container.querySelector('[data-koyomi-action="view-week"]')?.textContent).toBe(
+        '週[week]',
+      );
+    });
+
+    it('renderViewButtonContent を指定しても外側の aria-pressed・data-koyomi-action・クリック配線（setView）は保持される', () => {
+      const { container, capture } = renderToolbar(
+        'month',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { renderViewButtonContent: (ctx) => `カスタム:${ctx.view}` },
+      );
+      const weekButton = container.querySelector('[data-koyomi-action="view-week"]');
+      expect(weekButton?.getAttribute('aria-pressed')).toBe('false');
+      expect(weekButton?.textContent).toBe('カスタム:week');
+
+      if (weekButton === null) {
+        throw new Error('view-week ボタンが見つかりません');
+      }
+      fireEvent.click(weekButton);
+      expect(capture.current?.api.getState().view).toBe('week');
+      expect(
+        container.querySelector('[data-koyomi-action="view-week"]')?.getAttribute('aria-pressed'),
+      ).toBe('true');
+    });
+
+    it('renderViewButtonContent 省略時は既定の表示文字列がそのまま描画される（回帰）', () => {
+      const { container } = renderToolbar('month');
+      expect(container.querySelector('[data-koyomi-action="view-month"]')?.textContent).toBe('月');
+      expect(container.querySelector('[data-koyomi-action="view-week"]')?.textContent).toBe('週');
+    });
   });
 });

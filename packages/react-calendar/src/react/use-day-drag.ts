@@ -11,6 +11,9 @@
  *   が担当する領域）に乗ると、時間指定イベントへの変換プレビューに切り替わる
  *   （Google カレンダー相当の「終日 ⇔ 時間指定」変換。反対方向の変換は
  *   `use-time-grid-drag.ts` が担当する）
+ * - フォーカス中の終日の帯の A キー → 時間指定イベントへの変換（変換ドラッグと同じ
+ *   `action: 'convert'` のキーボード経路。opt-in の `keyboardTimedConversion` を
+ *   指定した場合（週/日ビューの終日行）のみ有効で、月ビューでは何もしない）
  *
  * 時間グリッドと同様のプロップゲッターパターン。セル要素は
  * `getDayCellProps` の `ref` でレジストリに登録され、ポインタ座標から
@@ -23,7 +26,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   Ref,
 } from 'react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import {
   isDragCandidateValid,
   occurrenceBlocksOverlap,
@@ -48,16 +51,29 @@ import type {
   ResolvedCalendarOptions,
 } from '../core/types';
 import {
+  captureOccurrenceDeleteFocusContext,
   checkBeforeEventChange,
   checkBeforeEventDelete,
   checkBeforeSelectRange,
   collectOverlapBlockersInRange,
   createDefaultEvent,
+  createOccurrenceDeleteFocusController,
   createOverlapBlockerCache,
   type EventNotificationProps,
   eventNotificationProps,
+  type OccurrenceDeleteFocusContext,
+  reportOperationRejected,
 } from './drag-common';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
+
+/**
+ * このフックが担当するビュー（月・複数月ビュー、週/日ビューの終日行）のルート要素の
+ * セレクタ。`captureOccurrenceDeleteFocusContext` の `viewRootSelector` に渡す。
+ * 月・複数月ビューはどちらもルートに `data-koyomi="month"` を持ち
+ * （複数月ビューは月ごとのセクション単位）、週/日ビューの終日行は `use-time-grid-drag.ts`
+ * と共有するビュー全体のルート `data-koyomi="timegrid"` の内側にある。
+ */
+const DAY_DRAG_VIEW_ROOT_SELECTOR = '[data-koyomi="month"], [data-koyomi="timegrid"]';
 
 /** 日セル要素に付与する props。 */
 export interface DayCellProps {
@@ -83,6 +99,8 @@ export interface SegmentProps extends EventNotificationProps {
    * キーボード操作。
    * - Enter / Space = クリック相当
    * - Delete / Backspace = 削除
+   * - A = 時間指定イベントへの変換（opt-in の `keyboardTimedConversion` 指定時、
+   *   終日のオカレンスのみ）
    * - ArrowLeft / ArrowRight = 1 日移動
    * - ArrowUp / ArrowDown = 7 日移動
    * - Shift+ArrowLeft / Shift+ArrowRight = 終了日を 1 日リサイズ（最低 1 日分の長さを維持）
@@ -231,6 +249,44 @@ function resolveConstraintRulesForOccurrence(
 }
 
 /**
+ * 終日 ⇔ 時間指定変換のキーボードトグル（A キー）かどうかを判定する。
+ *
+ * 大文字（Shift や CapsLock による `'A'`）も対象にする。Ctrl / Cmd / Alt を伴う場合は
+ * ブラウザ・OS のショートカット（Ctrl+A の全選択等）を奪わないため対象外にする
+ * （Shift は大文字の `'A'` を入力する手段そのものなので除外しない）。
+ * `use-time-grid-drag.ts` の同名関数と対の実装（判定を変える場合は両方を同期させること。
+ * 共有ヘルパー化しないのは、判定 1 つのために内部モジュール間の依存を増やさないため）。
+ */
+function isConversionToggleKey(event: {
+  key: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+}): boolean {
+  return (
+    (event.key === 'a' || event.key === 'A') && !event.ctrlKey && !event.metaKey && !event.altKey
+  );
+}
+
+/**
+ * A キーによる終日 → 時間指定変換（キーボード経路）の opt-in 設定
+ * （{@link useDayDrag} の `keyboardTimedConversion`）。
+ *
+ * 指定すると、フォーカス中の終日イベントの帯で A キー（大文字小文字とも。
+ * Ctrl / Cmd / Alt 併用は対象外）を押したとき、開始日の {@link rangeStartMinutes} から
+ * `defaultEventMinutes` 分の時間指定イベントへ変換する（ポインタの変換ドラッグと同じ
+ * `action: 'convert'` として適用前フック・拒否通知が配線される）。未指定のビュー
+ * （月・複数月ビュー）では A キーは何もしない。
+ */
+export interface DayDragKeyboardTimedConversion {
+  /**
+   * 変換先の開始時刻（日の 0:00 からの分）。週/日ビューでは表示時間帯の開始
+   * （`slotMinTime` の分換算）を渡す。
+   */
+  rangeStartMinutes: number;
+}
+
+/**
  * 日単位ドラッグのインタラクションを提供するフック。
  *
  * 月ビューでは時間指定イベントの帯（span 1）も日単位で移動できる
@@ -240,11 +296,15 @@ function resolveConstraintRulesForOccurrence(
  * @param params.callbacks - インタラクションコールバック
  * @param params.defaultEventTitle - 既定即時作成（空きセルのクリック/ドラッグ）で使うイベントタイトル。
  *   省略時は {@link createDefaultEvent} の既定値
+ * @param params.keyboardTimedConversion - A キーによる終日 → 時間指定変換の opt-in 設定
+ *   （{@link DayDragKeyboardTimedConversion}）。週/日ビューの終日行（`TimeGridView`）が
+ *   指定する。省略時（月・複数月ビュー）は A キーは何もしない
  */
 export function useDayDrag(params: {
   calendar: UseCalendarResult;
   callbacks?: CalendarInteractionCallbacks;
   defaultEventTitle?: string;
+  keyboardTimedConversion?: DayDragKeyboardTimedConversion;
 }): DayDragHandlers {
   const { calendar, callbacks } = params;
 
@@ -261,6 +321,8 @@ export function useDayDrag(params: {
    * （`use-time-grid-drag.ts` の `suppressNextClickRef` と同じパターン）。
    */
   const suppressNextClickRef = useRef(false);
+  /** キーボード削除後のフォーカス復帰を管理するコントローラ（本フック内で使い回す）。 */
+  const deleteFocusControllerRef = useRef(createOccurrenceDeleteFocusController());
 
   // document に登録するリスナーは pointerdown 発火時点でクロージャとして
   // 生成されるため、常に最新の api / timeZone / callbacks を参照できるよう ref に保持する
@@ -275,6 +337,9 @@ export function useDayDrag(params: {
   optionsRef.current = calendar.state.options;
   const defaultEventTitleRef = useRef(params.defaultEventTitle);
   defaultEventTitleRef.current = params.defaultEventTitle;
+  /** A キーによる終日 → 時間指定変換の opt-in 設定（未指定なら A キーは何もしない）。 */
+  const keyboardTimedConversionRef = useRef(params.keyboardTimedConversion);
+  keyboardTimedConversionRef.current = params.keyboardTimedConversion;
 
   // アンマウント時、ドラッグ中であれば document リスナーを解除する
   useEffect(() => {
@@ -283,6 +348,13 @@ export function useDayDrag(params: {
       sessionRef.current = null;
     };
   }, []);
+
+  // キーボード削除確定後、DOM 更新完了後（再レンダー後）に一度だけフォーカス解決を試みる
+  // （`virtual-resource-view.tsx` の pinned フォーカス復元と同じ「無条件・毎レンダーの
+  // useLayoutEffect」パターン）。
+  useLayoutEffect(() => {
+    deleteFocusControllerRef.current.consume();
+  });
 
   /**
    * clientX/clientY の位置に対応する日を、登録済みセルから探す。
@@ -375,11 +447,13 @@ export function useDayDrag(params: {
       timeZone: timeZoneRef.current,
     });
     if (!valid) {
+      reportOperationRejected(callbacksRef.current, { action: 'create', reason: 'constraint' });
       return;
     }
     const gate = checkBeforeSelectRange(callbacksRef.current, { range, allDay: true });
     const allowed = typeof gate === 'boolean' ? gate : await gate;
     if (!allowed) {
+      reportOperationRejected(callbacksRef.current, { action: 'create', reason: 'rejected' });
       return;
     }
     const onSelectRange = callbacksRef.current?.onSelectRange;
@@ -387,7 +461,12 @@ export function useDayDrag(params: {
       onSelectRange({ range, allDay: true });
       return;
     }
-    createDefaultEvent(apiRef.current, { range, allDay: true }, defaultEventTitleRef.current);
+    createDefaultEvent(
+      apiRef.current,
+      { range, allDay: true },
+      defaultEventTitleRef.current,
+      callbacksRef.current,
+    );
   }
 
   /**
@@ -423,6 +502,7 @@ export function useDayDrag(params: {
         timeZone: timeZoneRef.current,
       });
       if (!valid) {
+        reportOperationRejected(callbacksRef.current, { action, reason: 'constraint', occurrence });
         return;
       }
       const gate = checkBeforeEventChange(callbacksRef.current, {
@@ -433,6 +513,7 @@ export function useDayDrag(params: {
       });
       const allowed = typeof gate === 'boolean' ? gate : await gate;
       if (!allowed) {
+        reportOperationRejected(callbacksRef.current, { action, reason: 'rejected', occurrence });
         return;
       }
       let scope: RecurringEditScope | null = null;
@@ -500,6 +581,11 @@ export function useDayDrag(params: {
         timeZone: timeZoneRef.current,
       });
       if (!valid) {
+        reportOperationRejected(callbacksRef.current, {
+          action: 'convert',
+          reason: 'constraint',
+          occurrence,
+        });
         return;
       }
       const gate = checkBeforeEventChange(callbacksRef.current, {
@@ -510,6 +596,11 @@ export function useDayDrag(params: {
       });
       const allowed = typeof gate === 'boolean' ? gate : await gate;
       if (!allowed) {
+        reportOperationRejected(callbacksRef.current, {
+          action: 'convert',
+          reason: 'rejected',
+          occurrence,
+        });
         return;
       }
       let scope: RecurringEditScope | null = null;
@@ -549,16 +640,26 @@ export function useDayDrag(params: {
 
   /**
    * オカレンスの削除を確定する（繰り返しならスコープを解決してから適用する）。
-   * 削除が適用された場合のみ `callbacks.onEventDelete` を呼ぶ
-   * （スコープ解決が `null` でキャンセルされた場合は呼ばない）。
+   * 削除が適用された場合のみ `callbacks.onEventDelete` を呼び、削除後のフォーカス復帰
+   * （`focusContext`。呼び出し元が Delete/Backspace のキーダウン時点で
+   * {@link captureOccurrenceDeleteFocusContext} を使って作る）を予約する
+   * （スコープ解決が `null` でキャンセルされた場合はどちらも行わない）。
    */
-  async function commitDelete(occurrence: EventOccurrence): Promise<void> {
+  async function commitDelete(
+    occurrence: EventOccurrence,
+    focusContext: OccurrenceDeleteFocusContext | null,
+  ): Promise<void> {
     if (occurrence.event.editable === false) {
       return;
     }
     const gate = checkBeforeEventDelete(callbacksRef.current, occurrence);
     const allowed = typeof gate === 'boolean' ? gate : await gate;
     if (!allowed) {
+      reportOperationRejected(callbacksRef.current, {
+        action: 'delete',
+        reason: 'rejected',
+        occurrence,
+      });
       return;
     }
     let scope: RecurringEditScope | null = null;
@@ -579,6 +680,7 @@ export function useDayDrag(params: {
     } else {
       changes = apiRef.current.deleteEvent(occurrence.eventId);
     }
+    deleteFocusControllerRef.current.arm(focusContext);
     callbacksRef.current?.onEventDelete?.({ occurrence, scope, changes });
   }
 
@@ -897,7 +999,38 @@ export function useDayDrag(params: {
         }
         if (event.key === 'Delete' || event.key === 'Backspace') {
           event.preventDefault();
-          void commitDelete(occurrence).catch(reportError);
+          const focusContext = captureOccurrenceDeleteFocusContext({
+            target: event.target,
+            occurrenceKey: occurrence.key,
+            viewRootSelector: DAY_DRAG_VIEW_ROOT_SELECTOR,
+          });
+          void commitDelete(occurrence, focusContext).catch(reportError);
+          return;
+        }
+        if (isConversionToggleKey(event)) {
+          const conversion = keyboardTimedConversionRef.current;
+          // opt-in（週/日ビューの終日行）でのみ有効。未指定（月ビュー等）と、終日でない帯
+          // （複数日にまたがる時間指定の予定）では既定動作を抑制せず、A キーを他の
+          // リスナー（`useCalendarShortcuts` のビュー切替等）へそのまま委ねる
+          if (conversion === undefined || !occurrence.allDay) {
+            return;
+          }
+          event.preventDefault();
+          if (occurrence.event.editable === false) {
+            return;
+          }
+          const timeZone = timeZoneRef.current;
+          // 変換先はオカレンスの開始日 × rangeStartMinutes から defaultEventMinutes 分
+          //（ポインタの変換ドラッグと同じ長さ規則。確定処理も同じ commitTimedConversion）
+          const start = addMinutesInZone(
+            startOfDayInZone(occurrence.start, timeZone),
+            conversion.rangeStartMinutes,
+            timeZone,
+          );
+          void commitTimedConversion(occurrence, {
+            start,
+            end: addMinutesInZone(start, optionsRef.current.defaultEventMinutes, timeZone),
+          }).catch(reportError);
           return;
         }
         if (occurrence.event.editable === false) {

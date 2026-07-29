@@ -269,7 +269,10 @@ describe('enMessages.recurrenceEditor.unsupportedReason', () => {
       { code: 'unsupportedField', field: 'BYMONTHDAY_EXPANDED' },
       'Unsupported RRULE field (the expanded BYMONTHDAY form).',
     ],
-    [{ code: 'unsupportedWkst' }, 'Unsupported RRULE field (WKST other than Monday).'],
+    [
+      { code: 'unsupportedWkst' },
+      'Unsupported RRULE field (WKST that does not match the week start day).',
+    ],
     [
       { code: 'unsupportedFrequency' },
       'Only DAILY, WEEKLY, MONTHLY, and YEARLY frequencies are supported by the editor.',
@@ -526,6 +529,32 @@ describe('enMessages.announcer', () => {
       rangeEnd: new Date('2026-07-31T15:00:00Z'),
     };
     expect(enMessages.announcer.viewChanged(info, 'July 2026')).toBe('Switched view to July 2026');
+  });
+
+  it('operationRejected は action ごとの語＋reason ごとの理由句＋occurrence の有無で文言が変わる', () => {
+    const occurrence = makeOccurrence();
+    expect(
+      enMessages.announcer.operationRejected({ action: 'move', reason: 'constraint', occurrence }),
+    ).toBe('Meeting: the move was blocked by a placement constraint');
+    expect(
+      enMessages.announcer.operationRejected({ action: 'resize', reason: 'rejected', occurrence }),
+    ).toBe('Meeting: the resize was blocked by the application');
+    expect(
+      enMessages.announcer.operationRejected({
+        action: 'convert',
+        reason: 'constraint',
+        occurrence,
+      }),
+    ).toBe('Meeting: the conversion was blocked by a placement constraint');
+    expect(
+      enMessages.announcer.operationRejected({ action: 'delete', reason: 'rejected', occurrence }),
+    ).toBe('Meeting: the deletion was blocked by the application');
+    expect(enMessages.announcer.operationRejected({ action: 'create', reason: 'constraint' })).toBe(
+      'The creation was blocked by a placement constraint',
+    );
+    expect(enMessages.announcer.operationRejected({ action: 'create', reason: 'rejected' })).toBe(
+      'The creation was blocked by the application',
+    );
   });
 });
 

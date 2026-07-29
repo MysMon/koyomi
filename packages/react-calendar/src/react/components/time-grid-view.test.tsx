@@ -16,6 +16,7 @@ import type {
 } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { MessageCatalogOverrides } from '../locales/types';
+import { overflowPopoverButtonProps } from '../overflow-popover-props';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from '../types';
 import { useCalendar } from '../use-calendar';
 import type { TimeGridViewHandle, TimeGridViewProps } from './time-grid-view';
@@ -50,6 +51,8 @@ interface HarnessProps {
   slotMinTime?: string;
   /** 表示時間帯の終了（{@link CalendarOptions.slotMaxTime}）。 */
   slotMaxTime?: string;
+  /** 終日行に表示する最大イベント数（{@link CalendarOptions.allDayMaxEvents}）。 */
+  allDayMaxEvents?: number;
   /** 書式ロケール（{@link CalendarOptions.locale}）。 */
   locale?: string;
   /** `CalendarProvider` の `messages` prop。 */
@@ -69,6 +72,7 @@ function Harness(props: HarnessProps): ReactElement {
     ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
     ...(props.slotMinTime !== undefined ? { slotMinTime: props.slotMinTime } : {}),
     ...(props.slotMaxTime !== undefined ? { slotMaxTime: props.slotMaxTime } : {}),
+    ...(props.allDayMaxEvents !== undefined ? { allDayMaxEvents: props.allDayMaxEvents } : {}),
     ...(props.locale !== undefined ? { locale: props.locale } : {}),
   });
   if (props.sink) {
@@ -182,6 +186,15 @@ describe('TimeGridView', () => {
     const eventEl = container.querySelector('[data-koyomi="timegrid-event"]');
     expect(eventEl?.textContent).toContain('10:00 AM–11:00 AM');
     expect(eventEl?.textContent).toContain('Meeting');
+  });
+
+  it("locale='en-US' では timegrid-event の既定 aria-label（rangeLabel）の時刻部分も 12h/AM-PM 表記になる", () => {
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: 'Meeting', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+    ];
+    const { container } = render(<Harness initialView="day" events={events} locale="en-US" />);
+    const eventEl = container.querySelector('[data-koyomi="timegrid-event"]');
+    expect(eventEl).toHaveAttribute('aria-label', 'Meeting, July 15 10:00 AM–11:00 AM');
   });
 
   it('event.color を指定していない場合、timegrid-event の inline style は背景色・文字色・枠線・イベント色変数を含まない', () => {
@@ -829,6 +842,65 @@ describe('TimeGridView', () => {
   });
 });
 
+describe('TimeGridView - A キーによる終日 ⇔ 時間指定の変換', () => {
+  it('時間指定イベント上の A キーで開始日 1 日分の終日イベントに変換され、終日行の帯として描画される', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const events: CalendarEvent[] = [
+      { id: 'timed', title: '会議', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+    ];
+    const { container } = render(<Harness initialView="week" events={events} sink={sink} />);
+    const eventEl = container.querySelector('[data-koyomi="timegrid-event"]');
+    expect(eventEl).not.toBeNull();
+    if (eventEl === null) {
+      throw new Error('timegrid-event が見つかりません');
+    }
+
+    // 既定動作を抑制する（fireEvent は preventDefault されると false を返す）
+    expect(fireEvent.keyDown(eventEl, { key: 'a' })).toBe(false);
+
+    const updated = sink.current?.api.getEvents()[0];
+    expect(updated?.allDay).toBe(true);
+    if (!(updated?.start instanceof Date) || !(updated.end instanceof Date)) {
+      throw new Error('更新後の start/end が Date ではありません');
+    }
+    // 2026-07-15 0:00 JST 〜 2026-07-16 0:00 JST の 1 日分
+    expect(updated.start.toISOString()).toBe('2026-07-14T15:00:00.000Z');
+    expect(updated.end.toISOString()).toBe('2026-07-15T15:00:00.000Z');
+    // 時間グリッドから消え、終日行の帯として描画され直す
+    expect(container.querySelector('[data-koyomi="timegrid-event"]')).toBeNull();
+    expect(container.querySelector('[data-koyomi="allday-event"]')).not.toBeNull();
+  });
+
+  it('終日イベントの帯上の A キーで slotMinTime から defaultEventMinutes 分の時間指定イベントに変換され、時間グリッドに描画される', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const events: CalendarEvent[] = [
+      { id: 'allday', title: '休暇', start: '2026-07-15', end: '2026-07-16', allDay: true },
+    ];
+    const { container } = render(
+      <Harness initialView="week" events={events} sink={sink} slotMinTime="08:00" />,
+    );
+    const segmentEl = container.querySelector('[data-koyomi="allday-event"]');
+    expect(segmentEl).not.toBeNull();
+    if (segmentEl === null) {
+      throw new Error('allday-event が見つかりません');
+    }
+
+    expect(fireEvent.keyDown(segmentEl, { key: 'a' })).toBe(false);
+
+    const updated = sink.current?.api.getEvents()[0];
+    expect(updated?.allDay).toBe(false);
+    if (!(updated?.start instanceof Date) || !(updated.end instanceof Date)) {
+      throw new Error('更新後の start/end が Date ではありません');
+    }
+    // slotMinTime（08:00 JST）から defaultEventMinutes（既定 60 分）
+    expect(updated.start.toISOString()).toBe('2026-07-14T23:00:00.000Z');
+    expect(updated.end.toISOString()).toBe('2026-07-15T00:00:00.000Z');
+    // 終日行から消え、時間グリッドのイベントとして描画され直す
+    expect(container.querySelector('[data-koyomi="allday-event"]')).toBeNull();
+    expect(container.querySelector('[data-koyomi="timegrid-event"]')).not.toBeNull();
+  });
+});
+
 describe('TimeGridView - showWeekNumbers（週番号）', () => {
   it('省略時（既定 false）は data-koyomi-week-number 属性が付かない', () => {
     const { container } = render(<Harness initialView="week" />);
@@ -1270,5 +1342,164 @@ describe('TimeGridView - ARIA', () => {
     );
     expect(otherHeader).toHaveAttribute('role', 'columnheader');
     expect(otherHeader).not.toHaveAttribute('aria-current');
+  });
+});
+
+describe('TimeGridView - 日列のアクセシブルネーム', () => {
+  it('本文の日列（timegrid-day）に role="group" と完全な日付の aria-label が付く', () => {
+    const { container } = render(<Harness initialView="week" />);
+    const column = container.querySelector(
+      '[data-koyomi="timegrid-day"][data-koyomi-date="2026-07-15"]',
+    );
+    expect(column).toHaveAttribute('role', 'group');
+    expect(column).toHaveAttribute('aria-label', '2026年7月15日');
+  });
+});
+
+describe('TimeGridView - 終日行のあふれ（allDayMaxEvents）', () => {
+  /** 2026-07-15 を覆う単日の終日イベントを `count` 件生成する。 */
+  function alldayEvents(count: number): CalendarEvent[] {
+    return Array.from({ length: count }, (_, index) => ({
+      id: `allday-${index}`,
+      title: `終日 ${index}`,
+      start: '2026-07-15',
+      end: '2026-07-16',
+      allDay: true,
+    }));
+  }
+
+  it('上限を超過した終日セグメントは描画されず、あふれのある日に「+N 件」ボタンが表示される', () => {
+    const { container, getByRole } = render(
+      <Harness initialView="week" events={alldayEvents(3)} allDayMaxEvents={2} />,
+    );
+    expect(container.querySelectorAll('[data-koyomi="allday-event"]')).toHaveLength(2);
+
+    const overflowButtons = container.querySelectorAll('[data-koyomi="allday-overflow"]');
+    expect(overflowButtons).toHaveLength(1);
+    expect(overflowButtons[0]?.textContent).toBe('+1 件');
+    // アクセシブルネームはラベル（「+N 件」）から決まる
+    expect(getByRole('button', { name: '+1 件' })).toBe(overflowButtons[0]);
+  });
+
+  it('既定（allDayMaxEvents 未指定）では全セグメントが描画され、あふれボタンも高さの変化もない（対検証）', () => {
+    const { container } = render(<Harness initialView="week" events={alldayEvents(5)} />);
+    expect(container.querySelectorAll('[data-koyomi="allday-event"]')).toHaveLength(5);
+    expect(container.querySelector('[data-koyomi="allday-overflow"]')).toBeNull();
+    const cells = container.querySelector('[data-koyomi="allday-cells"]');
+    expect(cells).toHaveStyle({ minHeight: 'calc(5 * var(--koyomi-lane-height, 24px))' });
+  });
+
+  it('終日行の高さ（allday-cells の minHeight）は表示レーン数＋あふれボタン行に追従する', () => {
+    const { container } = render(
+      <Harness initialView="week" events={alldayEvents(3)} allDayMaxEvents={2} />,
+    );
+    const cells = container.querySelector('[data-koyomi="allday-cells"]');
+    // 表示レーン 2 本 + あふれボタン行 1 本
+    expect(cells).toHaveStyle({ minHeight: 'calc(3 * var(--koyomi-lane-height, 24px))' });
+  });
+
+  it('クリックで onAllDayOverflowClick が対象日・非表示・表示中のオカレンス一覧付きで呼ばれる', () => {
+    const onAllDayOverflowClick = vi.fn();
+    const { container } = render(
+      <Harness
+        initialView="week"
+        events={alldayEvents(3)}
+        allDayMaxEvents={2}
+        callbacks={{ onAllDayOverflowClick }}
+      />,
+    );
+    const overflowButton = container.querySelector('[data-koyomi="allday-overflow"]');
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('overflow button not found');
+    }
+    fireEvent.click(overflowButton);
+    expect(onAllDayOverflowClick).toHaveBeenCalledTimes(1);
+    const [info, hiddenOccurrences, details] = onAllDayOverflowClick.mock.calls[0] ?? [];
+    expect(info).toMatchObject({ dayKey: '2026-07-15', view: 'week' });
+    expect(hiddenOccurrences).toHaveLength(1);
+    expect(hiddenOccurrences[0]?.eventId).toBe('allday-2');
+    expect(details.visibleOccurrences).toHaveLength(2);
+  });
+
+  it('onAllDayOverflowClick 未指定なら、クリックでその日の日ビューへ切り替わる（月ビューの既定と同じ）', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(
+      <Harness initialView="week" events={alldayEvents(3)} allDayMaxEvents={2} sink={sink} />,
+    );
+    const overflowButton = container.querySelector('[data-koyomi="allday-overflow"]');
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('overflow button not found');
+    }
+    fireEvent.click(overflowButton);
+    expect(sink.current?.state.view).toBe('day');
+  });
+
+  it('Enter キーはクリック相当になり、親の終日セルの範囲選択（イベント作成）は発火しない', () => {
+    const onAllDayOverflowClick = vi.fn();
+    const onSelectRange = vi.fn();
+    const { container } = render(
+      <Harness
+        initialView="week"
+        events={alldayEvents(3)}
+        allDayMaxEvents={2}
+        callbacks={{ onAllDayOverflowClick, onSelectRange }}
+      />,
+    );
+    const overflowButton = container.querySelector('[data-koyomi="allday-overflow"]');
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('overflow button not found');
+    }
+    fireEvent.keyDown(overflowButton, { key: 'Enter' });
+    expect(onAllDayOverflowClick).toHaveBeenCalledTimes(1);
+    expect(onSelectRange).not.toHaveBeenCalled();
+  });
+
+  it('overflowButtonProps の戻り値（overflowPopoverButtonProps）がボタンに反映される', () => {
+    const { container } = render(
+      <Harness
+        initialView="week"
+        events={alldayEvents(3)}
+        allDayMaxEvents={2}
+        viewProps={{
+          overflowButtonProps: () =>
+            overflowPopoverButtonProps({ open: true, popoverId: 'allday-popover' }),
+        }}
+      />,
+    );
+    const overflowButton = container.querySelector('[data-koyomi="allday-overflow"]');
+    expect(overflowButton).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(overflowButton).toHaveAttribute('aria-expanded', 'true');
+    expect(overflowButton).toHaveAttribute('aria-controls', 'allday-popover');
+  });
+
+  it('renderOverflowLabel はボタンの内側の内容だけを差し替え、ボタン要素と非表示一覧の受け渡しは保持される', () => {
+    const { container } = render(
+      <Harness
+        initialView="week"
+        events={alldayEvents(3)}
+        allDayMaxEvents={2}
+        viewProps={{
+          renderOverflowLabel: (day, ctx) => (
+            <span data-testid="custom-allday-overflow">
+              {day.key}:他{ctx.hiddenOccurrences.length}件
+            </span>
+          ),
+        }}
+      />,
+    );
+    const overflowButton = container.querySelector('[data-koyomi="allday-overflow"]');
+    expect(overflowButton).not.toBeNull();
+    expect(
+      overflowButton?.querySelector('[data-testid="custom-allday-overflow"]')?.textContent,
+    ).toBe('2026-07-15:他1件');
+  });
+
+  it('day ビューでも同じあふれ集約が働き、ボタンは 1 列分の幅で表示される', () => {
+    const { container } = render(
+      <Harness initialView="day" events={alldayEvents(3)} allDayMaxEvents={2} />,
+    );
+    expect(container.querySelectorAll('[data-koyomi="allday-event"]')).toHaveLength(2);
+    const overflowButton = container.querySelector('[data-koyomi="allday-overflow"]');
+    expect(overflowButton?.textContent).toBe('+1 件');
   });
 });

@@ -3,8 +3,11 @@
  * `VirtualListView` — リストビューを縦方向に仮想化するヘッドレスコンポーネント。
  *
  * 大量の予定・長期間表示で DOM ノードが肥大するのを避けるため、可視範囲の日セクション
- * だけを描画する。描画内容（`data-koyomi-*` の構造）は `ListView` と共有レンダラ
- * {@link ListDaySection} を通じて完全に一致する。仮想化のプリミティブは {@link useVirtualizer}。
+ * だけを描画する。さらに 1 日の予定件数が `sectionItemWindowThreshold` を超えるセクションでは、
+ * セクション内でも可視範囲のイベント行だけを描画する（{@link sectionItemWindow} による
+ * 二段目のウィンドウ描画。閾値以下のセクションは全件描画で挙動不変）。描画内容
+ * （`data-koyomi-*` の構造）は `ListView` と共有レンダラ {@link ListDaySection} を通じて
+ * 完全に一致する。仮想化のプリミティブは {@link useVirtualizer}。
  *
  * ヘッドレスの原則に従い、寸法はこのコンポーネントが持たない。スクロールコンテナの高さは
  * 利用者の CSS（`[data-koyomi="list"][data-koyomi-virtualized]`）が決め、`overflow`/`position`
@@ -16,15 +19,39 @@
 
 import type { CSSProperties, ReactElement, FocusEvent as ReactFocusEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { addDaysInZone } from '../../core/timezone';
 import type { EventOccurrence, ListDay } from '../../core/types';
+import {
+  sameVisibleWindowRange,
+  sectionItemWindow,
+  type VirtualItem,
+  type VisibleWindowRange,
+  visibleWindowRange,
+} from '../../core/virtualization';
 import { useCalendarContext } from '../context';
 import { isDevBuild } from '../is-dev-build';
 import type { EventContentContext, SlotRenderContext } from '../types';
 import { useVirtualizer } from '../use-virtualizer';
-import { ListDaySection } from './list-view-parts';
+import { type ListDayItemWindow, ListDaySection } from './list-view-parts';
 
 /** `estimateDayHeight` 省略時の 1 日セクションの推定高（px）。 */
 const DEFAULT_ESTIMATE_DAY_HEIGHT = 64;
+
+/**
+ * `estimateItemHeight` 省略時のイベント行 1 件の推定高（px）。
+ * デフォルトテーマの行実寸（1 行テキスト約 20px ＋ 上下 padding 6px ずつ）に合わせる。
+ */
+const DEFAULT_ESTIMATE_ITEM_HEIGHT = 32;
+
+/** `sectionItemWindowThreshold` 省略時の既定値。 */
+const DEFAULT_SECTION_ITEM_WINDOW_THRESHOLD = 50;
+
+/**
+ * セクション内ウィンドウ描画で用いる日付見出し（`list-day-header`）の推定高（px）。
+ * デフォルトテーマの見出し実寸（約 20px ＋ margin 4px）に合わせる。多少ずれても
+ * 描画範囲が overscan 分ずれるだけで、レイアウトは詰め物（推定高基準）で保たれる。
+ */
+const LIST_DAY_HEADER_ESTIMATE = 24;
 
 /**
  * 仮想化が効いていない旨を開発警告する日数の閾値。これ未満の短いリストは
@@ -47,6 +74,46 @@ export interface VirtualListViewProps {
   estimateDayHeight?: number | ((day: ListDay, index: number) => number);
   /** 前後 overscan 日数。既定 3。 */
   overscan?: number;
+  /**
+   * イベント行 1 件の推定高（px）。既定 32。
+   * セクション内ウィンドウ描画（`sectionItemWindowThreshold` 超過セクション）での
+   * 描画範囲とスペーサー高の計算に使う。行の実寸がカスタム描画等で大きく異なる場合に
+   * 合わせて調整する。
+   */
+  estimateItemHeight?: number;
+  /**
+   * セクション内ウィンドウ描画を適用する 1 日あたりの予定件数の閾値。既定 50。
+   * この件数以下のセクションは全イベント行を描画し、超えるセクションは可視範囲
+   * ＋overscan のイベント行だけを描画して残りを推定高のスペーサーで置き換える
+   * （「1 日に数百件」のようなセクションでも DOM が肥大しない）。
+   */
+  sectionItemWindowThreshold?: number;
+  /**
+   * 可視ウィンドウ（日セクションの可視範囲）が変わったときに呼ばれるコールバック。
+   *
+   * `CalendarOptions.onRangeChange` と同じ流儀で、可視範囲の計算結果（日セクションの
+   * インデックス範囲とキー範囲）が直前の通知内容と異なる場合のみ 1 回発火する。
+   * マウント直後にも現在の可視範囲を 1 回通知する（初回の増分データ取得に使えるように
+   * するため）。スクロール・表示範囲の移動・日一覧の変更など発火の契機は問わず、
+   * 内容が同じ間は再通知しない。ビューモデルが `'list'` 以外のときは発火しない。
+   */
+  onVisibleRangeChange?: (info: ListVisibleRangeChangeInfo) => void;
+}
+
+/**
+ * {@link VirtualListViewProps.onVisibleRangeChange} に渡される、変更後の可視ウィンドウ。
+ *
+ * 可視の日セクション範囲（overscan を含まない、実際に見えている範囲）と、そこから
+ * 導出した日付範囲を持つ。可視範囲のデータだけを増分取得する遅延読込
+ * （`docs/performance.md` のレシピ参照）の入力に使う。
+ */
+export interface ListVisibleRangeChangeInfo {
+  /** 日セクションの可視ウィンドウ。キーは {@link ListDay.key}（`'YYYY-MM-DD'`）。 */
+  days: VisibleWindowRange;
+  /** 可視範囲の先頭日の開始（表示タイムゾーンにおける 0:00 の絶対時刻）。 */
+  rangeStart: Date;
+  /** 可視範囲の末尾日の翌日 0:00（排他。{@link CalendarRangeChangeInfo.rangeEnd} と同じ流儀）。 */
+  rangeEnd: Date;
 }
 
 /**
@@ -73,6 +140,9 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
     renderDayHeader,
     estimateDayHeight = DEFAULT_ESTIMATE_DAY_HEIGHT,
     overscan,
+    estimateItemHeight = DEFAULT_ESTIMATE_ITEM_HEIGHT,
+    sectionItemWindowThreshold = DEFAULT_SECTION_ITEM_WINDOW_THRESHOLD,
+    onVisibleRangeChange,
   } = props;
   const { state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const listMessages = messages.list;
@@ -93,6 +163,10 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
     () => (focusedKey !== null ? new Set([focusedKey]) : undefined),
     [focusedKey],
   );
+  // フォーカス中のイベント行のオカレンスキー。セクション内ウィンドウ描画中の
+  // セクションでは、描画範囲外へ出てもこのアイテムだけ描画を続ける（日セクションの
+  // focusedKey と同じ趣旨のアイテム版）。
+  const [focusedOccurrenceKey, setFocusedOccurrenceKey] = useState<string | null>(null);
 
   const days: readonly ListDay[] = viewModel.type === 'list' ? viewModel.days : [];
 
@@ -139,7 +213,101 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
     }
   }, [enabled, days.length, virtualizer.virtualItems.length]);
 
-  /** フォーカスが入った日セクションのキーを記録する（窓外へ出ても DOM を保持するため）。 */
+  // 可視ウィンドウの変更通知（onVisibleRangeChange）。
+  // 日セクションの可視範囲（overscan を含まない）を core の純粋計算
+  // （visibleWindowRange / sameVisibleWindowRange）でキー付きスナップショットにし、
+  // 直前の通知内容と異なるときだけ 1 回発火する（onRangeChange と同じ流儀）。
+  // 比較基準の更新はコールバックの登録有無に関わらず常に行う（未登録で作成 →
+  // 後から登録、という順序でも誤発火しないようにするため）。
+  // virtualizer はレンダーごとに新しいオブジェクトのため、可視範囲のフィールドだけを
+  // 取り出して useMemo の依存にする（VirtualTimelineView と同じ方針）。
+  const { startIndex: dayStartIndex, endIndex: dayEndIndex } = virtualizer;
+  const daysRange = useMemo(
+    () => visibleWindowRange({ startIndex: dayStartIndex, endIndex: dayEndIndex }, getItemKey),
+    [dayStartIndex, dayEndIndex, getItemKey],
+  );
+  const isListView = viewModel.type === 'list';
+  const timeZoneId = state.timeZone;
+  const lastNotifiedDaysRangeRef = useRef<VisibleWindowRange | null>(null);
+  useEffect(() => {
+    if (!enabled || !isListView) {
+      return;
+    }
+    const changed = !sameVisibleWindowRange(lastNotifiedDaysRangeRef.current, daysRange);
+    lastNotifiedDaysRangeRef.current = daysRange;
+    if (!changed || onVisibleRangeChange === undefined) {
+      return;
+    }
+    const firstDay = days[Math.max(0, daysRange.startIndex)];
+    const lastDay = days[Math.max(0, daysRange.endIndex)];
+    if (firstDay === undefined || lastDay === undefined) {
+      return;
+    }
+    onVisibleRangeChange({
+      days: daysRange,
+      // 公開境界での複製（呼び出し側が rangeStart を変更しても内部状態に影響しない
+      // ようにするため。onRangeChange の currentDate と同じ扱い）
+      rangeStart: new Date(firstDay.date.getTime()),
+      rangeEnd: addDaysInZone(lastDay.date, 1, timeZoneId),
+    });
+  }, [enabled, isListView, daysRange, onVisibleRangeChange, days, timeZoneId]);
+
+  // セクション内ウィンドウ描画用のスクロール状態。useVirtualizer は日セクションの
+  // ウィンドウ計算に同じ値を内部で使うが公開しないため、閾値超過セクションがあるとき
+  // だけ本コンポーネントでも購読する（rAF スロットル・ResizeObserver は useVirtualizer
+  // と同じ流儀）。
+  const hasWindowedSection =
+    enabled && days.some((day) => day.occurrences.length > sectionItemWindowThreshold);
+  const [sectionMetrics, setSectionMetrics] = useState<{
+    scrollOffset: number;
+    viewportSize: number;
+  }>({ scrollOffset: 0, viewportSize: 0 });
+  useEffect(() => {
+    if (!hasWindowedSection) {
+      return;
+    }
+    const element = scrollRef.current;
+    if (element === null) {
+      return;
+    }
+    const sync = (): void => {
+      setSectionMetrics((prev) =>
+        prev.scrollOffset === element.scrollTop && prev.viewportSize === element.clientHeight
+          ? prev
+          : { scrollOffset: element.scrollTop, viewportSize: element.clientHeight },
+      );
+    };
+    let frame: number | null = null;
+    const onScroll = (): void => {
+      if (frame !== null) {
+        return;
+      }
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        sync();
+      });
+    };
+    element.addEventListener('scroll', onScroll, { passive: true });
+    sync();
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(sync);
+      observer.observe(element);
+    }
+    return () => {
+      element.removeEventListener('scroll', onScroll);
+      if (frame !== null) {
+        cancelAnimationFrame(frame);
+      }
+      observer?.disconnect();
+    };
+  }, [hasWindowedSection]);
+
+  /**
+   * フォーカスが入った日セクションのキーを記録する（窓外へ出ても DOM を保持するため）。
+   * イベント行へのフォーカスなら、そのオカレンスキー（セクション内ウィンドウ描画中の
+   * セクションのイベント行が持つ `data-koyomi-occurrence`）も併せて記録する。
+   */
   const handleFocus = useCallback((event: ReactFocusEvent<HTMLDivElement>): void => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
@@ -149,6 +317,8 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
     const key = section?.getAttribute('data-koyomi-date') ?? null;
     if (key !== null) {
       setFocusedKey(key);
+      const eventRow = target.closest('[data-koyomi="list-event"]');
+      setFocusedOccurrenceKey(eventRow?.getAttribute('data-koyomi-occurrence') ?? null);
     }
   }, []);
 
@@ -162,6 +332,7 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
       return;
     }
     setFocusedKey(null);
+    setFocusedOccurrenceKey(null);
   }, []);
 
   const timeZone = state.timeZone;
@@ -209,12 +380,43 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
     );
   }
 
+  /**
+   * 閾値超過セクションのウィンドウ描画設定を組み立てる（閾値以下なら `undefined` ＝
+   * 全件描画で挙動不変）。`item.start`（日セクションのウィンドウ計算と同じ絶対座標系）
+   * とスクロール状態から描画すべきアイテム範囲を求め、フォーカス中のオカレンスが
+   * この日のものなら範囲外でも描画を続けるよう pinnedKeys に渡す。
+   */
+  const buildItemWindow = (day: ListDay, item: VirtualItem): ListDayItemWindow | undefined => {
+    if (!enabled || day.occurrences.length <= sectionItemWindowThreshold) {
+      return undefined;
+    }
+    const window = sectionItemWindow({
+      itemCount: day.occurrences.length,
+      sectionStart: item.start,
+      headerSize: LIST_DAY_HEADER_ESTIMATE,
+      estimateItemSize: estimateItemHeight,
+      scrollOffset: sectionMetrics.scrollOffset,
+      viewportSize: sectionMetrics.viewportSize,
+    });
+    const pinned =
+      focusedOccurrenceKey !== null && focusedKey === day.key
+        ? new Set([focusedOccurrenceKey])
+        : undefined;
+    return {
+      ...window,
+      estimateItemSize: estimateItemHeight,
+      ...(pinned !== undefined ? { pinnedKeys: pinned } : {}),
+    };
+  };
+
   /** 日セクションを描画する（通常フロー・pinned の両方で使う）。 */
   const renderDay = (
     day: ListDay,
+    item: VirtualItem,
     extra: { pinned?: boolean; style?: CSSProperties },
   ): ReactElement => {
     const defaultDayHeader = dayHeaderFormatter.format(day.date);
+    const itemWindow = buildItemWindow(day, item);
     return (
       <ListDaySection
         key={day.key}
@@ -230,8 +432,15 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
         sectionRef={virtualizer.measureElement(day.key)}
         role="listitem"
         ariaLabel={listMessages.dayAriaLabel(day, defaultDayHeader)}
+        // ARIA list パターンの集合サイズ属性。DOM には可視窓分の日セクションしか
+        // 存在しないため、全日セクション数（days.length）と絶対位置（1 始まり）を
+        // 明示する。item.index は days 配列の絶対インデックス（可視窓・pinned のどちらでも
+        // 同じ座標系）なので、スクロールしても振り直されない。
+        ariaSetSize={days.length}
+        ariaPosInSet={item.index + 1}
         {...(extra.pinned === true ? { pinned: true, eventTabbable: false } : {})}
         {...(extra.style !== undefined ? { style: extra.style } : {})}
+        {...(itemWindow !== undefined ? { itemWindow } : {})}
         {...(renderEvent !== undefined ? { renderEvent } : {})}
         {...(renderEventContent !== undefined ? { renderEventContent } : {})}
         {...(renderDayHeader !== undefined ? { renderDayHeader } : {})}
@@ -260,7 +469,7 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
       />
       {virtualizer.virtualItems.map((item) => {
         const day = days[item.index];
-        return day !== undefined ? renderDay(day, {}) : null;
+        return day !== undefined ? renderDay(day, item, {}) : null;
       })}
       <div
         data-koyomi="list-spacer"
@@ -276,7 +485,7 @@ export function VirtualListView(props: VirtualListViewProps): ReactElement | nul
         // 重複表示・高さ跳ねを起こさないよう、position: absolute を inline に持つ
         // （VirtualResourceView の columnPositionStyle と同じ方針）
         return day !== undefined
-          ? renderDay(day, {
+          ? renderDay(day, item, {
               pinned: true,
               style: {
                 position: 'absolute',

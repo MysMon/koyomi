@@ -213,7 +213,10 @@ describe('jaMessages.recurrenceEditor.unsupportedReason', () => {
       { code: 'unsupportedField', field: 'BYMONTHDAY_EXPANDED' },
       '対応していない RRULE の指定です（BYMONTHDAY の内部展開形式）',
     ],
-    [{ code: 'unsupportedWkst' }, '対応していない RRULE の指定です（月曜以外を指定する WKST）'],
+    [
+      { code: 'unsupportedWkst' },
+      '対応していない RRULE の指定です（週の開始曜日と一致しない WKST）',
+    ],
     [
       { code: 'unsupportedFrequency' },
       'DAILY・WEEKLY・MONTHLY・YEARLY 以外の頻度は編集エディタでは扱えません',
@@ -480,6 +483,32 @@ describe('jaMessages.announcer', () => {
     };
     expect(jaMessages.announcer.viewChanged(info, '2026年7月')).toBe(
       '表示を2026年7月に切り替えました',
+    );
+  });
+
+  it('operationRejected は action ごとの動詞＋reason ごとの理由句＋occurrence の有無で文言が変わる', () => {
+    const occurrence = makeOccurrence();
+    expect(
+      jaMessages.announcer.operationRejected({ action: 'move', reason: 'constraint', occurrence }),
+    ).toBe('会議の移動は配置の制約により行われませんでした');
+    expect(
+      jaMessages.announcer.operationRejected({ action: 'resize', reason: 'rejected', occurrence }),
+    ).toBe('会議のサイズ変更は許可されなかったため行われませんでした');
+    expect(
+      jaMessages.announcer.operationRejected({
+        action: 'convert',
+        reason: 'constraint',
+        occurrence,
+      }),
+    ).toBe('会議の変換は配置の制約により行われませんでした');
+    expect(
+      jaMessages.announcer.operationRejected({ action: 'delete', reason: 'rejected', occurrence }),
+    ).toBe('会議の削除は許可されなかったため行われませんでした');
+    expect(jaMessages.announcer.operationRejected({ action: 'create', reason: 'constraint' })).toBe(
+      '作成は配置の制約により行われませんでした',
+    );
+    expect(jaMessages.announcer.operationRejected({ action: 'create', reason: 'rejected' })).toBe(
+      '作成は許可されなかったため行われませんでした',
     );
   });
 });

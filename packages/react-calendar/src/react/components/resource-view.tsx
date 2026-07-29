@@ -20,7 +20,7 @@
  * （判断根拠・既知の制限の詳細は `docs/accessibility.md` 参照）。
  */
 
-import type { ReactElement, ReactNode, Ref } from 'react';
+import type { CSSProperties, ReactElement, ReactNode, Ref } from 'react';
 import { memo, useCallback, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import type {
   BusinessHourSlot,
@@ -28,16 +28,24 @@ import type {
   PositionedOccurrence,
   ResourceColumn,
   ResourceColumnGroupCell,
+  TimeAxis,
   TimeSlot,
   TimeZoneId,
 } from '../../core/types';
 import { useCalendarContext } from '../context';
 import type { CommonMessages } from '../locales/types';
 import { scrollContainerToTime } from '../scroll-to-time';
-import type { EventContentContext, EventContentRenderer, SlotRenderContext } from '../types';
+import type {
+  EventContentContext,
+  EventContentRenderer,
+  MonthOverflowButtonProps,
+  MonthOverflowLabelContext,
+  SlotRenderContext,
+} from '../types';
 import type { ResourceGridDragHandlers, ResourcePreviewSegment } from '../use-resource-grid-drag';
 import { useResourceGridDrag } from '../use-resource-grid-drag';
 import { resolveEventContent } from './event-content';
+import { formatTimeZoneLabel } from './format';
 import {
   percentOfSlotRange,
   withEventColorStyle,
@@ -60,6 +68,7 @@ import {
   sameSlots,
   toDivRef,
 } from './resource-view-parts';
+import { AllDayOverflowButton } from './time-grid-view';
 
 /**
  * `ResourceView` の props。
@@ -94,6 +103,29 @@ export interface ResourceViewProps {
    * @param ctx - 既定内容
    */
   renderColumnHeader?: (column: ResourceColumn, ctx: SlotRenderContext) => ReactNode;
+  /**
+   * 終日行の「+N 件」ボタン（`allday-overflow`。
+   * {@link CalendarOptions.allDayMaxEvents} 指定時のみ描画される）のラベル内容を
+   * カスタマイズする。差し替えるのはボタンの内側の内容だけで、ボタン要素・
+   * クリック配線（{@link CalendarInteractionCallbacks.onAllDayOverflowClick}）は
+   * 保持される。省略時は中央メッセージカタログの `month.overflow`
+   * （既定は「+N 件」）で整形した既定ラベルを表示する。
+   * @param column - あふれのある列
+   * @param ctx - 既定ラベルと非表示のオカレンス一覧
+   */
+  renderOverflowLabel?: (column: ResourceColumn, ctx: MonthOverflowLabelContext) => ReactNode;
+  /**
+   * 終日行の「+N 件」ボタンに追加する props を返す関数
+   * （`aria-haspopup` / `aria-expanded` など。月ビューの同名 prop と同じ連携面で、
+   * {@link overflowPopoverButtonProps} の戻り値をそのまま返せる）。
+   * 省略時は追加の props を付与しない。
+   * @param column - あふれのある列
+   * @param hiddenOccurrences - 「+N 件」に集約された非表示のオカレンス一覧
+   */
+  overflowButtonProps?: (
+    column: ResourceColumn,
+    hiddenOccurrences: readonly EventOccurrence[],
+  ) => MonthOverflowButtonProps;
   /**
    * マウント時に一度だけ `scrollToTime` 相当を実行する初期スクロール位置（`'HH:mm'`）。
    * 表示時間帯制限（{@link CalendarOptions.slotMinTime}/{@link CalendarOptions.slotMaxTime}）とは
@@ -172,6 +204,23 @@ function groupCellSpanStyle(columnCount: number): { flex: string; minWidth: stri
 }
 
 /**
+ * 時間軸ガター（`timegrid-axis-gutter` / `time-axis`）の sticky 位置を、軸のインデックスに
+ * 応じてずらすための inline style。
+ *
+ * デフォルトテーマ（`theme/default.css`）はこれらの要素を一律 `inset-inline-start: 0` の
+ * sticky として扱う（単一の軸だけを描画していた既存の週/日ビュー・リソースビューでは
+ * 問題にならなかった）。`timeAxisZones` で軸が複数になると、すべての軸が同じ位置に
+ * 固定されて重なってしまうため、2 本目以降は自身より前の軸の幅（`--koyomi-time-axis-width`
+ * の `index` 倍）だけ右にずらす。inline style は CSS の同名プロパティより優先されるため、
+ * テーマ側の指定を上書きできる。
+ *
+ * @param index - `TimeAxis` 配列中のこの軸のインデックス（0 が主軸）
+ */
+function axisStickyOffsetStyle(index: number): CSSProperties {
+  return { insetInlineStart: `calc(${index} * var(--koyomi-time-axis-width, 56px))` };
+}
+
+/**
  * リソースビュー（`ResourceView`）を描画する。
  *
  * `useCalendarContext()` からビューモデルを取得し、`viewModel.type !== 'resource'`
@@ -189,10 +238,19 @@ function groupCellSpanStyle(columnCount: number): { flex: string; minWidth: stri
  * ```
  */
 export function ResourceView(props: ResourceViewProps): ReactElement | null {
-  const { renderEvent, renderAllDayItem, renderColumnHeader, initialScrollTime, ref } = props;
+  const {
+    renderEvent,
+    renderAllDayItem,
+    renderColumnHeader,
+    renderOverflowLabel,
+    overflowButtonProps,
+    initialScrollTime,
+    ref,
+  } = props;
   const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const resourceMessages = messages.resource;
   const commonMessages = messages.common;
+  const overflowLabel = messages.month.overflow;
   const calendar = { api, state, viewModel };
   const drag = useResourceGridDrag({
     calendar,
@@ -261,11 +319,24 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
     return null;
   }
 
-  const { columns, columnGroupRows, slots, nowIndicatorMinutes, isEmpty } = viewModel;
+  const { days, columns, columnGroupRows, slots, timeAxes, nowIndicatorMinutes, isEmpty } =
+    viewModel;
   const { timeZone, options } = state;
   const { locale } = options;
   // 複数日表示（resourceViewDays >= 2）では列見出し・終日セルの aria-label に日ラベルを付ける
   const multiDay = isMultiDayResourceView(viewModel);
+
+  /**
+   * 終日行の「+N 件」クリック。`onAllDayOverflowClick` があれば対象列付きで呼ぶ
+   * （省略時は何もしない。切り替え先の既定ビューが定まらないため）。
+   */
+  function handleAllDayOverflowClick(column: ResourceColumn): void {
+    callbacks.onAllDayOverflowClick?.(
+      { date: column.date, dayKey: column.dayKey, view: 'resource', column },
+      column.hiddenAllDayItems,
+      { visibleOccurrences: column.allDayItems },
+    );
+  }
 
   if (isEmpty) {
     return (
@@ -292,7 +363,16 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
           // biome-ignore lint/a11y/useSemanticElements: 下の見出し行と同様、div ベースの ARIA row
           // biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない
           <div key={groupCells[0]?.depth ?? 0} data-koyomi="resource-group-header-row" role="row">
-            <div data-koyomi="timegrid-axis-gutter" role="presentation" />
+            {timeAxes.map((axis, index) => (
+              <div
+                // biome-ignore lint/suspicious/noArrayIndexKey: timeAxes は options 由来の固定順の配列（並べ替わらない）
+                key={`${index}-${axis.timeZone}`}
+                data-koyomi="timegrid-axis-gutter"
+                data-koyomi-timezone={axis.timeZone}
+                role="presentation"
+                style={axisStickyOffsetStyle(index)}
+              />
+            ))}
             {/* row と columnheader の間に挟まるレイアウト用ラッパー（見出し行と同構造） */}
             <div data-koyomi="resource-headers" role="presentation">
               {groupCells.map((cell) =>
@@ -331,7 +411,24 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
         {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA row */}
         {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない（フォーカスは各 columnheader/gridcell が担う） */}
         <div data-koyomi="resource-header" role="row">
-          <div data-koyomi="timegrid-axis-gutter" role="presentation" />
+          {timeAxes.map((axis, index) => (
+            <div
+              // biome-ignore lint/suspicious/noArrayIndexKey: timeAxes は options 由来の固定順の配列（並べ替わらない）
+              key={`${index}-${axis.timeZone}`}
+              data-koyomi="timegrid-axis-gutter"
+              data-koyomi-timezone={axis.timeZone}
+              role="presentation"
+              style={axisStickyOffsetStyle(index)}
+            >
+              {/* 軸がどのタイムゾーンの時刻かを示す GMT オフセットラベル（視覚補助。
+                  週/日ビューの timegrid-header と同じ規則） */}
+              {days[0] !== undefined && (
+                <span data-koyomi="time-axis-label" aria-hidden="true">
+                  {formatTimeZoneLabel(days[0].date, axis.timeZone, locale)}
+                </span>
+              )}
+            </div>
+          ))}
           {/* row と columnheader の間に挟まるレイアウト用ラッパー。role="presentation" で
               所有関係を透過させる（row の required owned elements 違反を避ける） */}
           <div data-koyomi="resource-headers" role="presentation">
@@ -388,7 +485,16 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
         {/* biome-ignore lint/a11y/useSemanticElements: 上記と同様、div ベースの ARIA row */}
         {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない（フォーカスは各 gridcell が担う） */}
         <div data-koyomi="allday-row" role="row">
-          <div data-koyomi="timegrid-axis-gutter" role="presentation" />
+          {timeAxes.map((axis, index) => (
+            <div
+              // biome-ignore lint/suspicious/noArrayIndexKey: 上記見出し行の gutter と同じ理由（固定順の配列）
+              key={`${index}-${axis.timeZone}`}
+              data-koyomi="timegrid-axis-gutter"
+              data-koyomi-timezone={axis.timeZone}
+              role="presentation"
+              style={axisStickyOffsetStyle(index)}
+            />
+          ))}
           {/* row と gridcell の間に挟まるレイアウト用ラッパー。role="presentation" で
               所有関係を透過させる（row の required owned elements 違反を避ける） */}
           <div data-koyomi="resource-allday-cells" role="presentation">
@@ -414,9 +520,10 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
                     isPreviewTarget && (state.dragPreview?.invalid ?? false) ? 'true' : undefined
                   }
                   // 終日アイテムはレーン（配列順）で縦積みするため、レーン数分の高さを確保する
-                  // （週/日ビューの allday-cells の minHeight と同じ方式）
+                  // （週/日ビューの allday-cells の minHeight と同じ方式）。あふれ
+                  // （allDayMaxEvents 超過）がある列は「+N 件」ボタンの 1 行分を追加する
                   style={{
-                    minHeight: `calc(${Math.max(2, column.allDayItems.length)} * var(--koyomi-lane-height, 24px))`,
+                    minHeight: `calc(${Math.max(2, column.allDayItems.length + (column.allDayOverflowCount > 0 ? 1 : 0))} * var(--koyomi-lane-height, 24px))`,
                   }}
                 >
                   {column.allDayItems.map((occurrence, lane) => (
@@ -434,6 +541,27 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
                       commonMessages={commonMessages}
                     />
                   ))}
+                  {/* あふれ（allDayMaxEvents 超過）のある列の「+N 件」ボタン。
+                      終日アイテムと同じく絶対配置で、表示アイテムの直下の行に置く */}
+                  {column.allDayOverflowCount > 0 && (
+                    <AllDayOverflowButton
+                      style={{
+                        position: 'absolute',
+                        insetInlineStart: '0%',
+                        width: '100%',
+                        top: `calc(${column.allDayItems.length} * var(--koyomi-lane-height, 24px))`,
+                      }}
+                      buttonProps={overflowButtonProps?.(column, column.hiddenAllDayItems)}
+                      onActivate={() => handleAllDayOverflowClick(column)}
+                    >
+                      {renderOverflowLabel
+                        ? renderOverflowLabel(column, {
+                            defaultContent: overflowLabel(column.allDayOverflowCount),
+                            hiddenOccurrences: column.hiddenAllDayItems,
+                          })
+                        : overflowLabel(column.allDayOverflowCount)}
+                    </AllDayOverflowButton>
+                  )}
                 </div>
               );
             })}
@@ -446,18 +574,25 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
           外側（兄弟要素）に置く。role は付けない（grid の子孫ではないため presentation で
           打ち消す必要がない） */}
       <div data-koyomi="resource-body" ref={bodyRef}>
-        <div data-koyomi="time-axis">
-          {slots.map((slot) => (
-            <div key={slot.minutes} data-koyomi="time-slot-label">
-              {slot.label}
-            </div>
-          ))}
-        </div>
+        {timeAxes.map((axis, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 上記見出し行の gutter と同じ理由（固定順の配列）
+          <TimeAxisColumn key={`${index}-${axis.timeZone}`} axis={axis} index={index} />
+        ))}
         <div data-koyomi="resource-columns">
           {columns.map((column) => (
             <ResourceColumnBody
               key={column.key}
               column={column}
+              // 列は columnProps（useResourceGridDrag.getColumnProps）の tabIndex で
+              // フォーカス可能になり Enter/Space のキーボード作成対象になるため、
+              // 終日セルと同じ規則のアクセシブルネームを与える
+              ariaLabel={resourceColumnAriaLabel(
+                column.resource?.title ?? resourceMessages.unassigned,
+                column,
+                multiDay,
+                timeZone,
+                locale,
+              )}
               slots={slots}
               businessHourSlots={businessHourSlotsForColumn(viewModel, column)}
               timeZone={timeZone}
@@ -476,6 +611,28 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * 時間軸の列 1 本分（主軸または {@link CalendarOptions.timeAxisZones} の追加軸）。
+ * `data-koyomi-timezone` でどのタイムゾーンの軸かを識別できる（週/日ビューの
+ * `TimeAxisColumn` と同じ構造）。
+ */
+function TimeAxisColumn(props: { axis: TimeAxis; index: number }): ReactElement {
+  const { axis, index } = props;
+  return (
+    <div
+      data-koyomi="time-axis"
+      data-koyomi-timezone={axis.timeZone}
+      style={axisStickyOffsetStyle(index)}
+    >
+      {axis.slots.map((slot) => (
+        <div key={slot.minutes} data-koyomi="time-slot-label">
+          {slot.label}
+        </div>
+      ))}
     </div>
   );
 }
@@ -576,6 +733,11 @@ const AllDayItemButton = memo(AllDayItemButtonImpl, (prev, next) => {
 /** `ResourceColumnBodyImpl` の props。 */
 interface ResourceColumnBodyProps {
   column: ResourceColumn;
+  /**
+   * 列の aria-label（終日セルと同じ規則で親が組み立てた値。
+   * リソース名が文字列でない場合は `undefined` = 属性を付けない）。
+   */
+  ariaLabel: string | undefined;
   slots: readonly TimeSlot[];
   /** この列の日の営業時間内フラグ（{@link ResourceViewDay.businessHourSlots}）。 */
   businessHourSlots: readonly BusinessHourSlot[];
@@ -603,6 +765,7 @@ interface ResourceColumnBodyProps {
 function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
   const {
     column,
+    ariaLabel,
     slots,
     businessHourSlots,
     timeZone,
@@ -621,11 +784,18 @@ function ResourceColumnBodyImpl(props: ResourceColumnBodyProps): ReactElement {
   const rangeWidth = slotMaxTimeMinutes - slotMinTimeMinutes;
 
   return (
+    // biome-ignore lint/a11y/useSemanticElements: 本文は grid 化しない方針（ファイル冒頭コメント参照）のため、列は「そのレーンの予定をまとめる」div ベースの ARIA group にする
     <div
       {...columnProps}
       ref={toDivRef(ref)}
       data-koyomi="resource-column"
       data-today={isToday ? 'true' : undefined}
+      // 列は columnProps（useResourceGridDrag.getColumnProps）の tabIndex でフォーカス
+      // 可能になり Enter/Space のキーボード作成対象になるため、そのレーンの予定を
+      // まとめる group としてアクセシブルネームを与える（aria-label は role なしの
+      // generic ではサポートされないため、role とセットで付ける）
+      role="group"
+      aria-label={ariaLabel}
     >
       {slots.map((slot, index) => {
         // isBusinessHours なスロットのみ、次のスロット（無ければ表示時間帯の終端）までの
@@ -758,6 +928,7 @@ function sameResourceColumnForBody(a: ResourceColumn, b: ResourceColumn): boolea
 const ResourceColumnBody = memo(ResourceColumnBodyImpl, (prev, next) => {
   return (
     sameResourceColumnForBody(prev.column, next.column) &&
+    prev.ariaLabel === next.ariaLabel &&
     sameSlots(prev.slots, next.slots) &&
     sameBusinessHourSlots(prev.businessHourSlots, next.businessHourSlots) &&
     prev.timeZone === next.timeZone &&

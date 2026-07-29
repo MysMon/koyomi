@@ -69,6 +69,7 @@ interface HarnessProps {
   timelineDays?: number;
   timelineScale?: TimelineScale;
   businessHours?: readonly BusinessHoursRule[];
+  timelineMaxLanes?: number;
   callbacks?: CalendarInteractionCallbacks;
   viewProps?: VirtualTimelineViewProps;
   messages?: MessageCatalogOverrides;
@@ -89,6 +90,7 @@ function Harness(props: HarnessProps): ReactElement {
     ...(props.timelineDays !== undefined ? { timelineDays: props.timelineDays } : {}),
     ...(props.timelineScale !== undefined ? { timelineScale: props.timelineScale } : {}),
     ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
+    ...(props.timelineMaxLanes !== undefined ? { timelineMaxLanes: props.timelineMaxLanes } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -402,6 +404,72 @@ describe('VirtualTimelineView', () => {
       'リソースがありません',
     );
     expect(container.querySelector('[data-koyomi-virtualized]')).toBeNull();
+  });
+});
+
+describe('VirtualTimelineView - あふれ（timelineMaxLanes、opt-in）', () => {
+  /** r0 に 3 件重なる 1 時間イベントを作る（同時刻）。 */
+  const OVERLAPPING_EVENTS: CalendarEvent[] = ['a', 'b', 'c'].map((id) => ({
+    id,
+    title: id.toUpperCase(),
+    start: '2026-07-15T09:00',
+    end: '2026-07-15T11:00',
+    resourceId: 'r0',
+  }));
+
+  it('省略時（既定）は上限がなく、timeline-overflow バッジは描画されない', () => {
+    const { container } = render(
+      <Harness resources={makeResources(1)} events={OVERLAPPING_EVENTS} />,
+    );
+    expect(container.querySelectorAll('[data-koyomi="timeline-item"]')).toHaveLength(3);
+    expect(container.querySelector('[data-koyomi="timeline-overflow"]')).toBeNull();
+  });
+
+  it('使用レーン数が timelineMaxLanes を超過すると、超過分は timeline-item として描画されず「+N 件」バッジが出る', () => {
+    const { container } = render(
+      <Harness resources={makeResources(1)} events={OVERLAPPING_EVENTS} timelineMaxLanes={2} />,
+    );
+    expect(container.querySelectorAll('[data-koyomi="timeline-item"]')).toHaveLength(2);
+    const badge = container.querySelector('[data-koyomi="timeline-overflow"]');
+    expect(badge).not.toBeNull();
+    expect(badge?.textContent).toBe('+1 件');
+    expect(badge?.tagName).toBe('SPAN');
+    const row = container.querySelector('[data-koyomi="timeline-row"]');
+    expect(row?.getAttribute('style')).toContain('--koyomi-timeline-lanes: 2');
+  });
+
+  it('使用レーン数が timelineMaxLanes ちょうど（超過なし）では timeline-overflow が描画されない', () => {
+    const { container } = render(
+      <Harness
+        resources={makeResources(1)}
+        events={OVERLAPPING_EVENTS.slice(0, 2)}
+        timelineMaxLanes={2}
+      />,
+    );
+    expect(container.querySelectorAll('[data-koyomi="timeline-item"]')).toHaveLength(2);
+    expect(container.querySelector('[data-koyomi="timeline-overflow"]')).toBeNull();
+  });
+
+  it('フォーカス復元は非破壊: timelineMaxLanes 指定下でも、表示中の帯へのフォーカスは窓外スクロールで pinned 維持される', async () => {
+    const { container } = render(
+      <Harness resources={makeResources(200)} events={OVERLAPPING_EVENTS} timelineMaxLanes={2} />,
+    );
+    await setViewport(container, 100, 0);
+
+    const visibleItem = container.querySelector('[data-koyomi-occurrence^="a@"]');
+    if (visibleItem === null) {
+      throw new Error('timeline-item（a）が見つかりません');
+    }
+    await act(async () => {
+      fireEvent.focus(visibleItem);
+    });
+
+    await setViewport(container, 100, 5000);
+    const pinned = container.querySelector('[data-koyomi-pinned="true"]');
+    expect(pinned?.getAttribute('data-koyomi-row-key')).toBe('r:r0');
+    // hidden な帯（c）は pinned 行になっても描画されない
+    expect(pinned?.querySelector('[data-koyomi-occurrence^="c@"]')).toBeNull();
+    expect(pinned?.querySelector('[data-koyomi="timeline-overflow"]')).not.toBeNull();
   });
 });
 
@@ -1010,5 +1078,67 @@ describe('VirtualTimelineView - カスタム描画 props', () => {
     );
     expect(container.querySelector('[data-testid="individual"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="central"]')).toBeNull();
+  });
+});
+
+describe('VirtualTimelineView - 仮想化 ARIA 行属性（aria-rowcount/aria-rowindex）', () => {
+  it('grid に aria-rowcount（ヘッダー行を含む総行数）が付き、ヘッダー行の aria-rowindex は 1', () => {
+    const { container } = render(<Harness resources={makeResources(3)} />);
+    const root = container.querySelector('[data-koyomi="timeline"]');
+    // ヘッダー行 1 + データ行 3
+    expect(root?.getAttribute('aria-rowcount')).toBe('4');
+    const headerRow = container.querySelector('[data-koyomi="timeline-header-row"]');
+    expect(headerRow?.getAttribute('aria-rowindex')).toBe('1');
+  });
+
+  it('各行の aria-rowindex はヘッダー行を含めた絶対位置（1 始まり）を持つ', async () => {
+    const { container } = render(<Harness resources={makeResources(200)} />);
+    await setViewport(container, 100, 0);
+    const root = container.querySelector('[data-koyomi="timeline"]');
+    expect(root?.getAttribute('aria-rowcount')).toBe('201');
+
+    const firstRow = container.querySelector('[data-koyomi-row-key="r:r0"]');
+    expect(firstRow?.getAttribute('aria-rowindex')).toBe('2');
+    const secondRow = container.querySelector('[data-koyomi-row-key="r:r1"]');
+    expect(secondRow?.getAttribute('aria-rowindex')).toBe('3');
+  });
+
+  it('スクロールして可視行が変わっても aria-rowindex は絶対位置を保つ（相対位置に振り直されない）', async () => {
+    const { container } = render(<Harness resources={makeResources(200)} />);
+    // レーン高 28px × 50 行 = 1400px スクロール → index 50（r:r50）が可視窓に入る
+    await setViewport(container, 100, 1400);
+
+    const row = container.querySelector('[data-koyomi-row-key="r:r50"]');
+    if (row === null) {
+      throw new Error('r:r50 の行が見つかりません');
+    }
+    expect(row.getAttribute('aria-rowindex')).toBe('52');
+  });
+
+  it('pinned 行にも正しい aria-rowindex が付く', async () => {
+    const events: CalendarEvent[] = [
+      {
+        id: 'e0',
+        title: '作業0',
+        start: '2026-07-15T09:00',
+        end: '2026-07-15T10:00',
+        resourceId: 'r0',
+      },
+    ];
+    const { container } = render(<Harness resources={makeResources(200)} events={events} />);
+    await setViewport(container, 100, 0);
+
+    const firstItem = container.querySelector('[data-koyomi="timeline-item"]');
+    if (firstItem === null) {
+      throw new Error('timeline-item が見つかりません');
+    }
+    await act(async () => {
+      fireEvent.focus(firstItem);
+    });
+    await setViewport(container, 100, 5000);
+
+    const pinned = container.querySelector('[data-koyomi-pinned="true"]');
+    expect(pinned?.getAttribute('data-koyomi-row-key')).toBe('r:r0');
+    expect(pinned?.getAttribute('aria-rowindex')).toBe('2');
   });
 });

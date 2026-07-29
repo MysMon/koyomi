@@ -12,7 +12,7 @@
 import { act, fireEvent, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createCalendar } from '../core/calendar';
-import type { CalendarEvent, EventOccurrence } from '../core/types';
+import type { BusinessHoursRule, CalendarEvent, EventOccurrence } from '../core/types';
 import type { UseCalendarResult } from './types';
 import { useCalendarClipboard } from './use-calendar-clipboard';
 
@@ -32,14 +32,28 @@ function makeSingle(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
   };
 }
 
+/** `makeCalendar` に渡せる宣言的制約関連のオプション（{@link CalendarOptions} の部分集合）。 */
+interface CalendarConstraintOverrides {
+  /** {@link CalendarOptions.eventOverlap}。 */
+  eventOverlap?: boolean;
+  /** {@link CalendarOptions.eventConstraint}。 */
+  eventConstraint?: 'businessHours' | readonly BusinessHoursRule[];
+  /** {@link CalendarOptions.businessHours}。 */
+  businessHours?: readonly BusinessHoursRule[];
+}
+
 /** 固定タイムゾーン・固定基準日の `UseCalendarResult` 相当のオブジェクトを作るヘルパ。 */
-function makeCalendar(events: readonly CalendarEvent[] = []): UseCalendarResult {
+function makeCalendar(
+  events: readonly CalendarEvent[] = [],
+  overrides: CalendarConstraintOverrides = {},
+): UseCalendarResult {
   const api = createCalendar({
     timeZone: TOKYO,
     events,
     initialDate: NOW,
     now: () => NOW,
     defaultEventMinutes: 60,
+    ...overrides,
   });
   return { api, state: api.getState(), viewModel: api.getViewModel() };
 }
@@ -97,7 +111,7 @@ describe('useCalendarClipboard', () => {
       const calendar = makeCalendar([makeSingle()]);
       const { result } = renderHook(() => useCalendarClipboard({ calendar }));
 
-      let created: CalendarEvent | null = null;
+      let created: CalendarEvent | null | Promise<CalendarEvent | null> = null;
       act(() => {
         result.current.copy(firstOccurrence(calendar));
         created = result.current.paste();
@@ -156,7 +170,7 @@ describe('useCalendarClipboard', () => {
         useCalendarClipboard({ calendar, history: { push }, onPaste }),
       );
 
-      let created: CalendarEvent | null = null;
+      let created: CalendarEvent | null | Promise<CalendarEvent | null> = null;
       act(() => {
         result.current.copy(firstOccurrence(calendar));
         created = result.current.paste();
@@ -170,7 +184,7 @@ describe('useCalendarClipboard', () => {
       const calendar = makeCalendar([makeSingle()]);
       const { result } = renderHook(() => useCalendarClipboard({ calendar }));
 
-      let created: CalendarEvent | null = null;
+      let created: CalendarEvent | null | Promise<CalendarEvent | null> = null;
       act(() => {
         created = result.current.paste();
       });
@@ -192,7 +206,7 @@ describe('useCalendarClipboard', () => {
         result.current.clear();
       });
       expect(result.current.hasClipboard).toBe(false);
-      let created: CalendarEvent | null = null;
+      let created: CalendarEvent | null | Promise<CalendarEvent | null> = null;
       act(() => {
         created = result.current.paste();
       });
@@ -349,6 +363,162 @@ describe('useCalendarClipboard', () => {
       fireEvent.keyDown(cell, { key: 'v', ctrlKey: true });
 
       expect(calendar.api.getEvents()).toHaveLength(1);
+    });
+  });
+
+  describe('宣言的制約・適用前フックの通過（isDragCandidateValid / onBeforeSelectRange）', () => {
+    it('eventOverlap: false のとき、既存オカレンスと重なる貼り付けは作成されず reason: "constraint" で onPasteRejected が呼ばれる', () => {
+      const calendar = makeCalendar([makeSingle()], { eventOverlap: false });
+      const onPasteRejected = vi.fn();
+      const push = vi.fn();
+      const onPaste = vi.fn();
+      const { result } = renderHook(() =>
+        useCalendarClipboard({ calendar, onPasteRejected, history: { push }, onPaste }),
+      );
+      act(() => {
+        result.current.copy(firstOccurrence(calendar));
+      });
+
+      let created: CalendarEvent | null | Promise<CalendarEvent | null> = null;
+      act(() => {
+        // newStart 省略 → コピー元と同じ枠（既存オカレンスと完全に重なる）へ貼り付けようとする
+        created = result.current.paste();
+      });
+
+      expect(created).toBeNull();
+      expect(calendar.api.getEvents()).toHaveLength(1);
+      expect(onPasteRejected).toHaveBeenCalledWith({
+        reason: 'constraint',
+        input: expect.objectContaining({ title: '打ち合わせ' }),
+        start: new Date('2026-07-01T00:00:00Z'),
+        allDay: false,
+      });
+      expect(push).not.toHaveBeenCalled();
+      expect(onPaste).not.toHaveBeenCalled();
+    });
+
+    it('eventConstraint: "businessHours" のとき、営業時間外への貼り付けは作成されず reason: "constraint" で onPasteRejected が呼ばれる', () => {
+      // 水曜日 9:00〜17:00 のみが営業時間（NOW の 7/1 は水曜日、貼り付け先の 7/2 は木曜日）
+      const businessHours: BusinessHoursRule[] = [
+        { daysOfWeek: [3], startTime: '09:00', endTime: '17:00' },
+      ];
+      const calendar = makeCalendar([makeSingle()], {
+        eventConstraint: 'businessHours',
+        businessHours,
+      });
+      const onPasteRejected = vi.fn();
+      const { result } = renderHook(() => useCalendarClipboard({ calendar, onPasteRejected }));
+      act(() => {
+        result.current.copy(firstOccurrence(calendar));
+      });
+
+      let created: CalendarEvent | null | Promise<CalendarEvent | null> = null;
+      act(() => {
+        created = result.current.paste(new Date('2026-07-02T00:00:00Z')); // 木曜 9:00（営業時間外）
+      });
+
+      expect(created).toBeNull();
+      expect(calendar.api.getEvents()).toHaveLength(1);
+      expect(onPasteRejected).toHaveBeenCalledWith({
+        reason: 'constraint',
+        input: expect.objectContaining({ title: '打ち合わせ' }),
+        start: new Date('2026-07-02T00:00:00Z'),
+        allDay: false,
+      });
+    });
+
+    it('onBeforeSelectRange が同期的に false を返すと貼り付けは作成されず、reason: "rejected" で onPasteRejected が呼ばれる', () => {
+      const calendar = makeCalendar([makeSingle()]);
+      const onBeforeSelectRange = vi.fn().mockReturnValue(false);
+      const onPasteRejected = vi.fn();
+      const push = vi.fn();
+      const onPaste = vi.fn();
+      const { result } = renderHook(() =>
+        useCalendarClipboard({
+          calendar,
+          callbacks: { onBeforeSelectRange },
+          onPasteRejected,
+          history: { push },
+          onPaste,
+        }),
+      );
+      act(() => {
+        result.current.copy(firstOccurrence(calendar));
+      });
+
+      let created: CalendarEvent | null | Promise<CalendarEvent | null> = null;
+      act(() => {
+        created = result.current.paste();
+      });
+
+      expect(created).toBeNull();
+      expect(calendar.api.getEvents()).toHaveLength(1);
+      expect(onBeforeSelectRange).toHaveBeenCalledWith({
+        range: { start: new Date('2026-07-01T00:00:00Z'), end: new Date('2026-07-01T01:00:00Z') },
+        allDay: false,
+      });
+      expect(onPasteRejected).toHaveBeenCalledWith({
+        reason: 'rejected',
+        input: expect.objectContaining({ title: '打ち合わせ' }),
+        start: new Date('2026-07-01T00:00:00Z'),
+        allDay: false,
+      });
+      expect(push).not.toHaveBeenCalled();
+      expect(onPaste).not.toHaveBeenCalled();
+    });
+
+    it('onBeforeSelectRange が Promise<true> を返す場合、解決を待ってから作成され history/onPaste が呼ばれる', async () => {
+      const calendar = makeCalendar([makeSingle()]);
+      const onBeforeSelectRange = vi.fn().mockResolvedValue(true);
+      const push = vi.fn();
+      const onPaste = vi.fn();
+      const { result } = renderHook(() =>
+        useCalendarClipboard({
+          calendar,
+          callbacks: { onBeforeSelectRange },
+          history: { push },
+          onPaste,
+        }),
+      );
+      act(() => {
+        result.current.copy(firstOccurrence(calendar));
+      });
+
+      let pending: CalendarEvent | null | Promise<CalendarEvent | null> = null;
+      act(() => {
+        pending = result.current.paste();
+      });
+      expect(pending).toBeInstanceOf(Promise);
+
+      let created: CalendarEvent | null = null;
+      await act(async () => {
+        created = await pending;
+      });
+
+      expect(created).not.toBeNull();
+      expect(calendar.api.getEvents()).toHaveLength(2);
+      expect(push).toHaveBeenCalledWith([{ after: created, index: 1 }]);
+      expect(onPaste).toHaveBeenCalledWith(created);
+    });
+
+    it('Ctrl+V 経路でも eventOverlap: false による拒否が働き、イベントは作成されない', () => {
+      const calendar = makeCalendar([makeSingle()], { eventOverlap: false });
+      const onPasteRejected = vi.fn();
+      const { result } = renderHook(() =>
+        useCalendarClipboard({ calendar, keyboardShortcuts: true, onPasteRejected }),
+      );
+      act(() => {
+        result.current.copy(firstOccurrence(calendar));
+      });
+      // 同じ日付セル（コピー元と同じ日）へ貼り付け、既存オカレンスと重ねる
+      const cell = mountDateCellElement('2026-07-01');
+
+      fireEvent.keyDown(cell, { key: 'v', ctrlKey: true });
+
+      expect(calendar.api.getEvents()).toHaveLength(1);
+      expect(onPasteRejected).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'constraint' }),
+      );
     });
   });
 });

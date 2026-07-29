@@ -22,7 +22,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   ReactNode,
 } from 'react';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import type { EventOccurrence, ListDay } from '../../core/types';
 import { useCalendarContext } from '../context';
 import type { EventContentContext, SlotRenderContext } from '../types';
@@ -99,29 +99,36 @@ export function ListView(props: ListViewProps): ReactElement | null {
     [locale, timeZone],
   );
 
-  if (viewModel.type !== 'list') {
-    return null;
-  }
-
-  /** イベント行のクリックで `onEventClick` を呼ぶ。 */
-  function handleEventClick(
-    occurrence: EventOccurrence,
-    event: ReactMouseEvent<HTMLButtonElement>,
-  ): void {
-    callbacks.onEventClick?.(occurrence, event.nativeEvent);
-  }
+  /**
+   * イベント行のクリックで `onEventClick` を呼ぶ。
+   *
+   * `ListDaySection` は表示内容の比較で再レンダーを抑制する `memo` コンポーネントの
+   * ため、この関数自体の参照も `useCallback` で安定させる（そうしないと毎レンダー
+   * 新しい関数になり、`memo` の比較が常に「変わった」と判定してしまう）。
+   */
+  const handleEventClick = useCallback(
+    (occurrence: EventOccurrence, event: ReactMouseEvent<HTMLButtonElement>): void => {
+      callbacks.onEventClick?.(occurrence, event.nativeEvent);
+    },
+    [callbacks],
+  );
 
   /**
    * Enter / Space をクリック相当として扱う。
    * jsdom を含む DOM 実装は `<button>` へのキーボード操作を自動で click に
    * 変換しないため、明示的に `click()` を呼んで `onClick` へ橋渡しする。
+   * `handleEventClick` と同じ理由で `useCallback` により参照を安定させる。
    */
-  function handleEventKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>): void {
+  const handleEventKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>): void => {
     if (event.key !== 'Enter' && event.key !== ' ') {
       return;
     }
     event.preventDefault();
     event.currentTarget.click();
+  }, []);
+
+  if (viewModel.type !== 'list') {
+    return null;
   }
 
   if (viewModel.isEmpty) {

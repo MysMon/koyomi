@@ -61,6 +61,8 @@ interface HarnessProps {
   slotMinutes?: number;
   /** 営業時間の指定（{@link CalendarOptions.businessHours}）。 */
   businessHours?: readonly BusinessHoursRule[];
+  /** 行内に表示する最大レーン数（{@link CalendarOptions.timelineMaxLanes}）。 */
+  timelineMaxLanes?: number;
   /** `TimelineView` へそのまま渡す追加 props。 */
   viewProps?: TimelineViewProps;
   /** `CalendarProvider` の `messages` prop。 */
@@ -86,6 +88,7 @@ function Harness(props: HarnessProps): ReactElement {
     ...(props.weekStartsOn !== undefined ? { weekStartsOn: props.weekStartsOn } : {}),
     ...(props.slotMinutes !== undefined ? { slotMinutes: props.slotMinutes } : {}),
     ...(props.businessHours !== undefined ? { businessHours: props.businessHours } : {}),
+    ...(props.timelineMaxLanes !== undefined ? { timelineMaxLanes: props.timelineMaxLanes } : {}),
   });
   if (props.sink) {
     props.sink.current = calendar;
@@ -383,6 +386,86 @@ describe('TimelineView - レーン', () => {
 
     const row = container.querySelector('[data-koyomi="timeline-row"]');
     expect(row?.getAttribute('style')).toContain('--koyomi-timeline-lanes: 2');
+  });
+});
+
+describe('TimelineView - あふれ（timelineMaxLanes、opt-in）', () => {
+  /** crane-1 に 3 件重なる 1 時間イベントを作る（同時刻）。 */
+  const OVERLAPPING_EVENTS: CalendarEvent[] = ['a', 'b', 'c'].map((id) => ({
+    id,
+    title: id.toUpperCase(),
+    start: '2026-07-15T09:00',
+    end: '2026-07-15T11:00',
+    resourceId: 'crane-1',
+  }));
+
+  it('省略時（既定）は上限がなく、timeline-overflow バッジは描画されない', () => {
+    const { container } = render(<Harness resources={[CRANE_1]} events={OVERLAPPING_EVENTS} />);
+    expect(container.querySelectorAll('[data-koyomi="timeline-item"]')).toHaveLength(3);
+    expect(container.querySelector('[data-koyomi="timeline-overflow"]')).toBeNull();
+  });
+
+  it('使用レーン数が timelineMaxLanes ちょうど（超過なし）では timeline-overflow が描画されない', () => {
+    const { container } = render(
+      <Harness
+        resources={[CRANE_1]}
+        events={OVERLAPPING_EVENTS.slice(0, 2)}
+        timelineMaxLanes={2}
+      />,
+    );
+    expect(container.querySelectorAll('[data-koyomi="timeline-item"]')).toHaveLength(2);
+    expect(container.querySelector('[data-koyomi="timeline-overflow"]')).toBeNull();
+  });
+
+  it('使用レーン数が timelineMaxLanes を超過すると、超過分は timeline-item として描画されず「+N 件」バッジが出る', () => {
+    const { container } = render(
+      <Harness resources={[CRANE_1]} events={OVERLAPPING_EVENTS} timelineMaxLanes={2} />,
+    );
+    // 表示は 2 件（超過した 1 件は描画されない）
+    expect(container.querySelectorAll('[data-koyomi="timeline-item"]')).toHaveLength(2);
+    const badge = container.querySelector('[data-koyomi="timeline-overflow"]');
+    expect(badge).not.toBeNull();
+    expect(badge?.textContent).toBe('+1 件');
+    // 行の高さのフックであるレーン数はあふれ分を含まない
+    const row = container.querySelector('[data-koyomi="timeline-row"]');
+    expect(row?.getAttribute('style')).toContain('--koyomi-timeline-lanes: 2');
+    // 非表示アイテムはボタンとして描画されない（ヘッドレス判断：ボタン化はアプリ側に委ねる）
+    expect(badge?.tagName).toBe('SPAN');
+  });
+
+  it('messages.month.overflow を上書きすると timeline-overflow の表示内容にも反映される（再利用）', () => {
+    const { container } = render(
+      <Harness
+        resources={[CRANE_1]}
+        events={OVERLAPPING_EVENTS}
+        timelineMaxLanes={2}
+        messages={{ month: { overflow: (count) => `他 ${count} 件` } }}
+      />,
+    );
+    expect(container.querySelector('[data-koyomi="timeline-overflow"]')?.textContent).toBe(
+      '他 1 件',
+    );
+  });
+
+  it('renderRowHeader からも row.overflowCount / row.hiddenItems を参照できる', () => {
+    let observed: { overflowCount: number; hiddenTitles: string[] } | null = null;
+    render(
+      <Harness
+        resources={[CRANE_1]}
+        events={OVERLAPPING_EVENTS}
+        timelineMaxLanes={2}
+        viewProps={{
+          renderRowHeader: (row: TimelineRow) => {
+            observed = {
+              overflowCount: row.overflowCount,
+              hiddenTitles: row.hiddenItems.map((occ) => occ.event.title),
+            };
+            return row.resource?.title;
+          },
+        }}
+      />,
+    );
+    expect(observed).toEqual({ overflowCount: 1, hiddenTitles: ['C'] });
   });
 });
 
@@ -956,5 +1039,16 @@ describe('TimelineView - リソースの階層グルーピング（parentId）',
     );
     const toggle = container.querySelector('[data-koyomi="timeline-row-toggle"]');
     expect(toggle).toHaveAttribute('aria-label', '本社/false');
+  });
+});
+
+describe('TimelineView - 行トラックのアクセシブルネーム', () => {
+  it('行トラック（timeline-row）にリソース名の aria-label が付き、未割り当て行は「未割り当て」になる', () => {
+    const { container } = render(
+      <Harness resources={[CRANE_1]} timelineDays={1} unassignedLane="always" />,
+    );
+    const rows = container.querySelectorAll('[data-koyomi="timeline-row"]');
+    expect(rows[0]).toHaveAttribute('aria-label', 'クレーン1号機');
+    expect(rows[1]).toHaveAttribute('aria-label', '未割り当て');
   });
 });

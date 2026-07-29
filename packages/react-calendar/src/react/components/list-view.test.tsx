@@ -5,10 +5,16 @@
  * `useCalendar` + `CalendarProvider` を使う結合テストとして、DOM 構造は
  * `docs/internal/components-dom.md` の「リストビュー」セクションに従って検証する。
  */
-import { fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import type { CalendarEvent, CalendarViewType, EventOccurrence, ListDay } from '../../core/types';
+import type {
+  CalendarApi,
+  CalendarEvent,
+  CalendarViewType,
+  EventOccurrence,
+  ListDay,
+} from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { MessageCatalogOverrides } from '../locales/types';
 import type {
@@ -37,6 +43,8 @@ function TestListView(props: {
   messages?: MessageCatalogOverrides;
   view?: CalendarViewType;
   timeZone?: string;
+  /** 描画後の `calendar.api` を受け取る（`api.updateEvent` 等をテストから呼ぶため）。 */
+  apiRef?: { current: CalendarApi | null };
 }): ReactElement {
   const calendar = useCalendar({
     timeZone: props.timeZone ?? 'Asia/Tokyo',
@@ -45,6 +53,9 @@ function TestListView(props: {
     initialView: props.view ?? 'list',
     events: props.events ?? [],
   });
+  if (props.apiRef !== undefined) {
+    props.apiRef.current = calendar.api;
+  }
   // exactOptionalPropertyTypes: true のもとでは、値が undefined になり得るプロパティを
   // そのまま渡せない（プロパティ自体を省略するか、確定した値を渡す必要がある）ため、
   // 条件付きスプレッドで未指定時はプロパティごと省略する。
@@ -111,6 +122,28 @@ describe('ListView', () => {
     const tomorrowSection = container.querySelector('[data-koyomi-date="2026-07-16"]');
     expect(todaySection).toHaveAttribute('aria-current', 'date');
     expect(tomorrowSection).not.toHaveAttribute('aria-current');
+  });
+
+  it('1 日に大量（50 件超）の予定があっても全件を描画する（ウィンドウ描画・スペーサーを持ち込まない）', () => {
+    const events: CalendarEvent[] = [];
+    for (let index = 0; index < 60; index += 1) {
+      const hh = String(Math.floor(index / 60)).padStart(2, '0');
+      const mm = String(index % 60).padStart(2, '0');
+      events.push({
+        id: `m${index}`,
+        title: `多数${index}`,
+        start: `2026-07-16T${hh}:${mm}:00`,
+        end: `2026-07-16T${hh}:${mm}:30`,
+      });
+    }
+    const { container } = render(<TestListView events={events} />);
+
+    expect(container.querySelectorAll('[data-koyomi="list-event"]')).toHaveLength(60);
+    expect(container.querySelector('[data-koyomi="list-event-spacer"]')).toBeNull();
+    // 仮想化専用のオカレンスキー属性も付かない
+    expect(
+      container.querySelector('[data-koyomi="list-event"][data-koyomi-occurrence]'),
+    ).toBeNull();
   });
 
   it('予定が 1 件もない場合は list-empty を表示する', () => {
@@ -569,4 +602,31 @@ describe('ListView', () => {
       '2026-07-16:7月16日(木)',
     );
   });
+
+  it(
+    '無関係な日の予定編集では、他の日の内容再描画（renderEvent の呼び出し回数）が増えない' +
+      '（ListDaySection の memo 化 + handleEventClick/handleEventKeyDown の安定化の性能ピン留め）',
+    () => {
+      const apiRef: { current: CalendarApi | null } = { current: null };
+      const renderEvent = vi.fn((occurrence: EventOccurrence) => (
+        <span>{occurrence.event.title}</span>
+      ));
+      const events: CalendarEvent[] = [
+        { id: 'e1', title: '会議16', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+        { id: 'e2', title: '会議20', start: '2026-07-20T09:00:00', end: '2026-07-20T09:30:00' },
+      ];
+      render(<TestListView events={events} renderEvent={renderEvent} apiRef={apiRef} />);
+      expect(renderEvent).toHaveBeenCalledTimes(2);
+
+      act(() => {
+        apiRef.current?.updateEvent('e1', { title: '会議16改' });
+      });
+
+      // e1（7/16）の変更で再描画されるのは e1 のみ。7/20 の e2 は無関係な日なので
+      // ListDaySection の内部実装は再実行されない（renderEvent が呼ばれない）
+      expect(renderEvent).toHaveBeenCalledTimes(3);
+      const titles = renderEvent.mock.calls.map(([occurrence]) => occurrence.event.title);
+      expect(titles).toEqual(['会議16', '会議20', '会議16改']);
+    },
+  );
 });

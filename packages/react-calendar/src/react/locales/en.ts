@@ -15,6 +15,7 @@ import type {
   RecurrenceWeekdayOrdinal,
 } from '../../core/recurrence-editor';
 import type { RecurringEditScope, Weekday } from '../../core/types';
+import type { OperationRejection } from '../types';
 import type { EventChangeVerb, MessageCatalog } from './types';
 
 /** {@link Weekday} の英語 3 文字略称。 */
@@ -257,7 +258,7 @@ function unsupportedReasonEn(reason: RecurrenceUnsupportedReason): string {
     case 'unsupportedField':
       return `Unsupported RRULE field (${unsupportedFieldLabelEn(reason.field)}).`;
     case 'unsupportedWkst':
-      return 'Unsupported RRULE field (WKST other than Monday).';
+      return 'Unsupported RRULE field (WKST that does not match the week start day).';
     case 'unsupportedFrequency':
       return 'Only DAILY, WEEKLY, MONTHLY, and YEARLY frequencies are supported by the editor.';
     case 'countAndUntilBothSpecified':
@@ -370,6 +371,27 @@ function verbTextEn(verb: EventChangeVerb): string {
   }
 }
 
+/** {@link OperationRejection.action} の英語表記（`operationRejected` の文中に埋め込む）。 */
+function operationActionTextEn(action: OperationRejection['action']): string {
+  switch (action) {
+    case 'move':
+      return 'move';
+    case 'resize':
+      return 'resize';
+    case 'convert':
+      return 'conversion';
+    case 'create':
+      return 'creation';
+    case 'delete':
+      return 'deletion';
+  }
+}
+
+/** {@link OperationRejection.reason} の英語の理由句（`operationRejected` の文中に埋め込む）。 */
+function operationRejectionReasonTextEn(reason: OperationRejection['reason']): string {
+  return reason === 'constraint' ? 'a placement constraint' : 'the application';
+}
+
 /** `RecurringEditScope` の英語の付記文言（`null` は付記なし）。 */
 function describeScopeEn(scope: RecurringEditScope | null): string | null {
   switch (scope) {
@@ -398,6 +420,13 @@ const announcer: MessageCatalog['announcer'] = {
     const scopeLabel = describeScopeEn(deletion.scope);
     const base = `${deletion.occurrence.event.title} deleted`;
     return scopeLabel === null ? base : `${base} (${scopeLabel})`;
+  },
+  operationRejected: (info) => {
+    const actionText = operationActionTextEn(info.action);
+    const reasonText = operationRejectionReasonTextEn(info.reason);
+    return info.occurrence === undefined
+      ? `The ${actionText} was blocked by ${reasonText}`
+      : `${info.occurrence.event.title}: the ${actionText} was blocked by ${reasonText}`;
   },
   viewChanged: (_info, title) => `Switched view to ${title}`,
 };

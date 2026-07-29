@@ -116,29 +116,37 @@ function Harness(props: {
   }
 
   return (
-    <div data-koyomi="timegrid-body" data-testid="timegrid-body">
-      {viewModel.days.map((day) => {
-        const { ref: dayRef, ...dayProps } = drag.getDayProps(day);
-        return (
-          <div key={day.key} {...dayProps} ref={toDivRef(dayRef)} data-testid={`day-${day.key}`}>
-            {day.items.map((item) => {
-              const eventProps = drag.getEventProps(item);
-              const endResizeProps = drag.getResizeHandleProps(item);
-              const startResizeProps = drag.getResizeHandleProps(item, 'start');
-              return (
-                <div
-                  key={item.occurrence.key}
-                  {...eventProps}
-                  data-testid={`event-${item.occurrence.key}`}
-                >
-                  <div {...startResizeProps} data-testid={`resize-start-${item.occurrence.key}`} />
-                  <div {...endResizeProps} data-testid={`resize-${item.occurrence.key}`} />
-                </div>
-              );
-            })}
-          </div>
-        );
-      })}
+    // ルート要素は本番の時間グリッドビュー（`time-grid-view.tsx`）と同じ
+    // `data-koyomi="timegrid"` を持つ（`use-time-grid-drag.ts` のキーボード削除後の
+    // フォーカス管理が、このビュールートを基点にオカレンスを探索するため）。
+    <div data-koyomi="timegrid">
+      <div data-koyomi="timegrid-body" data-testid="timegrid-body">
+        {viewModel.days.map((day) => {
+          const { ref: dayRef, ...dayProps } = drag.getDayProps(day);
+          return (
+            <div key={day.key} {...dayProps} ref={toDivRef(dayRef)} data-testid={`day-${day.key}`}>
+              {day.items.map((item) => {
+                const eventProps = drag.getEventProps(item);
+                const endResizeProps = drag.getResizeHandleProps(item);
+                const startResizeProps = drag.getResizeHandleProps(item, 'start');
+                return (
+                  <div
+                    key={item.occurrence.key}
+                    {...eventProps}
+                    data-testid={`event-${item.occurrence.key}`}
+                  >
+                    <div
+                      {...startResizeProps}
+                      data-testid={`resize-start-${item.occurrence.key}`}
+                    />
+                    <div {...endResizeProps} data-testid={`resize-${item.occurrence.key}`} />
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -322,6 +330,40 @@ describe('useTimeGridDrag', () => {
       start: at(`${SUN}T09:00`),
       end: at(`${SUN}T10:00`),
     });
+  });
+
+  it('onSelectRange 省略時は onEventCreate が作成イベント・changes・selection 付きで呼ばれる', () => {
+    const onEventCreate = vi.fn();
+    const { sink } = renderHarness({ callbacks: { onEventCreate } });
+    const dayEl = screen.getByTestId(`day-${SUN}`);
+    const x = columnCenterX(SUN);
+
+    firePointerDown(dayEl, x, 540); // 9:00
+    movePointer(x, 600); // 10:00
+    releasePointer(x, 600);
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(onEventCreate).toHaveBeenCalledWith({
+      event: events[0],
+      changes: [{ after: events[0], index: 0 }],
+      selection: { range: { start: at(`${SUN}T09:00`), end: at(`${SUN}T10:00`) }, allDay: false },
+    });
+  });
+
+  it('onSelectRange 指定時は onEventCreate が呼ばれない（既定即時作成自体が行われないため）', () => {
+    const onSelectRange = vi.fn();
+    const onEventCreate = vi.fn();
+    renderHarness({ callbacks: { onSelectRange, onEventCreate } });
+    const dayEl = screen.getByTestId(`day-${SUN}`);
+    const x = columnCenterX(SUN);
+
+    firePointerDown(dayEl, x, 540); // 9:00
+    movePointer(x, 600); // 10:00
+    releasePointer(x, 600);
+
+    expect(onSelectRange).toHaveBeenCalledTimes(1);
+    expect(onEventCreate).not.toHaveBeenCalled();
   });
 
   it('クリック（移動なし）で defaultEventMinutes の長さの範囲になる', () => {
@@ -1221,6 +1263,82 @@ describe('useTimeGridDrag', () => {
       movePointer(x, 0); // オートスクロール対象領域（上端）へ
       releasePointer(x, 0);
     }).not.toThrow();
+  });
+});
+
+describe('useTimeGridDrag - キーボード削除後のフォーカス管理', () => {
+  it('削除後、DOM 順（日付順）で次の予定にフォーカスが移る', () => {
+    const eventMon: CalendarEvent = {
+      id: 'ev-mon',
+      title: 'A',
+      start: `${MON}T09:00`,
+      end: `${MON}T10:00`,
+    };
+    const eventWed: CalendarEvent = {
+      id: 'ev-wed',
+      title: 'B',
+      start: `${WED}T09:00`,
+      end: `${WED}T10:00`,
+    };
+    const eventFri: CalendarEvent = {
+      id: 'ev-fri',
+      title: 'C',
+      start: `${FRI}T09:00`,
+      end: `${FRI}T10:00`,
+    };
+    const { sink } = renderHarness({ events: [eventMon, eventWed, eventFri] });
+    const monEl = screen.getByTestId(`event-ev-mon@${at(`${MON}T09:00`).toISOString()}`);
+    const wedKey = `ev-wed@${at(`${WED}T09:00`).toISOString()}`;
+
+    fireEvent.keyDown(monEl, { key: 'Delete' });
+
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(2);
+    expect(document.activeElement?.getAttribute('data-koyomi-occurrence')).toBe(wedKey);
+  });
+
+  it('削除対象が DOM 順で最後の予定の場合、前の予定にフォーカスが移る', () => {
+    const eventWed: CalendarEvent = {
+      id: 'ev-wed',
+      title: 'B',
+      start: `${WED}T09:00`,
+      end: `${WED}T10:00`,
+    };
+    const eventFri: CalendarEvent = {
+      id: 'ev-fri',
+      title: 'C',
+      start: `${FRI}T09:00`,
+      end: `${FRI}T10:00`,
+    };
+    const { sink } = renderHarness({ events: [eventWed, eventFri] });
+    const friEl = screen.getByTestId(`event-ev-fri@${at(`${FRI}T09:00`).toISOString()}`);
+    const wedKey = `ev-wed@${at(`${WED}T09:00`).toISOString()}`;
+
+    fireEvent.keyDown(friEl, { key: 'Delete' });
+
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(1);
+    expect(document.activeElement?.getAttribute('data-koyomi-occurrence')).toBe(wedKey);
+  });
+
+  it('削除後に予定が 1 件も残らない場合、フォーカス移動先の候補がなく何もしない（例外も発生しない）', () => {
+    // 時間グリッド本体には use-grid-navigation.ts の FOCUSABLE セル相当の要素が
+    // 存在しないため、次・前の予定がなければフォールバック先もなく「何もしない」。
+    const event: CalendarEvent = {
+      id: 'ev-only',
+      title: 'A',
+      start: `${WED}T09:00`,
+      end: `${WED}T10:00`,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const eventEl = screen.getByTestId(`event-ev-only@${at(`${WED}T09:00`).toISOString()}`);
+    eventEl.focus();
+    expect(document.activeElement).toBe(eventEl);
+
+    expect(() => {
+      fireEvent.keyDown(eventEl, { key: 'Delete' });
+    }).not.toThrow();
+
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(0);
+    expect(document.activeElement).toBe(document.body);
   });
 });
 
@@ -2225,5 +2343,662 @@ describe('useTimeGridDrag - 重なり判定の展開キャッシュ', () => {
       start: at(`${MON}T10:45`),
       end: at(`${MON}T11:45`),
     });
+  });
+});
+
+describe('useTimeGridDrag - 拒否通知（onOperationRejected）', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('eventOverlap: false による移動ドラッグの拒否で、reason: "constraint" で呼ばれる', () => {
+    const existing: CalendarEvent = {
+      id: 'existing',
+      title: '既存',
+      start: `${MON}T10:00`,
+      end: `${MON}T11:00`,
+    };
+    const moving: CalendarEvent = {
+      id: 'moving',
+      title: '対象',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const onOperationRejected = vi.fn();
+    renderHarness({
+      events: [existing, moving],
+      callbacks: { onOperationRejected },
+      eventOverlap: false,
+    });
+    const occurrenceKey = `moving@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    firePointerDown(eventEl, columnCenterX(TUE), 600);
+    movePointer(columnCenterX(MON), 600);
+    releasePointer(columnCenterX(MON), 600);
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({
+      action: 'move',
+      reason: 'constraint',
+      occurrence: expect.objectContaining({ eventId: 'moving' }),
+    });
+  });
+
+  it('onBeforeEventChange が false を返す移動ドラッグの拒否で、reason: "rejected" で呼ばれる', () => {
+    const onBeforeEventChange = vi.fn().mockReturnValue(false);
+    const onOperationRejected = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-rejected-move',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    renderHarness({
+      events: [event],
+      callbacks: { onBeforeEventChange, onOperationRejected },
+    });
+    const occurrenceKey = `ev-rejected-move@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    firePointerDown(eventEl, columnCenterX(TUE), 600); // 10:00
+    movePointer(columnCenterX(TUE), 720); // 12:00（+2h）
+    releasePointer(columnCenterX(TUE), 720);
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({
+      action: 'move',
+      reason: 'rejected',
+      occurrence: expect.objectContaining({ eventId: 'ev-rejected-move' }),
+    });
+  });
+
+  it('eventOverlap: false による空き領域からの新規作成の拒否で、reason: "constraint"・occurrence 省略で呼ばれる', () => {
+    const existing: CalendarEvent = {
+      id: 'existing',
+      title: '既存',
+      start: `${MON}T10:00`,
+      end: `${MON}T11:00`,
+    };
+    const onOperationRejected = vi.fn();
+    renderHarness({ events: [existing], callbacks: { onOperationRejected }, eventOverlap: false });
+    const dayEl = screen.getByTestId(`day-${MON}`);
+    const x = columnCenterX(MON);
+
+    firePointerDown(dayEl, x, 615); // 10:15（既存イベントと重なる）
+    releasePointer(x, 615);
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({ action: 'create', reason: 'constraint' });
+  });
+
+  it('onBeforeSelectRange が false を返す空き領域ドラッグ作成の拒否で、reason: "rejected"・occurrence 省略で呼ばれる', () => {
+    const onBeforeSelectRange = vi.fn().mockReturnValue(false);
+    const onOperationRejected = vi.fn();
+    renderHarness({ callbacks: { onBeforeSelectRange, onOperationRejected } });
+    const dayEl = screen.getByTestId(`day-${MON}`);
+    const x = columnCenterX(MON);
+
+    firePointerDown(dayEl, x, 600); // 10:00
+    movePointer(x, 690); // 11:30
+    releasePointer(x, 690);
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({ action: 'create', reason: 'rejected' });
+  });
+
+  it('eventOverlap: false による終日行への変換ドラッグの拒否で、action: "convert"・reason: "constraint" で呼ばれる', () => {
+    const existing: CalendarEvent = {
+      id: 'existing-allday',
+      title: '既存終日',
+      start: TUE,
+      end: WED,
+      allDay: true,
+    };
+    const converting: CalendarEvent = {
+      id: 'converting',
+      title: '変換対象',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const onOperationRejected = vi.fn();
+    renderHarness({
+      events: [existing, converting],
+      callbacks: { onOperationRejected },
+      eventOverlap: false,
+    });
+    const occurrenceKey = `converting@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+    const x = columnCenterX(TUE);
+
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(makeAlldayCellElement());
+
+    firePointerDown(eventEl, x, 600);
+    movePointer(x, 10); // 終日行相当
+    releasePointer(x, 10);
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({
+      action: 'convert',
+      reason: 'constraint',
+      occurrence: expect.objectContaining({ eventId: 'converting' }),
+    });
+  });
+
+  it('onBeforeEventChange が false を返す終日行への変換ドラッグの拒否で、action: "convert"・reason: "rejected" で呼ばれる', () => {
+    const onBeforeEventChange = vi.fn().mockReturnValue(false);
+    const onOperationRejected = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-rejected-convert',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    renderHarness({
+      events: [event],
+      callbacks: { onBeforeEventChange, onOperationRejected },
+    });
+    const occurrenceKey = `ev-rejected-convert@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(makeAlldayCellElement());
+
+    firePointerDown(eventEl, columnCenterX(TUE), 600); // 10:00 を掴む
+    movePointer(columnCenterX(TUE), 10); // 終日行相当
+    releasePointer(columnCenterX(TUE), 10);
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({
+      action: 'convert',
+      reason: 'rejected',
+      occurrence: expect.objectContaining({ eventId: 'ev-rejected-convert' }),
+    });
+  });
+
+  it('onBeforeEventDelete が false を返すキーボード削除の拒否で、action: "delete"・reason: "rejected" で呼ばれる', () => {
+    const onBeforeEventDelete = vi.fn().mockReturnValue(false);
+    const onOperationRejected = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-rejected-delete',
+      title: '削除対象',
+      start: `${TUE}T09:00`,
+      end: `${TUE}T09:30`,
+    };
+    renderHarness({
+      events: [event],
+      callbacks: { onBeforeEventDelete, onOperationRejected },
+    });
+    const occurrenceKey = `ev-rejected-delete@${at(`${TUE}T09:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    fireEvent.keyDown(eventEl, { key: 'Delete' });
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({
+      action: 'delete',
+      reason: 'rejected',
+      occurrence: expect.objectContaining({ eventId: 'ev-rejected-delete' }),
+    });
+  });
+
+  it('境界: 正常に移動ドラッグが確定した場合は呼ばれない', () => {
+    const onOperationRejected = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-ok-move',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [event], callbacks: { onOperationRejected } });
+    const occurrenceKey = `ev-ok-move@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    firePointerDown(eventEl, columnCenterX(TUE), 600); // 10:00
+    movePointer(columnCenterX(TUE), 720); // 12:00
+    releasePointer(columnCenterX(TUE), 720);
+
+    expect(sink.current?.calendar.api.getEvents().find((e) => e.id === 'ev-ok-move')).toMatchObject(
+      { start: at(`${TUE}T12:00`) },
+    );
+    expect(onOperationRejected).not.toHaveBeenCalled();
+  });
+
+  it('境界: editable: false のイベントへのキーボード削除試行（早期 return）では呼ばれない', () => {
+    const onOperationRejected = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-locked-delete',
+      title: '固定（削除不可）',
+      start: `${TUE}T09:00`,
+      end: `${TUE}T09:30`,
+      editable: false,
+    };
+    const { sink } = renderHarness({ events: [event], callbacks: { onOperationRejected } });
+    const occurrenceKey = `ev-locked-delete@${at(`${TUE}T09:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    fireEvent.keyDown(eventEl, { key: 'Delete' });
+
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(1);
+    expect(onOperationRejected).not.toHaveBeenCalled();
+  });
+
+  it('境界: 繰り返しイベントの削除で resolveRecurringScope が null を返しキャンセルされた場合は呼ばれない', async () => {
+    const resolveRecurringScope = vi.fn().mockResolvedValue(null);
+    const onOperationRejected = vi.fn();
+    const event: CalendarEvent = {
+      id: 'recurring-cancel-reject',
+      title: '定例',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      rrule: 'FREQ=WEEKLY;BYDAY=WE',
+    };
+    renderHarness({ events: [event], callbacks: { resolveRecurringScope, onOperationRejected } });
+    const occurrenceKey = `recurring-cancel-reject@${at(`${WED}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'Delete' });
+    });
+
+    expect(resolveRecurringScope).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).not.toHaveBeenCalled();
+  });
+});
+
+describe('useTimeGridDrag - A キーによる変換（時間指定 → 終日）', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('A キーで時間指定イベントが開始日 1 日分の終日イベントに変換され、onEventChange が allDay: true で呼ばれる', async () => {
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-key-to-allday',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [event], callbacks: { onEventChange } });
+    const occurrenceKey = `ev-key-to-allday@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    let notPrevented = true;
+    await act(async () => {
+      notPrevented = fireEvent.keyDown(eventEl, { key: 'a' });
+    });
+
+    // 認識されたキーとして既定動作が抑制される（ビュー切替ショートカット等へ届かない）
+    expect(notPrevented).toBe(false);
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      allDay: true,
+      start: at(`${TUE}T00:00`),
+      end: at(`${WED}T00:00`),
+    });
+    expect(onEventChange).toHaveBeenCalledWith({
+      occurrence: expect.objectContaining({ eventId: 'ev-key-to-allday' }),
+      newRange: { start: at(`${TUE}T00:00`), end: at(`${WED}T00:00`) },
+      allDay: true,
+      scope: null,
+      changes: [{ before: event, after: events[0], index: 0 }],
+    });
+  });
+
+  it('大文字の A（Shift 併用や CapsLock）でも変換される', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-key-upper',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-key-upper@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'A', shiftKey: true });
+    });
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      allDay: true,
+      start: at(`${TUE}T00:00`),
+      end: at(`${WED}T00:00`),
+    });
+  });
+
+  it('Ctrl / Meta / Alt を伴う A キーでは変換されず、既定動作も抑制しない', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-key-modifier',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-key-modifier@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    let notPrevented = false;
+    await act(async () => {
+      notPrevented = fireEvent.keyDown(eventEl, { key: 'a', ctrlKey: true });
+      notPrevented = fireEvent.keyDown(eventEl, { key: 'a', metaKey: true }) && notPrevented;
+      notPrevented = fireEvent.keyDown(eventEl, { key: 'a', altKey: true }) && notPrevented;
+    });
+
+    expect(notPrevented).toBe(true);
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]?.allDay).not.toBe(true);
+    expect(events[0]).toMatchObject({ start: `${TUE}T10:00`, end: `${TUE}T11:00` });
+  });
+
+  it('editable: false のイベントは A キーでも変換されない（既定動作の抑制はされる）', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-key-locked',
+      title: '固定',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+      editable: false,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-key-locked@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    let notPrevented = true;
+    await act(async () => {
+      notPrevented = fireEvent.keyDown(eventEl, { key: 'a' });
+    });
+
+    // 矢印キーと同じ扱い: 認識はする（preventDefault）が、editable: false には適用しない
+    expect(notPrevented).toBe(false);
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]?.allDay).not.toBe(true);
+    expect(events[0]).toMatchObject({ start: `${TUE}T10:00`, end: `${TUE}T11:00` });
+  });
+
+  it('22:00〜翌 2:00 の日またぎイベントの A キー変換は、どの断片から操作しても開始日 1 日分の終日イベントになる', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-key-multiday',
+      title: '夜間作業',
+      start: `${TUE}T22:00`,
+      end: `${WED}T02:00`,
+    };
+    const { sink } = renderHarness({ events: [event] });
+    const occurrenceKey = `ev-key-multiday@${at(`${TUE}T22:00`).toISOString()}`;
+    // 日をまたぐ時間指定イベントは日ごとに分割されて描画されるため、翌日（WED）側の断片で操作する
+    const fragments = screen.getAllByTestId(`event-${occurrenceKey}`);
+    const wedFragment = fragments[1];
+    if (wedFragment === undefined) {
+      throw new Error('翌日側の断片が見つかりません');
+    }
+
+    await act(async () => {
+      fireEvent.keyDown(wedFragment, { key: 'a' });
+    });
+
+    // ポインタの変換ドラッグ（暦日数分 = 2 日）と異なり、キーボードは開始日 1 日分に確定する
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      allDay: true,
+      start: at(`${TUE}T00:00`),
+      end: at(`${WED}T00:00`),
+    });
+  });
+
+  it('eventOverlap: false で変換後の範囲が既存終日イベントと重なる場合は拒否され、onOperationRejected が action: "convert"・reason: "constraint" で呼ばれる', async () => {
+    const existing: CalendarEvent = {
+      id: 'existing-allday',
+      title: '既存終日',
+      start: TUE,
+      end: WED,
+      allDay: true,
+    };
+    const converting: CalendarEvent = {
+      id: 'converting-key',
+      title: '変換対象',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const onOperationRejected = vi.fn();
+    const onEventChange = vi.fn();
+    const { sink } = renderHarness({
+      events: [existing, converting],
+      callbacks: { onOperationRejected, onEventChange },
+      eventOverlap: false,
+    });
+    const occurrenceKey = `converting-key@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'a' });
+    });
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({
+      action: 'convert',
+      reason: 'constraint',
+      occurrence: expect.objectContaining({ eventId: 'converting-key' }),
+    });
+    expect(onEventChange).not.toHaveBeenCalled();
+    expect(
+      sink.current?.calendar.api.getEvents().find((e) => e.id === 'converting-key')?.allDay,
+    ).not.toBe(true);
+  });
+
+  it('onBeforeEventChange が false を返すと A キー変換は適用されず、onOperationRejected が action: "convert"・reason: "rejected" で呼ばれる', async () => {
+    const onBeforeEventChange = vi.fn().mockReturnValue(false);
+    const onOperationRejected = vi.fn();
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-key-rejected',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink } = renderHarness({
+      events: [event],
+      callbacks: { onBeforeEventChange, onOperationRejected, onEventChange },
+    });
+    const occurrenceKey = `ev-key-rejected@${at(`${TUE}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'a' });
+    });
+
+    expect(onBeforeEventChange).toHaveBeenCalledWith({
+      occurrence: expect.objectContaining({ eventId: 'ev-key-rejected' }),
+      range: { start: at(`${TUE}T00:00`), end: at(`${WED}T00:00`) },
+      allDay: true,
+      action: 'convert',
+    });
+    expect(onOperationRejected).toHaveBeenCalledWith({
+      action: 'convert',
+      reason: 'rejected',
+      occurrence: expect.objectContaining({ eventId: 'ev-key-rejected' }),
+    });
+    expect(onEventChange).not.toHaveBeenCalled();
+    expect(sink.current?.calendar.api.getEvents()[0]?.allDay).not.toBe(true);
+  });
+
+  it('繰り返しイベントの A キー変換では resolveRecurringScope が呼ばれ、this を選ぶと終日のオーバーライドが作成される', async () => {
+    const resolveRecurringScope = vi.fn(
+      async (
+        _occurrence: EventOccurrence,
+        _action: 'move' | 'resize' | 'delete' | 'update',
+      ): Promise<RecurringEditScope | null> => 'this',
+    );
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'recurring-key-to-allday',
+      title: '定例',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      rrule: 'FREQ=WEEKLY;BYDAY=WE',
+    };
+    const { sink } = renderHarness({
+      events: [event],
+      callbacks: { resolveRecurringScope, onEventChange },
+    });
+    const occurrenceKey = `recurring-key-to-allday@${at(`${WED}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'a' });
+    });
+
+    expect(resolveRecurringScope).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: 'recurring-key-to-allday' }),
+      'move',
+    );
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    const override = events.find(
+      (candidate) => candidate.recurringEventId === 'recurring-key-to-allday',
+    );
+    expect(override).toMatchObject({
+      allDay: true,
+      start: at(`${WED}T00:00`),
+      end: at(`${THU}T00:00`),
+    });
+    expect(onEventChange).toHaveBeenCalledWith(
+      expect.objectContaining({ allDay: true, scope: 'this' }),
+    );
+  });
+
+  it('繰り返しイベントの A キー変換で resolveRecurringScope が null を返すとキャンセルされ、onOperationRejected も呼ばれない', async () => {
+    const resolveRecurringScope = vi.fn().mockResolvedValue(null);
+    const onOperationRejected = vi.fn();
+    const event: CalendarEvent = {
+      id: 'recurring-key-cancel',
+      title: '定例',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      rrule: 'FREQ=WEEKLY;BYDAY=WE',
+    };
+    const { sink } = renderHarness({
+      events: [event],
+      callbacks: { resolveRecurringScope, onOperationRejected },
+    });
+    const occurrenceKey = `recurring-key-cancel@${at(`${WED}T10:00`).toISOString()}`;
+    const eventEl = screen.getByTestId(`event-${occurrenceKey}`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'a' });
+    });
+
+    expect(resolveRecurringScope).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).not.toHaveBeenCalled();
+    expect(sink.current?.calendar.api.getEvents()).toEqual([event]);
+  });
+});
+
+describe('useTimeGridDrag - キーボードによる日列からの作成', () => {
+  it('日列の Enter で slotMinTime 起点・defaultEventMinutes 分の時間指定イベントが既定作成される', () => {
+    const { sink } = renderHarness({ slotMinTime: '08:00', defaultEventMinutes: 45 });
+
+    fireEvent.keyDown(screen.getByTestId(`day-${MON}`), { key: 'Enter' });
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      title: '(タイトルなし)',
+      start: at(`${MON}T08:00`),
+      end: at(`${MON}T08:45`),
+    });
+  });
+
+  it('slotMinTime 未指定の日列の Space では 0:00 起点・defaultEventMinutes 分で作成される', () => {
+    const { sink } = renderHarness();
+
+    fireEvent.keyDown(screen.getByTestId(`day-${TUE}`), { key: ' ' });
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ start: at(`${TUE}T00:00`), end: at(`${TUE}T01:00`) });
+  });
+
+  it('getDayProps の tabIndex は 0 で、日列が Tab 順に入る', () => {
+    renderHarness();
+    expect(screen.getByTestId(`day-${MON}`)).toHaveAttribute('tabindex', '0');
+  });
+
+  it('既定作成の確定後、新規予定の要素へフォーカスが移る', () => {
+    const { sink } = renderHarness();
+
+    fireEvent.keyDown(screen.getByTestId(`day-${MON}`), { key: 'Enter' });
+
+    const events = sink.current?.calendar.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    const created = events[0];
+    if (created === undefined) {
+      throw new Error('作成イベントが見つかりません');
+    }
+    const key = `${created.id}@${at(`${MON}T00:00`).toISOString()}`;
+    expect(document.activeElement?.getAttribute('data-koyomi-occurrence')).toBe(key);
+  });
+
+  it('onSelectRange 指定時はアプリへ委譲され、既定作成もフォーカス移動も行われない', () => {
+    const onSelectRange = vi.fn();
+    const { sink } = renderHarness({ callbacks: { onSelectRange } });
+
+    fireEvent.keyDown(screen.getByTestId(`day-${MON}`), { key: 'Enter' });
+
+    expect(onSelectRange).toHaveBeenCalledWith({
+      range: { start: at(`${MON}T00:00`), end: at(`${MON}T01:00`) },
+      allDay: false,
+    });
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(0);
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('eventOverlap: false で既存イベントと重なる場合は作成されず、onOperationRejected が reason: "constraint" で呼ばれる', () => {
+    const onOperationRejected = vi.fn();
+    const { sink } = renderHarness({
+      eventOverlap: false,
+      events: [{ id: 'busy', title: '既存', start: `${MON}T00:30`, end: `${MON}T01:30` }],
+      callbacks: { onOperationRejected },
+    });
+
+    fireEvent.keyDown(screen.getByTestId(`day-${MON}`), { key: 'Enter' });
+
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({ action: 'create', reason: 'constraint' });
+  });
+
+  it('onBeforeSelectRange が false を返すと作成されず、onOperationRejected が reason: "rejected" で呼ばれる', () => {
+    const onBeforeSelectRange = vi.fn().mockReturnValue(false);
+    const onOperationRejected = vi.fn();
+    const { sink } = renderHarness({ callbacks: { onBeforeSelectRange, onOperationRejected } });
+
+    fireEvent.keyDown(screen.getByTestId(`day-${MON}`), { key: 'Enter' });
+
+    expect(onBeforeSelectRange).toHaveBeenCalledWith({
+      range: { start: at(`${MON}T00:00`), end: at(`${MON}T01:00`) },
+      allDay: false,
+    });
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(0);
+    expect(onOperationRejected).toHaveBeenCalledWith({ action: 'create', reason: 'rejected' });
+  });
+
+  it('予定ボタン由来の Enter は列の作成として二重処理されない（onEventClick のみ発火する）', () => {
+    const onEventClick = vi.fn();
+    const { sink } = renderHarness({
+      events: [{ id: 'e1', title: '会議', start: `${MON}T10:00`, end: `${MON}T11:00` }],
+      callbacks: { onEventClick },
+    });
+    const eventEl = screen.getByTestId(`event-e1@${at(`${MON}T10:00`).toISOString()}`);
+
+    fireEvent.keyDown(eventEl, { key: 'Enter' });
+
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(1);
+  });
+
+  it('Enter・Space 以外のキーでは日列から作成されない', () => {
+    const { sink } = renderHarness();
+
+    fireEvent.keyDown(screen.getByTestId(`day-${MON}`), { key: 'ArrowDown' });
+
+    expect(sink.current?.calendar.api.getEvents()).toHaveLength(0);
   });
 });

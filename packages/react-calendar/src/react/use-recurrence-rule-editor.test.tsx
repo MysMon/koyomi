@@ -5,8 +5,12 @@
  * テストプロセスは vitest.config.ts により TZ=Asia/Tokyo で実行される。
  */
 import { act, render, renderHook } from '@testing-library/react';
+import type { ReactElement, ReactNode } from 'react';
 import { useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createCalendar } from '../core/calendar';
+import { CalendarProvider } from './context';
+import type { UseCalendarResult } from './types';
 import { useRecurrenceRuleEditor } from './use-recurrence-rule-editor';
 
 const TOKYO = 'Asia/Tokyo';
@@ -395,5 +399,227 @@ describe('useRecurrenceRuleEditor', () => {
     rerender();
 
     expect(result.current).toBe(first);
+  });
+
+  describe('weekStartsOn と WKST の連動', () => {
+    it('weekStartsOn: 0 を指定すると rruleString に WKST=SU が含まれる', () => {
+      const { result } = renderHook(() =>
+        useRecurrenceRuleEditor({
+          start: START,
+          timeZone: TOKYO,
+          rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE',
+          weekStartsOn: 0,
+        }),
+      );
+
+      expect(result.current.rruleString).toContain('WKST=SU');
+    });
+
+    it('weekStartsOn: 0 のとき WKST=SU 付きの rrule が editable として受理される', () => {
+      const { result } = renderHook(() =>
+        useRecurrenceRuleEditor({
+          start: START,
+          timeZone: TOKYO,
+          rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;WKST=SU',
+          weekStartsOn: 0,
+        }),
+      );
+
+      expect(result.current.unsupported).toBeNull();
+      expect(result.current.state).toEqual({
+        freq: 'weekly',
+        interval: 2,
+        byWeekday: [1, 3],
+        end: { type: 'never' },
+      });
+    });
+
+    it('weekStartsOn: 1 のとき WKST=SU 付きの rrule は unsupported になる', () => {
+      const { result } = renderHook(() =>
+        useRecurrenceRuleEditor({
+          start: START,
+          timeZone: TOKYO,
+          rrule: 'FREQ=WEEKLY;WKST=SU',
+          weekStartsOn: 1,
+        }),
+      );
+
+      expect(result.current.state).toBeNull();
+      expect(result.current.unsupported?.reason).toEqual({ code: 'unsupportedWkst' });
+    });
+
+    it('reset で渡した rrule も現在の weekStartsOn で解釈される', () => {
+      const { result } = renderHook(() =>
+        useRecurrenceRuleEditor({ start: START, timeZone: TOKYO, weekStartsOn: 0 }),
+      );
+
+      act(() => {
+        result.current.reset({ start: START, timeZone: TOKYO, rrule: 'FREQ=WEEKLY;WKST=SU' });
+      });
+
+      expect(result.current.unsupported).toBeNull();
+      expect(result.current.state?.freq).toBe('weekly');
+    });
+  });
+
+  describe('CalendarProvider との連動', () => {
+    /** テスト用に `CalendarProvider` へ渡す `UseCalendarResult` を組み立てる。 */
+    function makeCalendarResult(locale?: string): UseCalendarResult {
+      const api = createCalendar({
+        timeZone: TOKYO,
+        now: () => START,
+        initialDate: START,
+        ...(locale !== undefined ? { locale } : {}),
+      });
+      return { api, state: api.getState(), viewModel: api.getViewModel() };
+    }
+
+    it('Provider 配下では options.locale 省略時に Provider の locale が使われる', () => {
+      const value = makeCalendarResult('en-US');
+      function wrapper({ children }: { children?: ReactNode }): ReactElement {
+        return <CalendarProvider value={value}>{children}</CalendarProvider>;
+      }
+
+      const { result } = renderHook(
+        () => useRecurrenceRuleEditor({ start: START, timeZone: TOKYO, rrule: 'FREQ=DAILY' }),
+        { wrapper },
+      );
+
+      expect(result.current.description).toBe('Daily');
+    });
+
+    it('Provider の messages 部分上書きが options.messages 省略時に反映される', () => {
+      const value = makeCalendarResult('ja');
+      const describeRule = vi.fn().mockReturnValue('Provider 上書き文言');
+      function wrapper({ children }: { children?: ReactNode }): ReactElement {
+        return (
+          <CalendarProvider value={value} messages={{ recurrenceEditor: { describeRule } }}>
+            {children}
+          </CalendarProvider>
+        );
+      }
+
+      const { result } = renderHook(
+        () => useRecurrenceRuleEditor({ start: START, timeZone: TOKYO, rrule: 'FREQ=DAILY' }),
+        { wrapper },
+      );
+
+      expect(result.current.description).toBe('Provider 上書き文言');
+    });
+
+    it('明示的な options.locale は Provider の locale より優先される', () => {
+      const value = makeCalendarResult('en-US');
+      function wrapper({ children }: { children?: ReactNode }): ReactElement {
+        return <CalendarProvider value={value}>{children}</CalendarProvider>;
+      }
+
+      const { result } = renderHook(
+        () =>
+          useRecurrenceRuleEditor({
+            start: START,
+            timeZone: TOKYO,
+            rrule: 'FREQ=DAILY',
+            locale: 'ja',
+          }),
+        { wrapper },
+      );
+
+      expect(result.current.description).toBe('毎日');
+    });
+
+    it('Provider 外では従来どおり ja 既定の文言になる', () => {
+      const { result } = renderHook(() =>
+        useRecurrenceRuleEditor({ start: START, timeZone: TOKYO, rrule: 'FREQ=DAILY' }),
+      );
+
+      expect(result.current.description).toBe('毎日');
+    });
+
+    it('Provider の locale が動的に切り替わると文言も追従する', () => {
+      let value = makeCalendarResult('ja');
+      function wrapper({ children }: { children?: ReactNode }): ReactElement {
+        return <CalendarProvider value={value}>{children}</CalendarProvider>;
+      }
+
+      const { result, rerender } = renderHook(
+        () => useRecurrenceRuleEditor({ start: START, timeZone: TOKYO, rrule: 'FREQ=DAILY' }),
+        { wrapper },
+      );
+      expect(result.current.description).toBe('毎日');
+
+      act(() => {
+        value.api.updateOptions({ locale: 'en-US' });
+      });
+      value = { api: value.api, state: value.api.getState(), viewModel: value.api.getViewModel() };
+      rerender();
+
+      expect(result.current.description).toBe('Daily');
+    });
+
+    it('Provider 配下では weekStartsOn 省略時に Provider の weekStartsOn（既定 0 = 日曜）が使われ WKST=SU が出力される', () => {
+      const value = makeCalendarResult();
+      function wrapper({ children }: { children?: ReactNode }): ReactElement {
+        return <CalendarProvider value={value}>{children}</CalendarProvider>;
+      }
+
+      const { result } = renderHook(
+        () =>
+          useRecurrenceRuleEditor({
+            start: START,
+            timeZone: TOKYO,
+            rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE',
+          }),
+        { wrapper },
+      );
+
+      expect(result.current.rruleString).toContain('WKST=SU');
+    });
+
+    it('明示的な options.weekStartsOn は Provider の weekStartsOn より優先される', () => {
+      // Provider の weekStartsOn は既定 0（日曜）。明示の 1（月曜）が優先されれば WKST は出ない
+      const value = makeCalendarResult();
+      function wrapper({ children }: { children?: ReactNode }): ReactElement {
+        return <CalendarProvider value={value}>{children}</CalendarProvider>;
+      }
+
+      const { result } = renderHook(
+        () =>
+          useRecurrenceRuleEditor({
+            start: START,
+            timeZone: TOKYO,
+            rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE',
+            weekStartsOn: 1,
+          }),
+        { wrapper },
+      );
+
+      expect(result.current.rruleString).not.toContain('WKST');
+    });
+
+    it('Provider の weekStartsOn が動的に切り替わると rruleString の WKST も追従する', () => {
+      let value = makeCalendarResult();
+      function wrapper({ children }: { children?: ReactNode }): ReactElement {
+        return <CalendarProvider value={value}>{children}</CalendarProvider>;
+      }
+
+      const { result, rerender } = renderHook(
+        () =>
+          useRecurrenceRuleEditor({
+            start: START,
+            timeZone: TOKYO,
+            rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE',
+          }),
+        { wrapper },
+      );
+      expect(result.current.rruleString).toContain('WKST=SU');
+
+      act(() => {
+        value.api.updateOptions({ weekStartsOn: 1 });
+      });
+      value = { api: value.api, state: value.api.getState(), viewModel: value.api.getViewModel() };
+      rerender();
+
+      expect(result.current.rruleString).not.toContain('WKST');
+    });
   });
 });

@@ -117,13 +117,15 @@ function formatDayNumberLabel(date: Date, timeZone: TimeZoneId, locale: string):
   );
 }
 
-/** 時刻ラベル（`'H:mm'`、時は非ゼロ埋めの 24 時間制）を Intl で生成する。 */
+/**
+ * 時刻ラベル（時は非ゼロ埋め）を Intl で生成する。`hourCycle` は固定せず、
+ * ロケールの慣習に委ねる（`ja` では `'10:00'`、`en-US` では `'10:00 AM'`）。
+ */
 export function formatTimeLabel(date: Date, timeZone: TimeZoneId, locale: string): string {
   return getDateTimeFormat(locale, timeZone, 'time', {
     timeZone,
     hour: 'numeric',
     minute: '2-digit',
-    hourCycle: 'h23',
   }).format(date);
 }
 

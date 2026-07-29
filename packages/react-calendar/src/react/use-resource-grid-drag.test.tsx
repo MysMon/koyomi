@@ -11,12 +11,13 @@
  */
 import { act, fireEvent, render, renderHook } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseDateValue } from '../core/timezone';
 import type {
   BusinessHoursRule,
   CalendarEvent,
   CalendarResource,
+  EventOccurrence,
   RecurringEditScope,
 } from '../core/types';
 import { ResourceView } from './components/resource-view';
@@ -24,6 +25,14 @@ import { CalendarProvider } from './context';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 import { useCalendar } from './use-calendar';
 import { useResourceGridDrag } from './use-resource-grid-drag';
+
+// jsdom はこの環境で document.elementFromPoint を実装していない（typeof が 'undefined'）。
+// フック側は未実装環境で安全に「領域外」と判定するが、変換ドラッグのテストでは
+// vi.spyOn の対象として存在している必要があるため、ダミーを生やしてから spy でモックする
+// （`use-time-grid-drag.test.tsx` と同じ手法）。
+if (typeof document.elementFromPoint !== 'function') {
+  document.elementFromPoint = () => null;
+}
 
 /** 表示タイムゾーン。 */
 const TOKYO = 'Asia/Tokyo';
@@ -182,6 +191,31 @@ function firePointerCancel(): void {
   });
 }
 
+/**
+ * テスト用の終日行のセル要素（`data-koyomi="resource-allday-cell"`）を作る。
+ * `document.elementFromPoint` のモック戻り値として使う。DOM に接続しなくても
+ * `Element#closest` は自身の祖先チェーンだけを辿るため機能する
+ * （`use-time-grid-drag.test.tsx` の `makeAlldayCellElement` と同じ手法）。
+ */
+function makeResourceAlldayCellElement(): HTMLElement {
+  const element = document.createElement('div');
+  element.setAttribute('data-koyomi', 'resource-allday-cell');
+  return element;
+}
+
+/** 指定インデックスの列要素（`data-koyomi="resource-column"`）を取得する。 */
+function getColumnElement(container: HTMLElement, index: number): HTMLElement {
+  const column = container.querySelectorAll('[data-koyomi="resource-column"]')[index];
+  if (column === undefined) {
+    throw new Error(`インデックス ${index} の列が見つかりません`);
+  }
+  // テストヘルパの絞り込み: querySelectorAll の戻り値は Element のため HTMLElement へ絞る
+  if (!(column instanceof HTMLElement)) {
+    throw new Error('列要素が HTMLElement ではありません');
+  }
+  return column;
+}
+
 describe('useResourceGridDrag - 作成', () => {
   it('空き領域のクリック（移動なし）で defaultEventMinutes 分の長さの既定作成に選択列の resourceId が付く', () => {
     const { container, sink } = renderHarness({
@@ -206,6 +240,60 @@ describe('useResourceGridDrag - 作成', () => {
       end: at(`${DAY}T10:45`),
       resourceId: 'room-b',
     });
+  });
+
+  it('onSelectRange 省略時は onEventCreate が作成イベント・changes・selection 付きで呼ばれる', () => {
+    const onEventCreate = vi.fn();
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      defaultEventMinutes: 45,
+      callbacks: { onEventCreate },
+    });
+    mockAllColumnRects(container);
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+    const roomBColumn = columns[1];
+    if (roomBColumn === undefined) {
+      throw new Error('room-b 列が見つかりません');
+    }
+    const x = columnCenterX(1);
+
+    firePointerDown(roomBColumn, x, 600); // 10:00
+    releasePointer(x, 600); // 移動なし → クリック扱い
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(onEventCreate).toHaveBeenCalledWith({
+      event: events[0],
+      changes: [{ after: events[0], index: 0 }],
+      selection: {
+        range: { start: at(`${DAY}T10:00`), end: at(`${DAY}T10:45`) },
+        allDay: false,
+        resourceId: 'room-b',
+      },
+    });
+  });
+
+  it('onSelectRange 指定時は onEventCreate が呼ばれない（既定即時作成自体が行われないため）', () => {
+    const onSelectRange = vi.fn();
+    const onEventCreate = vi.fn();
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      callbacks: { onSelectRange, onEventCreate },
+    });
+    mockAllColumnRects(container);
+    const roomAColumn = container.querySelectorAll('[data-koyomi="resource-column"]')[0];
+    if (roomAColumn === undefined) {
+      throw new Error('room-a 列が見つかりません');
+    }
+    const x = columnCenterX(0);
+
+    firePointerDown(roomAColumn, x, 600); // 10:00
+    movePointer(x, 690); // 11:30
+    releasePointer(x, 690);
+
+    expect(onSelectRange).toHaveBeenCalledTimes(1);
+    expect(onEventCreate).not.toHaveBeenCalled();
+    expect(sink.current?.api.getEvents()).toHaveLength(0);
   });
 
   it('onSelectRange 指定時は選択列の resourceId 付きの RangeSelection で呼ばれ、既定作成は行われない', () => {
@@ -1109,6 +1197,95 @@ describe('useResourceGridDrag - キーボード操作', () => {
       'delete',
     );
     expect(onEventDelete).toHaveBeenCalledWith(expect.objectContaining({ scope: 'this' }));
+  });
+});
+
+describe('useResourceGridDrag - キーボード削除後のフォーカス管理', () => {
+  it('削除後、DOM 順（列順）で次の予定にフォーカスが移る', () => {
+    const eventA: CalendarEvent = {
+      id: 'ev-a',
+      title: 'A',
+      start: `${DAY}T09:00`,
+      end: `${DAY}T09:30`,
+      resourceId: 'room-a',
+    };
+    const eventB: CalendarEvent = {
+      id: 'ev-b',
+      title: 'B',
+      start: `${DAY}T09:00`,
+      end: `${DAY}T09:30`,
+      resourceId: 'room-b',
+    };
+    const eventC: CalendarEvent = {
+      id: 'ev-c',
+      title: 'C',
+      start: `${DAY}T09:00`,
+      end: `${DAY}T09:30`,
+      resourceId: 'room-c',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B, ROOM_C],
+      events: [eventA, eventB, eventC],
+    });
+    const aEl = getEventElement(container, 'ev-a', `${DAY}T09:00`);
+    const bKey = `ev-b@${at(`${DAY}T09:00`).toISOString()}`;
+
+    fireEvent.keyDown(aEl, { key: 'Delete' });
+
+    expect(sink.current?.api.getEvents()).toHaveLength(2);
+    expect(document.activeElement?.getAttribute('data-koyomi-occurrence')).toBe(bKey);
+  });
+
+  it('削除対象が DOM 順で最後の予定の場合、前の予定にフォーカスが移る', () => {
+    const eventB: CalendarEvent = {
+      id: 'ev-b',
+      title: 'B',
+      start: `${DAY}T09:00`,
+      end: `${DAY}T09:30`,
+      resourceId: 'room-b',
+    };
+    const eventC: CalendarEvent = {
+      id: 'ev-c',
+      title: 'C',
+      start: `${DAY}T09:00`,
+      end: `${DAY}T09:30`,
+      resourceId: 'room-c',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B, ROOM_C],
+      events: [eventB, eventC],
+    });
+    const cEl = getEventElement(container, 'ev-c', `${DAY}T09:00`);
+    const bKey = `ev-b@${at(`${DAY}T09:00`).toISOString()}`;
+
+    fireEvent.keyDown(cEl, { key: 'Delete' });
+
+    expect(sink.current?.api.getEvents()).toHaveLength(1);
+    expect(document.activeElement?.getAttribute('data-koyomi-occurrence')).toBe(bKey);
+  });
+
+  it('削除後に予定が 1 件も残らない場合、フォーカス移動先の候補がなく何もしない（例外も発生しない）', () => {
+    // リソース列本体には use-grid-navigation.ts の FOCUSABLE セル相当の要素が
+    // 存在しないため（終日行のセルは data-koyomi="resource-allday-cell" で対象外）、
+    // 次・前の予定がなければフォールバック先もなく「何もしない」。
+    const event: CalendarEvent = {
+      id: 'ev-only',
+      title: 'A',
+      start: `${DAY}T09:00`,
+      end: `${DAY}T09:30`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({ resources: [ROOM_A], events: [event] });
+    const eventEl = getEventElement(container, 'ev-only', `${DAY}T09:00`);
+    eventEl.focus();
+    expect(document.activeElement).toBe(eventEl);
+
+    expect(() => {
+      fireEvent.keyDown(eventEl, { key: 'Delete' });
+    }).not.toThrow();
+
+    expect(sink.current?.api.getEvents()).toHaveLength(0);
+    expect(document.activeElement).toBe(document.body);
   });
 });
 
@@ -2229,5 +2406,1046 @@ describe('useResourceGridDrag - 複数日表示（resourceViewDays）', () => {
     const cells = container.querySelectorAll('[data-koyomi="resource-allday-cell"]');
     expect(cells[0]).toHaveAttribute('data-koyomi-date', DAY);
     expect(cells[1]).toHaveAttribute('data-koyomi-date', NEXT_DAY);
+  });
+});
+
+describe('useResourceGridDrag - 拒否通知（onOperationRejected）', () => {
+  it('eventOverlap: false による移動の拒否で、reason: "constraint" で呼ばれる', () => {
+    const existing: CalendarEvent = {
+      id: 'existing',
+      title: '既存',
+      start: `${DAY}T11:00`,
+      end: `${DAY}T12:00`,
+      resourceId: 'room-a',
+    };
+    const moving: CalendarEvent = {
+      id: 'moving',
+      title: '対象',
+      start: `${DAY}T09:00`,
+      end: `${DAY}T10:00`,
+      resourceId: 'room-a',
+    };
+    const onOperationRejected = vi.fn();
+    const { container } = renderHarness({
+      resources: [ROOM_A],
+      events: [existing, moving],
+      callbacks: { onOperationRejected },
+      eventOverlap: false,
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'moving', `${DAY}T09:00`);
+
+    firePointerDown(eventEl, columnCenterX(0), 540); // room-a 列 9:00
+    movePointer(columnCenterX(0), 660); // room-a 列 11:00（既存と重なる）
+    releasePointer(columnCenterX(0), 660);
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({
+      action: 'move',
+      reason: 'constraint',
+      occurrence: expect.objectContaining({ eventId: 'moving' }),
+    });
+  });
+
+  it('onBeforeEventChange が false を返す列をまたぐ移動の拒否で、reason: "rejected" で呼ばれる', () => {
+    const onBeforeEventChange = vi.fn().mockReturnValue(false);
+    const onOperationRejected = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-rejected-move',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { onBeforeEventChange, onOperationRejected },
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-rejected-move', `${DAY}T10:00`);
+
+    firePointerDown(eventEl, columnCenterX(0), 600); // room-a 10:00
+    movePointer(columnCenterX(1), 660); // room-b 11:00
+    releasePointer(columnCenterX(1), 660);
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({
+      action: 'move',
+      reason: 'rejected',
+      occurrence: expect.objectContaining({ eventId: 'ev-rejected-move' }),
+    });
+  });
+
+  it('eventOverlap: false による空き領域からの新規作成の拒否で、reason: "constraint"・occurrence 省略で呼ばれる', () => {
+    const existing: CalendarEvent = {
+      id: 'existing',
+      title: '既存',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const onOperationRejected = vi.fn();
+    const { container } = renderHarness({
+      resources: [ROOM_A],
+      events: [existing],
+      callbacks: { onOperationRejected },
+      eventOverlap: false,
+    });
+    mockAllColumnRects(container);
+    const columns = container.querySelectorAll('[data-koyomi="resource-column"]');
+    const roomAColumn = columns[0];
+    if (roomAColumn === undefined) {
+      throw new Error('列が見つかりません');
+    }
+
+    firePointerDown(roomAColumn, columnCenterX(0), 630); // 10:30（既存と重なる）
+    releasePointer(columnCenterX(0), 630);
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({ action: 'create', reason: 'constraint' });
+  });
+
+  it('onBeforeSelectRange が false を返す空き領域クリック作成の拒否で、reason: "rejected"・occurrence 省略で呼ばれる', () => {
+    const onBeforeSelectRange = vi.fn().mockReturnValue(false);
+    const onOperationRejected = vi.fn();
+    const { container } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      callbacks: { onBeforeSelectRange, onOperationRejected },
+    });
+    mockAllColumnRects(container);
+    const roomBColumn = container.querySelectorAll('[data-koyomi="resource-column"]')[1];
+    if (roomBColumn === undefined) {
+      throw new Error('room-b 列が見つかりません');
+    }
+    const x = columnCenterX(1);
+
+    firePointerDown(roomBColumn, x, 600); // 10:00
+    releasePointer(x, 600);
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({ action: 'create', reason: 'rejected' });
+  });
+
+  it('eventOverlap: false による終日アイテムの列間移動の拒否で、action: "move"・reason: "constraint" で呼ばれる', () => {
+    const existingAllDay: CalendarEvent = {
+      id: 'existing-allday',
+      title: '既存終日',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-b',
+    };
+    const movingAllDay: CalendarEvent = {
+      id: 'moving-allday',
+      title: '対象終日',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-a',
+    };
+    const onOperationRejected = vi.fn();
+    const { container } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [existingAllDay, movingAllDay],
+      callbacks: { onOperationRejected },
+      eventOverlap: false,
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'moving-allday', DAY);
+
+    firePointerDown(eventEl, columnCenterX(0), 10); // room-a 列（終日行相当）
+    movePointer(columnCenterX(1), 10); // room-b 列（既存終日と重なる）
+    releasePointer(columnCenterX(1), 10);
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({
+      action: 'move',
+      reason: 'constraint',
+      occurrence: expect.objectContaining({ eventId: 'moving-allday' }),
+    });
+  });
+
+  it('onBeforeEventChange が Promise<false> を返す終日アイテムの列間移動の拒否で、reason: "rejected" で呼ばれる', async () => {
+    const onBeforeEventChange = vi.fn().mockResolvedValue(false);
+    const onOperationRejected = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-rejected-allday',
+      title: '休暇',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-a',
+    };
+    const { container } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { onBeforeEventChange, onOperationRejected },
+    });
+    mockAllColumnRects(container);
+    const allDayItemEl = container.querySelector('[data-koyomi="allday-event"]');
+    if (allDayItemEl === null) {
+      throw new Error('終日アイテムが見つかりません');
+    }
+
+    firePointerDown(allDayItemEl, columnCenterX(0), 10);
+    movePointer(columnCenterX(1), 10);
+    await act(async () => {
+      releasePointer(columnCenterX(1), 10);
+    });
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({
+      action: 'move',
+      reason: 'rejected',
+      occurrence: expect.objectContaining({ eventId: 'ev-rejected-allday' }),
+    });
+  });
+
+  it('onBeforeEventDelete が false を返すキーボード削除の拒否で、action: "delete"・reason: "rejected" で呼ばれる', () => {
+    const onBeforeEventDelete = vi.fn().mockReturnValue(false);
+    const onOperationRejected = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-rejected-delete',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { onBeforeEventDelete, onOperationRejected },
+    });
+    const eventEl = getEventElement(container, 'ev-rejected-delete', `${DAY}T10:00`);
+
+    fireEvent.keyDown(eventEl, { key: 'Delete' });
+
+    expect(onOperationRejected).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({
+      action: 'delete',
+      reason: 'rejected',
+      occurrence: expect.objectContaining({ eventId: 'ev-rejected-delete' }),
+    });
+  });
+
+  it('境界: 正常に移動が確定した場合は呼ばれない', () => {
+    const onOperationRejected = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-ok-move',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { onOperationRejected },
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-ok-move', `${DAY}T10:00`);
+
+    firePointerDown(eventEl, columnCenterX(0), 600); // room-a 10:00
+    movePointer(columnCenterX(1), 660); // room-b 11:00
+    releasePointer(columnCenterX(1), 660);
+
+    expect(sink.current?.api.getEvents().find((e) => e.id === 'ev-ok-move')).toMatchObject({
+      resourceId: 'room-b',
+    });
+    expect(onOperationRejected).not.toHaveBeenCalled();
+  });
+
+  it('境界: editable: false のイベントへのキーボード削除試行（早期 return）では呼ばれない', () => {
+    const onOperationRejected = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-locked-delete',
+      title: '固定',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+      editable: false,
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      events: [event],
+      callbacks: { onOperationRejected },
+    });
+    const eventEl = getEventElement(container, 'ev-locked-delete', `${DAY}T10:00`);
+
+    fireEvent.keyDown(eventEl, { key: 'Delete' });
+
+    expect(sink.current?.api.getEvents()).toHaveLength(1);
+    expect(onOperationRejected).not.toHaveBeenCalled();
+  });
+
+  it('境界: 繰り返しイベントの削除で resolveRecurringScope が null を返しキャンセルされた場合は呼ばれない', async () => {
+    const resolveRecurringScope = vi.fn().mockResolvedValue(null);
+    const onOperationRejected = vi.fn();
+    const event: CalendarEvent = {
+      id: 'recurring-cancel-reject',
+      title: '定例',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      rrule: 'FREQ=WEEKLY;BYDAY=WE',
+      resourceId: 'room-a',
+    };
+    const { container } = renderHarness({
+      resources: [ROOM_A],
+      events: [event],
+      callbacks: { resolveRecurringScope, onOperationRejected },
+    });
+    const eventEl = getEventElement(container, 'recurring-cancel-reject', `${DAY}T10:00`);
+
+    await act(async () => {
+      fireEvent.keyDown(eventEl, { key: 'Delete' });
+    });
+
+    expect(resolveRecurringScope).toHaveBeenCalledTimes(1);
+    expect(onOperationRejected).not.toHaveBeenCalled();
+  });
+});
+
+describe('useResourceGridDrag - キーボードによる列からの作成', () => {
+  it('リソース列の Enter で slotMinTime 起点・defaultEventMinutes 分・選択列の resourceId 付きで既定作成される', () => {
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      slotMinTime: '08:00',
+      defaultEventMinutes: 45,
+    });
+    const roomBColumn = container.querySelectorAll('[data-koyomi="resource-column"]')[1];
+    if (roomBColumn === undefined) {
+      throw new Error('room-b 列が見つかりません');
+    }
+
+    fireEvent.keyDown(roomBColumn, { key: 'Enter' });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      start: at(`${DAY}T08:00`),
+      end: at(`${DAY}T08:45`),
+      resourceId: 'room-b',
+    });
+  });
+
+  it('列は tabIndex 0 で Tab 順に入り、Space でも作成される', () => {
+    const { container, sink } = renderHarness({ resources: [ROOM_A] });
+    const column = container.querySelector('[data-koyomi="resource-column"]');
+    if (column === null) {
+      throw new Error('room-a 列が見つかりません');
+    }
+    expect(column).toHaveAttribute('tabindex', '0');
+
+    fireEvent.keyDown(column, { key: ' ' });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      start: at(`${DAY}T00:00`),
+      end: at(`${DAY}T01:00`),
+      resourceId: 'room-a',
+    });
+  });
+
+  it('既定作成の確定後、新規予定の要素へフォーカスが移る', () => {
+    const { container, sink } = renderHarness({ resources: [ROOM_A] });
+    const column = container.querySelector('[data-koyomi="resource-column"]');
+    if (column === null) {
+      throw new Error('room-a 列が見つかりません');
+    }
+
+    fireEvent.keyDown(column, { key: 'Enter' });
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events).toHaveLength(1);
+    const created = events[0];
+    if (created === undefined) {
+      throw new Error('作成イベントが見つかりません');
+    }
+    const key = `${created.id}@${at(`${DAY}T00:00`).toISOString()}`;
+    expect(document.activeElement?.getAttribute('data-koyomi-occurrence')).toBe(key);
+  });
+
+  it('onSelectRange 指定時は選択列の resourceId 付きで委譲され、既定作成もフォーカス移動も行われない', () => {
+    const onSelectRange = vi.fn();
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      callbacks: { onSelectRange },
+    });
+    const roomBColumn = container.querySelectorAll('[data-koyomi="resource-column"]')[1];
+    if (roomBColumn === undefined) {
+      throw new Error('room-b 列が見つかりません');
+    }
+
+    fireEvent.keyDown(roomBColumn, { key: 'Enter' });
+
+    expect(onSelectRange).toHaveBeenCalledWith({
+      range: { start: at(`${DAY}T00:00`), end: at(`${DAY}T01:00`) },
+      allDay: false,
+      resourceId: 'room-b',
+    });
+    expect(sink.current?.api.getEvents()).toHaveLength(0);
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('eventOverlap: false で同一レーンの既存イベントと重なる場合は作成されず、onOperationRejected が reason: "constraint" で呼ばれる', () => {
+    const onOperationRejected = vi.fn();
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      eventOverlap: false,
+      events: [
+        {
+          id: 'busy',
+          title: '既存',
+          start: `${DAY}T00:30`,
+          end: `${DAY}T01:30`,
+          resourceId: 'room-a',
+        },
+      ],
+      callbacks: { onOperationRejected },
+    });
+    const column = container.querySelector('[data-koyomi="resource-column"]');
+    if (column === null) {
+      throw new Error('room-a 列が見つかりません');
+    }
+
+    fireEvent.keyDown(column, { key: 'Enter' });
+
+    expect(sink.current?.api.getEvents()).toHaveLength(1);
+    expect(onOperationRejected).toHaveBeenCalledWith({ action: 'create', reason: 'constraint' });
+  });
+
+  it('onBeforeSelectRange が false を返すと作成されず、onOperationRejected が reason: "rejected" で呼ばれる', () => {
+    const onBeforeSelectRange = vi.fn().mockReturnValue(false);
+    const onOperationRejected = vi.fn();
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      callbacks: { onBeforeSelectRange, onOperationRejected },
+    });
+    const column = container.querySelector('[data-koyomi="resource-column"]');
+    if (column === null) {
+      throw new Error('room-a 列が見つかりません');
+    }
+
+    fireEvent.keyDown(column, { key: 'Enter' });
+
+    expect(sink.current?.api.getEvents()).toHaveLength(0);
+    expect(onOperationRejected).toHaveBeenCalledWith({ action: 'create', reason: 'rejected' });
+  });
+
+  it('予定ボタン由来の Enter は列の作成として二重処理されない（onEventClick のみ発火する）', () => {
+    const onEventClick = vi.fn();
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      events: [
+        {
+          id: 'e1',
+          title: '会議',
+          start: `${DAY}T10:00`,
+          end: `${DAY}T11:00`,
+          resourceId: 'room-a',
+        },
+      ],
+      callbacks: { onEventClick },
+    });
+    const eventEl = getEventElement(container, 'e1', `${DAY}T10:00`);
+
+    fireEvent.keyDown(eventEl, { key: 'Enter' });
+
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+    expect(sink.current?.api.getEvents()).toHaveLength(1);
+  });
+});
+
+describe('useResourceGridDrag - 終日 ⇔ 時間指定の変換（ドラッグ）', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('時間指定イベントを終日行の上で離すと、ドロップ先の列の日 1 日・その列のリソース割当の終日イベントに変換される', () => {
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-to-allday',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { onEventChange },
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-to-allday', `${DAY}T10:00`);
+    if (sink.current === null) {
+      throw new Error('sink が設定されていません');
+    }
+    const updateEventSpy = vi.spyOn(sink.current.api, 'updateEvent');
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(makeResourceAlldayCellElement());
+
+    firePointerDown(eventEl, columnCenterX(0), 600); // room-a 列 10:00 を掴む
+    movePointer(columnCenterX(1), 10); // room-b 列の終日行相当の位置（elementFromPoint モックで判定）
+    releasePointer(columnCenterX(1), 10);
+
+    expect(updateEventSpy).toHaveBeenCalledTimes(1);
+    expect(updateEventSpy).toHaveBeenCalledWith(
+      'ev-to-allday',
+      {
+        start: at(`${DAY}T00:00`),
+        end: at(`${NEXT_DAY}T00:00`),
+        allDay: true,
+        resourceId: 'room-b',
+      },
+      undefined,
+    );
+    const events = sink.current.api.getEvents();
+    expect(events[0]).toMatchObject({
+      allDay: true,
+      start: at(`${DAY}T00:00`),
+      end: at(`${NEXT_DAY}T00:00`),
+      resourceId: 'room-b',
+    });
+    expect(onEventChange).toHaveBeenCalledWith({
+      occurrence: expect.objectContaining({ eventId: 'ev-to-allday' }),
+      newRange: { start: at(`${DAY}T00:00`), end: at(`${NEXT_DAY}T00:00`) },
+      allDay: true,
+      scope: null,
+      resourceId: 'room-b',
+      changes: [{ before: event, after: events[0], index: 0 }],
+    });
+  });
+
+  it('複数日にまたがる時間指定イベントの終日変換は、ドロップ先の日から暦日数分の終日イベントになる', () => {
+    const event: CalendarEvent = {
+      id: 'ev-to-allday-multiday',
+      title: '夜間作業',
+      start: `${DAY}T22:00`,
+      end: `${NEXT_DAY}T02:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({ resources: [ROOM_A, ROOM_B], events: [event] });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-to-allday-multiday', `${DAY}T22:00`);
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(makeResourceAlldayCellElement());
+
+    firePointerDown(eventEl, columnCenterX(0), 1350); // 22:30 相当を掴む
+    movePointer(columnCenterX(0), 10); // 同じ列の終日行相当の位置
+    releasePointer(columnCenterX(0), 10);
+
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      allDay: true,
+      start: at(`${DAY}T00:00`),
+      end: at('2026-07-17T00:00'), // DAY・NEXT_DAY の 2 暦日分
+      resourceId: 'room-a',
+    });
+  });
+
+  it('終日変換のプレビュー中は dragPreview が allDay: true・ドロップ先の resourceId になり、対象の終日セルに data-koyomi-preview-target が付く', () => {
+    const event: CalendarEvent = {
+      id: 'ev-preview-allday',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({ resources: [ROOM_A, ROOM_B], events: [event] });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-preview-allday', `${DAY}T10:00`);
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(makeResourceAlldayCellElement());
+
+    firePointerDown(eventEl, columnCenterX(0), 600);
+    movePointer(columnCenterX(1), 10);
+
+    const preview = sink.current?.state.dragPreview;
+    expect(preview).toMatchObject({
+      kind: 'move',
+      allDay: true,
+      resourceId: 'room-b',
+      range: { start: at(`${DAY}T00:00`), end: at(`${NEXT_DAY}T00:00`) },
+    });
+    const roomBCell = container.querySelectorAll('[data-koyomi="resource-allday-cell"]')[1];
+    expect(roomBCell).toHaveAttribute('data-koyomi-preview-target', 'true');
+
+    releasePointer(columnCenterX(1), 10);
+  });
+
+  it('終日行から列本体へ戻ると通常の move プレビュー（allDay: false）に戻り、変換されずに確定する', () => {
+    const event: CalendarEvent = {
+      id: 'ev-back-to-column',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({ resources: [ROOM_A, ROOM_B], events: [event] });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-back-to-column', `${DAY}T10:00`);
+    const spy = vi.spyOn(document, 'elementFromPoint');
+    spy.mockReturnValue(makeResourceAlldayCellElement());
+
+    firePointerDown(eventEl, columnCenterX(0), 600);
+    movePointer(columnCenterX(0), 10); // 終日行へ
+    expect(sink.current?.state.dragPreview?.allDay).toBe(true);
+
+    spy.mockReturnValue(null); // 列本体へ戻る
+    movePointer(columnCenterX(0), 720); // 12:00
+
+    const previewBack = sink.current?.state.dragPreview;
+    expect(previewBack?.allDay).toBe(false);
+    expect(previewBack?.range).toEqual({ start: at(`${DAY}T12:00`), end: at(`${DAY}T13:00`) });
+
+    releasePointer(columnCenterX(0), 720);
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]?.allDay).not.toBe(true);
+    expect(events[0]).toMatchObject({ start: at(`${DAY}T12:00`), end: at(`${DAY}T13:00`) });
+  });
+
+  it('終日アイテムを列本体へドラッグして離すと、ドロップ位置の時刻から defaultEventMinutes 分・ドロップ先の列のリソース割当の時間指定イベントに変換される', () => {
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-to-timed',
+      title: '休暇',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      defaultEventMinutes: 45,
+      callbacks: { onEventChange },
+    });
+    mockAllColumnRects(container);
+    const allDayItemEl = container.querySelector('[data-koyomi="allday-event"]');
+    if (allDayItemEl === null) {
+      throw new Error('終日アイテムが見つかりません');
+    }
+    if (sink.current === null) {
+      throw new Error('sink が設定されていません');
+    }
+    const updateEventSpy = vi.spyOn(sink.current.api, 'updateEvent');
+    // ポインタは room-b 列本体の上にある想定（elementFromPoint モックで判定）
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(getColumnElement(container, 1));
+
+    firePointerDown(allDayItemEl, columnCenterX(0), 10); // room-a の終日アイテムを掴む
+    movePointer(columnCenterX(1), 600); // room-b 列 10:00 へ
+    releasePointer(columnCenterX(1), 600);
+
+    expect(updateEventSpy).toHaveBeenCalledTimes(1);
+    expect(updateEventSpy).toHaveBeenCalledWith(
+      'ev-to-timed',
+      {
+        start: at(`${DAY}T10:00`),
+        end: at(`${DAY}T10:45`),
+        allDay: false,
+        resourceId: 'room-b',
+      },
+      undefined,
+    );
+    const events = sink.current.api.getEvents();
+    expect(events[0]).toMatchObject({
+      allDay: false,
+      start: at(`${DAY}T10:00`),
+      end: at(`${DAY}T10:45`),
+      resourceId: 'room-b',
+    });
+    expect(onEventChange).toHaveBeenCalledWith({
+      occurrence: expect.objectContaining({ eventId: 'ev-to-timed' }),
+      newRange: { start: at(`${DAY}T10:00`), end: at(`${DAY}T10:45`) },
+      allDay: false,
+      scope: null,
+      resourceId: 'room-b',
+      changes: [{ before: event, after: events[0], index: 0 }],
+    });
+  });
+
+  it('時間指定変換のプレビュー中は dragPreview が allDay: false になり、対象列に timegrid-preview が描画される', () => {
+    const event: CalendarEvent = {
+      id: 'ev-timed-preview',
+      title: '休暇',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      defaultEventMinutes: 45,
+    });
+    mockAllColumnRects(container);
+    const allDayItemEl = container.querySelector('[data-koyomi="allday-event"]');
+    if (allDayItemEl === null) {
+      throw new Error('終日アイテムが見つかりません');
+    }
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(getColumnElement(container, 1));
+
+    firePointerDown(allDayItemEl, columnCenterX(0), 10);
+    movePointer(columnCenterX(1), 600); // room-b 列 10:00
+
+    const preview = sink.current?.state.dragPreview;
+    expect(preview).toMatchObject({
+      kind: 'move',
+      allDay: false,
+      resourceId: 'room-b',
+      range: { start: at(`${DAY}T10:00`), end: at(`${DAY}T10:45`) },
+    });
+    expect(
+      getColumnElement(container, 1).querySelector('[data-koyomi="timegrid-preview"]'),
+    ).not.toBeNull();
+
+    releasePointer(columnCenterX(1), 600);
+  });
+
+  it('列本体から終日行へ戻ると時間指定変換は解除され、終日のままの列間移動として確定する', () => {
+    const event: CalendarEvent = {
+      id: 'ev-timed-cancel',
+      title: '休暇',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({ resources: [ROOM_A, ROOM_B], events: [event] });
+    mockAllColumnRects(container);
+    const allDayItemEl = container.querySelector('[data-koyomi="allday-event"]');
+    if (allDayItemEl === null) {
+      throw new Error('終日アイテムが見つかりません');
+    }
+    const spy = vi.spyOn(document, 'elementFromPoint');
+    spy.mockReturnValue(getColumnElement(container, 1));
+
+    firePointerDown(allDayItemEl, columnCenterX(0), 10);
+    movePointer(columnCenterX(1), 600); // 列本体（時間指定変換プレビュー）
+    expect(sink.current?.state.dragPreview?.allDay).toBe(false);
+
+    spy.mockReturnValue(null); // 終日行へ戻る
+    movePointer(columnCenterX(1), 10);
+    expect(sink.current?.state.dragPreview?.allDay).toBe(true);
+
+    releasePointer(columnCenterX(1), 10);
+    const events = sink.current?.api.getEvents() ?? [];
+    expect(events[0]).toMatchObject({
+      allDay: true,
+      start: DAY,
+      end: NEXT_DAY,
+      resourceId: 'room-b',
+    });
+  });
+
+  it('eventOverlap: false のとき、変換先レーンの既存の終日予定と重なる終日変換は適用されず onOperationRejected(action: "convert", reason: "constraint") が呼ばれる', () => {
+    const onOperationRejected = vi.fn();
+    const existing: CalendarEvent = {
+      id: 'existing-allday',
+      title: '既存の終日',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-b',
+    };
+    const converting: CalendarEvent = {
+      id: 'converting',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [existing, converting],
+      eventOverlap: false,
+      callbacks: { onOperationRejected },
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'converting', `${DAY}T10:00`);
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(makeResourceAlldayCellElement());
+
+    firePointerDown(eventEl, columnCenterX(0), 600);
+    movePointer(columnCenterX(1), 10); // room-b の終日行相当
+
+    // 変換プレビューの時点で違反が示され、対象の終日セルに data-koyomi-invalid が付く
+    expect(sink.current?.state.dragPreview?.invalid).toBe(true);
+    const roomBCell = container.querySelectorAll('[data-koyomi="resource-allday-cell"]')[1];
+    expect(roomBCell).toHaveAttribute('data-koyomi-invalid', 'true');
+
+    releasePointer(columnCenterX(1), 10);
+
+    expect(
+      sink.current?.api.getEvents().find((candidate) => candidate.id === 'converting')?.allDay,
+    ).not.toBe(true);
+    expect(onOperationRejected).toHaveBeenCalledWith({
+      action: 'convert',
+      reason: 'constraint',
+      occurrence: expect.objectContaining({ eventId: 'converting' }),
+    });
+  });
+
+  it('onBeforeEventChange が false を返すと変換は適用されず、proposal は action: "convert"・resourceId 付きで、onOperationRejected が reason: "rejected" で呼ばれる', () => {
+    const onBeforeEventChange = vi.fn().mockReturnValue(false);
+    const onOperationRejected = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-convert-rejected',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { onBeforeEventChange, onOperationRejected },
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'ev-convert-rejected', `${DAY}T10:00`);
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(makeResourceAlldayCellElement());
+
+    firePointerDown(eventEl, columnCenterX(0), 600);
+    movePointer(columnCenterX(1), 10);
+    releasePointer(columnCenterX(1), 10);
+
+    expect(onBeforeEventChange).toHaveBeenCalledWith(
+      expect.objectContaining({ allDay: true, action: 'convert', resourceId: 'room-b' }),
+    );
+    expect(sink.current?.api.getEvents()[0]?.allDay).not.toBe(true);
+    expect(onOperationRejected).toHaveBeenCalledWith({
+      action: 'convert',
+      reason: 'rejected',
+      occurrence: expect.objectContaining({ eventId: 'ev-convert-rejected' }),
+    });
+  });
+
+  it('繰り返しイベントの終日変換では resolveRecurringScope が呼ばれ、解決したスコープで適用される', async () => {
+    const resolveRecurringScope = vi.fn(
+      async (
+        _occurrence: EventOccurrence,
+        _action: 'move' | 'resize' | 'delete' | 'update',
+      ): Promise<RecurringEditScope | null> => 'this',
+    );
+    const event: CalendarEvent = {
+      id: 'recurring-to-allday',
+      title: '定例',
+      start: '2026-07-01T10:00',
+      end: '2026-07-01T11:00',
+      resourceId: 'room-a',
+      rrule: 'FREQ=DAILY',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { resolveRecurringScope },
+    });
+    mockAllColumnRects(container);
+    const eventEl = getEventElement(container, 'recurring-to-allday', `${DAY}T10:00`);
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(makeResourceAlldayCellElement());
+
+    firePointerDown(eventEl, columnCenterX(0), 600);
+    movePointer(columnCenterX(1), 10);
+    await act(async () => {
+      document.dispatchEvent(
+        new MouseEvent('pointerup', { clientX: columnCenterX(1), clientY: 10, bubbles: true }),
+      );
+    });
+
+    expect(resolveRecurringScope).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: 'recurring-to-allday' }),
+      'move',
+    );
+    const events = sink.current?.api.getEvents() ?? [];
+    const override = events.find(
+      (candidate) => candidate.recurringEventId === 'recurring-to-allday',
+    );
+    expect(override).toMatchObject({
+      allDay: true,
+      start: at(`${DAY}T00:00`),
+      end: at(`${NEXT_DAY}T00:00`),
+      resourceId: 'room-b',
+    });
+  });
+});
+
+describe('useResourceGridDrag - 終日 ⇔ 時間指定の変換（A キー）', () => {
+  it('時間指定の予定で A を押すと開始日 1 日分の終日イベントに変換される（レーンは不変）', () => {
+    const onEventChange = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-key-to-allday',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: [event],
+      callbacks: { onEventChange },
+    });
+    const eventEl = getEventElement(container, 'ev-key-to-allday', `${DAY}T10:00`);
+    if (sink.current === null) {
+      throw new Error('sink が設定されていません');
+    }
+    const updateEventSpy = vi.spyOn(sink.current.api, 'updateEvent');
+
+    act(() => {
+      fireEvent.keyDown(eventEl, { key: 'a' });
+    });
+
+    // レーンは不変のため、パッチには resourceId が含まれない
+    expect(updateEventSpy).toHaveBeenCalledWith(
+      'ev-key-to-allday',
+      { start: at(`${DAY}T00:00`), end: at(`${NEXT_DAY}T00:00`), allDay: true },
+      undefined,
+    );
+    expect(sink.current.api.getEvents()[0]).toMatchObject({
+      allDay: true,
+      start: at(`${DAY}T00:00`),
+      end: at(`${NEXT_DAY}T00:00`),
+      resourceId: 'room-a',
+    });
+    expect(onEventChange).toHaveBeenCalledWith(
+      expect.objectContaining({ allDay: true, resourceId: 'room-a', scope: null }),
+    );
+  });
+
+  it('終日の予定で A を押すと開始日の slotMinTime から defaultEventMinutes 分の時間指定イベントに変換される', () => {
+    const event: CalendarEvent = {
+      id: 'ev-key-to-timed',
+      title: '休暇',
+      start: DAY,
+      end: NEXT_DAY,
+      allDay: true,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      events: [event],
+      slotMinTime: '08:00',
+      defaultEventMinutes: 45,
+    });
+    const allDayItemEl = container.querySelector('[data-koyomi="allday-event"]');
+    if (allDayItemEl === null) {
+      throw new Error('終日アイテムが見つかりません');
+    }
+    if (sink.current === null) {
+      throw new Error('sink が設定されていません');
+    }
+    const updateEventSpy = vi.spyOn(sink.current.api, 'updateEvent');
+
+    act(() => {
+      fireEvent.keyDown(allDayItemEl, { key: 'a' });
+    });
+
+    expect(updateEventSpy).toHaveBeenCalledWith(
+      'ev-key-to-timed',
+      { start: at(`${DAY}T08:00`), end: at(`${DAY}T08:45`), allDay: false },
+      undefined,
+    );
+    expect(sink.current.api.getEvents()[0]).toMatchObject({
+      allDay: false,
+      start: at(`${DAY}T08:00`),
+      end: at(`${DAY}T08:45`),
+      resourceId: 'room-a',
+    });
+  });
+
+  it('終日行に表示される複数日の時間指定の予定では A は何もしない（既定動作も抑制しない）', () => {
+    const event: CalendarEvent = {
+      id: 'ev-key-band-timed',
+      title: '長時間作業',
+      start: `${DAY}T09:00`,
+      end: `${NEXT_DAY}T10:00`, // 24 時間以上 → 終日行に入る
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({ resources: [ROOM_A], events: [event] });
+    const allDayItemEl = container.querySelector('[data-koyomi="allday-event"]');
+    if (allDayItemEl === null) {
+      throw new Error('終日行の帯が見つかりません');
+    }
+
+    let notPrevented = true;
+    act(() => {
+      notPrevented = fireEvent.keyDown(allDayItemEl, { key: 'a' });
+    });
+
+    expect(notPrevented).toBe(true);
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({
+      start: `${DAY}T09:00`,
+      end: `${NEXT_DAY}T10:00`,
+    });
+  });
+
+  it('Ctrl / Cmd / Alt を伴う A では変換しない（既定動作も抑制しない）', () => {
+    const event: CalendarEvent = {
+      id: 'ev-key-modifier',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({ resources: [ROOM_A], events: [event] });
+    const eventEl = getEventElement(container, 'ev-key-modifier', `${DAY}T10:00`);
+
+    let notPrevented = true;
+    act(() => {
+      notPrevented = fireEvent.keyDown(eventEl, { key: 'a', ctrlKey: true });
+      notPrevented = fireEvent.keyDown(eventEl, { key: 'a', metaKey: true }) && notPrevented;
+      notPrevented = fireEvent.keyDown(eventEl, { key: 'a', altKey: true }) && notPrevented;
+    });
+
+    expect(notPrevented).toBe(true);
+    expect(sink.current?.api.getEvents()[0]?.allDay).not.toBe(true);
+  });
+
+  it('editable: false の予定では A は変換しない', () => {
+    const event: CalendarEvent = {
+      id: 'ev-key-locked',
+      title: '固定',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+      editable: false,
+    };
+    const { container, sink } = renderHarness({ resources: [ROOM_A], events: [event] });
+    const eventEl = getEventElement(container, 'ev-key-locked', `${DAY}T10:00`);
+
+    act(() => {
+      fireEvent.keyDown(eventEl, { key: 'a' });
+    });
+
+    expect(sink.current?.api.getEvents()[0]?.allDay).not.toBe(true);
+  });
+
+  it('onBeforeEventChange が false を返すと A キー変換は適用されず onOperationRejected(action: "convert", reason: "rejected") が呼ばれる', () => {
+    const onBeforeEventChange = vi.fn().mockReturnValue(false);
+    const onOperationRejected = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-key-rejected',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      events: [event],
+      callbacks: { onBeforeEventChange, onOperationRejected },
+    });
+    const eventEl = getEventElement(container, 'ev-key-rejected', `${DAY}T10:00`);
+
+    act(() => {
+      fireEvent.keyDown(eventEl, { key: 'a' });
+    });
+
+    expect(onBeforeEventChange).toHaveBeenCalledWith(
+      expect.objectContaining({ allDay: true, action: 'convert', resourceId: 'room-a' }),
+    );
+    expect(sink.current?.api.getEvents()[0]?.allDay).not.toBe(true);
+    expect(onOperationRejected).toHaveBeenCalledWith({
+      action: 'convert',
+      reason: 'rejected',
+      occurrence: expect.objectContaining({ eventId: 'ev-key-rejected' }),
+    });
   });
 });

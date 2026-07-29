@@ -10,6 +10,14 @@
  * - キーボード — `←`/`→` = `snapMinutes` 分移動（`daySnap` は ∓/± 1 日）、
  *   `Shift+←`/`→` = リサイズ（終日の帯は非対応）、`↑`/`↓` = 隣の行へ移動
  *   （画面上の視覚軸に対応する操作）
+ * - フォーカス中の帯の A キー → 終日 ⇔ 時間指定の変換（`action: 'convert'` の
+ *   キーボード経路。レーンは不変。時間指定 → 開始日 1 日分の終日、終日 → 開始日の
+ *   0:00 から `defaultEventMinutes` 分（`timelineScale` が `'hour'` 以外のときは
+ *   1 日分）の時間指定）
+ * - 行のキーボード（Enter・Space） → 表示範囲の先頭に行のリソース付きで即時作成
+ *   （`timelineScale` が `'hour'` のときは `defaultEventMinutes` 分、それ以外は 1 日分）。
+ *   既定即時作成が確定した場合は新規予定の帯へフォーカスを移し、そのまま矢印キーで
+ *   調整できる
  * - ドラッグ中は Escape / pointercancel でキャンセルし、画面端で横に自動スクロールする
  *
  * 横位置 → 日時の変換は行要素の矩形と {@link timeAtTimelineOffset}（表示分の座標系）で
@@ -19,7 +27,10 @@
  * 複数リソース割当（`resourceIds`）のオカレンスは割当先の各行に表示され、
  * 行間の移動では**操作した行の割当だけ**が移動先に変わる
  * （{@link resourceLanePatch}。他の行の割当は保持される）。
- * allDay⇔時間指定の越境変換は提供しない。
+ * allDay ⇔ 時間指定の変換は A キー（キーボード）でのみ提供する。タイムラインは
+ * 終日の帯を時間指定の帯と同一のレーン空間（行）に積んで表示するため、ポインタの
+ * 移動先として区別できる終日領域が存在せず、空間ドラッグでの変換は定義できない
+ * （週/日ビュー・リソースビューの変換ドラッグに相当する操作は提供しない）。
  *
  * `daySnap`（`occurrence?.allDay === true || options.timelineScale !== 'hour'`）は
  * セッション開始時に固定される。`updateOptions` で `timelineScale` を変更しても、
@@ -32,12 +43,13 @@ import type {
   PointerEvent as ReactPointerEvent,
   Ref,
 } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   isDragCandidateValid,
   occurrenceBlocksOverlap,
   resolveConstraintRules,
 } from '../core/constraints';
+import { occurrenceKey } from '../core/expansion';
 import {
   type DayDragMode,
   dayDragPreviewRange,
@@ -65,17 +77,23 @@ import type {
 import {
   attachDragSessionListeners,
   autoScrollVelocity,
+  captureOccurrenceDeleteFocusContext,
   checkBeforeEventChange,
   checkBeforeEventDelete,
   checkBeforeSelectRange,
   collectOverlapBlockersInRange,
   createAutoScrollLoop,
+  createCreatedEventFocusController,
   createDefaultEvent,
+  createOccurrenceDeleteFocusController,
   createOverlapBlockerCache,
   type EventNotificationProps,
   eventNotificationProps,
   laneIdFromEventTarget,
   laneResourceIdOf,
+  type OccurrenceDeleteFocusContext,
+  originatesFromOccurrenceElement,
+  reportOperationRejected,
   resolveScopeForRecurring,
 } from './drag-common';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
@@ -83,12 +101,27 @@ import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 /** 1 日の分（24:00 = 1440 分）。 */
 const MINUTES_PER_DAY = 1440;
 
+/**
+ * このフックが担当するビュー（タイムラインビュー）のルート要素のセレクタ。
+ * `captureOccurrenceDeleteFocusContext` の `viewRootSelector` に渡す。仮想化版
+ * （`virtual-timeline-view.tsx`）も同じルート属性値を使う。
+ */
+const TIMELINE_DRAG_VIEW_ROOT_SELECTOR = '[data-koyomi="timeline"]';
+
 /** タイムライン行要素に付与する props。 */
 export interface TimelineRowProps {
   /** 行要素の登録用 ref。 */
   ref: Ref<HTMLElement>;
   /** 空き領域での作成ドラッグを開始する。 */
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
+  /**
+   * キーボード操作（Enter・Space = 表示範囲の先頭に行のリソース付きで作成。
+   * `timelineScale` が `'hour'` のときは `defaultEventMinutes` 分、それ以外
+   * （日単位スナップ）は 1 日分）。
+   */
+  onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
+  /** フォーカス可能にする。 */
+  tabIndex: number;
   /** 行キー（スタイルフック・ヒットテスト用）。 */
   'data-koyomi-resource': string;
 }
@@ -99,7 +132,10 @@ export interface TimelineItemProps extends EventNotificationProps {
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   /** クリック（ドラッグに至らなかった場合）で `onEventClick` を呼ぶ。 */
   onClick: (event: ReactMouseEvent<HTMLElement>) => void;
-  /** キーボード操作（Enter = クリック相当、Delete = 削除、矢印キー = 移動・リサイズ・行移動）。 */
+  /**
+   * キーボード操作（Enter = クリック相当、Delete = 削除、
+   * A = 終日 ⇔ 時間指定の変換、矢印キー = 移動・リサイズ・行移動）。
+   */
   onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
   /** フォーカス可能にする。 */
   tabIndex: number;
@@ -198,6 +234,27 @@ function fractionXFromClientX(rect: DOMRect, clientX: number): number {
 }
 
 /**
+ * 終日 ⇔ 時間指定変換のキーボードトグル（A キー）かどうかを判定する。
+ *
+ * 大文字（Shift や CapsLock による `'A'`）も対象にする。Ctrl / Cmd / Alt を伴う場合は
+ * ブラウザ・OS のショートカット（Ctrl+A の全選択等）を奪わないため対象外にする
+ * （Shift は大文字の `'A'` を入力する手段そのものなので除外しない）。
+ * `use-time-grid-drag.ts` / `use-day-drag.ts` / `use-resource-grid-drag.ts` の同名関数と
+ * 対の実装（判定を変える場合はすべてを同期させること。共有ヘルパー化しないのは、
+ * 判定 1 つのために内部モジュール間の依存を増やさないため）。
+ */
+function isConversionToggleKey(event: {
+  key: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+}): boolean {
+  return (
+    (event.key === 'a' || event.key === 'A') && !event.ctrlKey && !event.metaKey && !event.altKey
+  );
+}
+
+/**
  * 動かしている側の overlap 実効値（重なりを拒否するか）を求める。
  * 新規作成（`occurrence` が `null`）では動かしている側の個別設定が存在しないため、
  * グローバル `eventOverlap` をそのまま動かしている側の値として使う。
@@ -256,6 +313,10 @@ export function useTimelineDrag(params: {
   const dragSessionRef = useRef<DragSession | null>(null);
   /** 直後の click イベントを 1 回だけ抑制するフラグ。 */
   const suppressNextClickRef = useRef(false);
+  /** キーボード削除後のフォーカス復帰を管理するコントローラ（本フック内で使い回す）。 */
+  const deleteFocusControllerRef = useRef(createOccurrenceDeleteFocusController());
+  /** キーボード作成による既定即時作成後のフォーカス移動を管理するコントローラ。 */
+  const createdEventFocusControllerRef = useRef(createCreatedEventFocusController());
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
@@ -264,6 +325,14 @@ export function useTimelineDrag(params: {
       dragSessionRef.current = null;
     };
   }, []);
+
+  // キーボード削除・キーボード作成の確定後、DOM 更新完了後（再レンダー後）に一度だけ
+  // フォーカス解決を試みる（`virtual-resource-view.tsx` の pinned フォーカス復元と同じ
+  // 「無条件・毎レンダーの useLayoutEffect」パターン）。
+  useLayoutEffect(() => {
+    deleteFocusControllerRef.current.consume();
+    createdEventFocusControllerRef.current.consume();
+  });
 
   /** 例外を `onError`（なければ console.error）へ報告する。 */
   function reportError(error: unknown): void {
@@ -451,10 +520,22 @@ export function useTimelineDrag(params: {
   /**
    * 作成を確定する（`onBeforeSelectRange` で拒否されなければ、`onSelectRange` が
    * あればそれを呼び、なければ既定作成する）。
+   *
+   * @param focus - 既定即時作成の確定後に新規予定へフォーカスを移す場合のビュールート。
+   *   キーボード作成のみ指定する（ポインタ経路は `null`）。`onSelectRange` 指定時
+   *   （アプリ委譲）はフォーカスを移さない
    */
-  async function commitCreateRange(range: DateRange, resourceId: string | null): Promise<void> {
+  async function commitCreateRange(
+    range: DateRange,
+    resourceId: string | null,
+    focus: { viewRoot: Element } | null,
+  ): Promise<void> {
     try {
       if (!isCandidateValid(null, range, false, resourceId)) {
+        reportOperationRejected(paramsRef.current.callbacks, {
+          action: 'create',
+          reason: 'constraint',
+        });
         return;
       }
       const gate = checkBeforeSelectRange(paramsRef.current.callbacks, {
@@ -464,6 +545,10 @@ export function useTimelineDrag(params: {
       });
       const allowed = typeof gate === 'boolean' ? gate : await gate;
       if (!allowed) {
+        reportOperationRejected(paramsRef.current.callbacks, {
+          action: 'create',
+          reason: 'rejected',
+        });
         return;
       }
       const { calendar, callbacks, defaultEventTitle } = paramsRef.current;
@@ -471,7 +556,18 @@ export function useTimelineDrag(params: {
         callbacks.onSelectRange({ range, allDay: false, resourceId });
         return;
       }
-      createDefaultEvent(calendar.api, { range, allDay: false, resourceId }, defaultEventTitle);
+      const created = createDefaultEvent(
+        calendar.api,
+        { range, allDay: false, resourceId },
+        defaultEventTitle,
+        callbacks,
+      );
+      if (focus !== null) {
+        createdEventFocusControllerRef.current.arm({
+          viewRoot: focus.viewRoot,
+          occurrenceKey: occurrenceKey(created.id, range.start),
+        });
+      }
     } catch (error) {
       reportError(error);
     } finally {
@@ -518,6 +614,103 @@ export function useTimelineDrag(params: {
     });
   }
 
+  /**
+   * 終日 ⇔ 時間指定の変換（`allDay` の変更を含む合成パッチ）を適用し、`onEventChange` を
+   * 通知する（スコープ解決済みの前提）。時間・リソースの変更のみを扱う {@link applyChange}
+   * と異なり、パッチに `allDay` を常に含めて変換を確定させる
+   * （{@link ./use-resource-grid-drag} と同じ規則）。
+   *
+   * @param allDay - 変換後の `allDay`（`true` = 終日化、`false` = 時間指定化）
+   * @param sourceLaneId - 操作を開始した行のリソース ID（{@link resourceLanePatch}）
+   */
+  function applyConversion(
+    occurrence: EventOccurrence,
+    recurringScope: RecurringEditScope | null,
+    range: DateRange,
+    resourceId: string | null,
+    allDay: boolean,
+    sourceLaneId: string | null,
+  ): void {
+    const patch: CalendarEventPatch = {
+      ...resourceLanePatch(occurrence.event, sourceLaneId, resourceId),
+      start: range.start,
+      end: range.end,
+      allDay,
+    };
+    const changes = paramsRef.current.calendar.api.updateEvent(
+      occurrence.eventId,
+      patch,
+      recurringScope === null
+        ? undefined
+        : { occurrenceStart: occurrence.originalStart, scope: recurringScope },
+    );
+    paramsRef.current.callbacks?.onEventChange?.({
+      occurrence,
+      newRange: range,
+      allDay,
+      scope: recurringScope,
+      resourceId,
+      changes,
+    });
+  }
+
+  /**
+   * 終日 ⇔ 時間指定の変換を確定する（制約判定 → 適用前フック（`action: 'convert'`） →
+   * 繰り返しスコープ解決 → 適用の順）。A キー（{@link handleItemKeyDown}）の
+   * キーボード経路から使う（タイムラインは空間ドラッグでの変換を提供しない。
+   * モジュール冒頭のドキュメント参照）。
+   *
+   * @param range - 変換後の日時範囲（終日化では日 0:00 起点・`end` 排他）
+   * @param allDay - 変換後の `allDay`
+   * @param resourceId - 変換後の割当先行のリソース ID（キーボード経路ではレーン不変）
+   * @param sourceLaneId - 操作を開始した行のリソース ID
+   */
+  async function commitConversion(
+    occurrence: EventOccurrence,
+    range: DateRange,
+    allDay: boolean,
+    resourceId: string | null,
+    sourceLaneId: string | null,
+  ): Promise<void> {
+    if (!isCandidateValid(occurrence, range, allDay, resourceId)) {
+      reportOperationRejected(paramsRef.current.callbacks, {
+        action: 'convert',
+        reason: 'constraint',
+        occurrence,
+      });
+      return;
+    }
+    const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
+      occurrence,
+      range,
+      allDay,
+      resourceId,
+      action: 'convert',
+    });
+    const allowed = typeof gate === 'boolean' ? gate : await gate;
+    if (!allowed) {
+      reportOperationRejected(paramsRef.current.callbacks, {
+        action: 'convert',
+        reason: 'rejected',
+        occurrence,
+      });
+      return;
+    }
+    let scope: RecurringEditScope | null = null;
+    if (occurrence.isRecurring) {
+      const resolved = await resolveScopeForRecurring(
+        paramsRef.current.callbacks,
+        occurrence,
+        'move',
+      );
+      if (resolved === null) {
+        return;
+      }
+      scope = resolved;
+    }
+    applyConversion(occurrence, scope, range, resourceId, allDay, sourceLaneId);
+  }
+
   /** 移動・リサイズドラッグの確定処理。移動がなかった場合は何もしない。 */
   async function commitMoveOrResize(session: DragSession, nativeEvent: MouseEvent): Promise<void> {
     try {
@@ -544,12 +737,17 @@ export function useTimelineDrag(params: {
       const validationRange = timeChanged
         ? range
         : { start: occurrence.start, end: occurrence.end };
+      const action: 'move' | 'resize' = session.mode === 'move' ? 'move' : 'resize';
       if (
         !isCandidateValid(occurrence, validationRange, occurrence.allDay, session.targetResourceId)
       ) {
+        reportOperationRejected(paramsRef.current.callbacks, {
+          action,
+          reason: 'constraint',
+          occurrence,
+        });
         return;
       }
-      const action: 'move' | 'resize' = session.mode === 'move' ? 'move' : 'resize';
       const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
         occurrence,
         range: validationRange,
@@ -559,6 +757,11 @@ export function useTimelineDrag(params: {
       });
       const allowed = typeof gate === 'boolean' ? gate : await gate;
       if (!allowed) {
+        reportOperationRejected(paramsRef.current.callbacks, {
+          action,
+          reason: 'rejected',
+          occurrence,
+        });
         return;
       }
       let recurringScope: RecurringEditScope | null = null;
@@ -603,7 +806,7 @@ export function useTimelineDrag(params: {
         paramsRef.current.calendar.api.setDragPreview(null);
         return;
       }
-      void commitCreateRange(range, session.targetResourceId).catch(reportError);
+      void commitCreateRange(range, session.targetResourceId, null).catch(reportError);
       return;
     }
     void commitMoveOrResize(session, nativeEvent).catch(reportError);
@@ -766,6 +969,57 @@ export function useTimelineDrag(params: {
     startSession('create', null, anchor, anchorDay, row.resource?.id ?? null);
   }
 
+  /**
+   * キーボード作成（Enter / Space）の作成範囲を返す。開始は表示範囲の先頭
+   * （先頭表示日の 0:00）で、長さは `timelineScale` が `'hour'` のときは
+   * `defaultEventMinutes` 分、それ以外（日単位スナップ）は 1 日分
+   * （クリック作成の `clickRangeForCreate` と同じ長さ規則）。
+   * 表示日が空（タイムラインビューでない）場合は `null` を返す。
+   */
+  function keyboardCreateRange(): DateRange | null {
+    const { state } = paramsRef.current.calendar;
+    const first = displayDays()[0];
+    if (first === undefined) {
+      return null;
+    }
+    if (state.options.timelineScale !== 'hour') {
+      return { start: first, end: addDaysInZone(first, 1, state.timeZone) };
+    }
+    return {
+      start: first,
+      end: addMinutesInZone(first, state.options.defaultEventMinutes, state.timeZone),
+    };
+  }
+
+  /**
+   * 行のキーボード操作（Enter・Space = 即時作成）。作成範囲は
+   * {@link keyboardCreateRange}、リソースは行のレーン（未割り当て行は `null`）で、
+   * 確定はポインタ経路と同じ {@link commitCreateRange}（制約判定 →
+   * `onBeforeSelectRange` → `onSelectRange` 委譲 / 既定即時作成）。
+   * 既定即時作成の確定後は新規予定の帯へフォーカスを移す。
+   */
+  function handleRowKeyDown(row: TimelineRow, event: ReactKeyboardEvent<HTMLElement>): void {
+    // 行の子として描画される帯ボタン由来のキー操作（Enter/Space 等）を
+    // 行の作成として二重処理しない（リソースビューの列と同じ規則）
+    if (originatesFromOccurrenceElement(event.target)) {
+      return;
+    }
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    event.preventDefault();
+    const range = keyboardCreateRange();
+    if (range === null) {
+      return;
+    }
+    const viewRoot = event.currentTarget.closest(TIMELINE_DRAG_VIEW_ROOT_SELECTOR);
+    void commitCreateRange(
+      range,
+      row.resource?.id ?? null,
+      viewRoot === null ? null : { viewRoot },
+    ).catch(reportError);
+  }
+
   /** 帯のドラッグ（移動）を開始する。`editable: false` の場合は開始しない。 */
   function handleItemPointerDown(
     occurrence: EventOccurrence,
@@ -831,18 +1085,31 @@ export function useTimelineDrag(params: {
     paramsRef.current.callbacks?.onEventClick?.(occurrence, event.nativeEvent);
   }
 
-  /** 削除（Delete / Backspace）。`editable: false` は削除しない。 */
-  async function deleteOccurrence(occurrence: EventOccurrence): Promise<void> {
+  /**
+   * 削除（Delete / Backspace）。`editable: false` は削除しない。削除が実際に適用された
+   * 場合のみ削除後のフォーカス復帰（`focusContext`。呼び出し元が Delete/Backspace の
+   * キーダウン時点で {@link captureOccurrenceDeleteFocusContext} を使って作る）を予約する。
+   */
+  async function deleteOccurrence(
+    occurrence: EventOccurrence,
+    focusContext: OccurrenceDeleteFocusContext | null,
+  ): Promise<void> {
     if (occurrence.event.editable === false) {
       return;
     }
     const gate = checkBeforeEventDelete(paramsRef.current.callbacks, occurrence);
     const allowed = typeof gate === 'boolean' ? gate : await gate;
     if (!allowed) {
+      reportOperationRejected(paramsRef.current.callbacks, {
+        action: 'delete',
+        reason: 'rejected',
+        occurrence,
+      });
       return;
     }
     if (!occurrence.isRecurring) {
       const changes = paramsRef.current.calendar.api.deleteEvent(occurrence.eventId);
+      deleteFocusControllerRef.current.arm(focusContext);
       paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope: null, changes });
       return;
     }
@@ -854,6 +1121,7 @@ export function useTimelineDrag(params: {
       occurrenceStart: occurrence.originalStart,
       scope,
     });
+    deleteFocusControllerRef.current.arm(focusContext);
     paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope, changes });
   }
 
@@ -893,6 +1161,11 @@ export function useTimelineDrag(params: {
         resourceId,
       )
     ) {
+      reportOperationRejected(paramsRef.current.callbacks, {
+        action,
+        reason: 'constraint',
+        occurrence,
+      });
       return;
     }
     const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
@@ -904,6 +1177,11 @@ export function useTimelineDrag(params: {
     });
     const allowed = typeof gate === 'boolean' ? gate : await gate;
     if (!allowed) {
+      reportOperationRejected(paramsRef.current.callbacks, {
+        action,
+        reason: 'rejected',
+        occurrence,
+      });
       return;
     }
     let recurringScope: RecurringEditScope | null = null;
@@ -924,6 +1202,10 @@ export function useTimelineDrag(params: {
   /**
    * キーボード操作。
    * - `Enter` / `Space` — クリック相当、`Delete` / `Backspace` — 削除
+   * - `A`（大文字小文字とも。Ctrl / Cmd / Alt 併用は対象外） — 終日 ⇔ 時間指定の変換
+   *   （{@link commitConversion}。レーンは不変。時間指定 → 開始日 1 日分の終日、
+   *   終日 → 開始日の 0:00 から `defaultEventMinutes` 分（`timelineScale` が
+   *   `'hour'` 以外のときは 1 日分）の時間指定）
    * - `←` / `→` — ∓/± `snapMinutes` 分移動（終日の帯は ∓/± 1 日）、
    *   `Shift` 併用で終了時刻をリサイズ（終日の帯では無効）
    * - `↑` / `↓` — 隣の行（リソース）へ移動（原則 7: キーは画面上の視覚軸に従う）
@@ -939,7 +1221,45 @@ export function useTimelineDrag(params: {
     }
     if (event.key === 'Delete' || event.key === 'Backspace') {
       event.preventDefault();
-      void deleteOccurrence(occurrence).catch(reportError);
+      const focusContext = captureOccurrenceDeleteFocusContext({
+        target: event.target,
+        occurrenceKey: occurrence.key,
+        viewRootSelector: TIMELINE_DRAG_VIEW_ROOT_SELECTOR,
+      });
+      void deleteOccurrence(occurrence, focusContext).catch(reportError);
+      return;
+    }
+    if (isConversionToggleKey(event)) {
+      event.preventDefault();
+      if (occurrence.event.editable === false) {
+        return;
+      }
+      const { state } = paramsRef.current.calendar;
+      const timeZone = state.timeZone;
+      // レーンは不変（source = target）のため割当パッチは生成されない
+      const laneId = sourceLaneIdFor(occurrence, event.currentTarget);
+      const dayStart = startOfDayInZone(occurrence.start, timeZone);
+      if (occurrence.allDay) {
+        // 終日 → 時間指定: 開始日の 0:00 から `defaultEventMinutes` 分。
+        // `timelineScale` が 'hour' 以外（日単位スナップ）のときは 1 日分
+        // （行のキーボード作成 `keyboardCreateRange` と同じ長さ規則）
+        const end =
+          state.options.timelineScale !== 'hour'
+            ? addDaysInZone(dayStart, 1, timeZone)
+            : addMinutesInZone(dayStart, state.options.defaultEventMinutes, timeZone);
+        void commitConversion(occurrence, { start: dayStart, end }, false, laneId, laneId).catch(
+          reportError,
+        );
+        return;
+      }
+      // 時間指定 → 終日: 開始日 1 日分（`use-time-grid-drag.ts` の A キーと同じ長さ規則）
+      void commitConversion(
+        occurrence,
+        { start: dayStart, end: addDaysInZone(dayStart, 1, timeZone) },
+        true,
+        laneId,
+        laneId,
+      ).catch(reportError);
       return;
     }
 
@@ -1029,6 +1349,10 @@ export function useTimelineDrag(params: {
       onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
         handleRowPointerDown(row, event);
       },
+      onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
+        handleRowKeyDown(row, event);
+      },
+      tabIndex: 0,
       'data-koyomi-resource': row.key,
     };
   }

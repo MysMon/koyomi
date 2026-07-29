@@ -29,7 +29,7 @@ import type {
   TimeZoneId,
   YearDay,
 } from '../../core/types';
-import type { EventChange, EventDelete, RangeSelection } from '../types';
+import type { EventChange, EventDelete, OperationRejection, RangeSelection } from '../types';
 
 /**
  * イベント変更の種別を表す、ロケールに依存しないコード。
@@ -225,6 +225,12 @@ export interface AnnouncerMessages {
    * @param deletion - 削除内容（`scope` から付記文言を判断する）
    */
   eventDeleted: (deletion: EventDelete) => string;
+  /**
+   * 宣言的制約、または適用前フックによる操作拒否の通知文を組み立てる。
+   *
+   * @param info - 拒否された操作の内容
+   */
+  operationRejected: (info: OperationRejection) => string;
   /**
    * ビュー・基準日・表示範囲の変更後の通知文を組み立てる。
    *

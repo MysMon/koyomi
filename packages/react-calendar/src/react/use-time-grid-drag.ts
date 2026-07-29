@@ -3,6 +3,9 @@
  * 時間グリッド（週/日ビュー）のドラッグインタラクション。
  *
  * - 空き領域のクリック / ドラッグ → 範囲選択（新規作成）
+ * - 日列のキーボード（Enter・Space） → その列の日の表示時間帯の開始（`slotMinTime`）から
+ *   `defaultEventMinutes` 分の即時作成。既定即時作成が確定した場合は新規予定の要素へ
+ *   フォーカスを移し、そのまま矢印キー・A キーで調整できる
  * - イベント本体のドラッグ → 移動（列をまたぐ移動・スナップ対応）
  * - 下端・上端ハンドルのドラッグ → リサイズ（終了・開始時刻の変更）
  * - 矢印キーによる移動・リサイズ（フォーカス中のオカレンスに対して）
@@ -10,6 +13,9 @@
  * - イベント本体の移動ドラッグ中にポインタが終日行（`use-day-drag.ts` が担当する領域）に
  *   乗ると、終日イベントへの変換プレビューに切り替わる（Google カレンダー相当の
  *   「時間指定 ⇔ 終日」変換。反対方向の変換は `use-day-drag.ts` が担当する）
+ * - フォーカス中のオカレンスの A キー → 開始日 1 日分の終日イベントへの変換
+ *   （変換ドラッグと同じ `action: 'convert'` のキーボード経路。反対方向
+ *   （終日 → 時間指定）は `use-day-drag.ts` が担当する）
  *
  * プロップゲッターパターンを採用する。コンポーネントは
  * {@link TimeGridDragHandlers.getDayProps} などを対応する要素に
@@ -26,12 +32,13 @@ import type {
   PointerEvent as ReactPointerEvent,
   Ref,
 } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   isDragCandidateValid,
   occurrenceBlocksOverlap,
   resolveConstraintRules,
 } from '../core/constraints';
+import { occurrenceKey } from '../core/expansion';
 import { dragPreviewRange, timeAtGridPosition } from '../core/interaction';
 import {
   addDaysInZone,
@@ -55,18 +62,32 @@ import type {
 import {
   attachDragSessionListeners,
   autoScrollVelocity,
+  captureOccurrenceDeleteFocusContext,
   checkBeforeEventChange,
   checkBeforeEventDelete,
   checkBeforeSelectRange,
   collectOverlapBlockersInRange,
   createAutoScrollLoop,
+  createCreatedEventFocusController,
   createDefaultEvent,
+  createOccurrenceDeleteFocusController,
   createOverlapBlockerCache,
   type EventNotificationProps,
   eventNotificationProps,
+  type OccurrenceDeleteFocusContext,
+  originatesFromOccurrenceElement,
+  reportOperationRejected,
   resolveScopeForRecurring,
 } from './drag-common';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
+
+/**
+ * このフックが担当するビュー（週/日ビューの時間グリッド本体）のルート要素のセレクタ。
+ * `captureOccurrenceDeleteFocusContext` の `viewRootSelector` に渡す。週/日ビューの
+ * 終日行を担当する `use-day-drag.ts` と同じビューのルート `data-koyomi="timegrid"` を
+ * 指す（時間グリッド本体はその内側の `data-koyomi="timegrid-body"` にある）。
+ */
+const TIME_GRID_DRAG_VIEW_ROOT_SELECTOR = '[data-koyomi="timegrid"]';
 
 /** 日列要素に付与する props。 */
 export interface TimeGridDayProps {
@@ -74,6 +95,13 @@ export interface TimeGridDayProps {
   ref: Ref<HTMLElement>;
   /** 空き領域での作成ドラッグを開始する。 */
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
+  /**
+   * キーボード操作（Enter・Space = その列の日の表示時間帯の開始（`slotMinTime`）から
+   * `defaultEventMinutes` 分の時間指定イベント作成）。
+   */
+  onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
+  /** フォーカス可能にする。 */
+  tabIndex: number;
   /** 日付キー（スタイルフック・ヒットテスト用）。 */
   'data-koyomi-date': string;
 }
@@ -84,7 +112,10 @@ export interface TimeGridEventProps extends EventNotificationProps {
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   /** クリック（ドラッグに至らなかった場合）で `onEventClick` を呼ぶ。 */
   onClick: (event: ReactMouseEvent<HTMLElement>) => void;
-  /** キーボード操作（Enter = クリック相当、Delete = 削除、矢印キー = 移動・リサイズ）。 */
+  /**
+   * キーボード操作（Enter = クリック相当、Delete = 削除、A = 終日イベントへの変換、
+   * 矢印キー = 移動・リサイズ）。
+   */
   onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
   /** フォーカス可能にする。 */
   tabIndex: number;
@@ -273,6 +304,26 @@ function isOverAlldayRegion(clientX: number, clientY: number): boolean {
 }
 
 /**
+ * 終日 ⇔ 時間指定変換のキーボードトグル（A キー）かどうかを判定する。
+ *
+ * 大文字（Shift や CapsLock による `'A'`）も対象にする。Ctrl / Cmd / Alt を伴う場合は
+ * ブラウザ・OS のショートカット（Ctrl+A の全選択等）を奪わないため対象外にする
+ * （Shift は大文字の `'A'` を入力する手段そのものなので除外しない）。
+ * `use-day-drag.ts` の同名関数と対の実装（判定を変える場合は両方を同期させること。
+ * 共有ヘルパー化しないのは、判定 1 つのために内部モジュール間の依存を増やさないため）。
+ */
+function isConversionToggleKey(event: {
+  key: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+}): boolean {
+  return (
+    (event.key === 'a' || event.key === 'A') && !event.ctrlKey && !event.metaKey && !event.altKey
+  );
+}
+
+/**
  * 日時範囲が表示タイムゾーンで何暦日にまたがるかを求める（最低でも 1）。
  *
  * `end` は排他的なので、`end` の 1 ミリ秒前が属する日を最終日とする
@@ -415,6 +466,10 @@ export function useTimeGridDrag(params: {
   const dragSessionRef = useRef<DragSession | null>(null);
   /** 直後の click イベントを 1 回だけ抑制するフラグ（ドラッグ確定・Escape キャンセル直後用）。 */
   const suppressNextClickRef = useRef(false);
+  /** キーボード削除後のフォーカス復帰を管理するコントローラ（本フック内で使い回す）。 */
+  const deleteFocusControllerRef = useRef(createOccurrenceDeleteFocusController());
+  /** キーボード作成による既定即時作成後のフォーカス移動を管理するコントローラ。 */
+  const createdEventFocusControllerRef = useRef(createCreatedEventFocusController());
   const [isDragging, setIsDragging] = useState(false);
 
   // アンマウント時に進行中のセッションがあれば document リスナーを確実に解除する。
@@ -424,6 +479,14 @@ export function useTimeGridDrag(params: {
       dragSessionRef.current = null;
     };
   }, []);
+
+  // キーボード削除・キーボード作成の確定後、DOM 更新完了後（再レンダー後）に一度だけ
+  // フォーカス解決を試みる（`virtual-resource-view.tsx` の pinned フォーカス復元と同じ
+  // 「無条件・毎レンダーの useLayoutEffect」パターン）。
+  useLayoutEffect(() => {
+    deleteFocusControllerRef.current.consume();
+    createdEventFocusControllerRef.current.consume();
+  });
 
   /**
    * インタラクション中の非同期処理で発生した例外を報告する。
@@ -564,36 +627,84 @@ export function useTimeGridDrag(params: {
   }
 
   /**
-   * 作成ドラッグ（`create`）の確定処理。`onBeforeSelectRange` で拒否されなければ
-   * 確定する。`onBeforeSelectRange` / `onSelectRange` / `createEvent` がアプリ側で
-   * 例外を投げても、`finally` で必ずプレビューを消し、例外は `reportError`
-   * （`onError`）へ流す（選択オーバーレイの残留防止）。
+   * 作成範囲の確定処理（ポインタの作成ドラッグとキーボード作成の共通経路）。
+   * `onBeforeSelectRange` で拒否されなければ確定する。`onBeforeSelectRange` /
+   * `onSelectRange` / `createEvent` がアプリ側で例外を投げても、`finally` で必ず
+   * プレビューを消し、例外は `reportError`（`onError`）へ流す（選択オーバーレイの残留防止）。
+   *
+   * @param range - 作成する日時範囲
+   * @param focus - 既定即時作成の確定後に新規予定へフォーカスを移す場合のビュールート。
+   *   キーボード作成のみ指定する（ポインタ経路は `null`）。`onSelectRange` 指定時
+   *   （アプリ委譲）はフォーカスを移さない
    */
-  async function commitCreate(session: DragSession, nativeEvent: MouseEvent): Promise<void> {
+  async function commitCreateRange(
+    range: DateRange,
+    focus: { viewRoot: Element } | null,
+  ): Promise<void> {
     try {
-      const range = session.hasMoved
-        ? computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY)
-        : clickRangeForCreate(session.anchor);
-      if (range !== null && isCreateCandidateValid(range)) {
-        const gate = checkBeforeSelectRange(paramsRef.current.callbacks, {
-          range,
-          allDay: false,
+      if (!isCreateCandidateValid(range)) {
+        reportOperationRejected(paramsRef.current.callbacks, {
+          action: 'create',
+          reason: 'constraint',
         });
-        const allowed = typeof gate === 'boolean' ? gate : await gate;
-        if (allowed) {
-          const { calendar, callbacks, defaultEventTitle } = paramsRef.current;
-          if (callbacks?.onSelectRange) {
-            callbacks.onSelectRange({ range, allDay: false });
-          } else {
-            createDefaultEvent(calendar.api, { range, allDay: false }, defaultEventTitle);
-          }
-        }
+        return;
+      }
+      const gate = checkBeforeSelectRange(paramsRef.current.callbacks, {
+        range,
+        allDay: false,
+      });
+      const allowed = typeof gate === 'boolean' ? gate : await gate;
+      if (!allowed) {
+        reportOperationRejected(paramsRef.current.callbacks, {
+          action: 'create',
+          reason: 'rejected',
+        });
+        return;
+      }
+      const { calendar, callbacks, defaultEventTitle } = paramsRef.current;
+      if (callbacks?.onSelectRange) {
+        callbacks.onSelectRange({ range, allDay: false });
+        return;
+      }
+      const created = createDefaultEvent(
+        calendar.api,
+        { range, allDay: false },
+        defaultEventTitle,
+        callbacks,
+      );
+      if (focus !== null) {
+        createdEventFocusControllerRef.current.arm({
+          viewRoot: focus.viewRoot,
+          occurrenceKey: occurrenceKey(created.id, range.start),
+        });
       }
     } catch (error) {
       reportError(error);
     } finally {
       paramsRef.current.calendar.api.setDragPreview(null);
     }
+  }
+
+  /**
+   * 作成ドラッグ（`create`）の確定処理。ポインタ位置から作成範囲を求め、
+   * {@link commitCreateRange} に流す（フォーカス移動なし）。
+   */
+  async function commitCreate(session: DragSession, nativeEvent: MouseEvent): Promise<void> {
+    let range: DateRange | null;
+    try {
+      range = session.hasMoved
+        ? computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY)
+        : clickRangeForCreate(session.anchor);
+    } catch (error) {
+      reportError(error);
+      paramsRef.current.calendar.api.setDragPreview(null);
+      return;
+    }
+    if (range === null) {
+      paramsRef.current.calendar.api.setDragPreview(null);
+      return;
+    }
+    await commitCreateRange(range, null);
   }
 
   /**
@@ -654,11 +765,67 @@ export function useTimeGridDrag(params: {
   }
 
   /**
+   * 時間指定 → 終日の変換を確定する（制約判定 → 適用前フック（`action: 'convert'`） →
+   * 繰り返しスコープ解決 → 適用の順）。ポインタの変換ドラッグ
+   * （{@link commitMoveOrResize}）と A キー（{@link handleEventKeyDown}）の両経路から
+   * 共通で使う。
+   *
+   * 単発オカレンスで適用前フックが同期的に許可した場合は `await` 式を評価せず、
+   * 適用（{@link applyAllDayConversion}）まで同期的に完結する
+   * （{@link commitMoveOrResize} と同じ理由。`resolveRecurringScope` の解決を待つのは
+   * 繰り返しオカレンスの場合のみ）。
+   *
+   * @param occurrence - 変換対象のオカレンス
+   * @param range - 変換後の終日範囲（日 0:00 起点、`end` 排他）
+   */
+  async function commitAllDayConversion(
+    occurrence: EventOccurrence,
+    range: DateRange,
+  ): Promise<void> {
+    if (!isOccurrenceCandidateValid(occurrence, range, true)) {
+      reportOperationRejected(paramsRef.current.callbacks, {
+        action: 'convert',
+        reason: 'constraint',
+        occurrence,
+      });
+      return;
+    }
+    const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
+      occurrence,
+      range,
+      allDay: true,
+      action: 'convert',
+    });
+    const allowed = typeof gate === 'boolean' ? gate : await gate;
+    if (!allowed) {
+      reportOperationRejected(paramsRef.current.callbacks, {
+        action: 'convert',
+        reason: 'rejected',
+        occurrence,
+      });
+      return;
+    }
+    let conversionScope: RecurringEditScope | null = null;
+    if (occurrence.isRecurring) {
+      const resolved = await resolveScopeForRecurring(
+        paramsRef.current.callbacks,
+        occurrence,
+        'move',
+      );
+      if (resolved === null) {
+        return;
+      }
+      conversionScope = resolved;
+    }
+    applyAllDayConversion(occurrence, conversionScope, range);
+  }
+
+  /**
    * 移動・リサイズドラッグの確定処理。移動がなかった場合は何もしない（クリックは onClick に任せる）。
    *
    * `session.allDayConversion` が非 `null`（'move' セッション中にポインタが終日行の
    * 上で確定した）の場合は、その範囲・`allDay: true` で終日イベントへの変換として
-   * 確定する（{@link applyAllDayConversion}）。それ以外は通常どおり時間指定のまま
+   * 確定する（{@link commitAllDayConversion}）。それ以外は通常どおり時間指定のまま
    * 移動・リサイズを確定する。
    *
    * 単発オカレンス（繰り返しでない）の場合は `await` が一度も発生せず同期的に完結する
@@ -683,43 +850,22 @@ export function useTimeGridDrag(params: {
       // （day drag と同じ扱い）。ドラッグで移動した以上、後続 click は常に抑止してよい。
       suppressNextClickRef.current = true;
       if (session.allDayConversion !== null) {
-        const conversionRange = session.allDayConversion;
-        if (!isOccurrenceCandidateValid(occurrence, conversionRange, true)) {
-          return;
-        }
-        const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
-          occurrence,
-          range: conversionRange,
-          allDay: true,
-          action: 'convert',
-        });
-        const allowed = typeof gate === 'boolean' ? gate : await gate;
-        if (!allowed) {
-          return;
-        }
-        let conversionScope: RecurringEditScope | null = null;
-        if (occurrence.isRecurring) {
-          const resolved = await resolveScopeForRecurring(
-            paramsRef.current.callbacks,
-            occurrence,
-            'move',
-          );
-          if (resolved === null) {
-            return;
-          }
-          conversionScope = resolved;
-        }
-        applyAllDayConversion(occurrence, conversionScope, conversionRange);
+        await commitAllDayConversion(occurrence, session.allDayConversion);
         return;
       }
       const range = computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY);
       if (range === null) {
         return;
       }
+      const action: 'move' | 'resize' = session.mode === 'move' ? 'move' : 'resize';
       if (!isOccurrenceCandidateValid(occurrence, range, false)) {
+        reportOperationRejected(paramsRef.current.callbacks, {
+          action,
+          reason: 'constraint',
+          occurrence,
+        });
         return;
       }
-      const action: 'move' | 'resize' = session.mode === 'move' ? 'move' : 'resize';
       const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
         occurrence,
         range,
@@ -728,6 +874,11 @@ export function useTimeGridDrag(params: {
       });
       const allowed = typeof gate === 'boolean' ? gate : await gate;
       if (!allowed) {
+        reportOperationRejected(paramsRef.current.callbacks, {
+          action,
+          reason: 'rejected',
+          occurrence,
+        });
         return;
       }
       let recurringScope: RecurringEditScope | null = null;
@@ -927,6 +1078,46 @@ export function useTimeGridDrag(params: {
     startSession('create', null, anchor);
   }
 
+  /**
+   * キーボード作成（Enter / Space）の作成範囲を返す。開始はその列の日の表示時間帯の
+   * 開始（`slotMinTime`。未指定なら 0:00）、長さは `defaultEventMinutes` 分
+   * （クリック作成と同じ長さ規則）。
+   */
+  function keyboardCreateRange(day: TimeGridDay): DateRange {
+    const { state } = paramsRef.current.calendar;
+    const start = addMinutesInZone(
+      day.date,
+      parseSlotBoundaryTime(state.options.slotMinTime),
+      state.timeZone,
+    );
+    return {
+      start,
+      end: addMinutesInZone(start, state.options.defaultEventMinutes, state.timeZone),
+    };
+  }
+
+  /**
+   * 日列のキーボード操作（Enter・Space = 即時作成）。作成範囲は
+   * {@link keyboardCreateRange}、確定はポインタ経路と同じ {@link commitCreateRange}
+   * （制約判定 → `onBeforeSelectRange` → `onSelectRange` 委譲 / 既定即時作成）。
+   * 既定即時作成の確定後は新規予定の要素へフォーカスを移す。
+   */
+  function handleDayKeyDown(day: TimeGridDay, event: ReactKeyboardEvent<HTMLElement>): void {
+    // 列の子として描画される予定ボタン由来のキー操作（Enter/Space 等）を
+    // 列の作成として二重処理しない（`use-day-drag.ts` のセルと同じ規則）
+    if (originatesFromOccurrenceElement(event.target)) {
+      return;
+    }
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    event.preventDefault();
+    const viewRoot = event.currentTarget.closest(TIME_GRID_DRAG_VIEW_ROOT_SELECTOR);
+    void commitCreateRange(keyboardCreateRange(day), viewRoot === null ? null : { viewRoot }).catch(
+      reportError,
+    );
+  }
+
   /** ポインタ位置が乗っている列を基準にアンカー日時を求める（列が未登録なら fallback を使う）。 */
   function anchorFromPointer(event: ReactPointerEvent<HTMLElement>, fallback: Date): Date {
     return pointerDateAt(event.clientX, event.clientY) ?? fallback;
@@ -994,19 +1185,30 @@ export function useTimeGridDrag(params: {
    * 繰り返しオカレンスの削除。スコープ解決が必要な場合は解決してから削除する。
    * `editable: false` のイベントは削除しない（ドラッグ移動・リサイズと同じ扱い）。
    * 削除が実際に適用された後（スコープ解決がキャンセルでなかった場合）に
-   * `callbacks.onEventDelete` を通知する。
+   * `callbacks.onEventDelete` を通知し、削除後のフォーカス復帰（`focusContext`。
+   * 呼び出し元が Delete/Backspace のキーダウン時点で
+   * {@link captureOccurrenceDeleteFocusContext} を使って作る）を予約する。
    */
-  async function deleteOccurrence(occurrence: EventOccurrence): Promise<void> {
+  async function deleteOccurrence(
+    occurrence: EventOccurrence,
+    focusContext: OccurrenceDeleteFocusContext | null,
+  ): Promise<void> {
     if (occurrence.event.editable === false) {
       return;
     }
     const gate = checkBeforeEventDelete(paramsRef.current.callbacks, occurrence);
     const allowed = typeof gate === 'boolean' ? gate : await gate;
     if (!allowed) {
+      reportOperationRejected(paramsRef.current.callbacks, {
+        action: 'delete',
+        reason: 'rejected',
+        occurrence,
+      });
       return;
     }
     if (!occurrence.isRecurring) {
       const changes = paramsRef.current.calendar.api.deleteEvent(occurrence.eventId);
+      deleteFocusControllerRef.current.arm(focusContext);
       paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope: null, changes });
       return;
     }
@@ -1018,6 +1220,7 @@ export function useTimeGridDrag(params: {
       occurrenceStart: occurrence.originalStart,
       scope,
     });
+    deleteFocusControllerRef.current.arm(focusContext);
     paramsRef.current.callbacks?.onEventDelete?.({ occurrence, scope, changes });
   }
 
@@ -1031,6 +1234,11 @@ export function useTimeGridDrag(params: {
     range: DateRange,
   ): Promise<void> {
     if (!isOccurrenceCandidateValid(occurrence, range, false)) {
+      reportOperationRejected(paramsRef.current.callbacks, {
+        action,
+        reason: 'constraint',
+        occurrence,
+      });
       return;
     }
     const gate = checkBeforeEventChange(paramsRef.current.callbacks, {
@@ -1041,6 +1249,11 @@ export function useTimeGridDrag(params: {
     });
     const allowed = typeof gate === 'boolean' ? gate : await gate;
     if (!allowed) {
+      reportOperationRejected(paramsRef.current.callbacks, {
+        action,
+        reason: 'rejected',
+        occurrence,
+      });
       return;
     }
     let recurringScope: RecurringEditScope | null = null;
@@ -1062,11 +1275,14 @@ export function useTimeGridDrag(params: {
    * キーボード操作。
    * - `Enter` / `Space` — クリック相当（`onEventClick` を呼ぶ）
    * - `Delete` / `Backspace` — 削除
+   * - `A`（大文字小文字とも。Ctrl / Cmd / Alt 併用は対象外） — 開始日 1 日分の
+   *   終日イベントへの変換（{@link commitAllDayConversion}）
    * - `ArrowUp` / `ArrowDown` — ± `snapMinutes` 分移動、`Shift` 併用で終了時刻を
    *   ∓/± `snapMinutes` 分リサイズ
    * - `ArrowLeft` / `ArrowRight` — ∓/± 1 日移動
    *
-   * 矢印キーの操作は認識した時点で `preventDefault` を呼ぶ。`editable: false` の
+   * A キー・矢印キーの操作は認識した時点で `preventDefault` を呼ぶ（`useCalendarShortcuts`
+   * などの document レベルのリスナーへ二重に届かせない）。`editable: false` の
    * オカレンスには適用しない。繰り返しオカレンスは `resolveRecurringScope` で解決し、
    * `null` ならキャンセルする。
    */
@@ -1081,7 +1297,27 @@ export function useTimeGridDrag(params: {
     }
     if (event.key === 'Delete' || event.key === 'Backspace') {
       event.preventDefault();
-      void deleteOccurrence(occurrence).catch(reportError);
+      const focusContext = captureOccurrenceDeleteFocusContext({
+        target: event.target,
+        occurrenceKey: occurrence.key,
+        viewRootSelector: TIME_GRID_DRAG_VIEW_ROOT_SELECTOR,
+      });
+      void deleteOccurrence(occurrence, focusContext).catch(reportError);
+      return;
+    }
+    if (isConversionToggleKey(event)) {
+      event.preventDefault();
+      if (occurrence.event.editable === false) {
+        return;
+      }
+      const { state } = paramsRef.current.calendar;
+      // 変換先はオカレンスの開始日 1 日分（`moveOccurrenceIn` の終日化と同じ長さ規則。
+      // ポインタの変換ドラッグと異なり、暦日数分には引き伸ばさない）
+      const dayStart = startOfDayInZone(occurrence.start, state.timeZone);
+      void commitAllDayConversion(occurrence, {
+        start: dayStart,
+        end: addDaysInZone(dayStart, 1, state.timeZone),
+      }).catch(reportError);
       return;
     }
 
@@ -1119,6 +1355,10 @@ export function useTimeGridDrag(params: {
       onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
         handleDayPointerDown(day, event);
       },
+      onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
+        handleDayKeyDown(day, event);
+      },
+      tabIndex: 0,
       'data-koyomi-date': day.key,
     };
   }

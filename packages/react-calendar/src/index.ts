@@ -40,7 +40,13 @@ export {
   createEventHistory,
 } from './core/history';
 // iCalendar（ICS）入出力
-export { type EventsToIcsOptions, eventsFromIcs, eventsToIcs } from './core/ics';
+export {
+  type EventsToIcsOptions,
+  eventsFromIcs,
+  eventsFromIcsWithIssues,
+  eventsToIcs,
+  type IcsImportIssue,
+} from './core/ics';
 // インタラクションの純粋計算
 export {
   type CalendarShortcut,
@@ -238,12 +244,20 @@ export {
   type TimeGridViewProps,
 } from './react/components/time-grid-view';
 export { TimelineView, type TimelineViewProps } from './react/components/timeline-view';
-export { Toolbar, type ToolbarProps } from './react/components/toolbar';
 export {
+  Toolbar,
+  type ToolbarNavButtonContext,
+  type ToolbarProps,
+  type ToolbarTitleContext,
+  type ToolbarViewButtonContext,
+} from './react/components/toolbar';
+export {
+  type ListVisibleRangeChangeInfo,
   VirtualListView,
   type VirtualListViewProps,
 } from './react/components/virtual-list-view';
 export {
+  type ResourceVisibleRangeChangeInfo,
   VirtualResourceView,
   type VirtualResourceViewHandle,
   type VirtualResourceViewProps,
@@ -275,6 +289,7 @@ export {
 export { scrollContainerToTime, scrollFractionForTime } from './react/scroll-to-time';
 // React: 型
 export type {
+  AllDayOverflowInfo,
   CalendarContextValue,
   CalendarInteractionCallbacks,
   EventChange,
@@ -283,9 +298,11 @@ export type {
   EventContentParts,
   EventContentRenderer,
   EventContentSlot,
+  EventCreateInfo,
   EventDelete,
   MonthOverflowButtonProps,
   MonthOverflowLabelContext,
+  OperationRejection,
   OverflowClickDetails,
   RangeSelection,
   SlotRenderContext,
@@ -302,10 +319,16 @@ export {
   useCalendarAnnouncer,
 } from './react/use-calendar-announcer';
 export {
+  type PasteRejectedInfo,
   type UseCalendarClipboardOptions,
   type UseCalendarClipboardResult,
   useCalendarClipboard,
 } from './react/use-calendar-clipboard';
+export {
+  type UseCalendarDuplicateOptions,
+  type UseCalendarDuplicateResult,
+  useCalendarDuplicate,
+} from './react/use-calendar-duplicate';
 export {
   type UseCalendarHistoryOptions,
   type UseCalendarHistoryResult,
@@ -315,6 +338,7 @@ export { useCalendarShortcuts } from './react/use-calendar-shortcuts';
 export {
   type DayCellProps,
   type DayDragHandlers,
+  type DayDragKeyboardTimedConversion,
   type SegmentProps,
   type SegmentResizeHandleProps,
   useDayDrag,

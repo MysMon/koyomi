@@ -11,24 +11,49 @@
  * コピーの内容は `core/mutations` の {@link buildOccurrenceCopy} で構築する。
  * **繰り返しイベントのコピーはシリーズ全体ではなく当該オカレンスの単発化**になる
  * （`rrule` / `exdates` / `rdates` は引き継がない。Google カレンダーのコピーと同じ扱い）。
- * 貼り付けは `calendar.api.createEvent` で行い、`history` を渡すと作成分の
- * {@link EventChangeEntry} が履歴に積まれて undo/redo の対象になる。
+ *
+ * 貼り付けは `calendar.api.createEvent` を呼ぶ前に、宣言的制約
+ * （`eventOverlap` / `eventConstraint` / `businessHours`。判定は `core/constraints` の
+ * {@link isDragCandidateValid} が唯一の入口）と、適用前フック
+ * {@link UseCalendarClipboardOptions.callbacks}.`onBeforeSelectRange` の両方を通過するかを
+ * 判定する（他のドラッグ系フックの新規作成と同じ判定順序・同じ判定内容）。いずれかで
+ * 拒否された場合はイベントを作成せず {@link UseCalendarClipboardOptions.onPasteRejected} を
+ * 呼ぶ。`onBeforeSelectRange` が `Promise` を返す場合のみ {@link UseCalendarClipboardResult.paste}
+ * の戻り値も `Promise` になり、それ以外（宣言的制約による拒否・同期的な
+ * `onBeforeSelectRange` の判定）は同期的に完結する。
+ *
+ * `history` を渡すと、貼り付けが成功した場合にのみ作成分の {@link EventChangeEntry} が
+ * 履歴に積まれて undo/redo の対象になる（`onPaste` も成功時のみ呼ばれる）。
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { isDragCandidateValid, resolveConstraintRules } from '../core/constraints';
 import {
   buildOccurrenceCopy,
   type MutationReadContext,
   placeEventInputAt,
 } from '../core/mutations';
-import { addMinutesInZone, dateFromKey, minutesOfDayInZone } from '../core/timezone';
+import {
+  addDaysInZone,
+  addMinutesInZone,
+  dateFromKey,
+  minutesOfDayInZone,
+  parseDateValue,
+} from '../core/timezone';
 import type {
   CalendarEvent,
   CalendarEventInput,
+  DateRange,
   EventChangeEntry,
   EventOccurrence,
+  TimeZoneId,
 } from '../core/types';
-import type { UseCalendarResult } from './types';
+import {
+  checkBeforeSelectRange,
+  collectOverlapBlockersInRange,
+  createOverlapBlockerCache,
+} from './drag-common';
+import type { CalendarInteractionCallbacks, RangeSelection, UseCalendarResult } from './types';
 import { isIgnoredTarget } from './use-calendar-shortcuts';
 
 /** クリップボードに保持するコピー内容（内部用）。 */
@@ -38,6 +63,25 @@ interface ClipboardSnapshot {
   /** コピー元オカレンスの開始（絶対時刻）。日付セルへの貼り付けで時刻の維持に使う。 */
   start: Date;
   /** コピー元オカレンスが終日かどうか。 */
+  allDay: boolean;
+}
+
+/**
+ * {@link UseCalendarClipboardOptions.onPasteRejected} に渡される、拒否された
+ * 貼り付けの内容。
+ */
+export interface PasteRejectedInfo {
+  /**
+   * 拒否の理由。
+   * - `'constraint'` — 宣言的制約（`eventOverlap` / `eventConstraint`）による拒否
+   * - `'rejected'` — `onBeforeSelectRange` が `false`（または `Promise<false>`）を返した
+   */
+  reason: 'constraint' | 'rejected';
+  /** 貼り付け先へ配置しようとした入力（`id` を持たない）。 */
+  input: CalendarEventInput;
+  /** 貼り付け先の開始（絶対時刻）。 */
+  start: Date;
+  /** 終日としての貼り付けかどうか。 */
   allDay: boolean;
 }
 
@@ -62,10 +106,21 @@ export interface UseCalendarClipboardOptions {
    * 渡すと貼り付けが undo/redo の対象になる。
    */
   history?: { push(changes: readonly EventChangeEntry[]): void };
+  /**
+   * 貼り付け先の適用前フックの判定に使うコールバック。
+   * `onBeforeSelectRange`（{@link CalendarInteractionCallbacks.onBeforeSelectRange}）
+   * のみを受け付け、未指定なら常に許可する。
+   */
+  callbacks?: Pick<CalendarInteractionCallbacks, 'onBeforeSelectRange'>;
   /** コピーが行われたときに呼ばれる。 */
   onCopy?: (occurrence: EventOccurrence) => void;
   /** 貼り付けでイベントが作成されたときに呼ばれる。 */
   onPaste?: (created: CalendarEvent) => void;
+  /**
+   * 貼り付けが拒否されたときに呼ばれる（宣言的制約への違反、または
+   * `onBeforeSelectRange` による拒否）。
+   */
+  onPasteRejected?: (info: PasteRejectedInfo) => void;
 }
 
 /** `useCalendarClipboard` の戻り値。 */
@@ -80,12 +135,52 @@ export interface UseCalendarClipboardResult {
   /**
    * クリップボードの内容を貼り付けてイベントを作成する。
    *
+   * 作成前に、貼り付け先の範囲が宣言的制約（`eventOverlap` / `eventConstraint` /
+   * `businessHours`。判定は {@link isDragCandidateValid}）に違反していないか、
+   * 続けて {@link UseCalendarClipboardOptions.callbacks}.`onBeforeSelectRange`
+   * （指定時のみ）を通過するかを判定する。いずれかで拒否された場合はイベントを
+   * 作成せず {@link UseCalendarClipboardOptions.onPasteRejected} を呼び、`null`
+   * を返す（`onBeforeSelectRange` が `Promise` を返した場合は `Promise<null>`）。
+   *
+   * `onBeforeSelectRange` が同期的な `boolean` を返す場合（未指定を含む）は常に
+   * 同期的に完結する。`Promise` を返した場合のみ戻り値も `Promise` になる。
+   *
    * @param newStart - 貼り付け先の開始時刻。省略時はコピー元と同じ日時に複製する
-   * @returns 作成されたイベント。クリップボードが空の場合は `null`
+   * @returns 作成されたイベント。クリップボードが空、または拒否された場合は `null`
+   *   （`onBeforeSelectRange` が `Promise` を返した場合は `Promise<CalendarEvent | null>`）
    */
-  paste(newStart?: Date): CalendarEvent | null;
+  paste(newStart?: Date): CalendarEvent | null | Promise<CalendarEvent | null>;
   /** クリップボードを空にする。 */
   clear(): void;
+}
+
+/**
+ * 貼り付け先の入力から、宣言的制約の判定に使う絶対時刻の範囲を求める。
+ *
+ * `end` が省略されている場合は、実際にオカレンスとして展開されるときと同じ
+ * 既定の長さ（終日は 1 日、時間指定は `defaultEventMinutes` 分）を補う
+ * （`core/expansion` の `end` 省略時の解釈と揃える）。
+ *
+ * @param placed - 貼り付け先へ配置済みの入力（{@link placeEventInputAt} の戻り値、
+ *   または `newStart` 省略時はコピー内容そのもの）
+ * @param timeZone - 解釈に使う表示タイムゾーン
+ * @param defaultEventMinutes - `end` 省略時の既定の長さ（分）
+ * @returns 絶対時刻の範囲
+ */
+function resolvePlacedRange(
+  placed: CalendarEventInput,
+  timeZone: TimeZoneId,
+  defaultEventMinutes: number,
+): DateRange {
+  const allDay = placed.allDay ?? false;
+  const start = parseDateValue(placed.start, timeZone, allDay);
+  if (placed.end !== undefined) {
+    return { start, end: parseDateValue(placed.end, timeZone, allDay) };
+  }
+  const end = allDay
+    ? addDaysInZone(start, 1, timeZone)
+    : new Date(start.getTime() + defaultEventMinutes * 60_000);
+  return { start, end };
 }
 
 /**
@@ -134,6 +229,8 @@ export function useCalendarClipboard(
   // 最新のクリップボード内容を読むためのミラー。
   const clipboardRef = useRef<ClipboardSnapshot | null>(null);
   clipboardRef.current = clipboard;
+  // paste の宣言的制約判定（collectOverlapBlockersInRange）用の展開結果キャッシュ。
+  const overlapCacheRef = useRef(createOverlapBlockerCache());
 
   /** 現在の表示タイムゾーン・既定の長さから変更コンテキストを構築する。 */
   function readContext(): MutationReadContext {
@@ -163,22 +260,65 @@ export function useCalendarClipboard(
       setClipboard(snapshot);
       onCopy?.(occurrence);
     },
-    paste(newStart?: Date): CalendarEvent | null {
+    paste(newStart?: Date): CalendarEvent | null | Promise<CalendarEvent | null> {
       const current = clipboardRef.current;
       if (current === null) {
         return null;
       }
-      const { calendar, history, onPaste } = optionsRef.current;
+      const { calendar, history, callbacks, onPaste, onPasteRejected } = optionsRef.current;
+      const context = readContext();
       // 省略時はコピー元と同じ日時（コピー内容は既にその日時に配置済み）
       const placed =
         newStart === undefined
           ? current.input
-          : placeEventInputAt(current.input, { newStart }, readContext());
-      const created = calendar.api.createEvent(placed);
-      // createEvent は末尾に追加するため、挿入位置は追加後の末尾になる
-      history?.push([{ after: created, index: calendar.api.getEvents().length - 1 }]);
-      onPaste?.(created);
-      return created;
+          : placeEventInputAt(current.input, { newStart }, context);
+      const allDay = placed.allDay ?? false;
+      const { state, api } = calendar;
+      const range = resolvePlacedRange(placed, state.timeZone, context.defaultEventMinutes);
+
+      /** 拒否を通知し `null` を返す（{@link PasteRejectedInfo} を組み立てる共通処理）。 */
+      function rejectFor(reason: PasteRejectedInfo['reason']): null {
+        onPasteRejected?.({ reason, input: placed, start: range.start, allDay });
+        return null;
+      }
+
+      const blockers = collectOverlapBlockersInRange(
+        api,
+        overlapCacheRef.current,
+        range,
+        state.options.eventOverlap,
+      );
+      const constraintValid = isDragCandidateValid({
+        range,
+        allDay,
+        excludeKey: null,
+        moverBlocksOverlap: state.options.eventOverlap === false,
+        blockers,
+        constraintRules: resolveConstraintRules(
+          state.options.eventConstraint,
+          state.options.businessHours,
+        ),
+        timeZone: state.timeZone,
+      });
+      if (!constraintValid) {
+        return rejectFor('constraint');
+      }
+
+      /** 貼り付けを確定する（作成 + history + onPaste。許可された場合のみ呼ぶ）。 */
+      function commit(): CalendarEvent {
+        const created = api.createEvent(placed);
+        // createEvent は末尾に追加するため、挿入位置は追加後の末尾になる
+        history?.push([{ after: created, index: api.getEvents().length - 1 }]);
+        onPaste?.(created);
+        return created;
+      }
+
+      const selection: RangeSelection = { range, allDay };
+      const gate = checkBeforeSelectRange(callbacks, selection);
+      if (typeof gate === 'boolean') {
+        return gate ? commit() : rejectFor('rejected');
+      }
+      return gate.then((allowed) => (allowed ? commit() : rejectFor('rejected')));
     },
     clear(): void {
       clipboardRef.current = null;

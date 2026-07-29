@@ -204,6 +204,14 @@ interface TimelineRowGroupProps {
   /** 仮想化: 帯をタブ順に含めるか。既定 `true`（`false` で `tabIndex=-1`）。 */
   itemTabbable?: boolean;
   /**
+   * 仮想化: ARIA grid パターンの `aria-rowindex`（ヘッダー行を含めた全行中の絶対位置、
+   * 1 始まり。ヘッダー行が 1 のため、行データは 2 から始まる）。DOM 上には可視窓分の行しか
+   * 存在しないため、スクリーンリーダーが行の絶対位置を把握できるよう明示する。
+   * 可視窓・pinned のいずれで描画されても、行の絶対位置を表す（可視範囲内の
+   * 相対位置には振り直さない）。
+   */
+  ariaRowIndex?: number;
+  /**
    * 仮想化: 時間軸（横方向）の可視ウィンドウ。指定時はウィンドウに重なる帯・
    * 営業時間帯だけを描画する。省略時は全範囲を描画する。
    */
@@ -220,6 +228,11 @@ interface TimelineRowGroupProps {
   onToggleCollapse: (resourceId: string) => void;
   /** 中央メッセージカタログの `timeline` グループ（折りたたみトグルボタンの aria-label 組み立てに使う）。 */
   timelineMessages: TimelineMessages;
+  /**
+   * 行末の「+N 件」バッジ（{@link TimelineRow.overflowCount}）の表示内容。
+   * 月ビューの overflow 文言（`messages.month.overflow`）を再利用する。
+   */
+  overflowLabel: (count: number) => ReactNode;
 }
 
 /** タイムラインの 1 行分（行見出し + 帯トラック）を描画する（`TimelineView` と同じ DOM 仕様）。 */
@@ -241,24 +254,29 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
     pinned,
     style,
     itemTabbable,
+    ariaRowIndex,
     timeWindow,
     pinnedItemKey,
     commonMessages,
     onToggleCollapse,
     timelineMessages,
+    overflowLabel,
   } = props;
   const { ref, ...rowProps } = drag.getRowProps(row);
   const resource = row.resource;
   const headerContent = resource?.title ?? unassignedLabel;
+  // timelineMaxLanes のあふれで hidden になった帯は横窓の判定より前に除外する
+  // （非表示分は行末の「+N 件」バッジ（timeline-overflow）に集約する。
+  // TimelineView と同じ規則で、横方向の windowing とは独立に適用する）。
   // 時間軸（横方向）の windowing: ウィンドウに重なる帯＋フォーカス保持の帯だけを描画する。
-  const visibleItems =
-    timeWindow === undefined
-      ? row.items
-      : row.items.filter(
-          (item) =>
-            overlapsTimeWindow(item.startMinutes, item.endMinutes, timeWindow) ||
-            item.occurrence.key === pinnedItemKey,
-        );
+  const visibleItems = row.items
+    .filter((item) => !item.hidden)
+    .filter(
+      (item) =>
+        timeWindow === undefined ||
+        overlapsTimeWindow(item.startMinutes, item.endMinutes, timeWindow) ||
+        item.occurrence.key === pinnedItemKey,
+    );
   const visibleBusinessHourRanges =
     timeWindow === undefined
       ? businessHourRanges
@@ -274,6 +292,7 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
       data-koyomi="timeline-row-group"
       data-koyomi-row-key={row.key}
       role="row"
+      {...(ariaRowIndex !== undefined ? { 'aria-rowindex': ariaRowIndex } : {})}
       {...(pinned === true ? { 'data-koyomi-pinned': 'true' } : {})}
       {...(style !== undefined ? { style } : {})}
     >
@@ -388,6 +407,18 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
             </button>
           );
         })}
+        {row.overflowCount > 0 && (
+          // 非表示帯は行末に集約表示するだけの静的バッジ（<button> にしない）。
+          // ボタン化・クリックでの一覧表示は、row.overflowCount / row.hiddenItems を
+          // 受け取れる renderRowHeader 等を使ってアプリ側の render prop に委ねる
+          // ヘッドレス判断（`TimelineView` と同じ方針）。
+          <span
+            data-koyomi="timeline-overflow"
+            style={{ position: 'absolute', insetInlineEnd: 0, top: 0 }}
+          >
+            {overflowLabel(row.overflowCount)}
+          </span>
+        )}
         {preview !== null && (
           <div
             data-koyomi="timeline-preview"
@@ -415,12 +446,18 @@ function TimelineRowGroupImpl(props: TimelineRowGroupProps): ReactElement {
 
 /**
  * {@link TimelineRowGroupImpl} を `memo` でラップしたもの（`timeline-view.tsx` の
- * `TimelineRowGroup` と同じ設計。`rowRef`/`pinned`/`style`/`itemTabbable` は
+ * `TimelineRowGroup` と同じ設計。`rowRef`/`pinned`/`style`/`itemTabbable`/`ariaRowIndex` は
  * 仮想化専用の追加項目のため比較に含める）。
  */
 const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
   return (
     sameTimelineRow(prev.row, next.row) &&
+    // sameTimelineRow（timeline-view-parts.tsx）は各アイテムの hidden・行の
+    // overflowCount/hiddenItems を見ない。あふれ表示だけが変わるケース（表示アイテムの
+    // 他フィールドは不変）を取りこぼさないよう、ここで追加分を明示的に比較する
+    // （`timeline-view.tsx` と同じ）
+    prev.row.overflowCount === next.row.overflowCount &&
+    sameItemHiddenFlags(prev.row.items, next.row.items) &&
     prev.timeZone === next.timeZone &&
     prev.locale === next.locale &&
     prev.totalMinutes === next.totalMinutes &&
@@ -437,13 +474,30 @@ const TimelineRowGroup = memo(TimelineRowGroupImpl, (prev, next) => {
     prev.pinned === next.pinned &&
     prev.style === next.style &&
     prev.itemTabbable === next.itemTabbable &&
+    prev.ariaRowIndex === next.ariaRowIndex &&
     sameTimeWindow(prev.timeWindow, next.timeWindow) &&
     prev.pinnedItemKey === next.pinnedItemKey &&
     prev.commonMessages === next.commonMessages &&
     prev.onToggleCollapse === next.onToggleCollapse &&
-    prev.timelineMessages === next.timelineMessages
+    prev.timelineMessages === next.timelineMessages &&
+    prev.overflowLabel === next.overflowLabel
   );
 });
+
+/**
+ * `TimelineItem[]` の `hidden` フラグ列だけが一致するかどうかを比較する
+ * （`timeline-view.tsx` の同名ヘルパーと同じ狙い。`timeline-view-parts.tsx` の
+ * `sameTimelineRow`/`sameTimelineItem` が `hidden` を見ないための補助比較）。
+ */
+function sameItemHiddenFlags(a: readonly TimelineItem[], b: readonly TimelineItem[]): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((item, index) => item.hidden === b[index]?.hidden);
+}
 
 /**
  * 仮想化タイムラインビュー（`VirtualTimelineView`）。
@@ -476,6 +530,8 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
   const { api, state, viewModel, callbacks, messages, renderEventContent } = useCalendarContext();
   const timelineMessages = messages.timeline;
   const commonMessages = messages.common;
+  // 行末の「+N 件」バッジは月ビューの overflow 文言を再利用する（`TimelineView` と同じ）。
+  const overflowLabel = messages.month.overflow;
   const calendar = { api, state, viewModel };
   const drag = useTimelineDrag({
     calendar,
@@ -805,10 +861,14 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
     );
   }
 
-  /** 行を描画する（通常フロー・pinned の両方で使う）。 */
+  /**
+   * 行を描画する（通常フロー・pinned の両方で使う）。`ariaRowIndex` は
+   * ヘッダー行（aria-rowindex=1）を含めた絶対位置（{@link VirtualItem.index} + 2）で、
+   * 可視窓・pinned のどちらでも呼び出し側（`item.index`）から一貫して求まる。
+   */
   const renderRow = (
     row: TimelineRow,
-    extra: { pinned?: boolean; style?: CSSProperties },
+    extra: { pinned?: boolean; style?: CSSProperties; ariaRowIndex: number },
   ): ReactElement => (
     <TimelineRowGroup
       key={row.key}
@@ -828,7 +888,9 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
       commonMessages={commonMessages}
       onToggleCollapse={onToggleCollapse}
       timelineMessages={timelineMessages}
+      overflowLabel={overflowLabel}
       rowRef={virtualizer.measureElement(row.key)}
+      ariaRowIndex={extra.ariaRowIndex}
       {...(timeWindow !== undefined ? { timeWindow } : {})}
       {...(row.key === focusedKey && focusedItemKey !== null
         ? { pinnedItemKey: focusedItemKey }
@@ -847,13 +909,16 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
       data-koyomi-days={String(days.length)}
       style={withTimelineDaysStyle(days.length)}
       role="grid"
+      // ARIA grid パターンの集合サイズ属性。DOM には可視窓分の行しか存在しないため、
+      // ヘッダー行を含めた総行数を明示する（ヘッダー行 1 + データ行 rows.length）。
+      aria-rowcount={rows.length + 1}
       onFocus={handleFocus}
       onBlur={handleBlur}
     >
       <div ref={scrollRef} data-koyomi="timeline-body" role="presentation">
         {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA row */}
         {/* biome-ignore lint/a11y/useFocusableInteractive: 複合ウィジェットの row 自体はフォーカス対象にしない */}
-        <div ref={headerRef} data-koyomi="timeline-header-row" role="row">
+        <div ref={headerRef} data-koyomi="timeline-header-row" role="row" aria-rowindex={1}>
           {/* biome-ignore lint/a11y/useSemanticElements: div ベースの ARIA columnheader */}
           {/* biome-ignore lint/a11y/useFocusableInteractive: 見出しセルはフォーカス対象にしない */}
           <div
@@ -884,7 +949,7 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
           />
           {virtualizer.virtualItems.map((item) => {
             const row = rows[item.index];
-            return row !== undefined ? renderRow(row, {}) : null;
+            return row !== undefined ? renderRow(row, { ariaRowIndex: item.index + 2 }) : null;
           })}
           <div
             data-koyomi="timeline-row-spacer"
@@ -901,6 +966,7 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
             return row !== undefined
               ? renderRow(row, {
                   pinned: true,
+                  ariaRowIndex: item.index + 2,
                   style: {
                     position: 'absolute',
                     top: `${item.start}px`,
