@@ -781,8 +781,7 @@
 [data-koyomi="list"][data-koyomi-virtualized],
 /* 見出し行・終日行は scrollbar-gutter: stable でスクロールバー分の余白を予約する。
    予約幅を本体（thin）と一致させ、列の縦罫線を 3 行で完全に揃える */
-  [data-koyomi="timegrid"]
-  [data-koyomi="timegrid-header"],
+[data-koyomi="timegrid"] [data-koyomi="timegrid-header"],
 [data-koyomi="timegrid"] [data-koyomi="allday-row"] {
   scrollbar-width: thin;
 }
@@ -1535,7 +1534,7 @@
  * --koyomi-timeline-days で受ける。
  */
 [data-koyomi="timeline"][data-koyomi-scale]:not([data-koyomi-scale="hour"])
-  [data-koyomi="timeline-axis"],
+[data-koyomi="timeline-axis"],
 [data-koyomi="timeline"][data-koyomi-scale]:not([data-koyomi-scale="hour"])
   [data-koyomi="timeline-row"] {
   min-width: calc(var(--koyomi-timeline-slot-width, 96px) * var(--koyomi-timeline-days, 1));
