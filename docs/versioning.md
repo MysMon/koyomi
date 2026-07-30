@@ -41,12 +41,12 @@ Koyomi では次の運用で変更の追跡性を保ちます。
 ## リリース時の `examples/` 確認
 
 `examples/` はモノレポの `pnpm-workspace.yaml` に含まれないワークスペース外のディレクトリ
-のため、`pnpm check` や CI では検証されません。リリース（特に破壊的変更を含む
-`MINOR`/`MAJOR`）の際は、次を手動で行ってください。
+のため、`pnpm check` では検証されません。ビルドが通ること自体は CI の「サンプル検証」
+ジョブが公開物 tarball を差し込んで常時検証します。リリースの際は次を手動で行って
+ください。
 
 - `examples/*/package.json` の `@koyomi-cal/react` の pin バージョンをリリースする
   バージョンに更新する
-- 各サンプルディレクトリで `npm install && npm run build` を実行し、通ることを確認する
 
 ## 1.0 への安定化基準
 
