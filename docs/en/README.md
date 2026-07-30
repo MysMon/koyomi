@@ -38,7 +38,6 @@ Everything else below links to the Japanese original. If you can read Japanese, 
 | [Customization guide](../customization.md) | Japanese |
 | [API Reference](../api.md) | Japanese (see the [heading index](#api-reference-heading-index) below) |
 | [Performance](../performance.md) | Japanese |
-| [Publishing](../publishing.md) | Japanese |
 | [Versioning](../versioning.md) | Japanese |
 
 ## API Reference: heading index

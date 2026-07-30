@@ -1,0 +1,104 @@
+# リリース: GitHub Release の公開（published）をトリガーに、公開前検証を通してから
+# npm へ Trusted Publishing（OIDC）で公開する。
+# 長期有効なトークンや Secrets は使わない。npmjs.com 側で本リポジトリ・本ワークフロー
+# （release.yml）を Trusted Publisher として登録済みであることが前提。publish ジョブが
+# 短命の OIDC トークンで認証し、provenance（来歴証明）は公開時に自動生成・添付される。
+# サプライチェーン対策として、action はすべて commit SHA でピン留めする。
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: 公開前検証
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20.19.0
+          cache: pnpm
+
+      - name: 依存関係のインストール
+        run: pnpm install --frozen-lockfile
+
+      - name: リリースタグとパッケージバージョンの一致検証
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(node -p "require('./packages/react-calendar/package.json').version")
+          if [ "$TAG_NAME" != "v$version" ]; then
+            echo "リリースタグ（$TAG_NAME）が package.json の version（v$version）と一致しません" >&2
+            exit 1
+          fi
+          if ! grep -q "^## \[$version\]" CHANGELOG.md; then
+            echo "CHANGELOG.md に [$version] の見出しがありません" >&2
+            exit 1
+          fi
+
+      - name: 一括チェック（用語・対応関係・Lint・型・テスト）
+        run: pnpm check
+
+      - name: ビルド（tsup）
+        run: pnpm build
+
+      - name: バンドルサイズ検証
+        run: pnpm bundle:check
+
+      - name: パッケージ検査（publint / arethetypeswrong）
+        working-directory: packages/react-calendar
+        run: |
+          pnpm dlx publint@0.3.15
+          # ESM-only パッケージのため esm-only プロファイル。theme.css は型解決対象外なので除外
+          pnpm dlx @arethetypeswrong/cli@0.18.5 --pack . --profile esm-only --exclude-entrypoints ./theme.css
+
+      - name: pack スモークテスト（素の Node ESM/CJS から公開物を読み込めるか）
+        run: bash scripts/pack-smoke-test.sh
+
+  publish:
+    name: npm 公開（Trusted Publishing / OIDC）
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # GitHub リポジトリ設定で npm-publish 環境に protection rule（レビュワー承認）を
+    # 設定すると、検証通過後にもう一段の手動承認を挟める
+    environment: npm-publish
+    permissions:
+      contents: read
+      # OIDC トークンの発行に必要（Trusted Publishing の必須条件）
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
+      # Trusted Publishing は Node 22.14 以上 + npm CLI 11.5.1 以上が必要なため、
+      # テストジョブの下限（20.19.0）ではなく最新 LTS を使う
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: 依存関係のインストール
+        run: pnpm install --frozen-lockfile
+
+      - name: npm CLI を Trusted Publishing 対応版へ更新
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      # pnpm 9 は OIDC publish に未対応のため、publish のみ npm CLI で行う
+      # （依存に workspace: プロトコルがないため npm publish で支障はない）。
+      # prepublishOnly が型チェック → テスト → ビルドを実行する
+      - name: npm へ公開
+        working-directory: packages/react-calendar
+        run: npm publish

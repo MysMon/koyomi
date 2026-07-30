@@ -54,7 +54,6 @@ pnpm demo    # start the demo app
 
 - See [CLAUDE.md](./CLAUDE.md) for the monorepo layout and coding conventions (Japanese; this is the internal contributor guide)
 - See [CHANGELOG.md](./CHANGELOG.md) for the change history (Japanese)
-- See [docs/publishing.md](./docs/publishing.md) for the npm publishing process (Japanese)
 
 Contributions, including documentation translations, are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md).
 

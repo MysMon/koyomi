@@ -53,7 +53,6 @@ pnpm demo    # デモアプリを起動
 
 - モノレポ構成やコーディング規約は [CLAUDE.md](./CLAUDE.md) を参照
 - 変更履歴は [CHANGELOG.md](./CHANGELOG.md) を参照
-- npm への公開手順は [docs/publishing.md](./docs/publishing.md) を参照
 
 ## ライセンス
 
