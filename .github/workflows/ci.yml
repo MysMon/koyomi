@@ -2,12 +2,16 @@
 # 独立したジョブとして並行実行する。
 # Node の互換性はテストジョブの matrix で下限（20.19.0）と最新 LTS（24）の 2 レグで検証する。
 # それ以外のジョブはサポート下限の Node 20.19.0 で実行し、ツールチェーンが下限で動くことを保証する。
+# サプライチェーン対策として action は commit SHA でピン留めし、トークン権限は読み取りのみに絞る。
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+
+permissions:
+  contents: read
 
 # 同一ブランチへの連続 push では古い実行をキャンセルする（main への push は全実行を保持）
 concurrency:
@@ -20,11 +24,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 20.19.0
           cache: pnpm
@@ -61,11 +67,13 @@ jobs:
           - node-version: 24
             coverage: false
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
@@ -86,11 +94,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 20.19.0
           cache: pnpm
@@ -109,23 +119,64 @@ jobs:
       - name: パッケージ検査（publint / arethetypeswrong）
         working-directory: packages/react-calendar
         run: |
-          pnpm dlx publint@0.3.15
+          pnpm exec publint
           # ESM-only パッケージのため esm-only プロファイル。theme.css は型解決対象外なので除外
-          pnpm dlx @arethetypeswrong/cli@0.18.5 --pack . --profile esm-only --exclude-entrypoints ./theme.css
+          pnpm exec attw --pack . --profile esm-only --exclude-entrypoints ./theme.css
 
       - name: pack スモークテスト（素の Node ESM/CJS から公開物を読み込めるか）
         run: bash scripts/pack-smoke-test.sh
+
+  examples:
+    name: サンプル検証（${{ matrix.example }}）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [vite-minimal, nextjs-app-router]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20.19.0
+          cache: pnpm
+
+      - name: 依存関係のインストール
+        run: pnpm install --frozen-lockfile
+
+      - name: ビルド（tsup）
+        run: pnpm build
+
+      # examples はワークスペース外の独立プロジェクトのため、公開時と同じ tarball を
+      # npm で差し込んでビルドし、公開物がそのまま利用側で使えることを検証する
+      - name: 公開物 tarball の作成
+        working-directory: packages/react-calendar
+        run: npm pack --pack-destination "$RUNNER_TEMP"
+
+      - name: サンプルのビルド（tarball 差し替え）
+        working-directory: examples/${{ matrix.example }}
+        run: |
+          npm install --no-audit --no-fund
+          npm install --no-save --no-audit --no-fund "$RUNNER_TEMP"/koyomi-cal-react-*.tgz
+          npm run build
 
   e2e:
     name: 実ブラウザ E2E（Playwright）
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 20.19.0
           cache: pnpm
@@ -149,11 +200,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 20.19.0
           cache: pnpm

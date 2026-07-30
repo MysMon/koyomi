@@ -1,3 +1,9 @@
 packages:
   - packages/*
   - apps/*
+
+# 依存パッケージのビルド/インストールスクリプトは既定で実行しない（pnpm 10 の既定）。
+# サプライチェーン攻撃（乗っ取られた依存が install 時に任意コードを実行する）対策として、
+# 実行を許可する依存だけをここに明示する。新しく必要になったら pnpm approve-builds で追加する。
+onlyBuiltDependencies:
+  - esbuild

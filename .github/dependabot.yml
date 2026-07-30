@@ -30,6 +30,11 @@ updates:
       - dependency-name: "typescript"
         update-types:
           - "version-update:semver-major"
+    # 公開直後のバージョンを取り込まない待機期間（サプライチェーン対策）。
+    # 依存の乗っ取りによる悪性バージョンは公開から発覚まで数時間〜数日が典型のため、
+    # 14 日置いてから更新 PR を作る。脆弱性対応（security update）はこの待機の対象外
+    cooldown:
+      default-days: 14
     open-pull-requests-limit: 10
 
   # GitHub Actions（.github/workflows/ 配下の uses: を更新する）
@@ -48,3 +53,7 @@ updates:
       github-actions:
         patterns:
           - "*"
+    # npm 依存と同趣旨の待機期間（action の uses: は commit SHA でピン留めしているため、
+    # 更新はこの Dependabot PR 経由でのみ行われる）
+    cooldown:
+      default-days: 7
