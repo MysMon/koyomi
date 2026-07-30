@@ -18,14 +18,14 @@
   ],
   "author": "Yutaro Fujikawa",
   "license": "MIT",
-  "homepage": "https://github.com/koyomi-cal/koyomi#readme",
+  "homepage": "https://github.com/MysMon/koyomi#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/koyomi-cal/koyomi.git",
+    "url": "git+https://github.com/MysMon/koyomi.git",
     "directory": "packages/react-calendar"
   },
   "bugs": {
-    "url": "https://github.com/koyomi-cal/koyomi/issues"
+    "url": "https://github.com/MysMon/koyomi/issues"
   },
   "type": "module",
   "sideEffects": [

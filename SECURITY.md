@@ -22,9 +22,9 @@ Koyomi (`@koyomi-cal/react`) は `0.x` 系で開発中です。セキュリテ�
 次のいずれかの方法で報告してください。
 
 1. **GitHub Security Advisories**（推奨）: リポジトリの
-   [Security タブ](https://github.com/koyomi-cal/koyomi/security/advisories/new) から
+   [Security タブ](https://github.com/MysMon/koyomi/security/advisories/new) から
    非公開の Security Advisory を作成する
-2. リポジトリの [Issues](https://github.com/koyomi-cal/koyomi/issues) 経由で
+2. リポジトリの [Issues](https://github.com/MysMon/koyomi/issues) 経由で
    メンテナーに非公開連絡先の案内を依頼する（脆弱性の詳細自体は Issue 本文に
    書かないでください）
 

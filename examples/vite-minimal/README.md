@@ -6,8 +6,8 @@
 
 このディレクトリは独立した `package.json` を持つため、StackBlitz / CodeSandbox でこのまま開けます。
 
-- StackBlitz: `https://stackblitz.com/github/koyomi-cal/koyomi/tree/main/examples/vite-minimal`
-- CodeSandbox: `https://codesandbox.io/p/sandbox/github/koyomi-cal/koyomi/tree/main/examples/vite-minimal`
+- StackBlitz: `https://stackblitz.com/github/MysMon/koyomi/tree/main/examples/vite-minimal`
+- CodeSandbox: `https://codesandbox.io/p/sandbox/github/MysMon/koyomi/tree/main/examples/vite-minimal`
 
 ## ローカルで実行する
 
