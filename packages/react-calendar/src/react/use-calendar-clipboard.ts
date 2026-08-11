@@ -163,16 +163,20 @@ export interface UseCalendarClipboardResult {
  *
  * @param placed - 貼り付け先へ配置済みの入力（{@link placeEventInputAt} の戻り値、
  *   または `newStart` 省略時はコピー内容そのもの）
- * @param timeZone - 解釈に使う表示タイムゾーン
+ * @param displayTimeZone - `timeZone` を持たない入力の解釈に使う表示タイムゾーン
  * @param defaultEventMinutes - `end` 省略時の既定の長さ（分）
  * @returns 絶対時刻の範囲
  */
 function resolvePlacedRange(
   placed: CalendarEventInput,
-  timeZone: TimeZoneId,
+  displayTimeZone: TimeZoneId,
   defaultEventMinutes: number,
 ): DateRange {
   const allDay = placed.allDay ?? false;
+  // オフセットなしの日時文字列は、入力自身の timeZone があればその現地時刻として
+  // 解釈する（core/expansion の解釈と揃える。表示タイムゾーンで解釈すると
+  // timeZone 付きイベントの制約判定だけがオカレンスの実時刻とずれる）
+  const timeZone = placed.timeZone ?? displayTimeZone;
   const start = parseDateValue(placed.start, timeZone, allDay);
   if (placed.end !== undefined) {
     return { start, end: parseDateValue(placed.end, timeZone, allDay) };
