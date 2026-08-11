@@ -551,6 +551,29 @@ describe('buildListViewModel', () => {
       expect(dayKeys(model)).toEqual(['2026-03-09']);
     });
 
+    it('深夜 0:00 に DST が切り替わる日を基準にしても、表示範囲は listDays 日ちょうどになる', () => {
+      // 3/8 の 0:00 は存在せず日の開始は 1:00（-04:00）。listDays: 3 の範囲は
+      // 3/8〜3/10 の 3 日で、範囲外の 3/11 深夜の予定はどのセクションにも現れない
+      const model = build({
+        currentDate: '2026-03-08T12:00:00-04:00',
+        timeZone: HAVANA,
+        listDays: 3,
+        occurrences: [
+          makeOccurrence({
+            id: 'in-range',
+            start: '2026-03-10T09:00:00-04:00',
+            end: '2026-03-10T10:00:00-04:00',
+          }),
+          makeOccurrence({
+            id: 'out-of-range',
+            start: '2026-03-11T00:15:00-04:00',
+            end: '2026-03-11T00:45:00-04:00',
+          }),
+        ],
+      });
+      expect(dayKeys(model)).toEqual(['2026-03-10']);
+    });
+
     it('深夜 0:00 に DST が切り替わるゾーンでも切替翌日の ListDay.date は現地 0:00 の絶対時刻になる', () => {
       const model = build({
         currentDate: '2026-03-07T12:00:00-05:00',

@@ -64,6 +64,20 @@ describe('startOfWeekInZone', () => {
     expect(dateKeyInZone(startOfWeekInZone(date, TOKYO, 0), TOKYO)).toBe('2026-06-28');
     expect(dateKeyInZone(startOfWeekInZone(date, NY, 0), NY)).toBe('2026-06-21');
   });
+
+  it('深夜 0:00 に DST が切り替わる日を基準にしても、週開始日の 0:00 を返す', () => {
+    // 2026-09-06(日) の日の開始は繰り上げで 1:00（-03:00）だが、週開始=月曜の
+    // 週開始日 8/31 には 0:00 が実在する（切替前 -04:00）ため 8/31 0:00 = 04:00Z
+    const date = new Date('2026-09-06T15:00:00Z'); // 9/6(日) 12:00
+    expect(startOfWeekInZone(date, SANTIAGO, 1).toISOString()).toBe('2026-08-31T04:00:00.000Z');
+  });
+
+  it('週開始日自体の 0:00 が存在しない場合は、その日の開始（繰り上げ後の 1:00）を返す', () => {
+    // 週開始=日曜で 9/8(火) を基準にすると週開始日は切替日の 9/6。
+    // 9/6 の 0:00 は存在しないため、日の開始 1:00（-03:00）= 04:00Z
+    const date = new Date('2026-09-08T15:00:00Z'); // 9/8(火) 12:00
+    expect(startOfWeekInZone(date, SANTIAGO, 0).toISOString()).toBe('2026-09-06T04:00:00.000Z');
+  });
 });
 
 describe('isoWeekNumberOfWeek', () => {
