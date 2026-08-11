@@ -60,6 +60,7 @@ import type {
   TimeZoneId,
 } from '../core/types';
 import {
+  allDayPatchRange,
   attachDragSessionListeners,
   autoScrollVelocity,
   captureOccurrenceDeleteFocusContext,
@@ -748,9 +749,11 @@ export function useTimeGridDrag(params: {
     recurringScope: RecurringEditScope | null,
     range: DateRange,
   ): void {
+    // 終日として書き込む start / end はタイムゾーンに依存しない日付キー文字列にする
+    // （表示 TZ の絶対時刻のままだと timeZone を持つイベントで日付がずれる）
     const changes = paramsRef.current.calendar.api.updateEvent(
       occurrence.eventId,
-      { start: range.start, end: range.end, allDay: true },
+      { ...allDayPatchRange(range, paramsRef.current.calendar.state.timeZone), allDay: true },
       recurringScope === null
         ? undefined
         : { occurrenceStart: occurrence.originalStart, scope: recurringScope },

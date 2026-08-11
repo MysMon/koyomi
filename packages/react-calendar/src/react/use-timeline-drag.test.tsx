@@ -557,12 +557,13 @@ describe('useTimelineDrag - 終日帯の日単位移動', () => {
     movePointer(dm(1, 10, 0), rowCenterY(0)); // 2 日目 10:00（+1 日）
     releasePointer(dm(1, 10, 0), rowCenterY(0));
 
+    // 終日帯の移動はタイムゾーンに依存しない日付キー文字列で書き込まれる
     const events = sink.current?.api.getEvents() ?? [];
     expect(events[0]).toMatchObject({
       allDay: true,
       resourceId: 'crane-1',
-      start: at(`${DAY1}T00:00`),
-      end: at('2026-07-17T00:00'),
+      start: DAY1,
+      end: '2026-07-17',
     });
     expect(onEventChange).toHaveBeenCalledWith({
       occurrence: expect.objectContaining({ eventId: 'ev-allday' }),
@@ -961,11 +962,12 @@ describe('useTimelineDrag - キーボード操作', () => {
       fireEvent.keyDown(itemEl, { key: 'ArrowRight' });
     });
 
+    // 終日帯の移動はタイムゾーンに依存しない日付キー文字列で書き込まれる
     const events = sink.current?.api.getEvents() ?? [];
     expect(events[0]).toMatchObject({
       allDay: true,
-      start: at(`${DAY1}T00:00`),
-      end: at('2026-07-17T00:00'),
+      start: DAY1,
+      end: '2026-07-17',
     });
   });
 
@@ -2455,16 +2457,17 @@ describe('useTimelineDrag - 終日 ⇔ 時間指定の変換（A キー）', () 
 
     // A キーは変換として処理される（既定動作は抑制される）
     expect(notPrevented).toBe(false);
-    // レーンは不変のため、パッチには resourceId が含まれない
+    // レーンは不変のため、パッチには resourceId が含まれない。終日への変換は
+    // タイムゾーンに依存しない日付キー文字列で書き込まれる
     expect(updateEventSpy).toHaveBeenCalledWith(
       'ev-key-to-allday',
-      { start: at(`${DAY0}T00:00`), end: at(`${DAY1}T00:00`), allDay: true },
+      { start: DAY0, end: DAY1, allDay: true },
       undefined,
     );
     expect(sink.current.api.getEvents()[0]).toMatchObject({
       allDay: true,
-      start: at(`${DAY0}T00:00`),
-      end: at(`${DAY1}T00:00`),
+      start: DAY0,
+      end: DAY1,
       resourceId: 'crane-1',
     });
     expect(onEventChange).toHaveBeenCalledWith(
@@ -2705,10 +2708,11 @@ describe('useTimelineDrag - 終日 ⇔ 時間指定の変換（A キー）', () 
     const override = events.find(
       (candidate) => candidate.recurringEventId === 'recurring-to-allday',
     );
+    // 終日への変換はタイムゾーンに依存しない日付キー文字列で書き込まれる
     expect(override).toMatchObject({
       allDay: true,
-      start: at(`${DAY0}T00:00`),
-      end: at(`${DAY1}T00:00`),
+      start: DAY0,
+      end: DAY1,
     });
   });
 });

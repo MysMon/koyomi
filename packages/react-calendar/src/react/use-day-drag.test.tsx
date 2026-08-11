@@ -224,15 +224,11 @@ function makeSegment(occurrence: EventOccurrence): EventSegment {
 }
 
 /**
- * 更新後の `start`/`end` が `Date`（`updateEvent` の patch 適用結果は文字列ではなく
- * `Date` になる）であることを確認しつつ、日付キー基準で期待値と比較する。
+ * 更新後の `start`/`end` が、タイムゾーンに依存しない日付キー文字列として
+ * 期待値と一致することを確認する。
  */
 function expectDateKey(value: Date | string | undefined, expectedKey: string): void {
-  expect(value).toBeInstanceOf(Date);
-  if (!(value instanceof Date)) {
-    throw new Error('Date ではありません');
-  }
-  expect(value.getTime()).toBe(dateFromKey(expectedKey, TOKYO).getTime());
+  expect(value).toBe(expectedKey);
 }
 
 const WIDE_RANGE = {
@@ -654,15 +650,10 @@ describe('useDayDrag - セグメントのドラッグによる移動', () => {
       dispatchPointerUp(cellCenterX(4));
     });
 
+    // 終日イベントの移動はタイムゾーンに依存しない日付キー文字列で書き込まれる
     const updated = api.getEvents().find((event) => event.id === created.id);
-    expect(updated?.start).toBeInstanceOf(Date);
-    const start = updated?.start;
-    const end = updated?.end;
-    if (!(start instanceof Date) || !(end instanceof Date)) {
-      throw new Error('更新後の start/end が Date ではありません');
-    }
-    expect(start.getTime()).toBe(dateFromKey('2026-07-10', TOKYO).getTime());
-    expect(end.getTime()).toBe(dateFromKey('2026-07-12', TOKYO).getTime());
+    expect(updated?.start).toBe('2026-07-10');
+    expect(updated?.end).toBe('2026-07-12');
   });
 
   it('最後の pointermove と異なる座標で pointerup した場合、pointerup の座標の日付で確定する（セグメント移動）', () => {
@@ -708,14 +699,61 @@ describe('useDayDrag - セグメントのドラッグによる移動', () => {
     });
 
     const updated = api.getEvents().find((event) => event.id === created.id);
-    const start = updated?.start;
-    const end = updated?.end;
-    if (!(start instanceof Date) || !(end instanceof Date)) {
-      throw new Error('更新後の start/end が Date ではありません');
+    // 直前の pointermove（+2日 = 7/10）ではなく、pointerup 自身の座標（+3日 = 7/11）で確定する。
+    // 終日イベントの移動はタイムゾーンに依存しない日付キー文字列で書き込まれる
+    expect(updated?.start).toBe('2026-07-11');
+    expect(updated?.end).toBe('2026-07-13');
+  });
+
+  it('timeZone を持つ終日イベントの移動も、表示タイムゾーン上の意図した日付に確定する', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    // 外部同期などで timeZone が付いた終日イベント。終日の日付はタイムゾーンに依存しない
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+      timeZone: 'America/New_York',
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
     }
-    // 直前の pointermove（+2日 = 7/10）ではなく、pointerup 自身の座標（+3日 = 7/11）で確定する
-    expect(start.getTime()).toBe(dateFromKey('2026-07-11', TOKYO).getTime());
-    expect(end.getTime()).toBe(dateFromKey('2026-07-13', TOKYO).getTime());
+
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid api={api} segments={[makeSegment(occurrence)]} resultRef={resultRef} />,
+    );
+    setupCellRects(container);
+
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+
+    act(() => {
+      segment.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(4)); // +2日
+    });
+    act(() => {
+      dispatchPointerUp(cellCenterX(4));
+    });
+
+    // 表示 TZ（東京）の絶対時刻でパッチすると NY 解釈で 1 日ずれるため、日付キーで書き込む
+    const updated = api.getEvents().find((event) => event.id === created.id);
+    expect(updated?.start).toBe('2026-07-10');
+    expect(updated?.end).toBe('2026-07-12');
+    const moved = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    expect(moved?.start.getTime()).toBe(dateFromKey('2026-07-10', TOKYO).getTime());
   });
 
   it('時間指定イベント（span 1 セグメント）の日移動では現地時刻が維持される', () => {
