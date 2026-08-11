@@ -12,9 +12,8 @@
 - 経緯: `core/views/timeline-view.ts` の週/月グループヘッダー配下の日番号目盛り（`TimelineSlot.label`）は `String(getWallClock(day.date, timeZone).day)` で組み立てており、`Intl.NumberFormat` を経由しない素の 10 進数字文字列になっていた。そのため `ar`（アラビア・インド数字体系）等、ラテン数字以外の数字体系を使うロケールでも日番号は常に半角アラビア数字（0-9）のまま変わらず、同じ日番号でも `hour`/`day` スケールの日ヘッダー（`formatDayHeader`、`Intl.DateTimeFormat` 経由）は数字体系に追従するため、スケール切り替えで数字体系の一貫性が崩れていた。
 - 対応: 日番号（整数）を `Intl.NumberFormat(locale)` で整形する `formatTimelineDayNumberLabel`（`core/views/timeline-view.ts` 内のモジュール内関数）を追加し、`TimelineSlot.label` の組み立てをこれ経由に変更した。`Intl.DateTimeFormat` の日単体スケルトン（`day: 'numeric'`）は使っていない。ロケールによっては CLDR の標準パターンに接尾辞が付き（例: `ja` では `'30日'`）、素の日番号ラベルとして使うと既存表示（`ja` の `'30'`）が変わってしまうため。
 
-## Provider に依存しないフックの locale 配線
+## ビュー外フック（announcer / 繰り返しエディタ）の locale 配線
 
-- `useCalendarAnnouncer` は `options.calendar`（`useCalendar` の戻り値）の `state.options.locale` からカタログを自動解決するため、`useCalendar` の `locale` を切り替えれば通知文言も追従する。
-- `useRecurrenceRuleEditor` は `calendar` を受け取らない設計のため、`locale`（既定 `'ja'`）は常にアプリが明示的に渡す必要がある。渡し忘れると、`CalendarProvider`/`useCalendar` の `locale` を英語化していても繰り返しエディタの文言だけ日本語のままになる。
-- どちらのフックも `CalendarProvider` の `messages` prop とは独立にカタログを解決する（`resolveMessageCatalog` を各々が呼ぶ）。`CalendarProvider` に渡した `messages` の上書きは、これらのフックには自動反映されない。アプリ側で同じ `MessageCatalogOverrides` を両方に渡す運用が必要。
-- 利用者向けの記述は [theming.md: 多言語対応（メッセージカタログ）](../theming.md#多言語対応メッセージカタログ) の「Provider に依存しないフックの locale / messages」節を参照。
+- `useCalendarAnnouncer` は `options.calendar`（`useCalendar` の戻り値）の `state.options.locale` からカタログを自動解決するため、`useCalendar` の `locale` を切り替えれば通知文言も追従する。カタログの上書きは自身の `messages` オプションのみが対象で、`CalendarProvider` の `messages` prop は反映されない（announcer は Provider 外でも使える設計のため）。
+- `useRecurrenceRuleEditor` は `locale` 省略時、`CalendarProvider` 配下なら Provider の `locale` と解決済みカタログ（Provider の `messages` 上書きを含む）に追従する。Provider の外・`locale` 明示時は単独で解決する（既定 `'ja'`。Provider の `messages` 上書きは、Provider の `locale` を使わない解決には引き継がない）。
+- 利用者向けの記述は [theming.md: 多言語対応（メッセージカタログ）](../theming.md#多言語対応メッセージカタログ) の「useCalendarAnnouncer / useRecurrenceRuleEditor の locale / messages」節を参照。
