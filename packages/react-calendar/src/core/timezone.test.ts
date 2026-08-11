@@ -7,6 +7,9 @@
  * America/New_York の 2026 年の DST:
  * - 開始: 2026-03-08 02:00（EST → EDT、02:00〜02:59 は存在しない）
  * - 終了: 2026-11-01 02:00（EDT → EST、01:00〜01:59 は 2 回現れる）
+ *
+ * Australia/Sydney の 2026 年の DST（実行環境 Asia/Tokyo より東のゾーンの代表）:
+ * - 終了: 2026-04-05 03:00（AEDT UTC+11 → AEST UTC+10、02:00〜02:59 は 2 回現れる）
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -31,6 +34,7 @@ import {
 
 const TOKYO = 'Asia/Tokyo';
 const NY = 'America/New_York';
+const SYDNEY = 'Australia/Sydney';
 const UTC = 'UTC';
 
 describe('getLocalTimeZone', () => {
@@ -154,6 +158,12 @@ describe('fromWallClock', () => {
     expect(result.toISOString()).toBe('2026-11-01T05:30:00.000Z');
   });
 
+  it('実行環境（Asia/Tokyo）より東のゾーンの曖昧な時刻も早い方のオフセットで解決する', () => {
+    // Sydney の 2026-04-05 02:30 は 2 回現れる。早い方（AEDT, UTC+11）: 02:30 - 11:00 = 前日 15:30Z
+    const result = fromWallClock({ year: 2026, month: 4, day: 5, hours: 2, minutes: 30 }, SYDNEY);
+    expect(result.toISOString()).toBe('2026-04-04T15:30:00.000Z');
+  });
+
   it('America/New_York の DST 終了前後の非曖昧な時刻を正しく解決する', () => {
     // 00:30 はまだ EDT（UTC-4）
     expect(
@@ -228,12 +238,30 @@ describe('fromWallClock', () => {
       expect(gap.toISOString()).toBe('2026-03-08T07:30:00.000Z');
     });
 
+    it("'later' は実行環境（Asia/Tokyo）より東のゾーンでも遅い方のオフセットで解決する", () => {
+      // Sydney の 2026-04-05 02:30 の遅い方（AEST, UTC+10）: 02:30 - 10:00 = 前日 16:30Z
+      const result = fromWallClock(
+        { year: 2026, month: 4, day: 5, hours: 2, minutes: 30 },
+        SYDNEY,
+        'later',
+      );
+      expect(result.toISOString()).toBe('2026-04-04T16:30:00.000Z');
+    });
+
     it("'later' は 30 分単位のオフセット切替（Australia/Lord_Howe）でも遅い方に解決する", () => {
       // Lord Howe は 2026-04-05 02:00（+11）に時計を 01:30（+10:30）へ 30 分巻き戻す。
       // 01:45 は曖昧で、遅い方（+10:30）の解決は 2026-04-04T15:15Z
       const parts = { year: 2026, month: 4, day: 5, hours: 1, minutes: 45 };
       expect(fromWallClock(parts, 'Australia/Lord_Howe', 'later').toISOString()).toBe(
         '2026-04-04T15:15:00.000Z',
+      );
+    });
+
+    it("既定（'earlier'）は 30 分単位のオフセット切替（Australia/Lord_Howe）でも早い方に解決する", () => {
+      // 01:45 の早い方（+11）の解決は 2026-04-04T14:45Z
+      const parts = { year: 2026, month: 4, day: 5, hours: 1, minutes: 45 };
+      expect(fromWallClock(parts, 'Australia/Lord_Howe').toISOString()).toBe(
+        '2026-04-04T14:45:00.000Z',
       );
     });
 
@@ -313,6 +341,14 @@ describe('fromWallClock: 年 0〜99 の 2 桁年変換バグ回帰', () => {
     expect(result.getUTCFullYear()).toBe(99);
     expect(result.getUTCMonth()).toBe(11);
     expect(result.getUTCDate()).toBe(31);
+  });
+
+  it('isoWeekNumberInZone も年 0〜99 を 1900 年代へ誤変換しない', () => {
+    // 0050-01-02 は日曜日で、ISO 週ではその週の木曜日 0049-12-30 が属する
+    // 0049 年（1/1 金曜日）の第 52 週になる。1950-01-02 は月曜日（1950 年第 1 週）
+    // なので、1950 年へ誤変換されると 1 が返り検出できる
+    const jan2Year50 = fromWallClock({ year: 50, month: 1, day: 2 }, UTC);
+    expect(isoWeekNumberInZone(jan2Year50, UTC)).toBe(52);
   });
 
   it('年 100 以降には影響しない（回帰確認）', () => {
@@ -504,6 +540,14 @@ describe('addMinutesInZone', () => {
     const date = new Date('2026-11-01T04:30:00Z'); // 11/1 0:30 EDT
     // 0:30 + 60 分 = 1:30（曖昧）→ EDT 側
     expect(addMinutesInZone(date, 60, NY).toISOString()).toBe('2026-11-01T05:30:00.000Z');
+  });
+
+  it('実行環境（Asia/Tokyo）より東のゾーンでも、巻き戻り日の 60 分加算で絶対時刻が 60 分だけ進む', () => {
+    const date = new Date('2026-04-04T14:30:00Z'); // Sydney 4/5 01:30 AEDT
+    // 01:30 + 60 分 = 02:30（曖昧）→ 早い方（AEDT）= 15:30Z。絶対差はちょうど 60 分
+    const result = addMinutesInZone(date, 60, SYDNEY);
+    expect(result.toISOString()).toBe('2026-04-04T15:30:00.000Z');
+    expect(result.getTime() - date.getTime()).toBe(60 * 60 * 1000);
   });
 
   it('負数で減算できる', () => {
