@@ -49,6 +49,14 @@ describe('computeWindow', () => {
     expect(result.totalSize).toBe(200); // 10 × 20
   });
 
+  it('負の viewportSize は 0（可視なし）として扱われ、最低 1 件のみ返す', () => {
+    // オーバースクロールのバウンス補正などで負の値が渡っても、可視範囲が
+    // スクロール位置より手前へ広がらない（sectionItemWindow と同じ扱い）
+    const result = computeWindow(makeInput({ overscan: 0, scrollOffset: 100, viewportSize: -50 }));
+    expect(result.startIndex).toBe(5); // 100px の位置のアイテム（最低 1 件保証）
+    expect(result.endIndex).toBe(5);
+  });
+
   it('等高・overscan=0: 先頭で可視範囲だけを返す（100px 窓 = 5 件）', () => {
     const result = computeWindow(makeInput({ overscan: 0, scrollOffset: 0, viewportSize: 100 }));
     // 0..99px に start を持つ／またがるのは index 0〜4（0,20,40,60,80）

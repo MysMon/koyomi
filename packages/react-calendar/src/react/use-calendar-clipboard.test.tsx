@@ -397,6 +397,39 @@ describe('useCalendarClipboard', () => {
       expect(onPaste).not.toHaveBeenCalled();
     });
 
+    it('イベント個別の timeZone を持つオカレンスでも、eventOverlap: false で同じ枠への貼り付けが拒否される', () => {
+      // NY の 10:00〜11:00（= 14:00Z〜15:00Z）。オフセットなし文字列の start / end は
+      // イベント自身の timeZone（America/New_York）の現地時刻を表す。
+      // 表示タイムゾーン（東京）で解釈すると 01:00Z〜02:00Z になり重なりを見逃す
+      const calendar = makeCalendar(
+        [
+          makeSingle({
+            start: '2026-07-15T10:00',
+            end: '2026-07-15T11:00',
+            timeZone: 'America/New_York',
+          }),
+        ],
+        { eventOverlap: false },
+      );
+      const onPasteRejected = vi.fn();
+      const { result } = renderHook(() => useCalendarClipboard({ calendar, onPasteRejected }));
+      act(() => {
+        result.current.copy(firstOccurrence(calendar));
+      });
+
+      let created: CalendarEvent | null | Promise<CalendarEvent | null> = null;
+      act(() => {
+        // newStart 省略 → コピー元と同じ枠（既存オカレンスと完全に重なる）へ貼り付けようとする
+        created = result.current.paste();
+      });
+
+      expect(created).toBeNull();
+      expect(calendar.api.getEvents()).toHaveLength(1);
+      expect(onPasteRejected).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'constraint' }),
+      );
+    });
+
     it('eventConstraint: "businessHours" のとき、営業時間外への貼り付けは作成されず reason: "constraint" で onPasteRejected が呼ばれる', () => {
       // 水曜日 9:00〜17:00 のみが営業時間（NOW の 7/1 は水曜日、貼り付け先の 7/2 は木曜日）
       const businessHours: BusinessHoursRule[] = [

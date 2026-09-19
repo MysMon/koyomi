@@ -176,35 +176,40 @@ export function fromWallClock(
   disambiguation: 'earlier' | 'later' = 'earlier',
 ): Date {
   const { year, month, day, hours = 0, minutes = 0, seconds = 0, milliseconds = 0 } = parts;
-  // TZDate の数値引数コンストラクタは Date コンストラクタの 2 桁年マッピング
-  // （0〜99 年を 1900〜1999 年とみなす）をそのまま引き継いでしまう。
-  // isRealCalendarDate と同様に setter 経由で組み立てることでこれを回避する。
-  const zoned = TZDate.tz(timeZone);
-  zoned.setFullYear(year, month - 1, day);
-  zoned.setHours(hours, minutes, seconds, milliseconds);
-  const earlier = new Date(zoned.getTime());
-  if (disambiguation === 'earlier') {
+  // 現地時刻の成分を暦演算用ミリ秒に直し、DST 切替前後それぞれのオフセットで
+  // 絶対時刻の候補を逆算して、現地時刻へ往復できる方を採用する。
+  // TZDate の setter に現地時刻→絶対時刻の解決を委ねると、曖昧な時刻の解決が
+  // 実行環境ローカル TZ の影響を受ける（ローカルより東のゾーンで反転する）ため使わない。
+  const wallMs = wallClockAsUtcMs({ year, month, day, hours, minutes, seconds, milliseconds });
+  // 隣接する切替は数か月離れているため、対象の現地時刻に効きうる切替は高々 1 つで、
+  // 切替前後のオフセットは前後 24 時間の時点のオフセットに必ず含まれる
+  const beforeOffsetMs = zoneOffsetMs(wallMs - DAY_IN_MS, timeZone);
+  const earlier = new Date(wallMs - beforeOffsetMs);
+  if (disambiguation === 'earlier' && resolvesToWall(earlier, timeZone, wallMs)) {
     return earlier;
   }
-  // 'later': 同じ現地時刻が切替後のオフセットでも実在するかを検証する。
-  // 曖昧な時刻の 2 回目は必ず切替後のオフセットで現れるため、切替を確実に
-  // 越えている 24 時間後のオフセット（隣接する切替は数か月離れているため、
-  // 24 時間以内に 2 度目の切替はない）で候補の絶対時刻を逆算し、往復して
-  // 現地時刻が一致する場合のみ採用する（一致しなければ曖昧な時刻ではないので
-  // 'earlier' と同じ解決になる。不正なタイムゾーンでは NaN 比較が成立せず、
-  // 'earlier' と同じ Invalid Date を返す）
-  const wallMs = wallClockAsUtcMs(getWallClock(earlier, timeZone));
-  const probeInstant = earlier.getTime() + DAY_IN_MS;
-  const laterOffsetMs =
-    wallClockAsUtcMs(getWallClock(new Date(probeInstant), timeZone)) - probeInstant;
-  const candidate = new Date(wallMs - laterOffsetMs);
-  if (
-    candidate.getTime() > earlier.getTime() &&
-    wallClockAsUtcMs(getWallClock(candidate, timeZone)) === wallMs
-  ) {
-    return candidate;
+  const afterOffsetMs = zoneOffsetMs(wallMs + DAY_IN_MS, timeZone);
+  const later = new Date(wallMs - afterOffsetMs);
+  if (resolvesToWall(later, timeZone, wallMs)) {
+    return later;
   }
+  if (resolvesToWall(earlier, timeZone, wallMs)) {
+    // 'later' 指定でも、切替前オフセットでのみ実在する（曖昧でない）時刻は 'earlier' と同じ解決
+    return earlier;
+  }
+  // 存在しない時刻: 切替前オフセットでの逆算は直後の実在時刻への繰り上げと一致する。
+  // 不正なタイムゾーンでは NaN 比較が成立せず、ここで Invalid Date が返る
   return earlier;
+}
+
+/** 指定時点における、指定タイムゾーンの UTC からのオフセット（ミリ秒）を返す。 */
+function zoneOffsetMs(instantMs: number, timeZone: TimeZoneId): number {
+  return wallClockAsUtcMs(getWallClock(new Date(instantMs), timeZone)) - instantMs;
+}
+
+/** 絶対時刻 `candidate` が指定タイムゾーンで目的の現地時刻（暦演算用ミリ秒）に写るかを検証する。 */
+function resolvesToWall(candidate: Date, timeZone: TimeZoneId, wallMs: number): boolean {
+  return wallClockAsUtcMs(getWallClock(candidate, timeZone)) === wallMs;
 }
 
 /**
@@ -484,14 +489,19 @@ export function formatSlotLabel(minutes: number, locale: string): string {
  */
 export function isoWeekNumberInZone(date: Date, timeZone: TimeZoneId): number {
   const wall = getWallClock(date, timeZone);
-  const asUtcDate = new Date(Date.UTC(wall.year, wall.month - 1, wall.day));
+  // 0〜99 年が 1900 年代に解釈されるのを避けるため、Date.UTC ではなく setter を使う
+  const asUtcDate = new Date(0);
+  asUtcDate.setUTCFullYear(wall.year, wall.month - 1, wall.day);
   // ISO 8601 の曜日（月=0, 火=1, …, 日=6）。Date#getUTCDay は日曜=0 始まりのため変換する
   const isoWeekday = (asUtcDate.getUTCDay() + 6) % 7;
   // その週の木曜日（ISO 週番号は木曜日が属する年で数える）
   const thursday = new Date(asUtcDate.getTime());
   thursday.setUTCDate(thursday.getUTCDate() + (3 - isoWeekday));
-  const isoYearStart = Date.UTC(thursday.getUTCFullYear(), 0, 1);
-  const daysSinceIsoYearStart = Math.round((thursday.getTime() - isoYearStart) / 86_400_000);
+  const isoYearStartDate = new Date(0);
+  isoYearStartDate.setUTCFullYear(thursday.getUTCFullYear(), 0, 1);
+  const daysSinceIsoYearStart = Math.round(
+    (thursday.getTime() - isoYearStartDate.getTime()) / 86_400_000,
+  );
   return Math.floor(daysSinceIsoYearStart / 7) + 1;
 }
 

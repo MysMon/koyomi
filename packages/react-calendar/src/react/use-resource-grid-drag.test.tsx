@@ -2117,10 +2117,11 @@ describe('useResourceGridDrag - 複数日表示（resourceViewDays）', () => {
     movePointer(columnCenterX(1), 10); // room-a@7/16
     releasePointer(columnCenterX(1), 10);
 
+    // 終日イベントの移動はタイムゾーンに依存しない日付キー文字列で書き込まれる
     const events = sink.current?.api.getEvents() ?? [];
     expect(events[0]).toMatchObject({
-      start: at(`${NEXT_DAY}T00:00`),
-      end: at('2026-07-17T00:00'),
+      start: NEXT_DAY,
+      end: '2026-07-17',
       allDay: true,
       resourceId: 'room-a',
     });
@@ -2150,10 +2151,11 @@ describe('useResourceGridDrag - 複数日表示（resourceViewDays）', () => {
     movePointer(columnCenterX(3), 10); // room-b@7/16
     releasePointer(columnCenterX(3), 10);
 
+    // 終日イベントの移動はタイムゾーンに依存しない日付キー文字列で書き込まれる
     const events = sink.current?.api.getEvents() ?? [];
     expect(events[0]).toMatchObject({
-      start: at(`${NEXT_DAY}T00:00`),
-      end: at('2026-07-17T00:00'),
+      start: NEXT_DAY,
+      end: '2026-07-17',
       allDay: true,
       resourceId: 'room-b',
     });
@@ -2352,10 +2354,11 @@ describe('useResourceGridDrag - 複数日表示（resourceViewDays）', () => {
       fireEvent.keyDown(firstItem, { key: 'ArrowRight' });
     });
 
+    // 終日イベントの移動はタイムゾーンに依存しない日付キー文字列で書き込まれる
     const events = sink.current?.api.getEvents() ?? [];
     expect(events[0]).toMatchObject({
-      start: at(`${NEXT_DAY}T00:00`),
-      end: at('2026-07-17T00:00'),
+      start: NEXT_DAY,
+      end: '2026-07-17',
       allDay: true,
       resourceId: 'room-a',
     });
@@ -2890,11 +2893,12 @@ describe('useResourceGridDrag - 終日 ⇔ 時間指定の変換（ドラッグ�
     releasePointer(columnCenterX(1), 10);
 
     expect(updateEventSpy).toHaveBeenCalledTimes(1);
+    // 終日への変換はタイムゾーンに依存しない日付キー文字列で書き込まれる
     expect(updateEventSpy).toHaveBeenCalledWith(
       'ev-to-allday',
       {
-        start: at(`${DAY}T00:00`),
-        end: at(`${NEXT_DAY}T00:00`),
+        start: DAY,
+        end: NEXT_DAY,
         allDay: true,
         resourceId: 'room-b',
       },
@@ -2903,8 +2907,8 @@ describe('useResourceGridDrag - 終日 ⇔ 時間指定の変換（ドラッグ�
     const events = sink.current.api.getEvents();
     expect(events[0]).toMatchObject({
       allDay: true,
-      start: at(`${DAY}T00:00`),
-      end: at(`${NEXT_DAY}T00:00`),
+      start: DAY,
+      end: NEXT_DAY,
       resourceId: 'room-b',
     });
     expect(onEventChange).toHaveBeenCalledWith({
@@ -2934,11 +2938,12 @@ describe('useResourceGridDrag - 終日 ⇔ 時間指定の変換（ドラッグ�
     movePointer(columnCenterX(0), 10); // 同じ列の終日行相当の位置
     releasePointer(columnCenterX(0), 10);
 
+    // 終日への変換はタイムゾーンに依存しない日付キー文字列で書き込まれる
     const events = sink.current?.api.getEvents() ?? [];
     expect(events[0]).toMatchObject({
       allDay: true,
-      start: at(`${DAY}T00:00`),
-      end: at('2026-07-17T00:00'), // DAY・NEXT_DAY の 2 暦日分
+      start: DAY,
+      end: '2026-07-17', // DAY・NEXT_DAY の 2 暦日分
       resourceId: 'room-a',
     });
   });
@@ -3258,10 +3263,11 @@ describe('useResourceGridDrag - 終日 ⇔ 時間指定の変換（ドラッグ�
     const override = events.find(
       (candidate) => candidate.recurringEventId === 'recurring-to-allday',
     );
+    // 終日への変換はタイムゾーンに依存しない日付キー文字列で書き込まれる
     expect(override).toMatchObject({
       allDay: true,
-      start: at(`${DAY}T00:00`),
-      end: at(`${NEXT_DAY}T00:00`),
+      start: DAY,
+      end: NEXT_DAY,
       resourceId: 'room-b',
     });
   });
@@ -3292,16 +3298,17 @@ describe('useResourceGridDrag - 終日 ⇔ 時間指定の変換（A キー）',
       fireEvent.keyDown(eventEl, { key: 'a' });
     });
 
-    // レーンは不変のため、パッチには resourceId が含まれない
+    // レーンは不変のため、パッチには resourceId が含まれない。終日への変換は
+    // タイムゾーンに依存しない日付キー文字列で書き込まれる
     expect(updateEventSpy).toHaveBeenCalledWith(
       'ev-key-to-allday',
-      { start: at(`${DAY}T00:00`), end: at(`${NEXT_DAY}T00:00`), allDay: true },
+      { start: DAY, end: NEXT_DAY, allDay: true },
       undefined,
     );
     expect(sink.current.api.getEvents()[0]).toMatchObject({
       allDay: true,
-      start: at(`${DAY}T00:00`),
-      end: at(`${NEXT_DAY}T00:00`),
+      start: DAY,
+      end: NEXT_DAY,
       resourceId: 'room-a',
     });
     expect(onEventChange).toHaveBeenCalledWith(

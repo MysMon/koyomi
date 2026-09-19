@@ -938,6 +938,67 @@ describe('buildTimeGridViewModel', () => {
     });
   });
 
+  describe('DST 巻き戻り日（America/New_York 2026-11-01、実時間 25 時間）', () => {
+    // 2:00 EDT → 1:00 EST に戻るため、現地時刻 01:00〜01:59 は 2 回現れる
+
+    it('2 回現れる 1 時間の 2 回目に終わる予定は、開始の現地時刻の位置から実時間の長さで表示される', () => {
+      // 01:30 EDT（05:30Z）〜 01:00 EST（06:00Z）の実時間 30 分の予定。
+      // 終了の現地時刻の分（60）が開始（90）を下回るため、90〜120 分（実時間の長さ）に表示する
+      const occ = occurrence({
+        id: 'fall-back',
+        start: new Date('2026-11-01T05:30:00Z'),
+        end: new Date('2026-11-01T06:00:00Z'),
+      });
+      const model = build({
+        viewType: 'day',
+        timeZone: NEW_YORK,
+        currentDate: new Date('2026-11-01T16:00:00Z'),
+        now: new Date('2026-11-01T16:00:00Z'),
+        occurrences: [occ],
+      });
+      expect(model.days[0]?.items[0]).toMatchObject({
+        startMinutes: 90,
+        endMinutes: 120,
+        continuesBefore: false,
+        continuesAfter: false,
+      });
+    });
+
+    it('重複時間ちょうど 1 時間の予定（01:00 EDT〜01:00 EST）は 60 分の高さを保つ', () => {
+      const occ = occurrence({
+        id: 'exact-overlap',
+        start: new Date('2026-11-01T05:00:00Z'), // 01:00 EDT
+        end: new Date('2026-11-01T06:00:00Z'), // 01:00 EST
+      });
+      const model = build({
+        viewType: 'day',
+        timeZone: NEW_YORK,
+        currentDate: new Date('2026-11-01T16:00:00Z'),
+        now: new Date('2026-11-01T16:00:00Z'),
+        occurrences: [occ],
+      });
+      expect(model.days[0]?.items[0]).toMatchObject({ startMinutes: 60, endMinutes: 120 });
+    });
+
+    it('重複時間をまたいで終わる予定は開始・終了とも現地時刻の位置のまま表示される', () => {
+      // 01:30 EDT（05:30Z）〜 03:00 EST（08:00Z）: 実時間 2.5 時間だが現地時刻の分は 90〜180 分。
+      // 終了の現地時刻の分が開始を下回らないケースは実時間の長さへ置き換えない
+      const occ = occurrence({
+        id: 'across-overlap',
+        start: new Date('2026-11-01T05:30:00Z'),
+        end: new Date('2026-11-01T08:00:00Z'),
+      });
+      const model = build({
+        viewType: 'day',
+        timeZone: NEW_YORK,
+        currentDate: new Date('2026-11-01T16:00:00Z'),
+        now: new Date('2026-11-01T16:00:00Z'),
+        occurrences: [occ],
+      });
+      expect(model.days[0]?.items[0]).toMatchObject({ startMinutes: 90, endMinutes: 180 });
+    });
+  });
+
   describe('深夜 0:00 に DST が切り替わるゾーン（America/Santiago 2026-09-06）', () => {
     it('切替日を含む週でも days は 7 日で、8 日に増えない', () => {
       // Santiago は 2026-09-06 の 0:00 → 1:00 に春時間へ切り替わる（0:00 が存在しない）。
@@ -956,6 +1017,30 @@ describe('buildTimeGridViewModel', () => {
         '2026-09-11',
         '2026-09-12',
       ]);
+    });
+
+    it('切替日が週の途中でも週初日 0:00 開始の終日イベントに continuesBefore が立たない', () => {
+      // 週開始=月曜・基準日 9/6(日)の週は 8/31(月)〜9/6(日)。週初日 8/31 の 0:00 は
+      // 実在する（切替前 -04:00）ため、8/31 0:00 開始の終日イベントは範囲内に収まる
+      const occ = occurrence({
+        id: 'monday-holiday',
+        start: new Date('2026-08-31T04:00:00Z'), // 8/31 0:00 (-04:00)
+        end: new Date('2026-09-01T04:00:00Z'),
+        allDay: true,
+      });
+      const model = build({
+        currentDate: new Date('2026-09-06T15:00:00Z'),
+        timeZone: 'America/Santiago',
+        weekStartsOn: 1,
+        occurrences: [occ],
+      });
+      expect(model.days.map((d) => d.key)[0]).toBe('2026-08-31');
+      expect(model.allDaySegments[0]).toMatchObject({
+        startCol: 0,
+        span: 1,
+        continuesBefore: false,
+        continuesAfter: false,
+      });
     });
   });
 

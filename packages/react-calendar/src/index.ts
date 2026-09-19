@@ -41,6 +41,7 @@ export {
 } from './core/history';
 // iCalendar（ICS）入出力
 export {
+  type EventsFromIcsOptions,
   type EventsToIcsOptions,
   eventsFromIcs,
   eventsFromIcsWithIssues,

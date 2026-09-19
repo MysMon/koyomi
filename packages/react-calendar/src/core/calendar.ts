@@ -332,6 +332,19 @@ const VIEW_TYPES: readonly CalendarViewType[] = [
 ];
 
 /**
+ * ビュー名を検証し、未知の値なら Error を投げる。
+ *
+ * TypeScript の型チェックを経ない呼び出し（JS からの利用等）で不正な値が渡ると、
+ * 後続の getViewModel() で原因の分かりにくい TypeError になるため、
+ * 渡された時点で失敗させる（setTimeZone の不正 IANA ID 検証と同じ方針）。
+ */
+function assertViewType(view: CalendarViewType): void {
+  if (!VIEW_TYPES.includes(view)) {
+    throw new Error(`不正なビュー名です: '${String(view)}'（有効な値: ${VIEW_TYPES.join(', ')}）`);
+  }
+}
+
+/**
  * カレンダーエンジンを作成する。
  *
  * @param options - カレンダーのオプション（省略時はすべて既定値）
@@ -368,19 +381,6 @@ const VIEW_TYPES: readonly CalendarViewType[] = [
  * calendar.setView('week');
  * ```
  */
-/**
- * ビュー名を検証し、未知の値なら Error を投げる。
- *
- * TypeScript の型チェックを経ない呼び出し（JS からの利用等）で不正な値が渡ると、
- * 後続の getViewModel() で原因の分かりにくい TypeError になるため、
- * 渡された時点で失敗させる（setTimeZone の不正 IANA ID 検証と同じ方針）。
- */
-function assertViewType(view: CalendarViewType): void {
-  if (!VIEW_TYPES.includes(view)) {
-    throw new Error(`不正なビュー名です: '${String(view)}'（有効な値: ${VIEW_TYPES.join(', ')}）`);
-  }
-}
-
 export function createCalendar(options?: CalendarOptions): CalendarApi {
   let resolvedOptions = resolveOptions(options);
   let view: CalendarViewType = options?.initialView ?? 'month';

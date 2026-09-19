@@ -83,6 +83,20 @@ export interface EventsToIcsOptions {
   prodId?: string;
 }
 
+/**
+ * {@link eventsFromIcs} / {@link eventsFromIcsWithIssues} のオプション。
+ */
+export interface EventsFromIcsOptions {
+  /**
+   * `TZID` を持たない日時の解釈に用いるタイムゾーン（カレンダーの表示タイムゾーンに
+   * 相当）。UTC 形式の `DTSTART` を持つ VEVENT の `UNTIL` の変換と、フローティング・
+   * 終日のシリーズ分割点（`RECURRENCE-ID;RANGE=THISANDFUTURE`）の解釈に使う。
+   * {@link eventsToIcs} の `timeZone` と同じ値を渡すと往復変換が対称になる。
+   * 省略時は実行環境のローカルタイムゾーン。
+   */
+  timeZone?: TimeZoneId;
+}
+
 // ---------------------------------------------------------------------------
 // 共通: 書式・エスケープ・折り返し
 // ---------------------------------------------------------------------------
@@ -279,10 +293,14 @@ function untilForExport(
  * - 終日イベント（DATE 形式の DTSTART）: 日付形式へ切り詰める
  * - フローティングの DTSTART: UNTIL も現地時刻を表すため数字をそのまま使う
  * - TZID 付きの DTSTART: UTC 表記からイベント TZ の現地時刻へ変換する
- * - UTC 形式の DTSTART: UTC 表記から実行環境のローカルタイムゾーン
- *   （表示タイムゾーンに相当）の現地時刻へ変換する
+ * - UTC 形式の DTSTART: UTC 表記から表示タイムゾーン（`displayTimeZone`）の
+ *   現地時刻へ変換する
  */
-function untilForImport(normalizedRRule: string, dtstart: IcsDateValue): string {
+function untilForImport(
+  normalizedRRule: string,
+  dtstart: IcsDateValue,
+  displayTimeZone: TimeZoneId,
+): string {
   return replaceUntilValue(normalizedRRule, (value) => {
     if (dtstart.type === 'date') {
       return value.slice(0, 8);
@@ -290,7 +308,7 @@ function untilForImport(normalizedRRule: string, dtstart: IcsDateValue): string 
     if (dtstart.type === 'floating' || !value.endsWith('Z')) {
       return value;
     }
-    const timeZone = dtstart.type === 'zoned' ? dtstart.tzid : getLocalTimeZone();
+    const timeZone = dtstart.type === 'zoned' ? dtstart.tzid : displayTimeZone;
     // UTC 表記の成分から絶対時刻を組み立て、現地時刻へ変換する
     const instant = fromWallClock(wallPartsFromUntilDigits(value), 'UTC');
     return `${formatWallDigits(getWallClock(instant, timeZone))}Z`;
@@ -852,9 +870,15 @@ type VEventOutcome =
  *
  * @param props - VEVENT 直下のプロパティ行
  * @param index - ICS 内の VEVENT の出現順（0 始まり。`UID` 省略時の自動生成 ID に使う）
+ * @param displayTimeZone - UTC 形式の `DTSTART` を持つ VEVENT の `UNTIL` の解釈に使う
+ *   表示タイムゾーン
  * @throws `DTSTART` がない、日時・`TZID`・`RRULE` を解釈できない場合は `Error`
  */
-function buildEventFromVEvent(props: readonly ContentLine[], index: number): VEventOutcome {
+function buildEventFromVEvent(
+  props: readonly ContentLine[],
+  index: number,
+  displayTimeZone: TimeZoneId,
+): VEventOutcome {
   const collected = collectVEventProperties(props);
   const uid = collected.uid ?? `ics-event-${index + 1}`;
   if (collected.dtstart === undefined) {
@@ -890,7 +914,11 @@ function buildEventFromVEvent(props: readonly ContentLine[], index: number): VEv
     event.end = toEventValue(collected.dtend, timeZone);
   }
   if (collected.rruleRaw !== undefined) {
-    event.rrule = untilForImport(normalizeRRuleString(collected.rruleRaw), collected.dtstart);
+    event.rrule = untilForImport(
+      normalizeRRuleString(collected.rruleRaw),
+      collected.dtstart,
+      displayTimeZone,
+    );
   }
   if (collected.exdates.length > 0) {
     event.exdates = collected.exdates.map((value) => toEventValue(value, timeZone));
@@ -985,17 +1013,17 @@ function icsDateValueToInstant(value: IcsDateValue, displayTimeZone: TimeZoneId)
  * 単一オカレンスのオーバーライドのまま残し、`cancel` は単一オカレンスの取り消し
  * （マスターの `exdates` への追加）にする。
  *
- * フローティング・終日の分割点は、`UNTIL` の取り込みと同じく実行環境のローカル
- * タイムゾーン（表示タイムゾーンに相当）の現地時刻として解釈する。
+ * フローティング・終日の分割点は、`UNTIL` の取り込みと同じく表示タイムゾーン
+ * （`displayTimeZone`）の現地時刻として解釈する。
  */
 function applyThisAndFutureRequests(
   events: CalendarEvent[],
   requests: readonly ThisAndFutureRequest[],
+  displayTimeZone: TimeZoneId,
 ): CalendarEvent[] {
   if (requests.length === 0) {
     return events;
   }
-  const displayTimeZone = getLocalTimeZone();
   // UID ごとにまとめ、分割点の昇順に整列する（ICS 内の出現順には依存しない）
   const byUid = new Map<string, { request: ThisAndFutureRequest; time: number }[]>();
   for (const request of requests) {
@@ -1139,6 +1167,7 @@ function findRawTextValue(props: readonly ContentLine[], name: string): string |
  *   未対応プロパティは無視する（`TZID` は IANA タイムゾーン ID として解釈する）
  *
  * @param ics - iCalendar 文字列（改行は CRLF / LF のどちらでもよい）
+ * @param options - 取り込みのオプション（{@link EventsFromIcsOptions}）
  * @returns 取り込んだイベントの配列（VEVENT の出現順）
  * @throws 構造が不正な場合、`DTSTART` がない場合、日時・RRULE・TZID を
  *   解釈できない場合は `Error`
@@ -1160,15 +1189,23 @@ function findRawTextValue(props: readonly ContentLine[], name: string): string |
  * //       timeZone: 'Asia/Tokyo', rrule: 'FREQ=WEEKLY;BYDAY=MO' }]
  * ```
  */
-export function eventsFromIcs(ics: string): CalendarEvent[] {
+export function eventsFromIcs(ics: string, options: EventsFromIcsOptions = {}): CalendarEvent[] {
+  const displayTimeZone = options.timeZone ?? getLocalTimeZone();
   const rawEvents = extractVEventBlocks(ics);
   const events: CalendarEvent[] = [];
+  const seenIds = new Set<string>();
   const cancelledOverrides: { uid: string; value: IcsDateValue }[] = [];
   const splitRequests: ThisAndFutureRequest[] = [];
 
   for (const [index, props] of rawEvents.entries()) {
-    const outcome = buildEventFromVEvent(props, index);
+    const outcome = buildEventFromVEvent(props, index, displayTimeZone);
     if (outcome.kind === 'event') {
+      // 同じ id になる VEVENT（`RECURRENCE-ID` のない同一 UID の重複など）は
+      // 最初の 1 件を優先して読み飛ばし、`id` が重複した配列を返さない
+      if (seenIds.has(outcome.event.id)) {
+        continue;
+      }
+      seenIds.add(outcome.event.id);
       events.push(outcome.event);
       if (outcome.splitRequest !== undefined) {
         splitRequests.push(outcome.splitRequest);
@@ -1183,7 +1220,7 @@ export function eventsFromIcs(ics: string): CalendarEvent[] {
   }
 
   applyCancelledOverrides(events, cancelledOverrides);
-  return applyThisAndFutureRequests(events, splitRequests);
+  return applyThisAndFutureRequests(events, splitRequests, displayTimeZone);
 }
 
 /**
@@ -1218,6 +1255,7 @@ export interface IcsImportIssue {
  * 単一オカレンスのオーバーライドとして取り込む。
  *
  * @param ics - iCalendar 文字列（改行は CRLF / LF のどちらでもよい）
+ * @param options - 取り込みのオプション（{@link EventsFromIcsOptions}）
  * @returns 取り込めたイベントの配列（`events`）と、読み飛ばした VEVENT ごとの
  *   {@link IcsImportIssue}（`issues`、VEVENT の出現順）
  * @throws ICS 全体の構造が不正な場合は `Error`（{@link eventsFromIcs} と同じ条件）
@@ -1229,20 +1267,37 @@ export interface IcsImportIssue {
  * }
  * ```
  */
-export function eventsFromIcsWithIssues(ics: string): {
+export function eventsFromIcsWithIssues(
+  ics: string,
+  options: EventsFromIcsOptions = {},
+): {
   events: CalendarEvent[];
   issues: readonly IcsImportIssue[];
 } {
+  const displayTimeZone = options.timeZone ?? getLocalTimeZone();
   const rawEvents = extractVEventBlocks(ics);
   const events: CalendarEvent[] = [];
+  const seenIds = new Set<string>();
   const cancelledOverrides: { uid: string; value: IcsDateValue }[] = [];
   const splitRequests: ThisAndFutureRequest[] = [];
   const issues: IcsImportIssue[] = [];
 
   for (const [index, props] of rawEvents.entries()) {
     try {
-      const outcome = buildEventFromVEvent(props, index);
+      const outcome = buildEventFromVEvent(props, index, displayTimeZone);
       if (outcome.kind === 'event') {
+        // 同じ id になる VEVENT は最初の 1 件を優先し、2 件目以降は issue に記録する
+        // （{@link eventsFromIcs} と同じ規則）
+        if (seenIds.has(outcome.event.id)) {
+          issues.push({
+            index,
+            uid: findRawTextValue(props, 'UID'),
+            summary: findRawTextValue(props, 'SUMMARY'),
+            message: `同じ UID のイベントを既に取り込んでいます（id: '${outcome.event.id}'）`,
+          });
+          continue;
+        }
+        seenIds.add(outcome.event.id);
         events.push(outcome.event);
         if (outcome.splitRequest !== undefined) {
           splitRequests.push(outcome.splitRequest);
@@ -1265,5 +1320,5 @@ export function eventsFromIcsWithIssues(ics: string): {
   }
 
   applyCancelledOverrides(events, cancelledOverrides);
-  return { events: applyThisAndFutureRequests(events, splitRequests), issues };
+  return { events: applyThisAndFutureRequests(events, splitRequests, displayTimeZone), issues };
 }

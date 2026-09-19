@@ -561,16 +561,20 @@ customMessages.toolbar.week; // => 'Week'（enMessages のまま。書き直し�
 
 `base` に渡すカタログはこの関数の呼び出し前に完成している必要があるため、`frMessages`（自作の完全なカタログ）や `enMessages` を土台に別の言語・方言のカタログを合成する用途にも使えます。
 
-### Provider に依存しないフックの locale / messages
+### useCalendarAnnouncer / useRecurrenceRuleEditor の locale / messages
 
-`useCalendarAnnouncer` は自身が保持する `calendar`（`useCalendar` の戻り値）の `state.options.locale` から自動的にカタログを解決するため、`useCalendar` の `locale` を切り替えれば通知文言も追従します。一方 `useRecurrenceRuleEditor` は `calendar` を受け取らないため、`locale`（既定 `'ja'`）はオプションとして明示的に渡す必要があります。
+`useCalendarAnnouncer` は自身が保持する `calendar`（`useCalendar` の戻り値）の `state.options.locale` から自動的にカタログを解決するため、`useCalendar` の `locale` を切り替えれば通知文言も追従します。カタログの部分上書きは自身の `messages` オプションで行います（`CalendarProvider` の `messages` prop の上書きは反映されないため、同じ `MessageCatalogOverrides` を渡してください）。
+
+`useRecurrenceRuleEditor` は、`locale` オプションを省略して `CalendarProvider` 配下で使うと、Provider の `locale` と解決済みカタログ（Provider の `messages` 上書きを含む）に自動的に追従します。Provider の外で使う場合や `locale` を明示した場合は単独で解決されます（既定 `'ja'`。この場合 Provider の `messages` 上書きは引き継がれず、自身の `messages` オプションだけが適用されます）。
 
 ```tsx
+// CalendarProvider 配下では locale の指定は不要（Provider の locale・messages に追従する）
+useRecurrenceRuleEditor({ start, timeZone });
+
+// Provider の外、または明示的に切り替える場合
 useRecurrenceRuleEditor({ start, timeZone, locale: 'en-US' });
 // => description が "Weekly on Mon, Wed" のような英語文言になる
 ```
-
-どちらのフックも `CalendarProvider` の `messages` prop とは独立して自身の `messages` オプションでカタログを部分上書きします。`CalendarProvider` に渡した上書きをこれらのフックにも反映したい場合は、同じ `MessageCatalogOverrides` を両方に渡してください。
 
 ### 時刻ラベルの 12h/24h 表記
 

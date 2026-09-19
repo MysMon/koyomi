@@ -5,8 +5,8 @@ Koyomi は、イベントの配列（`CalendarEvent[]`）と iCalendar（RFC 554
 エクスポート・インポートできるカレンダーとのデータ交換に使えます。
 
 - **`eventsToIcs(events, options?)`** — `CalendarEvent[]` → `VCALENDAR`/`VEVENT` 文字列
-- **`eventsFromIcs(ics)`** — `.ics` テキスト → `CalendarEvent[]`
-- **`eventsFromIcsWithIssues(ics)`** — `.ics` テキスト →
+- **`eventsFromIcs(ics, options?)`** — `.ics` テキスト → `CalendarEvent[]`
+- **`eventsFromIcsWithIssues(ics, options?)`** — `.ics` テキスト →
   `{ events: CalendarEvent[]; issues: IcsImportIssue[] }`（不正な VEVENT を個別に
   読み飛ばして残りを取り込む版。詳細は
   [部分取り込みとエラー収集](#部分取り込みとエラー収集eventsfromicswithissues) を参照）
@@ -110,6 +110,18 @@ const events = eventsFromIcs(icsText);
 // }
 ```
 
+### オプション
+
+| オプション | 既定値 | 説明 |
+| --- | --- | --- |
+| `timeZone` | 実行環境のローカル TZ | `TZID` を持たない日時の解釈に用いるタイムゾーン（カレンダーの表示タイムゾーンに相当）。UTC 形式の `DTSTART` を持つ VEVENT の `UNTIL` の変換と、フローティング・終日のシリーズ分割点の解釈に使う |
+
+表示タイムゾーンを設定しているカレンダー（`CalendarOptions.timeZone`）へ取り込む場合は、
+同じ値を `timeZone` に渡します。`eventsToIcs` の `timeZone` と同じ値で往復すると、
+オカレンス展開の結果が対称に維持されます。
+
+### 変換規則
+
 変換規則はエクスポートの逆です。
 
 | iCalendar 側 | Koyomi 側 |
@@ -120,7 +132,7 @@ const events = eventsFromIcs(icsText);
 | `TZID` 付きの日時 | `timeZone`（`DTSTART` の TZID）とオフセットなし文字列。`DTSTART` と異なる TZID の値（`DTEND` 等）は絶対時刻の `Date` になる |
 | UTC（末尾 `Z`）の日時 | `'2026-07-01T01:00:00Z'` 形式のオフセット付き文字列 |
 | フローティング時刻 | オフセットなし文字列（表示タイムゾーンで解釈される） |
-| `RRULE` | `rrule`。UTC 表記の `UNTIL` はイベント TZ（`timeZone` のない UTC 形式のイベントは実行環境のローカルタイムゾーン）の現地時刻へ変換される。フローティングのイベントの `UNTIL` は現地時刻のまま取り込まれる |
+| `RRULE` | `rrule`。UTC 表記の `UNTIL` はイベント TZ（`timeZone` のない UTC 形式のイベントは表示タイムゾーン）の現地時刻へ変換される。フローティングのイベントの `UNTIL` は現地時刻のまま取り込まれる |
 | `EXDATE` / `RDATE` | `exdates` / `rdates`（複数プロパティ・カンマ区切りの両方を合成） |
 | `RECURRENCE-ID` 付きの VEVENT | オーバーライド。`recurringEventId` に `UID`、`originalStart` に `RECURRENCE-ID` の値が入り、`id` は「`UID@RECURRENCE-ID の値`」（例: `weekly@20260713T100000`）で生成される |
 | `RECURRENCE-ID;RANGE=THISANDFUTURE` 付きの VEVENT | 「これ以降」のシリーズ分割。同じ `UID` のマスターの繰り返しを分割点の直前で打ち切り、分割点以降を新しい独立イベントとして取り込む。詳細は [シリーズ分割](#シリーズ分割recurrence-idrangethisandfuture) を参照 |
@@ -161,7 +173,8 @@ const events = eventsFromIcs(icsText);
 
 分割点の日時は `RECURRENCE-ID` の形式に従って解釈されます。`TZID` 付きはそのタイムゾーンの
 現地時刻、UTC（末尾 `Z`）は絶対時刻、フローティングと日付形式（終日）は `UNTIL` の取り込みと
-同じく実行環境のローカルタイムゾーン（表示タイムゾーンに相当）で解釈されます。
+同じく表示タイムゾーン（`timeZone` オプション、省略時は実行環境のローカルタイムゾーン）で
+解釈されます。
 
 分割結果の 2 系列は独立したイベントのため、`eventsToIcs` ではそれぞれ別の `UID` の
 VEVENT として書き出されます（`RANGE=THISANDFUTURE` は出力されません）。書き出した ICS を
@@ -217,6 +230,7 @@ RFC 5545 のうち Koyomi のイベントモデルに対応する表現がない
 | `DURATION` | 無視（`DTEND` がなければ `end` なしになり、表示時は `defaultEventMinutes` が適用される） |
 | `VALARM`、`VTODO` / `VJOURNAL` / `VFREEBUSY` などの VEVENT 以外のコンポーネント | 無視 |
 | `DTSTAMP` / `SEQUENCE` / `ORGANIZER` / `ATTENDEE` / `X-` プロパティなどの未対応プロパティ | 無視 |
+| `RECURRENCE-ID` のない同一 `UID` の VEVENT の 2 件目以降 | 無視（最初の 1 件を取り込み、`id` が重複した配列を返さない。`eventsFromIcsWithIssues` では読み飛ばした VEVENT が `issues` に記録される） |
 
 **エラーにする**（`Error` を投げる）:
 

@@ -75,6 +75,7 @@ import type {
   TimelineRow,
 } from '../core/types';
 import {
+  allDayPatchRange,
   attachDragSessionListeners,
   autoScrollVelocity,
   captureOccurrenceDeleteFocusContext,
@@ -594,8 +595,13 @@ export function useTimelineDrag(params: {
       ...resourceLanePatch(occurrence.event, sourceLaneId, resourceId),
     };
     if (range !== null) {
-      patch.start = range.start;
-      patch.end = range.end;
+      // 終日の移動はタイムゾーンに依存しない日付キー文字列で書き込む
+      // （表示 TZ の絶対時刻のままだと timeZone を持つイベントで日付がずれる）
+      const patchRange = allDay
+        ? allDayPatchRange(range, paramsRef.current.calendar.state.timeZone)
+        : range;
+      patch.start = patchRange.start;
+      patch.end = patchRange.end;
     }
     const changes = paramsRef.current.calendar.api.updateEvent(
       occurrence.eventId,
@@ -631,10 +637,13 @@ export function useTimelineDrag(params: {
     allDay: boolean,
     sourceLaneId: string | null,
   ): void {
+    // 終日として書き込む start / end はタイムゾーンに依存しない日付キー文字列にする
+    // （applyChange と同じ理由。時間指定化（allDay: false）は絶対時刻のまま）
     const patch: CalendarEventPatch = {
       ...resourceLanePatch(occurrence.event, sourceLaneId, resourceId),
-      start: range.start,
-      end: range.end,
+      ...(allDay
+        ? allDayPatchRange(range, paramsRef.current.calendar.state.timeZone)
+        : { start: range.start, end: range.end }),
       allDay,
     };
     const changes = paramsRef.current.calendar.api.updateEvent(

@@ -473,10 +473,17 @@ export function buildTimelineViewModel(params: {
 
     const startsInRange = startMs >= rangeStart.getTime();
     const endsInRange = endMs < rangeEnd.getTime();
+    const startMinutes = startsInRange ? displayMinutesOf(occurrence.start) : 0;
+    let endMinutes = endsInRange ? displayMinutesOf(occurrence.end) : totalMinutes;
+    if (endMinutes <= startMinutes) {
+      // DST の巻き戻り日、2 回現れる 1 時間の 2 回目に終わるオカレンスは終了の現地時刻の分が
+      // 開始を下回る。開始の現地時刻の位置から実時間の長さを保った帯として表示する
+      endMinutes = Math.min(startMinutes + (endMs - startMs) / 60_000, totalMinutes);
+    }
     return {
       occurrence,
-      startMinutes: startsInRange ? displayMinutesOf(occurrence.start) : 0,
-      endMinutes: endsInRange ? displayMinutesOf(occurrence.end) : totalMinutes,
+      startMinutes,
+      endMinutes,
       continuesBefore: !startsInRange,
       continuesAfter: endMs > rangeEnd.getTime(),
     };
