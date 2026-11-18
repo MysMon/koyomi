@@ -52,7 +52,7 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22.22.2"
   },
   "publishConfig": {
     "access": "public"
@@ -66,8 +66,8 @@
     "prepublishOnly": "pnpm typecheck && pnpm test && pnpm run build"
   },
   "peerDependencies": {
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "dependencies": {
     "@date-fns/tz": "^1.2.0",

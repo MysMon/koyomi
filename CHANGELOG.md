@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 
+### 変更
+
+- **[破壊的変更]** 対応する Node.js の下限を 20.19.0 から 22.22.2 に引き上げ（`engines`）。Node 20 系はサポート終了済みで、テスト基盤（vitest 5 / jsdom 30）も Node 22 以上を要求するため、CI の下限レグも 22.22.2 にした
+- 開発依存を更新（vitest 5.1・@vitest/coverage-v8 5.1・jsdom 30・vite 8.3・React 19.3（開発用）・Biome 2.5.13・Playwright 1.63 ほか）。`peerDependencies` の React 範囲（`^19.2.8`）は変更なし
+
 ### 修正
 
 - **[重要]** `fromWallClock` の曖昧な時刻（DST の巻き戻りで 2 回現れる時刻）の解決が実行環境のローカルタイムゾーンに依存し、ローカルより東のゾーン（`Australia/Sydney`・`Pacific/Auckland` 等）で docs の「早い方のオフセット」規則に反して遅い方を返す問題を修正。`'later'` 指定が実質無効になる問題、`addMinutesInZone` で巻き戻り日の 60 分加算が 120 分進む問題も同時に解消。切替前後のオフセットからの逆算と現地時刻への往復検証で自前解決し、TZDate の setter への解決委譲をやめた

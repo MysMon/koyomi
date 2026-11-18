@@ -10,7 +10,7 @@ pnpm install
 pnpm demo   # デモアプリ（Vite）を起動して動作を確認する
 ```
 
-Node.js は `packages/react-calendar/package.json` の `engines`（`>=20.19.0`）を満たす
+Node.js は `packages/react-calendar/package.json` の `engines`（`>=22.22.2`）を満たす
 バージョンを使ってください。
 
 ## 変更を加える前に

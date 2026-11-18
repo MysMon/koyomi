@@ -1,7 +1,7 @@
 # CI: 静的検査・テスト・ビルド/パッケージ検査・実ブラウザ E2E・性能リグレッション検出を
 # 独立したジョブとして並行実行する。
-# Node の互換性はテストジョブの matrix で下限（20.19.0）と最新 LTS（24）の 2 レグで検証する。
-# それ以外のジョブはサポート下限の Node 20.19.0 で実行し、ツールチェーンが下限で動くことを保証する。
+# Node の互換性はテストジョブの matrix で下限（22.22.2）と最新 LTS（24）の 2 レグで検証する。
+# それ以外のジョブはサポート下限の Node 22.22.2 で実行し、ツールチェーンが下限で動くことを保証する。
 # サプライチェーン対策として action は commit SHA でピン留めし、トークン権限は読み取りのみに絞る。
 name: CI
 
@@ -32,7 +32,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20.19.0
+          node-version: 22.22.2
           cache: pnpm
 
       - name: 依存関係のインストール
@@ -62,7 +62,7 @@ jobs:
       matrix:
         include:
           # 下限レグはカバレッジ計測を兼ねる（計測は 1 レグで十分なため）
-          - node-version: 20.19.0
+          - node-version: 22.22.2
             coverage: true
           - node-version: 24
             coverage: false
@@ -102,7 +102,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20.19.0
+          node-version: 22.22.2
           cache: pnpm
 
       - name: 依存関係のインストール
@@ -143,7 +143,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20.19.0
+          node-version: 22.22.2
           cache: pnpm
 
       - name: 依存関係のインストール
@@ -178,7 +178,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20.19.0
+          node-version: 22.22.2
           cache: pnpm
 
       - name: 依存関係のインストール
@@ -208,7 +208,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20.19.0
+          node-version: 22.22.2
           cache: pnpm
 
       - name: 依存関係のインストール
