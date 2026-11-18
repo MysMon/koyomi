@@ -657,6 +657,18 @@ describe('expandEvents', () => {
   });
 
   describe('終日イベント', () => {
+    it('西暦 1000 年未満の終日イベントも展開できる', () => {
+      const source = makeEvent({ id: 'ad-999', start: '0999-03-01', allDay: true });
+      const result = expand(
+        [source],
+        { start: '0999-02-01T00:00:00Z', end: '0999-04-01T00:00:00Z' },
+        'UTC',
+      );
+      expect(result).toHaveLength(1);
+      expect(result[0]?.start).toEqual(new Date('0999-03-01T00:00:00Z'));
+      expect(result[0]?.end).toEqual(new Date('0999-03-02T00:00:00Z'));
+    });
+
     it("'YYYY-MM-DD' 文字列の単日イベントは表示 TZ の 0:00 に始まる 1 日になる", () => {
       const source = makeEvent({ id: 'ad1', start: '2026-07-01', allDay: true });
       const result = expand([source], {

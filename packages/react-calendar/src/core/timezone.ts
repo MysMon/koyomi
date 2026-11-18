@@ -323,7 +323,8 @@ export function atMinutesOfDayInZone(day: Date, minutes: number, timeZone: TimeZ
  */
 export function dateKeyInZone(date: Date, timeZone: TimeZoneId): string {
   const wall = getWallClock(date, timeZone);
-  return `${wall.year}-${pad2(wall.month)}-${pad2(wall.day)}`;
+  // 西暦 1000 年未満も dateFromKey が受け付ける 4 桁の年にそろえる
+  return `${String(wall.year).padStart(4, '0')}-${pad2(wall.month)}-${pad2(wall.day)}`;
 }
 
 /**

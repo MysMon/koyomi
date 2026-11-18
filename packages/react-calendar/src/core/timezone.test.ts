@@ -608,6 +608,15 @@ describe('dateKeyInZone', () => {
     const date = new Date('2026-01-05T00:00:00Z');
     expect(dateKeyInZone(date, UTC)).toBe('2026-01-05');
   });
+
+  it('西暦 1000 年未満の年は 4 桁にゼロ埋めされ、dateFromKey で元の日付へ戻せる', () => {
+    const year999 = new Date('0999-03-01T12:00:00Z');
+    expect(dateKeyInZone(year999, UTC)).toBe('0999-03-01');
+    expect(dateFromKey(dateKeyInZone(year999, UTC), UTC).toISOString()).toBe(
+      '0999-03-01T00:00:00.000Z',
+    );
+    expect(dateKeyInZone(new Date('0050-12-31T12:00:00Z'), UTC)).toBe('0050-12-31');
+  });
 });
 
 describe('dateFromKey', () => {

@@ -633,6 +633,19 @@ describe('buildRecurrenceRuleString', () => {
     expect(reparsed).toEqual({ kind: 'editable', state });
   });
 
+  it('西暦 1000 年未満の UNTIL は年を 4 桁にゼロ埋めして出力する', () => {
+    const rrule = buildRecurrenceRuleString({
+      state: {
+        freq: 'daily',
+        interval: 1,
+        end: { type: 'until', until: new Date('0999-03-05T00:00:00Z') },
+      },
+      dtstart: new Date('0999-03-01T00:00:00Z'),
+      timeZone: 'UTC',
+    });
+    expect(rrule).toBe('FREQ=DAILY;UNTIL=09990305T000000Z');
+  });
+
   it('interval:1 のときは INTERVAL を明示的に出力しない', () => {
     const rrule = buildRecurrenceRuleString({
       state: { freq: 'daily', interval: 1, end: { type: 'never' } },

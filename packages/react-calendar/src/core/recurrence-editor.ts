@@ -541,7 +541,8 @@ function pad2(value: number): string {
 
 /** fake-UTC 時刻を RRULE の UNTIL 形式（`YYYYMMDDTHHMMSSZ`）に整形する。 */
 function formatFakeUTCAsUntil(fake: Date): string {
-  const year = fake.getUTCFullYear();
+  // RFC 5545 の DATE-TIME は年 4 桁固定のため、西暦 1000 年未満もゼロ埋めする
+  const year = String(fake.getUTCFullYear()).padStart(4, '0');
   const month = pad2(fake.getUTCMonth() + 1);
   const day = pad2(fake.getUTCDate());
   const hours = pad2(fake.getUTCHours());
