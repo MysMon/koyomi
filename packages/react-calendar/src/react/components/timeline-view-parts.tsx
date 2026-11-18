@@ -38,6 +38,7 @@ import type {
 import type { TimelineDragHandlers, TimelinePreviewSegment } from '../use-timeline-drag';
 import { formatDayHeader, formatMonthTitle, formatRangeTitle } from './format';
 import { formatDateLabel, formatTimeLabel } from './month-view-parts';
+import { sameOccurrence } from './occurrence-equality';
 
 /**
  * タイムラインの帯（`timeline-item`）の `parts.timeText` 用に、時間指定イベントの
@@ -210,20 +211,16 @@ export function sameResource(a: CalendarResource | null, b: CalendarResource | n
   return a.id === b.id && a.title === b.title && a.color === b.color;
 }
 
-/** `TimelineItem` 1 件分の、表示に影響する内容が等しいかどうかを比較する。 */
+/**
+ * `TimelineItem` 1 件分の、表示・イベントハンドラに影響する内容が等しいかどうかを
+ * 比較する（オカレンスは {@link sameOccurrence}、加えて配置情報）。
+ */
 export function sameTimelineItem(a: TimelineItem, b: TimelineItem): boolean {
   if (a === b) {
     return true;
   }
   return (
-    a.occurrence.key === b.occurrence.key &&
-    a.occurrence.event.title === b.occurrence.event.title &&
-    a.occurrence.event.color === b.occurrence.event.color &&
-    a.occurrence.event.resourceId === b.occurrence.event.resourceId &&
-    a.occurrence.event.editable === b.occurrence.event.editable &&
-    a.occurrence.allDay === b.occurrence.allDay &&
-    a.occurrence.start.getTime() === b.occurrence.start.getTime() &&
-    a.occurrence.end.getTime() === b.occurrence.end.getTime() &&
+    sameOccurrence(a.occurrence, b.occurrence) &&
     a.startMinutes === b.startMinutes &&
     a.endMinutes === b.endMinutes &&
     a.lane === b.lane &&

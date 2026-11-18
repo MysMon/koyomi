@@ -77,6 +77,7 @@ import {
   withEventColorStyle,
   withTimegridHoursStyle,
 } from './month-view-parts';
+import { sameOccurrence } from './occurrence-equality';
 import {
   ariaLabelWithResource,
   businessHourSlotsForColumn,
@@ -87,7 +88,6 @@ import {
   resourceColumnHeaderContent,
   resourceTimedContentContext,
   sameBusinessHourSlots,
-  sameEventOccurrence,
   samePositionedOccurrences,
   samePreviewSegment,
   sameResource,
@@ -251,7 +251,7 @@ function sameEventOccurrences(
   }
   return a.every((item, index) => {
     const other = b[index];
-    return other !== undefined && sameEventOccurrence(item, other);
+    return other !== undefined && sameOccurrence(item, other);
   });
 }
 
@@ -650,7 +650,7 @@ function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
 
 const AllDayItemButton = memo(AllDayItemButtonImpl, (prev, next) => {
   return (
-    sameEventOccurrence(prev.occurrence, next.occurrence) &&
+    sameOccurrence(prev.occurrence, next.occurrence) &&
     sameResource(prev.column.resource, next.column.resource) &&
     prev.lane === next.lane &&
     prev.drag === next.drag &&

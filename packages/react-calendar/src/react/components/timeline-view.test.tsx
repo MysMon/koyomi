@@ -7,7 +7,7 @@
  */
 import { act, render } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type {
   BusinessHoursRule,
   CalendarEvent,
@@ -1050,5 +1050,72 @@ describe('TimelineView - 行トラックのアクセシブルネーム', () => {
     const rows = container.querySelectorAll('[data-koyomi="timeline-row"]');
     expect(rows[0]).toHaveAttribute('aria-label', 'クレーン1号機');
     expect(rows[1]).toHaveAttribute('aria-label', '未割り当て');
+  });
+});
+
+describe('TimelineView - イベント内容の更新と再レンダー抑制', () => {
+  const EVENTS: readonly CalendarEvent[] = [
+    {
+      id: 'a',
+      title: 'A',
+      start: '2026-07-15T10:00',
+      end: '2026-07-15T11:00',
+      resourceId: 'crane-1',
+      location: '第1バース',
+    },
+    {
+      id: 'b',
+      title: 'B',
+      start: '2026-07-15T13:00',
+      end: '2026-07-15T14:00',
+      resourceId: 'crane-2',
+    },
+  ];
+
+  /** 予定ごとの location を描画し、呼び出しを記録するレンダラー。 */
+  function makeRenderer() {
+    return vi.fn<EventContentRenderer>((occurrence) => (
+      <span data-testid={`loc-${occurrence.eventId}`}>{occurrence.event.location}</span>
+    ));
+  }
+
+  it('updateEvent でタイトル・色以外の項目（location）を変えると renderEventContent の表示が更新される', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { getByTestId } = render(
+      <Harness
+        resources={[CRANE_1, CRANE_2]}
+        events={EVENTS}
+        sink={sink}
+        renderEventContent={makeRenderer()}
+      />,
+    );
+
+    act(() => {
+      sink.current?.api.updateEvent('a', { location: '第2バース' });
+    });
+
+    expect(getByTestId('loc-a').textContent).toBe('第2バース');
+  });
+
+  it('別の行の予定を更新しても、変更のない行の帯は再レンダーされない（renderEventContent の呼び出し回数で確認する性能ピン留め）', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const renderEventContent = makeRenderer();
+    render(
+      <Harness
+        resources={[CRANE_1, CRANE_2]}
+        events={EVENTS}
+        sink={sink}
+        renderEventContent={renderEventContent}
+      />,
+    );
+    const callsFor = (eventId: string): number =>
+      renderEventContent.mock.calls.filter(([occurrence]) => occurrence.eventId === eventId).length;
+    const before = callsFor('b');
+
+    act(() => {
+      sink.current?.api.updateEvent('a', { location: '第2バース' });
+    });
+
+    expect(callsFor('b')).toBe(before);
   });
 });

@@ -73,6 +73,7 @@ import {
   withEventColorStyle,
   withTimegridHoursStyle,
 } from './month-view-parts';
+import { sameOccurrence } from './occurrence-equality';
 
 /** 1 日の分（24:00）。 */
 const MINUTES_PER_DAY = 1440;
@@ -447,19 +448,16 @@ function sameSlots(a: readonly TimeSlot[], b: readonly TimeSlot[]): boolean {
   return a.every((slot, index) => slot.minutes === b[index]?.minutes);
 }
 
-/** `PositionedOccurrence` 1 件分の、表示に影響する内容が等しいかどうかを比較する。 */
+/**
+ * `PositionedOccurrence` 1 件分の、表示・イベントハンドラに影響する内容が等しいかどうかを
+ * 比較する（オカレンスは {@link sameOccurrence}、加えて配置情報）。
+ */
 function samePositionedOccurrence(a: PositionedOccurrence, b: PositionedOccurrence): boolean {
   if (a === b) {
     return true;
   }
   return (
-    a.occurrence.key === b.occurrence.key &&
-    a.occurrence.event.title === b.occurrence.event.title &&
-    a.occurrence.event.color === b.occurrence.event.color &&
-    a.occurrence.event.resourceId === b.occurrence.event.resourceId &&
-    a.occurrence.event.editable === b.occurrence.event.editable &&
-    a.occurrence.start.getTime() === b.occurrence.start.getTime() &&
-    a.occurrence.end.getTime() === b.occurrence.end.getTime() &&
+    sameOccurrence(a.occurrence, b.occurrence) &&
     a.startMinutes === b.startMinutes &&
     a.endMinutes === b.endMinutes &&
     a.left === b.left &&
