@@ -30,9 +30,9 @@ import { MultiMonthView } from './multi-month-view';
 import { ResourceView } from './resource-view';
 import { TimeGridView } from './time-grid-view';
 import { TimelineView } from './timeline-view';
-import { VirtualListView } from './virtual-list-view';
-import { VirtualResourceView } from './virtual-resource-view';
-import { VirtualTimelineView } from './virtual-timeline-view';
+import { type ListVisibleRangeChangeInfo, VirtualListView } from './virtual-list-view';
+import { type ResourceVisibleRangeChangeInfo, VirtualResourceView } from './virtual-resource-view';
+import { type TimelineVisibleRangeChangeInfo, VirtualTimelineView } from './virtual-timeline-view';
 import { YearView } from './year-view';
 
 /**
@@ -159,6 +159,85 @@ export interface CalendarViewProps {
    * （`renderTimelineEvent` 等）はそのまま転送される。
    */
   virtualizeTimeline?: boolean;
+  /**
+   * 週/日ビューの終日行の「+N 件」ボタンに追加する props。`TimeGridView` の
+   * `overflowButtonProps` に転送する。
+   */
+  timeGridOverflowButtonProps?: (
+    day: TimeGridDay,
+    hiddenOccurrences: readonly EventOccurrence[],
+  ) => MonthOverflowButtonProps;
+  /**
+   * 週/日ビューの終日行の「+N 件」ボタンのラベル内容のカスタム描画。`TimeGridView` の
+   * `renderOverflowLabel` に転送する。
+   */
+  renderTimeGridOverflowLabel?: (day: TimeGridDay, ctx: MonthOverflowLabelContext) => ReactNode;
+  /**
+   * リソースビューの終日行の「+N 件」ボタンに追加する props。`ResourceView` /
+   * `VirtualResourceView` の `overflowButtonProps` に転送する。
+   */
+  resourceOverflowButtonProps?: (
+    column: ResourceColumn,
+    hiddenOccurrences: readonly EventOccurrence[],
+  ) => MonthOverflowButtonProps;
+  /**
+   * リソースビューの終日行の「+N 件」ボタンのラベル内容のカスタム描画。`ResourceView` /
+   * `VirtualResourceView` の `renderOverflowLabel` に転送する。
+   */
+  renderResourceOverflowLabel?: (
+    column: ResourceColumn,
+    ctx: MonthOverflowLabelContext,
+  ) => ReactNode;
+  /**
+   * 仮想化リストの 1 行（イベント 1 件）の推定高さ（px）。`VirtualListView` の
+   * `estimateItemHeight` に転送する（`virtualizeList` が `true` のときのみ有効）。
+   */
+  listEstimateItemHeight?: number;
+  /**
+   * 仮想化リストで 1 日のセクション内の行も窓化し始める件数。`VirtualListView` の
+   * `sectionItemWindowThreshold` に転送する（`virtualizeList` が `true` のときのみ有効）。
+   */
+  listSectionItemWindowThreshold?: number;
+  /**
+   * 仮想化リストの可視範囲が変わったときの通知。`VirtualListView` の
+   * `onVisibleRangeChange` に転送する（`virtualizeList` が `true` のときのみ有効）。
+   */
+  onListVisibleRangeChange?: (info: ListVisibleRangeChangeInfo) => void;
+  /**
+   * 仮想化リソースビューの列幅（px）。`VirtualResourceView` の `columnWidth` に転送する
+   * （`virtualizeResource` が `true` のときのみ有効）。
+   */
+  resourceColumnWidth?: number;
+  /**
+   * 仮想化リソースビューで可視範囲の前後に余分に描画する列数。`VirtualResourceView` の
+   * `overscan` に転送する（`virtualizeResource` が `true` のときのみ有効）。
+   */
+  resourceOverscan?: number;
+  /**
+   * 仮想化リソースビューの可視範囲が変わったときの通知。`VirtualResourceView` の
+   * `onVisibleRangeChange` に転送する（`virtualizeResource` が `true` のときのみ有効）。
+   */
+  onResourceVisibleRangeChange?: (info: ResourceVisibleRangeChangeInfo) => void;
+  /**
+   * 仮想化タイムラインの行の推定高さ（px）。`VirtualTimelineView` の `estimateRowHeight` に
+   * 転送する（`virtualizeTimeline` が `true` のときのみ有効）。
+   */
+  timelineEstimateRowHeight?: number | ((row: TimelineRow, index: number) => number);
+  /**
+   * 仮想化タイムラインで可視範囲の前後に余分に描画する行数。`VirtualTimelineView` の
+   * `overscan` に転送する（`virtualizeTimeline` が `true` のときのみ有効）。
+   */
+  timelineOverscan?: number;
+  /**
+   * 仮想化タイムラインで可視範囲の前後に余分に描画する日数。`VirtualTimelineView` の
+   * `overscanDays` に転送する（`virtualizeTimeline` が `true` のときのみ有効）。
+   */
+  timelineOverscanDays?: number;
+  /**
+   * 仮想化タイムラインの可視範囲が変わったときの通知。`VirtualTimelineView` の
+   * `onVisibleRangeChange` に転送する（`virtualizeTimeline` が `true` のときのみ有効）。
+   */
+  onTimelineVisibleRangeChange?: (info: TimelineVisibleRangeChangeInfo) => void;
 }
 
 /**
@@ -215,6 +294,12 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
             {...(props.timeGridInitialScrollTime !== undefined
               ? { initialScrollTime: props.timeGridInitialScrollTime }
               : {})}
+            {...(props.timeGridOverflowButtonProps
+              ? { overflowButtonProps: props.timeGridOverflowButtonProps }
+              : {})}
+            {...(props.renderTimeGridOverflowLabel
+              ? { renderOverflowLabel: props.renderTimeGridOverflowLabel }
+              : {})}
           />
         );
       case 'list': {
@@ -231,6 +316,15 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
                 ? { estimateDayHeight: props.listEstimateDayHeight }
                 : {})}
               {...(props.listOverscan !== undefined ? { overscan: props.listOverscan } : {})}
+              {...(props.listEstimateItemHeight !== undefined
+                ? { estimateItemHeight: props.listEstimateItemHeight }
+                : {})}
+              {...(props.listSectionItemWindowThreshold !== undefined
+                ? { sectionItemWindowThreshold: props.listSectionItemWindowThreshold }
+                : {})}
+              {...(props.onListVisibleRangeChange
+                ? { onVisibleRangeChange: props.onListVisibleRangeChange }
+                : {})}
             />
           );
         }
@@ -273,9 +367,28 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
           ...(props.resourceInitialScrollTime !== undefined
             ? { initialScrollTime: props.resourceInitialScrollTime }
             : {}),
+          ...(props.resourceOverflowButtonProps
+            ? { overflowButtonProps: props.resourceOverflowButtonProps }
+            : {}),
+          ...(props.renderResourceOverflowLabel
+            ? { renderOverflowLabel: props.renderResourceOverflowLabel }
+            : {}),
         };
         if (props.virtualizeResource === true) {
-          return <VirtualResourceView {...resourceProps} />;
+          return (
+            <VirtualResourceView
+              {...resourceProps}
+              {...(props.resourceColumnWidth !== undefined
+                ? { columnWidth: props.resourceColumnWidth }
+                : {})}
+              {...(props.resourceOverscan !== undefined
+                ? { overscan: props.resourceOverscan }
+                : {})}
+              {...(props.onResourceVisibleRangeChange
+                ? { onVisibleRangeChange: props.onResourceVisibleRangeChange }
+                : {})}
+            />
+          );
         }
         return <ResourceView {...resourceProps} />;
       }
@@ -288,7 +401,23 @@ export function CalendarView(props: CalendarViewProps): ReactElement {
             : {}),
         };
         if (props.virtualizeTimeline === true) {
-          return <VirtualTimelineView {...timelineProps} />;
+          return (
+            <VirtualTimelineView
+              {...timelineProps}
+              {...(props.timelineEstimateRowHeight !== undefined
+                ? { estimateRowHeight: props.timelineEstimateRowHeight }
+                : {})}
+              {...(props.timelineOverscan !== undefined
+                ? { overscan: props.timelineOverscan }
+                : {})}
+              {...(props.timelineOverscanDays !== undefined
+                ? { overscanDays: props.timelineOverscanDays }
+                : {})}
+              {...(props.onTimelineVisibleRangeChange
+                ? { onVisibleRangeChange: props.onTimelineVisibleRangeChange }
+                : {})}
+            />
+          );
         }
         return <TimelineView {...timelineProps} />;
       }

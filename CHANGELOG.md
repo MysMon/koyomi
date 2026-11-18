@@ -9,6 +9,7 @@
 
 ### 追加
 
+- `CalendarView` から子ビューの props を追加で指定できるようにした。週/日・リソースビューの終日行の「+N 件」（`timeGridOverflowButtonProps` / `renderTimeGridOverflowLabel` / `resourceOverflowButtonProps` / `renderResourceOverflowLabel`）、仮想化ビューの調整値と可視範囲の通知（`listEstimateItemHeight` / `listSectionItemWindowThreshold` / `onListVisibleRangeChange` / `resourceColumnWidth` / `resourceOverscan` / `onResourceVisibleRangeChange` / `timelineEstimateRowHeight` / `timelineOverscan` / `timelineOverscanDays` / `onTimelineVisibleRangeChange`）
 - ICS 取り込みが `DURATION` に対応。`DTEND` の代わりに `DURATION` で長さを指定した VEVENT の `end` を `DTSTART` から算出する（従来は無視され、`defaultEventMinutes` の長さで表示されていた）。不正な `DURATION` は他の不正な日時値と同じく `Error`（`eventsFromIcsWithIssues` では `issues`）になる
 
 ### 変更

@@ -156,7 +156,7 @@ function koyomiFrequencyFromRRule(freq: Options['freq'] | undefined): Recurrence
 
 /**
  * `parsed` に、編集エディタが対応しない RRULE の指定が含まれていないかを検証する。
- * 対応しない指定が見つかった場合はその理由（日本語）を返し、なければ `null`。
+ * 対応しない指定が見つかった場合はその理由を表すコードを返し、なければ `null`。
  *
  * `wkst` は、明示指定が週の開始曜日（`weekStartsOn`、省略時は RRULE 既定の月曜）と
  * 一致する場合のみ許容し、不一致の明示指定を対応外とする（`WKST` の省略は常に許容する）。

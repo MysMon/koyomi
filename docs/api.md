@@ -821,6 +821,20 @@ function CalendarView(props: CalendarViewProps): ReactElement
 | `renderTimelineEvent` | `(item: TimelineItem, ctx: EventContentContext) => ReactNode` | タイムラインの帯のカスタム描画（`TimelineView` / `VirtualTimelineView` の `renderEvent` へ転送） |
 | `renderTimelineRowHeader` | `(row: TimelineRow, ctx: SlotRenderContext) => ReactNode` | タイムラインの行見出しのカスタム描画（`TimelineView` / `VirtualTimelineView` の `renderRowHeader` へ転送） |
 | `virtualizeTimeline` | `boolean` | タイムラインを仮想化する（`TimelineView` の代わりに `VirtualTimelineView`）。既定 `false` |
+| `timeGridOverflowButtonProps` | `(day: TimeGridDay, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | 週/日ビューの終日行の「+N 件」ボタンに追加する props（`TimeGridView.overflowButtonProps` へ転送） |
+| `renderTimeGridOverflowLabel` | `(day: TimeGridDay, ctx: MonthOverflowLabelContext) => ReactNode` | 週/日ビューの終日行の「+N 件」ラベル内容のカスタム描画（`TimeGridView.renderOverflowLabel` へ転送） |
+| `resourceOverflowButtonProps` | `(column: ResourceColumn, hiddenOccurrences: readonly EventOccurrence[]) => MonthOverflowButtonProps` | リソースビューの終日行の「+N 件」ボタンに追加する props（`ResourceView` / `VirtualResourceView` の `overflowButtonProps` へ転送） |
+| `renderResourceOverflowLabel` | `(column: ResourceColumn, ctx: MonthOverflowLabelContext) => ReactNode` | リソースビューの終日行の「+N 件」ラベル内容のカスタム描画（`ResourceView` / `VirtualResourceView` の `renderOverflowLabel` へ転送） |
+| `listEstimateItemHeight` | `number` | 仮想化時の 1 行の推定高（`VirtualListView.estimateItemHeight` へ転送） |
+| `listSectionItemWindowThreshold` | `number` | 仮想化時に日セクション内の行も窓化し始める件数（`VirtualListView.sectionItemWindowThreshold` へ転送） |
+| `onListVisibleRangeChange` | `(info: ListVisibleRangeChangeInfo) => void` | 仮想化リストの可視範囲の変更通知（`VirtualListView.onVisibleRangeChange` へ転送） |
+| `resourceColumnWidth` | `number` | 仮想化リソースビューの列幅（`VirtualResourceView.columnWidth` へ転送） |
+| `resourceOverscan` | `number` | 仮想化リソースビューの前後 overscan 列数（`VirtualResourceView.overscan` へ転送） |
+| `onResourceVisibleRangeChange` | `(info: ResourceVisibleRangeChangeInfo) => void` | 仮想化リソースビューの可視範囲の変更通知（`VirtualResourceView.onVisibleRangeChange` へ転送） |
+| `timelineEstimateRowHeight` | `number \| ((row: TimelineRow, index: number) => number)` | 仮想化タイムラインの行の推定高（`VirtualTimelineView.estimateRowHeight` へ転送） |
+| `timelineOverscan` | `number` | 仮想化タイムラインの前後 overscan 行数（`VirtualTimelineView.overscan` へ転送） |
+| `timelineOverscanDays` | `number` | 仮想化タイムラインの前後 overscan 日数（`VirtualTimelineView.overscanDays` へ転送） |
+| `onTimelineVisibleRangeChange` | `(info: TimelineVisibleRangeChangeInfo) => void` | 仮想化タイムラインの可視範囲の変更通知（`VirtualTimelineView.onVisibleRangeChange` へ転送） |
 
 各ビューの「+N 件」の文言・空状態のメッセージ・未割り当てラベル・イベントや日セクションの aria-label は、`CalendarView` の props ではなく `CalendarProvider` の中央メッセージカタログ（`messages` prop）から解決されます。詳細は [テーマとスタイリング: 多言語対応（メッセージカタログ）](./theming.md#多言語対応メッセージカタログ) を参照してください。
 
@@ -1252,6 +1266,10 @@ interface ToolbarProps {
 | `EventDelete` | `{ occurrence: EventOccurrence; scope: RecurringEditScope | null; changes: readonly EventChangeEntry[] }` | キーボード削除の内容。`changes` は `EventChange` と同様 |
 | `OperationRejection` | `{ action: 'move' \| 'resize' \| 'convert' \| 'create' \| 'delete'; reason: 'constraint' \| 'rejected'; occurrence?: EventOccurrence }` | `onOperationRejected` の引数。宣言的制約（`eventOverlap`/`eventConstraint`）違反、または `onBeforeEventChange`/`onBeforeSelectRange`/`onBeforeEventDelete` が `false` を返したことによる拒否が確定した際の内容。`occurrence` は新規作成（`action: 'create'`）の拒否では省略される |
 | `OverflowClickDetails` | `{ visibleOccurrences: readonly EventOccurrence[] }` | `onOverflowClick` の第 3 引数。その日で表示中のオカレンス一覧（`hiddenOccurrences` と組み合わせて全件を把握できる） |
+| `AllDayOverflowInfo` | `{ date: Date; dayKey: string; view: 'week' \| 'day' \| 'resource'; column?: ResourceColumn }` | `onAllDayOverflowClick` の第 1 引数。対象の日（`date` は表示タイムゾーンの 0:00、`dayKey` は `'YYYY-MM-DD'`）とビュー種別。リソースビューでは対象列 `column` を含む |
+| `ToolbarTitleContext` | `{ defaultContent: ReactNode; view: CalendarViewType; title: string }` | `Toolbar` の `renderTitle` の引数 |
+| `ToolbarNavButtonContext` | `{ action: 'today' \| 'prev' \| 'next'; defaultContent: ReactNode }` | `Toolbar` の `renderNavButtonContent` の引数 |
+| `ToolbarViewButtonContext` | `{ view: CalendarViewType; active: boolean; defaultContent: ReactNode }` | `Toolbar` の `renderViewButtonContent` の引数 |
 | `MonthOverflowButtonProps` | `{ 'aria-haspopup'?: 'true' | 'dialog' | 'menu' | 'listbox' | 'tree' | 'grid'; 'aria-expanded'?: boolean; 'aria-controls'?: string }` | 「+N 件」ボタンに追加する props（`overflowButtonProps` の戻り値） |
 | `MonthOverflowLabelContext` | `SlotRenderContext & { hiddenOccurrences: readonly EventOccurrence[] }` | 「+N 件」ラベルのカスタム描画スロット（`renderOverflowLabel`）の第 2 引数 |
 | `CalendarInteractionCallbacks` | 下表参照 | インタラクションのコールバック集 |
@@ -1272,6 +1290,7 @@ interface ToolbarProps {
 | `onError?` | `(error: unknown) => void` | `console.error` に出力する |
 | `resolveRecurringScope?` | `(occurrence: EventOccurrence, action: 'move' | 'resize' | 'delete' | 'update') => Promise<RecurringEditScope | null>` | `'this'`（この予定のみ）を返す |
 | `onOverflowClick?` | `(day: MonthDay, hiddenOccurrences: readonly EventOccurrence[], details: OverflowClickDetails) => void` | その日の日ビューに切り替える |
+| `onAllDayOverflowClick?` | `(info: AllDayOverflowInfo, hiddenOccurrences: readonly EventOccurrence[], details: OverflowClickDetails) => void` | 週/日ビューでは対象日の日ビューに切り替える。リソースビューでは何もしない |
 | `onDayNumberClick?` | `(date: Date) => void` | その日の日ビューに切り替える |
 | `onEventDoubleClick?` | `(occurrence: EventOccurrence, nativeEvent: MouseEvent) => void` | 何もしない（未指定時は `onDoubleClick` リスナー自体を要素に付けない） |
 | `onEventContextMenu?` | `(occurrence: EventOccurrence, nativeEvent: MouseEvent) => void` | 何もしない（`preventDefault` はしない。未指定時は `onContextMenu` リスナー自体を要素に付けない） |
@@ -1524,10 +1543,11 @@ console.log(resolved?.start.getTime() === occurrences[1]!.start.getTime()); // =
 | 関数 / 型 | 説明 |
 | --- | --- |
 | `eventsToIcs(events, options?): string` | イベントの配列を `VCALENDAR`/`VEVENT` 文字列にする（CRLF 改行） |
-| `eventsFromIcs(ics): CalendarEvent[]` | `.ics` テキストをイベントの配列にする（`RECURRENCE-ID` はオーバーライドに、`RECURRENCE-ID;RANGE=THISANDFUTURE` は「これ以降」のシリーズ分割に変換。詳細は [iCalendar（ICS）入出力: シリーズ分割](./ics.md#シリーズ分割recurrence-idrangethisandfuture) を参照） |
-| `eventsFromIcsWithIssues(ics): { events: CalendarEvent[]; issues: readonly IcsImportIssue[] }` | `.ics` テキストを部分取り込みする（VEVENT 単位の不正はスキップして `issues` に記録し、残りは取り込む。ICS 全体の構造不正は `eventsFromIcs` と同じく `Error`） |
+| `eventsFromIcs(ics, options?): CalendarEvent[]` | `.ics` テキストをイベントの配列にする（`RECURRENCE-ID` はオーバーライドに、`RECURRENCE-ID;RANGE=THISANDFUTURE` は「これ以降」のシリーズ分割に変換。詳細は [iCalendar（ICS）入出力: シリーズ分割](./ics.md#シリーズ分割recurrence-idrangethisandfuture) を参照） |
+| `eventsFromIcsWithIssues(ics, options?): { events: CalendarEvent[]; issues: readonly IcsImportIssue[] }` | `.ics` テキストを部分取り込みする（VEVENT 単位の不正はスキップして `issues` に記録し、残りは取り込む。ICS 全体の構造不正は `eventsFromIcs` と同じく `Error`） |
 | `IcsImportIssue`（型） | `eventsFromIcsWithIssues` が VEVENT ごとに報告する取り込み不能の内容。`index`（出現順・0 始まり）/ `uid` / `summary` / `message` |
 | `EventsToIcsOptions`（型） | `eventsToIcs` のオプション。`timeZone`（`timeZone` を持たないイベントの解釈に用いるタイムゾーン）/ `defaultEventMinutes` / `dtstamp` / `prodId` |
+| `EventsFromIcsOptions`（型） | `eventsFromIcs` / `eventsFromIcsWithIssues` のオプション。`timeZone`（表示タイムゾーン。UTC 形式の `DTSTART` を持つ VEVENT の `UNTIL` と、フローティング・終日のシリーズ分割点の解釈に使う。省略時は実行環境のローカルタイムゾーン） |
 
 ```ts
 import { eventsFromIcs, eventsToIcs } from '@koyomi-cal/react';
@@ -1758,6 +1778,7 @@ if (!sameVisibleWindowRange(lastNotified, range)) {
 | `formatYearTitle(date, timeZone, locale): string` | 年ビューのタイトル（例: `'2026年'`） |
 | `formatWeekday(weekday, locale): string` | 曜日の短縮ラベル（例: `'日'`） |
 | `formatDayHeader(date, timeZone, locale): string` | 時間グリッドの日ヘッダー用ラベル（例: `'15 (水)'`） |
+| `formatTimeZoneLabel(date, timeZone, locale): string` | タイムゾーンの短いオフセットラベル（例: `'GMT+9'`）。オフセットは `date` 時点の値で算出するため夏時間を反映する。週/日ビューの時間軸の見出しに使う |
 
 ```ts
 import { formatMonthTitle, formatTime, formatWeekday, formatYearTitle } from '@koyomi-cal/react';
