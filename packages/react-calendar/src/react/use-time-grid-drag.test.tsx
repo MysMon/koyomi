@@ -3009,3 +3009,78 @@ describe('useTimeGridDrag - キーボードによる日列からの作成', () =
     expect(sink.current?.calendar.api.getEvents()).toHaveLength(0);
   });
 });
+
+describe('useTimeGridDrag - ドラッグ・キャンセル直後の click 抑止の有効範囲', () => {
+  it('作成ドラッグを Escape でキャンセルした後、列に届いた click の次の予定クリックは onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-after-cancel',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    renderHarness({ events: [event], callbacks: { onEventClick } });
+    const column = screen.getByTestId(`day-${TUE}`);
+    const eventEl = screen.getByTestId(`event-ev-after-cancel@${at(`${TUE}T10:00`).toISOString()}`);
+    const x = columnCenterX(TUE);
+
+    firePointerDown(column, x, 900);
+    movePointer(x, 960);
+    pressEscape();
+    releasePointer(x, 960);
+    // 同じポインタ操作が生む click は pointerdown した列に届く（予定には届かない）
+    fireEvent.click(column);
+
+    fireEvent.click(eventEl);
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('予定のドラッグ移動を確定した後、別の予定の Enter は onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const events: CalendarEvent[] = [
+      { id: 'ev-moved', title: 'A', start: `${TUE}T10:00`, end: `${TUE}T11:00` },
+      { id: 'ev-other', title: 'B', start: `${TUE}T20:00`, end: `${TUE}T21:00` },
+    ];
+    renderHarness({ events, callbacks: { onEventClick } });
+    const x = columnCenterX(TUE);
+
+    firePointerDown(
+      screen.getByTestId(`event-ev-moved@${at(`${TUE}T10:00`).toISOString()}`),
+      x,
+      600,
+    );
+    movePointer(x, 840);
+    releasePointer(x, 840);
+
+    fireEvent.keyDown(screen.getByTestId(`event-ev-other@${at(`${TUE}T20:00`).toISOString()}`), {
+      key: 'Enter',
+    });
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+    expect(onEventClick.mock.calls[0]?.[0]).toMatchObject({ eventId: 'ev-other' });
+  });
+
+  it('ドラッグ移動を確定した後に次のポインタ操作を始めると、その操作の click は onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const events: CalendarEvent[] = [
+      { id: 'ev-moved', title: 'A', start: `${TUE}T10:00`, end: `${TUE}T11:00` },
+      { id: 'ev-other', title: 'B', start: `${TUE}T20:00`, end: `${TUE}T21:00` },
+    ];
+    renderHarness({ events, callbacks: { onEventClick } });
+    const x = columnCenterX(TUE);
+
+    firePointerDown(
+      screen.getByTestId(`event-ev-moved@${at(`${TUE}T10:00`).toISOString()}`),
+      x,
+      600,
+    );
+    movePointer(x, 840);
+    releasePointer(x, 840);
+
+    // 移動確定分の click が届かないまま、別の予定を押して離す（移動なし）
+    const other = screen.getByTestId(`event-ev-other@${at(`${TUE}T20:00`).toISOString()}`);
+    firePointerDown(other, x, 1230);
+    releasePointer(x, 1230);
+    fireEvent.click(other);
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+});

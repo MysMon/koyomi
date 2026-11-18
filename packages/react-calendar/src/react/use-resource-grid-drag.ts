@@ -78,12 +78,14 @@ import {
   allDayPatchRange,
   attachDragSessionListeners,
   autoScrollVelocity,
+  type ClickSuppressor,
   captureOccurrenceDeleteFocusContext,
   checkBeforeEventChange,
   checkBeforeEventDelete,
   checkBeforeSelectRange,
   collectOverlapBlockersInRange,
   createAutoScrollLoop,
+  createClickSuppressor,
   createCreatedEventFocusController,
   createDefaultEvent,
   createOccurrenceDeleteFocusController,
@@ -439,8 +441,12 @@ export function useResourceGridDrag(params: {
   const overlapCacheRef = useRef(createOverlapBlockerCache());
   /** 進行中のドラッグセッション（非ドラッグ中は `null`）。 */
   const dragSessionRef = useRef<DragSession | null>(null);
-  /** 直後の click イベントを 1 回だけ抑制するフラグ。 */
-  const suppressNextClickRef = useRef(false);
+  /** ドラッグ確定・Escape キャンセル直後の click を 1 回だけ抑止する管理オブジェクト。 */
+  const clickSuppressorRef = useRef<ClickSuppressor | null>(null);
+  if (clickSuppressorRef.current === null) {
+    clickSuppressorRef.current = createClickSuppressor();
+  }
+  const clickSuppressor = clickSuppressorRef.current;
   /** キーボード削除後のフォーカス復帰を管理するコントローラ（本フック内で使い回す）。 */
   const deleteFocusControllerRef = useRef(createOccurrenceDeleteFocusController());
   /** キーボード作成による既定即時作成後のフォーカス移動を管理するコントローラ。 */
@@ -451,8 +457,9 @@ export function useResourceGridDrag(params: {
     return () => {
       dragSessionRef.current?.cleanup();
       dragSessionRef.current = null;
+      clickSuppressor.dispose();
     };
-  }, []);
+  }, [clickSuppressor]);
 
   // キーボード削除・キーボード作成の確定後、DOM 更新完了後（再レンダー後）に一度だけ
   // フォーカス解決を試みる（`virtual-resource-view.tsx` の pinned フォーカス復元と同じ
@@ -874,7 +881,7 @@ export function useResourceGridDrag(params: {
       if (occurrence === null) {
         return;
       }
-      suppressNextClickRef.current = true;
+      clickSuppressor.arm();
 
       if (session.allDayConversion !== null) {
         // 時間指定 → 終日の変換ドラッグの確定（ポインタ位置の列のリソース割当）
@@ -1264,7 +1271,7 @@ export function useResourceGridDrag(params: {
       if (nativeEvent.key !== 'Escape') {
         return;
       }
-      suppressNextClickRef.current = true;
+      clickSuppressor.arm();
       cancelSession();
     };
 
@@ -1367,8 +1374,7 @@ export function useResourceGridDrag(params: {
     event: ReactMouseEvent<HTMLElement>,
   ): void {
     event.stopPropagation();
-    if (suppressNextClickRef.current) {
-      suppressNextClickRef.current = false;
+    if (clickSuppressor.shouldSuppress(event.nativeEvent)) {
       return;
     }
     paramsRef.current.callbacks?.onEventClick?.(occurrence, event.nativeEvent);
@@ -1652,12 +1658,22 @@ export function useResourceGridDrag(params: {
     ).catch(reportError);
   }
 
-  /** 終日セルのクリックでその列の日 1 日の終日イベントを作成する。 */
-  function handleAllDayCellClick(column: ResourceColumn): void {
-    if (suppressNextClickRef.current) {
-      suppressNextClickRef.current = false;
+  /**
+   * 終日セルのクリックでその列の日 1 日の終日イベントを作成する。
+   * ドラッグ確定・Escape キャンセル直後の click では作成しない。
+   */
+  function handleAllDayCellClick(
+    column: ResourceColumn,
+    event: ReactMouseEvent<HTMLElement>,
+  ): void {
+    if (clickSuppressor.shouldSuppress(event.nativeEvent)) {
       return;
     }
+    createAllDayEventAt(column);
+  }
+
+  /** その列の日 1 日の終日イベントを作成する（終日セルのクリック・Enter・Space 共通）。 */
+  function createAllDayEventAt(column: ResourceColumn): void {
     const { state } = paramsRef.current.calendar;
     const day = column.date;
     const range: DateRange = {
@@ -1741,8 +1757,8 @@ export function useResourceGridDrag(params: {
 
   function getAllDayCellProps(column: ResourceColumn): ResourceAllDayCellProps {
     return {
-      onClick: () => {
-        handleAllDayCellClick(column);
+      onClick: (event: ReactMouseEvent<HTMLElement>) => {
+        handleAllDayCellClick(column, event);
       },
       onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
         // 終日アイテムのボタン由来のキー操作（Enter/Space 等）をセルの作成として
@@ -1754,7 +1770,7 @@ export function useResourceGridDrag(params: {
           return;
         }
         event.preventDefault();
-        handleAllDayCellClick(column);
+        createAllDayEventAt(column);
       },
       tabIndex: 0,
       'data-koyomi-resource': laneKeyOf(column),

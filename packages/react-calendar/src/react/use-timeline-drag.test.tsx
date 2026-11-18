@@ -2716,3 +2716,91 @@ describe('useTimelineDrag - 終日 ⇔ 時間指定の変換（A キー）', () 
     });
   });
 });
+
+describe('useTimelineDrag - ドラッグ・キャンセル直後の click 抑止の有効範囲', () => {
+  const EVENTS: CalendarEvent[] = [
+    {
+      id: 'ev-moved',
+      title: 'A',
+      start: `${DAY0}T10:00`,
+      end: `${DAY0}T11:00`,
+      resourceId: 'crane-1',
+    },
+    {
+      id: 'ev-other',
+      title: 'B',
+      start: `${DAY0}T20:00`,
+      end: `${DAY0}T21:00`,
+      resourceId: 'crane-1',
+    },
+  ];
+
+  it('帯のドラッグ移動を確定した直後の click では onEventClick を呼ばない', () => {
+    const onEventClick = vi.fn();
+    const { container } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 1,
+      events: EVENTS,
+      callbacks: { onEventClick },
+    });
+    mockAllRowRects(container, 1);
+
+    firePointerDown(
+      getItemElement(container, 'ev-moved', `${DAY0}T10:00`),
+      dm(0, 10, 0),
+      rowCenterY(0),
+    );
+    movePointer(dm(0, 14, 0), rowCenterY(0));
+    releasePointer(dm(0, 14, 0), rowCenterY(0));
+    fireEvent.click(getItemElement(container, 'ev-moved', `${DAY0}T14:00`));
+
+    expect(onEventClick).not.toHaveBeenCalled();
+  });
+
+  it('作成ドラッグを Escape でキャンセルした後、行に届いた click の次の帯クリックは onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const { container } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 1,
+      events: EVENTS,
+      callbacks: { onEventClick },
+    });
+    mockAllRowRects(container, 1);
+    const row = container.querySelector('[data-koyomi="timeline-row"]');
+    if (row === null) {
+      throw new Error('行が見つかりません');
+    }
+
+    firePointerDown(row, dm(0, 15, 0), rowCenterY(0));
+    movePointer(dm(0, 16, 0), rowCenterY(0));
+    pressEscape();
+    releasePointer(dm(0, 16, 0), rowCenterY(0));
+    // 同じポインタ操作が生む click は pointerdown した行に届く（帯には届かない）
+    fireEvent.click(row);
+
+    fireEvent.click(getItemElement(container, 'ev-other', `${DAY0}T20:00`));
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('帯のドラッグ移動を確定した後、別の帯の Enter は onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const { container } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 1,
+      events: EVENTS,
+      callbacks: { onEventClick },
+    });
+    mockAllRowRects(container, 1);
+
+    firePointerDown(
+      getItemElement(container, 'ev-moved', `${DAY0}T10:00`),
+      dm(0, 10, 0),
+      rowCenterY(0),
+    );
+    movePointer(dm(0, 14, 0), rowCenterY(0));
+    releasePointer(dm(0, 14, 0), rowCenterY(0));
+
+    fireEvent.keyDown(getItemElement(container, 'ev-other', `${DAY0}T20:00`), { key: 'Enter' });
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+});

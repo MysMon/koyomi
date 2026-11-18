@@ -52,11 +52,13 @@ import type {
 } from '../core/types';
 import {
   allDayPatchRange,
+  type ClickSuppressor,
   captureOccurrenceDeleteFocusContext,
   checkBeforeEventChange,
   checkBeforeEventDelete,
   checkBeforeSelectRange,
   collectOverlapBlockersInRange,
+  createClickSuppressor,
   createDefaultEvent,
   createOccurrenceDeleteFocusController,
   createOverlapBlockerCache,
@@ -316,12 +318,16 @@ export function useDayDrag(params: {
   /** 進行中のドラッグセッション（非ドラッグ中は `null`）。 */
   const sessionRef = useRef<DragSession | null>(null);
   /**
-   * 直後の click イベントを 1 回だけ抑制するフラグ。
+   * ドラッグ確定・Escape キャンセル直後の click を 1 回だけ抑止する管理オブジェクト。
    * ブラウザは pointerup の後に click を自動発火するため、ドラッグ移動が確定した
    * 直後のその click では `onEventClick` を誤って発火させたくない
-   * （`use-time-grid-drag.ts` の `suppressNextClickRef` と同じパターン）。
+   * （`use-time-grid-drag.ts` と同じパターン）。
    */
-  const suppressNextClickRef = useRef(false);
+  const clickSuppressorRef = useRef<ClickSuppressor | null>(null);
+  if (clickSuppressorRef.current === null) {
+    clickSuppressorRef.current = createClickSuppressor();
+  }
+  const clickSuppressor = clickSuppressorRef.current;
   /** キーボード削除後のフォーカス復帰を管理するコントローラ（本フック内で使い回す）。 */
   const deleteFocusControllerRef = useRef(createOccurrenceDeleteFocusController());
 
@@ -347,8 +353,9 @@ export function useDayDrag(params: {
     return () => {
       sessionRef.current?.cleanup();
       sessionRef.current = null;
+      clickSuppressor.dispose();
     };
-  }, []);
+  }, [clickSuppressor]);
 
   // キーボード削除確定後、DOM 更新完了後（再レンダー後）に一度だけフォーカス解決を試みる
   // （`virtual-resource-view.tsx` の pinned フォーカス復元と同じ「無条件・毎レンダーの
@@ -842,7 +849,7 @@ export function useDayDrag(params: {
       // 移動・リサイズが確定した直後、ブラウザが自動発火する click を 1 回だけ抑制する。
       // resolveRecurringScope の解決を待つ前（同期のうち）にフラグを立てることで、
       // 確定処理が非同期でも click 到達前に確実に反映されるようにする。
-      suppressNextClickRef.current = true;
+      clickSuppressor.arm();
       if (session.timedConversion !== null) {
         void commitTimedConversion(occurrence, session.timedConversion).catch(reportError);
         return;
@@ -868,7 +875,7 @@ export function useDayDrag(params: {
       }
       // Escape 押下時にポインタボタンがまだ離されていない場合、直後の pointerup で
       // ブラウザが自動発火する click により onEventClick が誤発火し得るため抑制する。
-      suppressNextClickRef.current = true;
+      clickSuppressor.arm();
       cancelSession();
     };
 
@@ -984,8 +991,7 @@ export function useDayDrag(params: {
         beginDrag('move', occurrence, anchorDay);
       },
       onClick: (event: ReactMouseEvent<HTMLElement>) => {
-        if (suppressNextClickRef.current) {
-          suppressNextClickRef.current = false;
+        if (clickSuppressor.shouldSuppress(event.nativeEvent)) {
           return;
         }
         callbacksRef.current?.onEventClick?.(occurrence, event.nativeEvent);

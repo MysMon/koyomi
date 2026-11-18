@@ -3456,3 +3456,95 @@ describe('useResourceGridDrag - 終日 ⇔ 時間指定の変換（A キー）',
     });
   });
 });
+
+describe('useResourceGridDrag - ドラッグ・キャンセル直後の click 抑止の有効範囲', () => {
+  const EVENTS: CalendarEvent[] = [
+    {
+      id: 'ev-moved',
+      title: 'A',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    },
+    {
+      id: 'ev-other',
+      title: 'B',
+      start: `${DAY}T20:00`,
+      end: `${DAY}T21:00`,
+      resourceId: 'room-a',
+    },
+  ];
+
+  it('予定のドラッグ移動を確定した直後の click では onEventClick を呼ばない', () => {
+    const onEventClick = vi.fn();
+    const { container } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: EVENTS,
+      callbacks: { onEventClick },
+    });
+    mockAllColumnRects(container);
+
+    firePointerDown(getEventElement(container, 'ev-moved', `${DAY}T10:00`), columnCenterX(0), 600);
+    movePointer(columnCenterX(0), 840);
+    releasePointer(columnCenterX(0), 840);
+    fireEvent.click(getEventElement(container, 'ev-moved', `${DAY}T14:00`));
+
+    expect(onEventClick).not.toHaveBeenCalled();
+  });
+
+  it('作成ドラッグを Escape でキャンセルした後、列に届いた click の次の予定クリックは onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const { container } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: EVENTS,
+      callbacks: { onEventClick },
+    });
+    mockAllColumnRects(container);
+    const column = getColumnElement(container, 0);
+
+    firePointerDown(column, columnCenterX(0), 900);
+    movePointer(columnCenterX(0), 960);
+    pressEscape();
+    releasePointer(columnCenterX(0), 960);
+    // 同じポインタ操作が生む click は pointerdown した列に届く（予定には届かない）
+    fireEvent.click(column);
+
+    fireEvent.click(getEventElement(container, 'ev-other', `${DAY}T20:00`));
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('予定のドラッグ移動を確定した後、別の予定の Enter は onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const { container } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: EVENTS,
+      callbacks: { onEventClick },
+    });
+    mockAllColumnRects(container);
+
+    firePointerDown(getEventElement(container, 'ev-moved', `${DAY}T10:00`), columnCenterX(0), 600);
+    movePointer(columnCenterX(0), 840);
+    releasePointer(columnCenterX(0), 840);
+
+    fireEvent.keyDown(getEventElement(container, 'ev-other', `${DAY}T20:00`), { key: 'Enter' });
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('予定のドラッグ移動を確定した後、列に届いた click の次の終日セルのクリックは終日の予定を作成する', () => {
+    const { container, sink } = renderHarness({ resources: [ROOM_A, ROOM_B], events: EVENTS });
+    mockAllColumnRects(container);
+
+    firePointerDown(getEventElement(container, 'ev-moved', `${DAY}T10:00`), columnCenterX(0), 600);
+    movePointer(columnCenterX(0), 840);
+    releasePointer(columnCenterX(0), 840);
+    // 同じポインタ操作が生む click は時間グリッドの列に届く
+    fireEvent.click(getColumnElement(container, 0));
+
+    const cell = container.querySelector('[data-koyomi="resource-allday-cell"]');
+    if (cell === null) {
+      throw new Error('終日セルが見つかりません');
+    }
+    fireEvent.click(cell);
+    expect(sink.current?.api.getEvents()).toHaveLength(3);
+  });
+});

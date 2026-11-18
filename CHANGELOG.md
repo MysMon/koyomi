@@ -45,6 +45,7 @@
 - `addDaysInZone` / `addMonthsInZone` の結果が DST の巻き戻りで 2 回現れる時刻になる場合の解決が実行環境のローカルタイムゾーンに依存し、ローカルより東のゾーン（`Australia/Sydney` 等）で遅い方のオフセットになる問題を修正。`fromWallClock` / `addMinutesInZone` と同じく、実行環境によらず早い方のオフセットで解決する
 - `parseRecurrenceRule` が、`-1`（末日）以外の負の `BYMONTHDAY`（`FREQ=MONTHLY;BYMONTHDAY=-2` 等）や同じ曜日が重複した `BYDAY`（`BYDAY=MO,MO`）を、`validateRecurrenceRuleState` を通らない状態のまま `kind: 'editable'` で返す問題を修正。対応範囲外として元の文字列を保持した `kind: 'unsupported'` を返す
 - `today()` が、表示中の日時が既に現在日時と同じでも購読者へ通知し `getState()` のスナップショットを作り直す問題を修正。日時が変わらない場合は通知せず、同じスナップショットを返す（`goTo` / `setView` と同じ扱い）
+- ドラッグでの移動・リサイズの確定後や `Escape` でのキャンセル後に、次の予定クリック・Enter が 1 回無視される（`onEventClick` が呼ばれない）ことがある問題を修正。作成ドラッグのキャンセル後や、移動で予定の要素が入れ替わった後など、ブラウザの click が予定以外に届く場合に起きていた。抑止の対象は同じポインタ操作が生む click 1 回だけになり、次のポインタ操作・キー操作には持ち越されない（月・週/日・リソース・タイムラインの各ビュー共通）
 
 ## [0.2.0] - 2026-07-30
 

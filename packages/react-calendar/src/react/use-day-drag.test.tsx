@@ -4829,3 +4829,101 @@ describe('useDayDrag - 拒否通知（onOperationRejected）', () => {
     expect(onOperationRejected).not.toHaveBeenCalled();
   });
 });
+
+describe('useDayDrag - ドラッグ・キャンセル直後の click 抑止の有効範囲', () => {
+  /** 終日の予定 2 件（7/8〜7/9 と 7/12）を持つグリッドを描画する。 */
+  function renderTwoSegments(onEventClick: () => void): {
+    container: HTMLElement;
+    first: HTMLElement;
+    second: HTMLElement;
+  } {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const a = api.createEvent({ title: 'A', start: '2026-07-08', end: '2026-07-10', allDay: true });
+    const b = api.createEvent({ title: 'B', start: '2026-07-12', end: '2026-07-13', allDay: true });
+    const occurrences = api.getOccurrences(WIDE_RANGE);
+    const occurrenceA = occurrences.find((occ) => occ.eventId === a.id);
+    const occurrenceB = occurrences.find((occ) => occ.eventId === b.id);
+    if (occurrenceA === undefined || occurrenceB === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrenceA), makeSegment(occurrenceB)]}
+        callbacks={{ onEventClick }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+    const first = container.querySelector(`[data-testid="seg-${occurrenceA.key}"]`);
+    const second = container.querySelector(`[data-testid="seg-${occurrenceB.key}"]`);
+    if (!(first instanceof HTMLElement) || !(second instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+    return { container, first, second };
+  }
+
+  it('セルの範囲選択ドラッグを Escape でキャンセルした後、セルに届いた click の次のセグメントクリックは onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const { container, second } = renderTwoSegments(onEventClick);
+    const cell = container.querySelector('[data-testid="cell-2026-07-06"]');
+    if (!(cell instanceof HTMLElement)) {
+      throw new Error('セル要素が見つかりません');
+    }
+
+    act(() => {
+      cell.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(0),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(1));
+    });
+    act(() => {
+      dispatchEscape();
+    });
+    act(() => {
+      dispatchPointerUp(cellCenterX(1));
+    });
+    // 同じポインタ操作が生む click は pointerdown したセルに届く（セグメントには届かない）
+    act(() => {
+      cell.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    act(() => {
+      second.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('セグメントのドラッグ移動を確定した後、別のセグメントの Enter は onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const { first, second } = renderTwoSegments(onEventClick);
+
+    act(() => {
+      first.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2), // 7/8
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(3)); // 7/9（+1 日）
+    });
+    act(() => {
+      dispatchPointerUp(cellCenterX(3));
+    });
+
+    fireEvent.keyDown(second, { key: 'Enter' });
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+});

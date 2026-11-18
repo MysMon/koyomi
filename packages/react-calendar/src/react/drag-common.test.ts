@@ -18,6 +18,7 @@ import {
   allDayPatchRange,
   captureOccurrenceDeleteFocusContext,
   collectOverlapBlockersInRange,
+  createClickSuppressor,
   createDefaultEvent,
   createOccurrenceDeleteFocusController,
   createOverlapBlockerCache,
@@ -716,5 +717,58 @@ describe('reportOperationRejected', () => {
 
     expect(() => reportOperationRejected({}, rejection)).not.toThrow();
     expect(() => reportOperationRejected(undefined, rejection)).not.toThrow();
+  });
+});
+
+describe('createClickSuppressor', () => {
+  /** document へ click をディスパッチし、そのイベントを返す。 */
+  function dispatchClick(): MouseEvent {
+    const event = new MouseEvent('click', { bubbles: true });
+    document.body.dispatchEvent(event);
+    return event;
+  }
+
+  it('予約していない状態では、どの click も抑止対象にならない', () => {
+    const suppressor = createClickSuppressor();
+    expect(suppressor.shouldSuppress(dispatchClick())).toBe(false);
+    suppressor.dispose();
+  });
+
+  it('予約後に最初に届いた click だけが抑止対象になり、2 回目以降は対象にならない', () => {
+    const suppressor = createClickSuppressor();
+    suppressor.arm();
+    expect(suppressor.shouldSuppress(dispatchClick())).toBe(true);
+    expect(suppressor.shouldSuppress(dispatchClick())).toBe(false);
+    suppressor.dispose();
+  });
+
+  it('click が届く前に次の pointerdown が起きると、予約は破棄される', () => {
+    const suppressor = createClickSuppressor();
+    suppressor.arm();
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    expect(suppressor.shouldSuppress(dispatchClick())).toBe(false);
+    suppressor.dispose();
+  });
+
+  it('click が届く前に Escape 以外のキーが押されると予約は破棄され、Escape では維持される', () => {
+    const suppressor = createClickSuppressor();
+    suppressor.arm();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(suppressor.shouldSuppress(dispatchClick())).toBe(true);
+
+    suppressor.arm();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(suppressor.shouldSuppress(dispatchClick())).toBe(false);
+    suppressor.dispose();
+  });
+
+  it('dispose 後は予約が無効になり、記録済みの click も抑止対象でなくなる', () => {
+    const suppressor = createClickSuppressor();
+    suppressor.arm();
+    const recorded = dispatchClick();
+    suppressor.arm();
+    suppressor.dispose();
+    expect(suppressor.shouldSuppress(recorded)).toBe(false);
+    expect(suppressor.shouldSuppress(dispatchClick())).toBe(false);
   });
 });

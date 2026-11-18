@@ -34,6 +34,8 @@
  *   軸（縦/横）だけが違う）
  * - {@link attachDragSessionListeners} — pointermove/pointerup/pointercancel/keydown の
  *   document リスナー配線・解除（3フック共通）
+ * - {@link createClickSuppressor} — ドラッグ確定・Escape キャンセル直後の click を
+ *   1 回だけ抑止する管理（4フック共通。`use-day-drag.ts` を含む）
  * - {@link eventNotificationProps} — 追加通知系ハンドラ（`onEventDoubleClick` /
  *   `onEventContextMenu` / `onEventHover` / `onEventHoverEnd`）の配線
  *   （3フックに加え `use-day-drag.ts` と `list-view-parts.tsx` も含む 5 箇所共通）
@@ -591,6 +593,84 @@ export function attachDragSessionListeners(handlers: DragSessionListenerHandlers
     document.removeEventListener('pointerup', handlers.pointerup);
     document.removeEventListener('pointercancel', handlers.pointercancel);
     document.removeEventListener('keydown', handlers.keydown);
+  };
+}
+
+/**
+ * ドラッグ確定・Escape キャンセルの直後にブラウザが発火する click を 1 回だけ抑止する
+ * ための管理オブジェクト（{@link createClickSuppressor}）。
+ */
+export interface ClickSuppressor {
+  /**
+   * 同じポインタ操作が生む次の click を抑止対象にする。次のいずれかで自動的に解除される:
+   * click が 1 回届いた（その click だけが抑止対象になる）／次のポインタ操作が始まった
+   * （`pointerdown`）／Escape 以外のキーが押された。
+   */
+  arm: () => void;
+  /**
+   * 渡した click が抑止対象（{@link ClickSuppressor.arm} 後に最初に届いた click）かを返す。
+   *
+   * @param nativeEvent - 判定する click のネイティブイベント
+   */
+  shouldSuppress: (nativeEvent: Event) => boolean;
+  /** 登録中の document リスナーを解除する（アンマウント時に呼ぶ）。 */
+  dispose: () => void;
+}
+
+/**
+ * ドラッグ確定・Escape キャンセルの直後の click を 1 回だけ抑止する管理オブジェクトを作る。
+ *
+ * ブラウザは pointerup の直後に click を発火するが、その click が届く要素は予定とは
+ * 限らない（作成ドラッグなら列・行・セル、移動後に要素が入れ替わった場合は祖先）。
+ * そこで「抑止を予約した後、document に最初に届いた click」だけを抑止対象として記録し、
+ * 予定以外に届いた場合もそこで予約を使い切る。click が届かないまま次の操作
+ * （`pointerdown`・Escape 以外のキー入力）が始まった場合も予約を破棄するため、
+ * 後続の無関係なクリック・Enter が抑止されることはない。
+ *
+ * 4 つのドラッグ系フック（`use-day-drag` / `use-time-grid-drag` /
+ * `use-resource-grid-drag` / `use-timeline-drag`）で共通に使う。
+ *
+ * @returns 抑止の予約・判定・後始末を行う {@link ClickSuppressor}
+ */
+export function createClickSuppressor(): ClickSuppressor {
+  /** 抑止対象として記録した click（弱参照のため、イベントや要素を保持し続けない）。 */
+  let suppressed = new WeakSet<Event>();
+  let detach: (() => void) | null = null;
+
+  const disarm = (): void => {
+    detach?.();
+    detach = null;
+  };
+
+  return {
+    arm: () => {
+      disarm();
+      const handleClick = (event: Event): void => {
+        suppressed.add(event);
+        disarm();
+      };
+      const handleKeyDown = (event: KeyboardEvent): void => {
+        // Escape はキャンセル操作そのもの（キーリピートを含む）なので予約を維持する
+        if (event.key !== 'Escape') {
+          disarm();
+        }
+      };
+      // キャプチャ段階で受けることで、伝播を止める要素（予定・リサイズハンドル等）に
+      // 届く click も必ず観測し、各要素の onClick より先に記録する
+      document.addEventListener('click', handleClick, true);
+      document.addEventListener('pointerdown', disarm, true);
+      document.addEventListener('keydown', handleKeyDown, true);
+      detach = () => {
+        document.removeEventListener('click', handleClick, true);
+        document.removeEventListener('pointerdown', disarm, true);
+        document.removeEventListener('keydown', handleKeyDown, true);
+      };
+    },
+    shouldSuppress: (nativeEvent) => suppressed.has(nativeEvent),
+    dispose: () => {
+      disarm();
+      suppressed = new WeakSet<Event>();
+    },
   };
 }
 

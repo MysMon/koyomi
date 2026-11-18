@@ -78,12 +78,14 @@ import {
   allDayPatchRange,
   attachDragSessionListeners,
   autoScrollVelocity,
+  type ClickSuppressor,
   captureOccurrenceDeleteFocusContext,
   checkBeforeEventChange,
   checkBeforeEventDelete,
   checkBeforeSelectRange,
   collectOverlapBlockersInRange,
   createAutoScrollLoop,
+  createClickSuppressor,
   createCreatedEventFocusController,
   createDefaultEvent,
   createOccurrenceDeleteFocusController,
@@ -312,8 +314,12 @@ export function useTimelineDrag(params: {
   const overlapCacheRef = useRef(createOverlapBlockerCache());
   /** 進行中のドラッグセッション（非ドラッグ中は `null`）。 */
   const dragSessionRef = useRef<DragSession | null>(null);
-  /** 直後の click イベントを 1 回だけ抑制するフラグ。 */
-  const suppressNextClickRef = useRef(false);
+  /** ドラッグ確定・Escape キャンセル直後の click を 1 回だけ抑止する管理オブジェクト。 */
+  const clickSuppressorRef = useRef<ClickSuppressor | null>(null);
+  if (clickSuppressorRef.current === null) {
+    clickSuppressorRef.current = createClickSuppressor();
+  }
+  const clickSuppressor = clickSuppressorRef.current;
   /** キーボード削除後のフォーカス復帰を管理するコントローラ（本フック内で使い回す）。 */
   const deleteFocusControllerRef = useRef(createOccurrenceDeleteFocusController());
   /** キーボード作成による既定即時作成後のフォーカス移動を管理するコントローラ。 */
@@ -324,8 +330,9 @@ export function useTimelineDrag(params: {
     return () => {
       dragSessionRef.current?.cleanup();
       dragSessionRef.current = null;
+      clickSuppressor.dispose();
     };
-  }, []);
+  }, [clickSuppressor]);
 
   // キーボード削除・キーボード作成の確定後、DOM 更新完了後（再レンダー後）に一度だけ
   // フォーカス解決を試みる（`virtual-resource-view.tsx` の pinned フォーカス復元と同じ
@@ -730,7 +737,7 @@ export function useTimelineDrag(params: {
       if (occurrence === null) {
         return;
       }
-      suppressNextClickRef.current = true;
+      clickSuppressor.arm();
 
       const range = computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY);
       if (range === null) {
@@ -949,7 +956,7 @@ export function useTimelineDrag(params: {
       if (nativeEvent.key !== 'Escape') {
         return;
       }
-      suppressNextClickRef.current = true;
+      clickSuppressor.arm();
       cancelSession();
     };
 
@@ -1087,8 +1094,7 @@ export function useTimelineDrag(params: {
 
   /** クリック（ドラッグに至らなかった場合）で `onEventClick` を呼ぶ。 */
   function handleItemClick(occurrence: EventOccurrence, event: ReactMouseEvent<HTMLElement>): void {
-    if (suppressNextClickRef.current) {
-      suppressNextClickRef.current = false;
+    if (clickSuppressor.shouldSuppress(event.nativeEvent)) {
       return;
     }
     paramsRef.current.callbacks?.onEventClick?.(occurrence, event.nativeEvent);
