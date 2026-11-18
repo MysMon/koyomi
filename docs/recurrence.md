@@ -1241,6 +1241,8 @@ const occurrences = calendar.getOccurrences({
 `timeZone` → 表示タイムゾーン」の順にフォールバックします。マスターに明示的な
 `timeZone` を設定している場合、オーバーライド側で `timeZone` を省略しても
 マスターと同じ現地時刻の解釈になります（展開時・編集時とも同じ規則）。
+終日のマスターに属するオーバーライドの `originalStart` を `Date` で渡す場合も、
+同じ順で決まるタイムゾーンにおける日付として読みます。
 
 ## RDATE — パターン外のオカレンスを追加する（rdates）
 

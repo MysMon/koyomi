@@ -268,18 +268,15 @@ function parseOriginalStart(
 /**
  * 終日マスターに属するオーバーライドの本来の日付キーを返す。
  *
- * 内部生成する `originalStart` は日付キー文字列だが、既存データとの互換のため
- * `Date` も受け付ける。`Date` は {@link EventOccurrence.originalStart} と同じ
- * 「表示タイムゾーンへ投影済みの 0:00」として日付キーを取り出す。
+ * 内部生成する `originalStart` は日付キー文字列だが、`Date` も受け付ける。
+ * どちらも展開時（expansion.ts）と同じく「オーバーライド TZ → マスター TZ → 表示 TZ」
+ * の順で決まるタイムゾーンにおける日付として読む。
  */
 function overrideAllDayAnchorKey(
   event: CalendarEvent,
   context: MutationReadContext,
   master: CalendarEvent,
 ): string {
-  if (event.originalStart instanceof Date) {
-    return dateKeyInZone(event.originalStart, context.displayTimeZone);
-  }
   if (event.originalStart !== undefined) {
     return allDayKeyFromValue(event.originalStart, resolveTimeZone(event, context, master));
   }

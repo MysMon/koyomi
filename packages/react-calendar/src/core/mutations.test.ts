@@ -1281,6 +1281,72 @@ describe('オーバーライドの日時解釈: マスターの timeZone にフ�
     expect(result).toHaveLength(2);
     expect(findById(result, 'ny-ov').title).toBe('再変更');
   });
+
+  describe('終日マスターのオーバーライドが originalStart を Date で持つ場合', () => {
+    // マスターは NY の終日繰り返し、表示 TZ は Los Angeles。
+    // originalStart の 04:00Z は NY（EDT）の 7/3 0:00 で、マスター TZ では 7/3 を指す
+    // （表示 TZ の Los Angeles では 7/2 21:00 になるため、表示 TZ で読むと 1 日ずれる）
+    const LA = 'America/Los_Angeles';
+    const allDayMaster: CalendarEvent = {
+      id: 'ny-all-day',
+      title: 'NY 終日',
+      start: '2026-07-01',
+      allDay: true,
+      timeZone: NY,
+      rrule: 'FREQ=DAILY;COUNT=5',
+    };
+    const allDayOverride: CalendarEvent = {
+      id: 'ny-all-day-ov',
+      title: '変更済み',
+      start: '2026-07-03',
+      allDay: true,
+      recurringEventId: 'ny-all-day',
+      originalStart: new Date('2026-07-03T04:00:00Z'),
+    };
+
+    /** 表示 TZ（Los Angeles）で展開し、「タイトル:日」の並びを返す。 */
+    function expandedDays(events: readonly CalendarEvent[]): string[] {
+      return expandEvents({
+        events,
+        range: { start: new Date('2026-06-30T00:00:00Z'), end: new Date('2026-07-10T00:00:00Z') },
+        displayTimeZone: LA,
+        defaultEventMinutes: 60,
+      }).map((occurrence) => `${occurrence.event.title}:${getWallClock(occurrence.start, LA).day}`);
+    }
+
+    it('展開時はマスター TZ の日付（7/3）のオカレンスを置き換える', () => {
+      expect(expandedDays([allDayMaster, allDayOverride])).toEqual([
+        'NY 終日:1',
+        'NY 終日:2',
+        '変更済み:3',
+        'NY 終日:4',
+        'NY 終日:5',
+      ]);
+    });
+
+    it('deleteEventIn: オーバーライド ID での削除は、展開時と同じ日付（7/3）を除外する', () => {
+      const result = deleteEventIn(
+        [allDayMaster, allDayOverride],
+        'ny-all-day-ov',
+        undefined,
+        makeContext({ displayTimeZone: LA }),
+      );
+      expect(findById(result, 'ny-all-day').exdates).toEqual(['2026-07-03']);
+      expect(expandedDays(result)).toEqual(['NY 終日:1', 'NY 終日:2', 'NY 終日:4', 'NY 終日:5']);
+    });
+
+    it("deleteEventIn: マスター ID + 'this' が展開時と同じ日付で既存オーバーライドを照合して取り除く", () => {
+      const result = deleteEventIn(
+        [allDayMaster, allDayOverride],
+        'ny-all-day',
+        // 表示 TZ（Los Angeles）における 7/3 0:00（PDT = UTC-7）
+        { occurrenceStart: new Date('2026-07-03T07:00:00Z'), scope: 'this' },
+        makeContext({ displayTimeZone: LA }),
+      );
+      expect(result.some((event) => event.id === 'ny-all-day-ov')).toBe(false);
+      expect(expandedDays(result)).toEqual(['NY 終日:1', 'NY 終日:2', 'NY 終日:4', 'NY 終日:5']);
+    });
+  });
 });
 
 describe('deleteEventIn: 単発イベント', () => {
