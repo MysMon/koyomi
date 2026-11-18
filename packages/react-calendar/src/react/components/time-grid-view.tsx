@@ -33,7 +33,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   Ref,
 } from 'react';
-import { memo, useCallback, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useImperativeHandle, useLayoutEffect, useRef } from 'react';
 import { addDaysInZone, startOfDayInZone } from '../../core/timezone';
 import type {
   BusinessHourSlot,
@@ -51,6 +51,7 @@ import { useCalendarContext } from '../context';
 import type { CommonMessages } from '../locales/types';
 import { scrollContainerToTime } from '../scroll-to-time';
 import type {
+  CalendarInteractionCallbacks,
   EventContentContext,
   EventContentRenderer,
   MonthOverflowButtonProps,
@@ -74,6 +75,7 @@ import {
   withTimegridHoursStyle,
 } from './month-view-parts';
 import { sameOccurrence } from './occurrence-equality';
+import { useStableHandlers } from './stable-handlers';
 
 /** 1 日の分（24:00）。 */
 const MINUTES_PER_DAY = 1440;
@@ -423,18 +425,23 @@ interface TimeGridColumnDragHandlers {
 /**
  * `useTimeGridDrag` の戻り値は毎レンダー新しいオブジェクト（関数含む）になるため、
  * そのまま `memo` 化した子コンポーネントの props に渡すと再レンダー抑制が効かない。
- * ここで参照が変わらないラッパーを 1 度だけ作り、呼び出し時に ref 経由で常に最新の
+ * ここで参照が変わらないラッパーを作り（作り直す条件は `useStableHandlers` を参照）、呼び出し時に ref 経由で常に最新の
  * ハンドラへ委譲することで、props の同一性を保ったまま最新の挙動を保証する。
  */
-function useStableColumnDrag(drag: TimeGridDragHandlers): TimeGridColumnDragHandlers {
+function useStableColumnDrag(
+  drag: TimeGridDragHandlers,
+  callbacks: CalendarInteractionCallbacks,
+): TimeGridColumnDragHandlers {
   const dragRef = useRef(drag);
   dragRef.current = drag;
-  const [stable] = useState<TimeGridColumnDragHandlers>(() => ({
-    getDayProps: (day) => dragRef.current.getDayProps(day),
-    getEventProps: (item) => dragRef.current.getEventProps(item),
-    getResizeHandleProps: (item, edge) => dragRef.current.getResizeHandleProps(item, edge),
-  }));
-  return stable;
+  return useStableHandlers<TimeGridColumnDragHandlers>(
+    () => ({
+      getDayProps: (day) => dragRef.current.getDayProps(day),
+      getEventProps: (item) => dragRef.current.getEventProps(item),
+      getResizeHandleProps: (item, edge) => dragRef.current.getResizeHandleProps(item, edge),
+    }),
+    callbacks,
+  );
 }
 
 /** `TimeSlot` 配列の内容が等しいかどうかを比較する。 */
@@ -601,7 +608,7 @@ export function TimeGridView(props: TimeGridViewProps): ReactElement | null {
   });
   // `timeGridDrag` は毎レンダー新しいオブジェクトになるため、日列・イベントボタンの
   // memo 化が効くよう、参照が変わらないラッパー経由で渡す（詳細は関数コメント参照）。
-  const stableDrag = useStableColumnDrag(timeGridDrag);
+  const stableDrag = useStableColumnDrag(timeGridDrag, callbacks);
 
   const bodyRef = useRef<HTMLDivElement>(null);
 

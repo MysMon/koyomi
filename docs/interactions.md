@@ -186,7 +186,7 @@ function App() {
 
 **`onEventContextMenu` は `preventDefault` しません**: ライブラリはコールバックを呼ぶだけで、ブラウザ既定のコンテキストメニューの抑制は行いません。カスタムメニューを出す場合はアプリ側で `nativeEvent.preventDefault()` を呼んでください。
 
-**未指定時は DOM リスナー自体を付けない**: これら 4 つはいずれも省略可能で、省略した場合は対応する要素に `onDoubleClick` / `onContextMenu` / `onPointerEnter` / `onPointerLeave` の DOM props 自体が付きません。
+**未指定時は DOM リスナー自体を付けない**: これら 4 つはいずれも省略可能で、省略した場合は対応する要素に `onDoubleClick` / `onContextMenu` / `onPointerEnter` / `onPointerLeave` の DOM props 自体が付きません。コールバックを後から追加・削除した場合は、その再レンダーで DOM props も増減します。関数を差し替えた場合（毎レンダー新しい関数を渡す場合を含む）は、常に最新のコールバックが呼ばれます。
 
 ## リソースビュー・タイムラインビューのドラッグ操作
 

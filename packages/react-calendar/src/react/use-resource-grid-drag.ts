@@ -1814,7 +1814,7 @@ export function useResourceGridDrag(params: {
       },
       tabIndex: 0,
       'data-koyomi-occurrence': occurrence.key,
-      ...eventNotificationProps(paramsRef.current.callbacks, occurrence),
+      ...eventNotificationProps(() => paramsRef.current.callbacks, occurrence),
     };
     if (dragSessionRef.current?.occurrence?.key === occurrence.key) {
       return { ...base, 'data-koyomi-dragging': 'true' };

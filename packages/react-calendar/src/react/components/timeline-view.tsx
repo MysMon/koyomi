@@ -106,7 +106,7 @@ export function TimelineView(props: TimelineViewProps): ReactElement | null {
   });
   // `drag` は毎レンダー新しいオブジェクトになるため、行の memo 化が効くよう、
   // 参照が変わらないラッパー経由で渡す（詳細は関数コメント参照）。
-  const stableDrag = useStableTimelineDrag(drag);
+  const stableDrag = useStableTimelineDrag(drag, callbacks);
   // api の参照は再レンダリングを跨いで安定するため、onToggleCollapse も安定する
   // （行の memo 化が効くようにする。stableDrag と同じ狙い）。
   const onToggleCollapse = useCallback(

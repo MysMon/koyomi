@@ -1612,3 +1612,81 @@ describe('TimeGridView - イベント内容の更新と再レンダー抑制', (
     expect(sink.current?.api.getEvents()[0]?.start).toBe('2026-07-15T10:00');
   });
 });
+
+describe('TimeGridView - 追加通知コールバックの差し替え', () => {
+  const EVENTS: readonly CalendarEvent[] = [
+    { id: 'a', title: 'A', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+  ];
+
+  /** 対象の予定要素を取得する。 */
+  function eventElement(container: HTMLElement): HTMLElement {
+    const element = container.querySelector<HTMLElement>('[data-koyomi-occurrence]');
+    if (element === null) {
+      throw new Error('予定要素が見つかりません');
+    }
+    return element;
+  }
+
+  it('callbacks を差し替えた後のダブルクリックは、差し替え後の onEventDoubleClick だけを呼ぶ', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const { container, rerender } = render(
+      <Harness initialView="day" events={EVENTS} callbacks={{ onEventDoubleClick: first }} />,
+    );
+    rerender(
+      <Harness initialView="day" events={EVENTS} callbacks={{ onEventDoubleClick: second }} />,
+    );
+
+    fireEvent.doubleClick(eventElement(container));
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('後から onEventContextMenu を指定すると予定要素に配線され、指定を外すと呼ばれなくなる', () => {
+    const onEventContextMenu = vi.fn();
+    const { container, rerender } = render(
+      <Harness initialView="day" events={EVENTS} callbacks={{}} />,
+    );
+
+    rerender(<Harness initialView="day" events={EVENTS} callbacks={{ onEventContextMenu }} />);
+    fireEvent.contextMenu(eventElement(container));
+    expect(onEventContextMenu).toHaveBeenCalledTimes(1);
+
+    rerender(<Harness initialView="day" events={EVENTS} callbacks={{}} />);
+    fireEvent.contextMenu(eventElement(container));
+    expect(onEventContextMenu).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('TimeGridView - callbacks の差し替えと再レンダー抑制', () => {
+  it('追加通知コールバックの有無が変わらない callbacks の差し替えでは、予定ボタンは再レンダーされない（renderEvent の呼び出し回数で確認する性能ピン留め）', () => {
+    const events: readonly CalendarEvent[] = [
+      { id: 'a', title: 'A', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+    ];
+    const renderEvent = vi.fn((item: PositionedOccurrence) => (
+      <span>{item.occurrence.event.title}</span>
+    ));
+    const viewProps = { renderEvent };
+    const { rerender } = render(
+      <Harness
+        initialView="day"
+        events={events}
+        viewProps={viewProps}
+        callbacks={{ onEventDoubleClick: () => {} }}
+      />,
+    );
+    const before = renderEvent.mock.calls.length;
+
+    rerender(
+      <Harness
+        initialView="day"
+        events={events}
+        viewProps={viewProps}
+        callbacks={{ onEventDoubleClick: () => {} }}
+      />,
+    );
+
+    expect(renderEvent.mock.calls.length).toBe(before);
+  });
+});

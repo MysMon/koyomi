@@ -36,6 +36,8 @@
  *   document リスナー配線・解除（3フック共通）
  * - {@link createClickSuppressor} — ドラッグ確定・Escape キャンセル直後の click を
  *   1 回だけ抑止する管理（4フック共通。`use-day-drag.ts` を含む）
+ * - {@link eventNotificationSignature} — 追加通知系コールバックの指定の有無の組み合わせ
+ *   （`memo` 化した予定要素へ DOM props の増減を反映するための判定値）
  * - {@link eventNotificationProps} — 追加通知系ハンドラ（`onEventDoubleClick` /
  *   `onEventContextMenu` / `onEventHover` / `onEventHoverEnd`）の配線
  *   （3フックに加え `use-day-drag.ts` と `list-view-parts.tsx` も含む 5 箇所共通）
@@ -701,40 +703,68 @@ export interface EventNotificationProps {
  * スプレッドすることで、各ビューの「省略時は DOM props を追加しない」という仕様を
  * 1 箇所の実装で保証する。
  *
- * @param callbacks - インタラクションコールバック
+ * キーの有無は本関数の呼び出し時点（＝予定要素のレンダー時）のコールバックで決まり、
+ * 各ハンドラは**発火時点**で `getCallbacks` を読み直す。予定要素は `memo` で
+ * 再レンダーを抑制しているため、レンダー時のコールバックを閉じ込めると、利用側が
+ * 差し替えた後も古いコールバックを呼び続けてしまう。キーの有無が変わる場合
+ * （コールバックの追加・削除）は、{@link eventNotificationSignature} の変化を
+ * きっかけに予定要素を再レンダーさせて反映する。
+ *
+ * @param getCallbacks - 最新のインタラクションコールバックを返す関数
+ *   （フックでは常に最新値を保持する ref を読む）
  * @param occurrence - 対象のオカレンス
  * @returns 追加通知系ハンドラ（該当コールバック未指定のキーは含まない）
  */
 export function eventNotificationProps(
-  callbacks: CalendarInteractionCallbacks | undefined,
+  getCallbacks: () => CalendarInteractionCallbacks | undefined,
   occurrence: EventOccurrence,
 ): EventNotificationProps {
   const props: EventNotificationProps = {};
-  const onEventDoubleClick = callbacks?.onEventDoubleClick;
-  if (onEventDoubleClick !== undefined) {
+  const callbacks = getCallbacks();
+  if (callbacks?.onEventDoubleClick !== undefined) {
     props.onDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
-      onEventDoubleClick(occurrence, event.nativeEvent);
+      getCallbacks()?.onEventDoubleClick?.(occurrence, event.nativeEvent);
     };
   }
-  const onEventContextMenu = callbacks?.onEventContextMenu;
-  if (onEventContextMenu !== undefined) {
+  if (callbacks?.onEventContextMenu !== undefined) {
     props.onContextMenu = (event: ReactMouseEvent<HTMLElement>) => {
-      onEventContextMenu(occurrence, event.nativeEvent);
+      getCallbacks()?.onEventContextMenu?.(occurrence, event.nativeEvent);
     };
   }
-  const onEventHover = callbacks?.onEventHover;
-  if (onEventHover !== undefined) {
+  if (callbacks?.onEventHover !== undefined) {
     props.onPointerEnter = (event: ReactPointerEvent<HTMLElement>) => {
-      onEventHover(occurrence, event.nativeEvent);
+      getCallbacks()?.onEventHover?.(occurrence, event.nativeEvent);
     };
   }
-  const onEventHoverEnd = callbacks?.onEventHoverEnd;
-  if (onEventHoverEnd !== undefined) {
+  if (callbacks?.onEventHoverEnd !== undefined) {
     props.onPointerLeave = (event: ReactPointerEvent<HTMLElement>) => {
-      onEventHoverEnd(occurrence, event.nativeEvent);
+      getCallbacks()?.onEventHoverEnd?.(occurrence, event.nativeEvent);
     };
   }
   return props;
+}
+
+/**
+ * 追加通知系コールバック（`onEventDoubleClick` / `onEventContextMenu` /
+ * `onEventHover` / `onEventHoverEnd`）の「指定の有無の組み合わせ」を表す値を返す。
+ *
+ * {@link eventNotificationProps} が返すキーの集合はこの組み合わせだけで決まる。
+ * 関数の参照が変わっただけでは値は変わらず、コールバックが追加・削除されたときだけ
+ * 変わるため、`memo` 化した予定要素を「DOM props の増減が必要なときだけ」
+ * 再レンダーさせる判定に使う（`components/stable-handlers.ts`）。
+ *
+ * @param callbacks - インタラクションコールバック
+ * @returns 組み合わせごとに異なる整数（4 ビットのビット集合）
+ */
+export function eventNotificationSignature(
+  callbacks: CalendarInteractionCallbacks | undefined,
+): number {
+  return (
+    (callbacks?.onEventDoubleClick !== undefined ? 1 : 0) |
+    (callbacks?.onEventContextMenu !== undefined ? 2 : 0) |
+    (callbacks?.onEventHover !== undefined ? 4 : 0) |
+    (callbacks?.onEventHoverEnd !== undefined ? 8 : 0)
+  );
 }
 
 /** {@link createDefaultEvent} の `defaultEventTitle` 省略時に使う既定タイトル。 */

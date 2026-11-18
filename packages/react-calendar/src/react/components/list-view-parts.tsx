@@ -319,7 +319,7 @@ function ListDaySectionImpl(props: ListDaySectionProps): ReactElement {
         {...(extra.pinned === true ? { 'data-koyomi-pinned': 'true' } : {})}
         {...(extra.style !== undefined ? { style: extra.style } : {})}
         {...(eventTabbable === false || extra.pinned === true ? { tabIndex: -1 } : {})}
-        {...eventNotificationProps(callbacks, occurrence)}
+        {...eventNotificationProps(() => callbacks, occurrence)}
       >
         {resolveEventContent(renderEvent, renderEventContent, occurrence, occurrence, ctx)}
       </button>

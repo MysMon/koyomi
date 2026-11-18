@@ -61,6 +61,7 @@ import { isDevBuild } from '../is-dev-build';
 import type { CommonMessages } from '../locales/types';
 import { scrollContainerToTime } from '../scroll-to-time';
 import type {
+  CalendarInteractionCallbacks,
   EventContentContext,
   EventContentRenderer,
   MonthOverflowButtonProps,
@@ -94,6 +95,7 @@ import {
   sameSlots,
   toDivRef,
 } from './resource-view-parts';
+import { useStableHandlers } from './stable-handlers';
 import { AllDayOverflowButton } from './time-grid-view';
 
 /** `columnWidth` 省略時の列幅（px、既定テーマの `--koyomi-resource-column-width` と同じ値）。 */
@@ -221,17 +223,22 @@ interface ResourceColumnDragHandlers {
   getAllDayCellProps: ResourceGridDragHandlers['getAllDayCellProps'];
 }
 
-function useStableResourceDrag(drag: ResourceGridDragHandlers): ResourceColumnDragHandlers {
+function useStableResourceDrag(
+  drag: ResourceGridDragHandlers,
+  callbacks: CalendarInteractionCallbacks,
+): ResourceColumnDragHandlers {
   const dragRef = useRef(drag);
   dragRef.current = drag;
-  const [stable] = useState<ResourceColumnDragHandlers>(() => ({
-    getColumnProps: (column) => dragRef.current.getColumnProps(column),
-    getEventProps: (item) => dragRef.current.getEventProps(item),
-    getResizeHandleProps: (item, edge) => dragRef.current.getResizeHandleProps(item, edge),
-    getAllDayItemProps: (occurrence) => dragRef.current.getAllDayItemProps(occurrence),
-    getAllDayCellProps: (column) => dragRef.current.getAllDayCellProps(column),
-  }));
-  return stable;
+  return useStableHandlers<ResourceColumnDragHandlers>(
+    () => ({
+      getColumnProps: (column) => dragRef.current.getColumnProps(column),
+      getEventProps: (item) => dragRef.current.getEventProps(item),
+      getResizeHandleProps: (item, edge) => dragRef.current.getResizeHandleProps(item, edge),
+      getAllDayItemProps: (occurrence) => dragRef.current.getAllDayItemProps(occurrence),
+      getAllDayCellProps: (column) => dragRef.current.getAllDayCellProps(column),
+    }),
+    callbacks,
+  );
 }
 
 /**
@@ -940,7 +947,7 @@ export function VirtualResourceView(props: VirtualResourceViewProps): ReactEleme
     callbacks,
     defaultEventTitle: commonMessages.untitledEvent,
   });
-  const stableDrag = useStableResourceDrag(drag);
+  const stableDrag = useStableResourceDrag(drag, callbacks);
 
   const columns: readonly ResourceColumn[] = viewModel.type === 'resource' ? viewModel.columns : [];
   // viewModel.type !== 'resource'（早期 return 前）でもフックは無条件に呼ぶ必要があるため、

@@ -1090,7 +1090,7 @@ export function useDayDrag(params: {
       },
       tabIndex: 0,
       'data-koyomi-occurrence': occurrence.key,
-      ...eventNotificationProps(callbacksRef.current, occurrence),
+      ...eventNotificationProps(() => callbacksRef.current, occurrence),
     };
     return isDraggingThis ? { ...base, 'data-koyomi-dragging': 'true' } : base;
   }

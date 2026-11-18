@@ -1585,3 +1585,57 @@ describe('ResourceView - イベント内容の更新と再レンダー抑制', (
     expect(callsFor('c')).toBe(before.c);
   });
 });
+
+describe('ResourceView - 追加通知コールバックの差し替え', () => {
+  const EVENTS: readonly CalendarEvent[] = [
+    {
+      id: 'a',
+      title: 'A',
+      start: '2026-07-15T10:00',
+      end: '2026-07-15T11:00',
+      resourceId: 'room-a',
+    },
+  ];
+
+  const RESOURCES: readonly CalendarResource[] = [ROOM_A];
+
+  /** 対象の予定要素を取得する。 */
+  function eventElement(container: HTMLElement): HTMLElement {
+    const element = container.querySelector<HTMLElement>('[data-koyomi-occurrence]');
+    if (element === null) {
+      throw new Error('予定要素が見つかりません');
+    }
+    return element;
+  }
+
+  it('callbacks を差し替えた後のダブルクリックは、差し替え後の onEventDoubleClick だけを呼ぶ', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const { container, rerender } = render(
+      <Harness resources={RESOURCES} events={EVENTS} callbacks={{ onEventDoubleClick: first }} />,
+    );
+    rerender(
+      <Harness resources={RESOURCES} events={EVENTS} callbacks={{ onEventDoubleClick: second }} />,
+    );
+
+    fireEvent.doubleClick(eventElement(container));
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('後から onEventContextMenu を指定すると予定要素に配線され、指定を外すと呼ばれなくなる', () => {
+    const onEventContextMenu = vi.fn();
+    const { container, rerender } = render(
+      <Harness resources={RESOURCES} events={EVENTS} callbacks={{}} />,
+    );
+
+    rerender(<Harness resources={RESOURCES} events={EVENTS} callbacks={{ onEventContextMenu }} />);
+    fireEvent.contextMenu(eventElement(container));
+    expect(onEventContextMenu).toHaveBeenCalledTimes(1);
+
+    rerender(<Harness resources={RESOURCES} events={EVENTS} callbacks={{}} />);
+    fireEvent.contextMenu(eventElement(container));
+    expect(onEventContextMenu).toHaveBeenCalledTimes(1);
+  });
+});
