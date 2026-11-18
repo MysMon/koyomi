@@ -17,7 +17,10 @@
  *   `COUNT` は消化済み回数を差し引いて引き継ぐ。対象オカレンス以降の
  *   オーバーライド・EXDATE は新イベントに付け替える。
  *   対象が最初のオカレンスの場合は「すべての予定」と同じ扱いになる。
- * - **すべて（`all`）** — 元イベント自体を変更する。既存のオーバーライドは維持される。
+ * - **すべて（`all`）** — シリーズ全体を変更する。既存のオーバーライドの内容は維持される。
+ *   patch の `start` / `end` は対象オカレンスの変更後の日時を表し、対象が最初以外の
+ *   オカレンスなら変更前後の差だけ起点を動かす。開始が動く場合は除外・追加・
+ *   オーバーライドの `originalStart`・RRULE の開始に連動する指定も同じだけ動かす。
  *
  * ## パッチ適用規則
  *
@@ -27,6 +30,7 @@
  */
 
 import { countOccurrencesBefore, normalizeRRuleString, truncateRRule } from './recurrence';
+import { shiftRRuleForStart } from './rrule-shift';
 import {
   addDaysInZone,
   dateFromKey,
@@ -544,6 +548,146 @@ function updateThisOccurrence(
   return [...events, buildOverride(master, patch, occurrenceStart, context)];
 }
 
+/** 現地時刻（UTC ミリ秒として組み立てた値）の日の開始。 */
+function floorWallToDay(wallMs: number): number {
+  return Math.floor(wallMs / DAY_MS) * DAY_MS;
+}
+
+/**
+ * 繰り返しのシリーズ全体へ patch を適用する（`scope: 'all'`、および最初のオカレンスへの
+ * `'thisAndFollowing'`）。
+ *
+ * patch の `start` / `end` は「対象オカレンス（`occurrenceStart`）の変更後の日時」を表す。
+ * 対象が最初のオカレンスでない場合にそのままマスターへ書くと、繰り返しの起点が
+ * 対象オカレンスの日へ移ってしまう（それより前のオカレンスが消える）。そのため、
+ * 対象オカレンスの変更前後の差を取り、マスターの起点を同じ現地時刻差（終日は日数）
+ * だけ動かす。対象が最初のオカレンスなら patch の値をそのまま使う。
+ *
+ * 開始が動いた場合は、除外（`exdates`）・追加（`rdates`）・オーバーライドの
+ * `originalStart`・RRULE の開始に連動する指定（{@link shiftRRuleForStart}）も
+ * 同じだけ動かし、削除済みオカレンスの復活やオカレンスの二重表示を防ぐ。
+ * オーバーライド自身の `start` / `end` は変えない。
+ *
+ * 日時を含まない patch、`timeZone` を変える patch はそのまま適用する。
+ * 終日 ⇔ 時間指定の変換では起点の日付だけを保ち、除外・追加・オーバーライドは動かさない。
+ */
+function updateWholeSeries(
+  events: readonly CalendarEvent[],
+  master: CalendarEvent,
+  patch: CalendarEventPatch,
+  occurrenceStart: Date,
+  context: MutationContext,
+): CalendarEvent[] {
+  const touchesDates = patch.start !== undefined || patch.end !== undefined || 'allDay' in patch;
+  if (!touchesDates || 'timeZone' in patch) {
+    return mapPatch(events, master.id, patch);
+  }
+  const timeZone = resolveTimeZone(master, context);
+  const masterAllDay = master.allDay === true;
+  // 対象オカレンスがオーバーライド済みなら、画面上で操作されたのはオーバーライドの日時。
+  // 終日の区分がマスターと異なるオーバーライドは差を取れないため、本来のオカレンスを基準にする
+  const found = findOverrideFor(events, master, occurrenceStart, context);
+  const override =
+    found !== undefined && (found.allDay === true) === masterAllDay ? found : undefined;
+
+  // 対象オカレンスを「そのオカレンスから始まるマスター」とみなした仮のイベントと、
+  // 対象オカレンス・マスターの起点それぞれの現地時刻
+  let view: CalendarEvent;
+  let referenceWall: number;
+  let masterWall: number;
+  if (masterAllDay) {
+    const referenceKey =
+      override !== undefined
+        ? allDayKeyFromValue(override.start, resolveTimeZone(override, context, master))
+        : targetAllDayKey(occurrenceStart, context);
+    view = { ...master, start: referenceKey };
+    if (override?.end !== undefined) {
+      view.end = addDaysToKey(referenceKey, occurrenceDayCount(override, context, master));
+    } else if (master.end !== undefined) {
+      view.end = addDaysToKey(referenceKey, occurrenceDayCount(master, context));
+    }
+    referenceWall = dateFromKey(referenceKey, DATE_KEY_ZONE).getTime();
+    masterWall = dateFromKey(allDayKeyFromValue(master.start, timeZone), DATE_KEY_ZONE).getTime();
+  } else {
+    const referenceStart =
+      override !== undefined ? parseStart(override, context, master) : occurrenceStart;
+    view = { ...master, start: new Date(referenceStart.getTime()) };
+    if (override?.end !== undefined) {
+      view.end = new Date(
+        referenceStart.getTime() + occurrenceDurationMs(override, context, master),
+      );
+    } else if (master.end !== undefined) {
+      view.end = new Date(referenceStart.getTime() + occurrenceDurationMs(master, context));
+    }
+    referenceWall = wallMsInZone(referenceStart, timeZone);
+    masterWall = wallMsInZone(parseStart(master, context), timeZone);
+  }
+
+  const probe = applyPatch(view, patch);
+  const probeAllDay = probe.allDay === true;
+  const probeWall = probeAllDay
+    ? dateFromKey(allDayKeyFromValue(probe.start, timeZone), DATE_KEY_ZONE).getTime()
+    : wallMsInZone(parseStart(probe, context), timeZone);
+
+  // 対象オカレンスからマスターの起点までの差だけ、変更後の日時を巻き戻す
+  const offsetWall = masterWall - referenceWall;
+  let next: CalendarEvent;
+  if (offsetWall === 0) {
+    next = applyPatch(master, patch);
+  } else if (probeAllDay) {
+    const offsetDays = Math.round(
+      (floorWallToDay(masterWall) - floorWallToDay(referenceWall)) / DAY_MS,
+    );
+    const startKey = addDaysToKey(allDayKeyFromValue(probe.start, timeZone), offsetDays);
+    next = { ...probe, start: startKey };
+    if (probe.end !== undefined) {
+      next.end = addDaysToKey(startKey, occurrenceDayCount(probe, context));
+    }
+  } else {
+    const start = shiftInZone(parseStart(probe, context), offsetWall, timeZone);
+    next = { ...probe, start };
+    if (probe.end !== undefined) {
+      next.end = new Date(start.getTime() + occurrenceDurationMs(probe, context));
+    }
+  }
+
+  const wallDelta = probeWall - referenceWall;
+  if (wallDelta === 0 || probeAllDay !== masterAllDay) {
+    return events.map((event) => (event.id === master.id ? next : event));
+  }
+
+  // 開始が動いた: 除外・追加・オーバーライドの originalStart・RRULE を同じだけ動かす
+  const dayDelta = Math.round(wallDelta / DAY_MS);
+  const shiftValue = (value: Date | string): Date | string =>
+    masterAllDay
+      ? addDaysToKey(allDayKeyFromValue(value, timeZone), dayDelta)
+      : shiftInZone(parseDateValue(value, timeZone, false), wallDelta, timeZone);
+  if (!('exdates' in patch) && master.exdates !== undefined) {
+    next = withExdates(next, master.exdates.map(shiftValue));
+  }
+  if (!('rdates' in patch) && master.rdates !== undefined) {
+    next = withRdates(next, master.rdates.map(shiftValue));
+  }
+  if (!('rrule' in patch) && master.rrule !== undefined) {
+    next = { ...next, rrule: shiftRRuleForStart(master.rrule, masterWall, masterWall + wallDelta) };
+  }
+  const shifted = next;
+  return events.map((event) => {
+    if (event.id === master.id) {
+      return shifted;
+    }
+    if (event.recurringEventId !== master.id) {
+      return event;
+    }
+    return {
+      ...event,
+      originalStart: masterAllDay
+        ? addDaysToKey(overrideAllDayAnchorKey(event, context, master), dayDelta)
+        : shiftInZone(overrideAnchor(event, context, master), wallDelta, timeZone),
+    };
+  });
+}
+
 /** 終日 RRULE シリーズを日付キー基準で「これ以降」に分割する。 */
 function splitAllDaySeries(
   events: readonly CalendarEvent[],
@@ -557,7 +701,7 @@ function splitAllDaySeries(
   const masterStartKey = allDayKeyFromValue(master.start, timeZone);
   const splitKey = targetAllDayKey(splitPoint, context);
   if (splitKey === masterStartKey) {
-    return mapPatch(events, master.id, patch);
+    return updateWholeSeries(events, master, patch, splitPoint, context);
   }
 
   // patch が開始日を動かす場合、付け替える EXDATE・RDATE・オーバーライドの
@@ -622,6 +766,12 @@ function splitAllDaySeries(
   if (master.end !== undefined) {
     base.end = addDaysToKey(splitKey, occurrenceDayCount(master, context));
   }
+  if (dayDelta !== 0 && base.rrule !== undefined) {
+    // 開始日を動かす分割では、新シリーズの UNTIL・曜日指定なども同じ日数だけ動かす
+    // （patch が rrule を指定していれば、この後の applyPatch でそちらに置き換わる）
+    const splitWall = recurrenceSplit.getTime();
+    base.rrule = shiftRRuleForStart(base.rrule, splitWall, splitWall + dayDelta * DAY_MS);
+  }
   const created = applyPatch(base, patch);
 
   // 分割点以降（>=）のオーバーライドは新シリーズに付け替える。
@@ -668,7 +818,7 @@ function splitSeries(
   }
   const masterStart = parseStart(master, context);
   if (splitPoint.getTime() === masterStart.getTime()) {
-    return mapPatch(events, master.id, patch);
+    return updateWholeSeries(events, master, patch, splitPoint, context);
   }
 
   const timeZone = resolveTimeZone(master, context);
@@ -735,6 +885,12 @@ function splitSeries(
   );
   if (master.end !== undefined) {
     base.end = new Date(splitTime + occurrenceDurationMs(master, context));
+  }
+  if (wallDelta !== 0 && base.rrule !== undefined) {
+    // 開始時刻を動かす分割では、新シリーズの UNTIL・曜日指定なども同じだけ動かす
+    // （patch が rrule を指定していれば、この後の applyPatch でそちらに置き換わる）
+    const splitWall = wallMsInZone(splitPoint, timeZone);
+    base.rrule = shiftRRuleForStart(base.rrule, splitWall, splitWall + wallDelta);
   }
   const created = applyPatch(base, patch);
 
@@ -895,7 +1051,7 @@ function splitRdateSeries(
   context: MutationContext,
 ): CalendarEvent[] {
   if (seriesValueIsAt(master, master.start, splitPoint, context)) {
-    return mapPatch(events, master.id, patch);
+    return updateWholeSeries(events, master, patch, splitPoint, context);
   }
 
   const oldExdates: (Date | string)[] = [];
@@ -1073,7 +1229,7 @@ export function updateEventIn(
   }
 
   if (target.scope === 'all') {
-    return mapPatch(events, id, patch);
+    return updateWholeSeries(events, event, patch, target.occurrenceStart, context);
   }
   if (target.scope === 'this') {
     return updateThisOccurrence(events, event, patch, target.occurrenceStart, context);
