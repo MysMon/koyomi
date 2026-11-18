@@ -736,8 +736,12 @@ export function createCalendar(options?: CalendarOptions): CalendarApi {
     },
 
     today(): void {
+      const nowMs = resolvedOptions.now().getTime();
+      if (nowMs === currentDate.getTime()) {
+        return;
+      }
       // now() の戻り値は呼び出しごとに同一の Date インスタンスであり得るため複製する
-      currentDate = new Date(resolvedOptions.now().getTime());
+      currentDate = new Date(nowMs);
       commit(true);
     },
 

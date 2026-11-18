@@ -332,6 +332,32 @@ describe('createCalendar', () => {
       expect(calendar.getState()).toBe(before);
     });
 
+    it('today は表示中の日時が既に現在日時なら通知されず getState の参照も維持される', () => {
+      const calendar = makeCalendar(); // initialDate = now
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+      const before = calendar.getState();
+
+      calendar.today();
+
+      expect(listener).not.toHaveBeenCalled();
+      expect(calendar.getState()).toBe(before);
+    });
+
+    it('today は表示中の日時が現在日時と異なれば 1 回通知される', () => {
+      const calendar = makeCalendar();
+      calendar.next();
+      const listener = vi.fn();
+      calendar.subscribe(listener);
+      const before = calendar.getState();
+
+      calendar.today();
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(calendar.getState()).not.toBe(before);
+      expect(calendar.getState().currentDate.getTime()).toBe(NOW.getTime());
+    });
+
     it('eventConstraint が同一内容（配列の中身が同じ）なら通知されない', () => {
       const rules: BusinessHoursRule[] = [
         { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' },
