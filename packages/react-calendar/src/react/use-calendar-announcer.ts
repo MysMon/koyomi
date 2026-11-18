@@ -24,7 +24,6 @@ import type {
 } from '../core/types';
 import { formatViewTitle } from './components/format';
 import { formatOccurrenceRangeLabel } from './components/month-view-parts';
-import { createDefaultEvent } from './drag-common';
 import { resolveMessageCatalog } from './locales/resolve';
 import type { EventChangeVerb, MessageCatalogOverrides } from './locales/types';
 import type {
@@ -86,8 +85,8 @@ export interface AnnouncerTargets {
 /** {@link useCalendarAnnouncer} のオプション。 */
 export interface UseCalendarAnnouncerOptions {
   /**
-   * `useCalendar` の戻り値。通知文言の生成（`timeZone` / `locale` / `resources` の解決、
-   * 既定即時作成の代行実行）に使う。
+   * `useCalendar` の戻り値。通知文言の生成（`timeZone` / `locale` / `resources` の解決）と、
+   * ビュー・基準日・表示範囲の変更の購読に使う。
    */
   calendar: UseCalendarResult;
   /** live region の緊急度。既定は `'polite'`（`role="status"`）。`'assertive'` は `role="alert"`。 */
@@ -126,9 +125,10 @@ export interface UseCalendarAnnouncerResult {
    * `CalendarInteractionCallbacks` をラップし、対象イベントの確定後に自動で `announce` する
    * 新しいコールバック集を返す。`CalendarProvider` の `callbacks` に渡す。
    *
-   * `onSelectRange` は常に上書きする（`callbacks.onSelectRange` が未指定のときのみ、
-   * 4 つのドラッグ系フックと同じ既定即時作成（`calendar.api.createEvent`）を代行してから
-   * 通知する。指定済みならそれを呼ぶだけで、通知は行わない＝作成の確定はアプリ側の責務）。
+   * `onSelectRange` は変更しない。`callbacks.onSelectRange` が未指定のときは、
+   * ドラッグ系フックが行う既定即時作成の確定（`onEventCreate`）をラップして通知する
+   * （作成そのものと、キーボード作成後の新規予定へのフォーカス移動はフック側が行う）。
+   * 指定済みのときは既定即時作成が行われないため通知しない（作成の確定はアプリ側の責務）。
    *
    * 安定した関数参照（`useCallback`）を返すため、呼び出し側の `useMemo` 依存に安全に使える。
    */
@@ -305,7 +305,7 @@ export function useCalendarAnnouncer(
       // 通知対象（targets）の判定はラップ関数の構築時ではなく呼び出し時に行う。
       // wrapCallbacks は安定参照として呼び出し側でメモ化される想定のため、
       // 構築時に判定すると announce オプションの後からの切替が反映されない
-      // （onSelectRange の eventCreate 判定と同じ規約に揃える）
+      // （onEventCreate の eventCreate 判定と同じ規約に揃える）
       {
         const original = callbacks?.onEventChange;
         wrapped.onEventChange = (change) => {
@@ -351,36 +351,37 @@ export function useCalendarAnnouncer(
         };
       }
 
-      const originalOnSelectRange = callbacks?.onSelectRange;
-      wrapped.onSelectRange = (selection) => {
-        if (originalOnSelectRange !== undefined) {
-          originalOnSelectRange(selection);
-          return;
-        }
-        const ctx = currentCtx(calendarRef.current);
-        const catalog = resolveMessageCatalog(ctx.locale, messagesRef.current);
-        const created = createDefaultEvent(
-          calendarRef.current.api,
-          selection,
-          catalog.common.untitledEvent,
-          callbacks,
-        );
-        if (targetsRef.current?.eventCreate ?? true) {
-          const rangeLabel = formatOccurrenceRangeLabel(
-            selection.range,
-            selection.allDay,
-            ctx.timeZone,
-            ctx.locale,
-            catalog.common.rangeSeparator,
-          );
-          const resourceLabel = resolveAnnouncerResourceLabel(
-            selection.resourceId,
-            ctx.resources,
-            catalog.announcer.unassignedResource,
-          );
-          announce(catalog.announcer.eventCreated(created, selection, rangeLabel, resourceLabel));
-        }
-      };
+      // 既定即時作成（`onSelectRange` 未指定時）の通知は `onEventCreate` をラップして行う。
+      // `onSelectRange` は上書きしない: 定義してしまうと、ドラッグ系フックからは
+      // 「アプリが作成を引き受けた」ように見え、キーボード作成後に新規予定へフォーカスを
+      // 移す処理（既定即時作成のときだけ行う）が働かなくなる。
+      // `onSelectRange` 指定時は既定即時作成自体が行われないため、ラップしない
+      // （作成の確定はアプリ側の責務で、通知も `announce` の手動呼び出しに委ねる）
+      if (callbacks?.onSelectRange === undefined) {
+        const original = callbacks?.onEventCreate;
+        wrapped.onEventCreate = (info) => {
+          original?.(info);
+          if (targetsRef.current?.eventCreate ?? true) {
+            const ctx = currentCtx(calendarRef.current);
+            const catalog = resolveMessageCatalog(ctx.locale, messagesRef.current);
+            const rangeLabel = formatOccurrenceRangeLabel(
+              info.selection.range,
+              info.selection.allDay,
+              ctx.timeZone,
+              ctx.locale,
+              catalog.common.rangeSeparator,
+            );
+            const resourceLabel = resolveAnnouncerResourceLabel(
+              info.selection.resourceId,
+              ctx.resources,
+              catalog.announcer.unassignedResource,
+            );
+            announce(
+              catalog.announcer.eventCreated(info.event, info.selection, rangeLabel, resourceLabel),
+            );
+          }
+        };
+      }
 
       return wrapped;
     },

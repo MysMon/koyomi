@@ -53,6 +53,7 @@
 - `dir="rtl"` の文書で、タイムラインビューのポインタ操作（作成・移動・リサイズ）と `useExternalDrag` のタイムラインへのドロップが、画面上の位置を左右反転した時刻に解決される問題を修正。帯の配置（行頭からの割合）と同じ基準でポインタ位置を測るようになった
 - `dir="rtl"` の文書で、フォーカス中の予定の `←` / `→`（`Shift` 併用のリサイズを含む）が画面上の方向と逆に動く問題を修正。月・週/日・リソース・タイムラインの各ビューで、日・列・時間軸の並びが反転するのに合わせてキーの対応も反転し、常に画面上の方向へ動く
 - `onEventDoubleClick` / `onEventContextMenu` / `onEventHover` / `onEventHoverEnd` を再レンダーで差し替えても、月・週/日・リソース・タイムラインの各ビューの予定が古いコールバックを呼び続ける問題、および初回レンダー後に追加したコールバックが配線されない問題を修正。予定要素は常に最新のコールバックを呼び、コールバックの追加・削除に合わせて DOM props も増減する（未指定時に DOM props を付けない仕様は変わらない）
+- `useCalendarAnnouncer` の `wrapCallbacks` を使うと、週/日・リソース・タイムラインビューで列・行の `Enter` / `Space` による既定即時作成の後、新規予定へフォーカスが移らない問題を修正。`wrapCallbacks` は `onSelectRange` を追加しなくなり、既定即時作成の通知は `onEventCreate` 経由で行う（通知文言は変わらない）。これに伴い、`wrapCallbacks` の戻り値の `onSelectRange` は指定したときだけ存在し、既定即時作成のイベントのタイトルは `useCalendarAnnouncer` の `messages` ではなく `CalendarProvider` の `messages.common.untitledEvent` で決まる（`wrapCallbacks` を使わない場合と同じ）
 
 ## [0.2.0] - 2026-07-30
 

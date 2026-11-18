@@ -42,7 +42,7 @@
  *   `onEventContextMenu` / `onEventHover` / `onEventHoverEnd`）の配線
  *   （3フックに加え `use-day-drag.ts` と `list-view-parts.tsx` も含む 5 箇所共通）
  * - {@link createDefaultEvent} — `onSelectRange` 未指定時の既定即時作成
- *   （3フックに加え `use-day-drag.ts` と `use-calendar-announcer.ts` も含む 5 箇所共通。
+ *   （3フックに加え `use-day-drag.ts` も含む 4 箇所共通。
  *   タイトル・`allDay` / `resourceId` の付与規則をここに集約し、複製を禁止する）
  * - {@link captureOccurrenceDeleteFocusContext} / {@link createOccurrenceDeleteFocusController} —
  *   キーボード削除後のフォーカス管理（4フック共通。`use-day-drag.ts` を含む）
@@ -797,7 +797,7 @@ const FALLBACK_DEFAULT_EVENT_TITLE = '(タイトルなし)';
  * の既定動作）。
  *
  * 4 つのドラッグ系フック（`use-day-drag` / `use-time-grid-drag` / `use-resource-grid-drag` /
- * `use-timeline-drag`）と `useCalendarAnnouncer` の `wrapCallbacks` が同一実装として呼ぶ。
+ * `use-timeline-drag`）が同一実装として呼ぶ。
  * タイトル・`allDay` / `resourceId` の付与規則をここに集約し、複製を禁止する
  * （呼び出し元ごとに個別実装すると、将来これらの扱いが変わったときに乖離するため）。
  *
