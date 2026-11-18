@@ -1518,12 +1518,13 @@ describe('useTimeGridDrag - 終日行への変換ドラッグ', () => {
     movePointer(x, 10); // 終日行相当の位置（elementFromPoint モックで判定）
     releasePointer(x, 10);
 
+    // 終日への変換はタイムゾーンに依存しない日付キー文字列で書き込まれる
     const events = sink.current?.calendar.api.getEvents() ?? [];
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       allDay: true,
-      start: at(`${TUE}T00:00`),
-      end: at(`${WED}T00:00`),
+      start: TUE,
+      end: WED,
     });
     expect(onEventChange).toHaveBeenCalledWith({
       occurrence: expect.objectContaining({ eventId: 'ev-to-allday' }),
@@ -1556,11 +1557,12 @@ describe('useTimeGridDrag - 終日行への変換ドラッグ', () => {
     movePointer(x, 10); // 終日行相当の位置（TUE 列のまま）
     releasePointer(x, 10);
 
+    // 終日への変換はタイムゾーンに依存しない日付キー文字列で書き込まれる
     const events = sink.current?.calendar.api.getEvents() ?? [];
     expect(events[0]).toMatchObject({
       allDay: true,
-      start: at(`${TUE}T00:00`),
-      end: at(`${THU}T00:00`), // TUE・WED の 2 暦日分
+      start: TUE,
+      end: THU, // TUE・WED の 2 暦日分
     });
   });
 
@@ -1706,10 +1708,11 @@ describe('useTimeGridDrag - 終日行への変換ドラッグ', () => {
     const override = events.find(
       (candidate) => candidate.recurringEventId === 'recurring-to-allday',
     );
+    // 終日への変換はタイムゾーンに依存しない日付キー文字列で書き込まれる
     expect(override).toMatchObject({
       allDay: true,
-      start: at(`${WED}T00:00`),
-      end: at(`${THU}T00:00`),
+      start: WED,
+      end: THU,
     });
     expect(onEventChange).toHaveBeenCalledWith(
       expect.objectContaining({ allDay: true, scope: 'this' }),
@@ -2629,12 +2632,13 @@ describe('useTimeGridDrag - A キーによる変換（時間指定 → 終日）
 
     // 認識されたキーとして既定動作が抑制される（ビュー切替ショートカット等へ届かない）
     expect(notPrevented).toBe(false);
+    // 終日への変換はタイムゾーンに依存しない日付キー文字列で書き込まれる
     const events = sink.current?.calendar.api.getEvents() ?? [];
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       allDay: true,
-      start: at(`${TUE}T00:00`),
-      end: at(`${WED}T00:00`),
+      start: TUE,
+      end: WED,
     });
     expect(onEventChange).toHaveBeenCalledWith({
       occurrence: expect.objectContaining({ eventId: 'ev-key-to-allday' }),
@@ -2660,11 +2664,12 @@ describe('useTimeGridDrag - A キーによる変換（時間指定 → 終日）
       fireEvent.keyDown(eventEl, { key: 'A', shiftKey: true });
     });
 
+    // 終日への変換はタイムゾーンに依存しない日付キー文字列で書き込まれる
     const events = sink.current?.calendar.api.getEvents() ?? [];
     expect(events[0]).toMatchObject({
       allDay: true,
-      start: at(`${TUE}T00:00`),
-      end: at(`${WED}T00:00`),
+      start: TUE,
+      end: WED,
     });
   });
 
@@ -2736,12 +2741,13 @@ describe('useTimeGridDrag - A キーによる変換（時間指定 → 終日）
       fireEvent.keyDown(wedFragment, { key: 'a' });
     });
 
-    // ポインタの変換ドラッグ（暦日数分 = 2 日）と異なり、キーボードは開始日 1 日分に確定する
+    // ポインタの変換ドラッグ（暦日数分 = 2 日）と異なり、キーボードは開始日 1 日分に確定する。
+    // 終日への変換はタイムゾーンに依存しない日付キー文字列で書き込まれる
     const events = sink.current?.calendar.api.getEvents() ?? [];
     expect(events[0]).toMatchObject({
       allDay: true,
-      start: at(`${TUE}T00:00`),
-      end: at(`${WED}T00:00`),
+      start: TUE,
+      end: WED,
     });
   });
 
@@ -2855,10 +2861,11 @@ describe('useTimeGridDrag - A キーによる変換（時間指定 → 終日）
     const override = events.find(
       (candidate) => candidate.recurringEventId === 'recurring-key-to-allday',
     );
+    // 終日への変換はタイムゾーンに依存しない日付キー文字列で書き込まれる
     expect(override).toMatchObject({
       allDay: true,
-      start: at(`${WED}T00:00`),
-      end: at(`${THU}T00:00`),
+      start: WED,
+      end: THU,
     });
     expect(onEventChange).toHaveBeenCalledWith(
       expect.objectContaining({ allDay: true, scope: 'this' }),

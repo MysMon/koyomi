@@ -103,7 +103,8 @@ export function hasBlockingOverlap(
  * またがる時間指定イベントは、各日を `'24:00'` まで（最終日は候補の終了まで）
  * 覆うルールの組み合わせがあれば制約を満たせる。
  *
- * @param range - 判定対象の日時範囲（終日イベントの呼び出しは呼び出し側でスキップすること）
+ * @param range - 判定対象の日時範囲（終日イベントの呼び出しは呼び出し側でスキップすること）。
+ *   `range.end <= range.start`（長さ 0 以下）の範囲は占有区間を持たないため常に `true`
  * @param rules - 営業時間ルール一覧。空配列の場合は常に `false`（意図的な仕様。
  *   `eventConstraint: 'businessHours'` 指定時に `businessHours` が未設定だと
  *   常に無効になる落とし穴として、利用者向けドキュメントで明記する）

@@ -29,7 +29,23 @@ export function startOfWeekInZone(date: Date, timeZone: TimeZoneId, weekStartsOn
   const dayStart = startOfDayInZone(date, timeZone);
   const weekday = weekdayInZone(dayStart, timeZone);
   const diff = (weekday - weekStartsOn + 7) % 7;
-  return diff === 0 ? dayStart : addDaysInZone(dayStart, -diff, timeZone);
+  if (diff === 0) {
+    return dayStart;
+  }
+  // 基準日の 0:00 が DST 切替で存在しない日では dayStart が繰り上げ解決（0:00 以外）に
+  // なるため、現地時刻を維持する addDaysInZone では週開始日の「日の開始」に戻らない。
+  // 現地日付だけを暦演算で diff 日戻し、fromWallClock の解決規則で日の開始を構築する
+  const wall = getWallClock(dayStart, timeZone);
+  const shifted = new Date(0);
+  shifted.setUTCFullYear(wall.year, wall.month - 1, wall.day - diff);
+  return fromWallClock(
+    {
+      year: shifted.getUTCFullYear(),
+      month: shifted.getUTCMonth() + 1,
+      day: shifted.getUTCDate(),
+    },
+    timeZone,
+  );
 }
 
 /**

@@ -60,7 +60,7 @@ import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent }
 import { type OverlapBlocker, occurrenceBlocksOverlap } from '../core/constraints';
 import { rangesOverlap } from '../core/date-utils';
 import { assignedLaneIds, effectiveResourceIds } from '../core/resource-assignment';
-import { addDaysInZone, startOfDayInZone } from '../core/timezone';
+import { addDaysInZone, dateKeyInZone, startOfDayInZone } from '../core/timezone';
 import type {
   CalendarApi,
   CalendarEvent,
@@ -658,6 +658,28 @@ export function eventNotificationProps(
 }
 
 /** {@link createDefaultEvent} の `defaultEventTitle` 省略時に使う既定タイトル。 */
+/**
+ * 終日イベントとして書き込むパッチの `start` / `end` を、タイムゾーンに依存しない
+ * 日付キー文字列に変換する。
+ *
+ * 終日イベントの日付の解釈はイベントの `timeZone` に従うため、表示タイムゾーンの
+ * 0:00 を指す絶対時刻の `Date` をそのまま渡すと、`timeZone` を持つイベントでは
+ * 異なる日付として読まれてしまう。日付キーはどのタイムゾーンでも同じ日付を表す。
+ *
+ * @param range - 表示タイムゾーン上の終日範囲（`end` は排他的な翌日 0:00）
+ * @param timeZone - 表示タイムゾーン
+ * @returns 日付キー文字列の `start` / `end`（`end` は排他）
+ */
+export function allDayPatchRange(
+  range: DateRange,
+  timeZone: TimeZoneId,
+): { start: string; end: string } {
+  return {
+    start: dateKeyInZone(range.start, timeZone),
+    end: dateKeyInZone(range.end, timeZone),
+  };
+}
+
 const FALLBACK_DEFAULT_EVENT_TITLE = '(タイトルなし)';
 
 /**

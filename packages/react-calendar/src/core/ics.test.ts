@@ -1490,6 +1490,29 @@ describe('eventsFromIcs', () => {
       ]);
     });
   });
+
+  describe('同じ UID の重複', () => {
+    it('同じ UID の非オーバーライド VEVENT が複数ある場合、最初の 1 件だけを取り込む', () => {
+      // RECURRENCE-ID なしの同一 UID は不正な ICS。id が重複した配列を返さない
+      const ics = icsText(
+        'BEGIN:VCALENDAR',
+        'BEGIN:VEVENT',
+        'UID:dup',
+        'DTSTART:20260701T010000Z',
+        'SUMMARY:1 件目',
+        'END:VEVENT',
+        'BEGIN:VEVENT',
+        'UID:dup',
+        'DTSTART:20260702T010000Z',
+        'SUMMARY:2 件目',
+        'END:VEVENT',
+        'END:VCALENDAR',
+      );
+      const events = eventsFromIcs(ics);
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ id: 'dup', title: '1 件目' });
+    });
+  });
 });
 
 describe('eventsFromIcsWithIssues', () => {
@@ -1521,6 +1544,33 @@ describe('eventsFromIcsWithIssues', () => {
           uid: 'bad1',
           summary: '壊れたイベント',
           message: expect.stringMatching(/DTSTART/),
+        },
+      ]);
+    });
+
+    it('同じ UID の非オーバーライド VEVENT の 2 件目以降は issue にして読み飛ばす', () => {
+      const ics = icsText(
+        'BEGIN:VCALENDAR',
+        'BEGIN:VEVENT',
+        'UID:dup',
+        'DTSTART:20260701T010000Z',
+        'SUMMARY:1 件目',
+        'END:VEVENT',
+        'BEGIN:VEVENT',
+        'UID:dup',
+        'DTSTART:20260702T010000Z',
+        'SUMMARY:2 件目',
+        'END:VEVENT',
+        'END:VCALENDAR',
+      );
+      const { events, issues } = eventsFromIcsWithIssues(ics);
+      expect(events.map((event) => event.id)).toEqual(['dup']);
+      expect(issues).toEqual([
+        {
+          index: 1,
+          uid: 'dup',
+          summary: '2 件目',
+          message: expect.stringMatching(/UID/),
         },
       ]);
     });
@@ -1817,6 +1867,51 @@ describe('往復変換（round-trip）', () => {
     expect(summarize(round)).toEqual(summarize(noTzSource));
     // 再エクスポート → 再インポートでも安定する（不動点）
     expect(eventsFromIcs(eventsToIcs(round, { dtstamp: STAMP, timeZone: TOKYO }))).toEqual(round);
+  });
+
+  it('表示タイムゾーンが実行環境と異なっても、UTC 形式イベントの UNTIL とオカレンスが往復で維持される', () => {
+    const source: readonly CalendarEvent[] = [
+      {
+        id: 'u1',
+        title: '絶対時刻',
+        // NY 現地では毎日 21:00 開始。UNTIL の数字は NY 現地 7/5 09:00 と解釈され、
+        // 7/5 21:00 開始のオカレンスは範囲外になる（東京の現地時刻で解釈すると
+        // 13 時間遅い UNTIL になり、この境界を跨いで 1 件増える構成）
+        start: new Date('2026-07-01T01:00:00Z'),
+        rrule: 'FREQ=DAILY;UNTIL=20260705T090000Z',
+      },
+    ];
+    const range = {
+      start: new Date('2026-06-30T00:00:00Z'),
+      end: new Date('2026-07-10T00:00:00Z'),
+    };
+    const summarize = (events: readonly CalendarEvent[]) =>
+      expandEvents({ events, range, displayTimeZone: NY, defaultEventMinutes: 60 }).map((o) =>
+        o.start.toISOString(),
+      );
+    // 往復前は 7/1〜7/5 の 5 件（最終は 2026-07-05T01:00Z = NY 7/4 21:00）
+    expect(summarize(source)).toHaveLength(5);
+    // 出力・取り込みの両方に表示タイムゾーン America/New_York（実行環境 Asia/Tokyo と異なる）を渡す
+    const round = eventsFromIcs(eventsToIcs(source, { dtstamp: STAMP, timeZone: NY }), {
+      timeZone: NY,
+    });
+    expect(summarize(round)).toEqual(summarize(source));
+  });
+
+  it('取り込みの timeZone を省略すると、実行環境のローカルタイムゾーンを明示した場合と同じ結果になる', () => {
+    const ics = eventsToIcs(
+      [
+        {
+          id: 'u1',
+          title: '絶対時刻',
+          start: new Date('2026-07-01T01:00:00Z'),
+          rrule: 'FREQ=DAILY;UNTIL=20260705T010000Z',
+        },
+      ],
+      { dtstamp: STAMP, timeZone: TOKYO },
+    );
+    // テストプロセスのローカルタイムゾーンは Asia/Tokyo（vitest.config.ts）
+    expect(eventsFromIcs(ics)).toEqual(eventsFromIcs(ics, { timeZone: TOKYO }));
   });
 
   it('RANGE=THISANDFUTURE で分割した 2 系列は独立イベントとして書き出され、再インポートで安定する', () => {

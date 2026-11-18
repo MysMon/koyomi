@@ -31,6 +31,8 @@ import {
   addDaysInZone,
   dateFromKey,
   dateKeyInZone,
+  fromWallClock,
+  getWallClock,
   isValidTimeZone,
   parseDateValue,
 } from './timezone';
@@ -249,10 +251,13 @@ function parseOriginalStart(
   if (event.originalStart === undefined) {
     return null;
   }
+  // originalStart はマスターのオカレンスを指すため、終日かどうかの解釈も
+  // オーバーライド自身ではなくマスターの区分に従う（expansion.ts の展開時と同じ。
+  // 時間指定の繰り返しを終日化したオーバーライドでも時刻として解釈する）
   return parseDateValue(
     event.originalStart,
     resolveTimeZone(event, context, master),
-    event.allDay ?? false,
+    (master ?? event).allDay ?? false,
   );
 }
 
@@ -337,15 +342,21 @@ function appendExdate(
   occurrenceStart: Date,
   context: MutationContext,
 ): CalendarEvent {
-  return {
-    ...event,
-    exdates: [
-      ...(event.exdates ?? []),
-      event.allDay === true
-        ? targetAllDayKey(occurrenceStart, context)
-        : new Date(occurrenceStart.getTime()),
-    ],
-  };
+  const existing = event.exdates ?? [];
+  const timeZone = resolveTimeZone(event, context);
+  // 既に同じオカレンスが除外済みなら追加せず、exdates に同じ値が積み上がるのを防ぐ
+  if (event.allDay === true) {
+    const key = targetAllDayKey(occurrenceStart, context);
+    if (existing.some((exdate) => allDayKeyFromValue(exdate, timeZone) === key)) {
+      return event;
+    }
+    return { ...event, exdates: [...existing, key] };
+  }
+  const time = occurrenceStart.getTime();
+  if (existing.some((exdate) => parseDateValue(exdate, timeZone, false).getTime() === time)) {
+    return event;
+  }
+  return { ...event, exdates: [...existing, new Date(time)] };
 }
 
 /**
@@ -386,6 +397,37 @@ function findOverrideFor(
     }
     return parseStart(event, context, master).getTime() === time;
   });
+}
+
+/** 現地時刻の成分を暦演算用の UTC ミリ秒として組み立てる（2 桁年の誤変換を避けるため setter 経由）。 */
+function wallMsInZone(instant: Date, timeZone: TimeZoneId): number {
+  const wall = getWallClock(instant, timeZone);
+  const probe = new Date(0);
+  probe.setUTCFullYear(wall.year, wall.month - 1, wall.day);
+  probe.setUTCHours(wall.hours, wall.minutes, wall.seconds, wall.milliseconds);
+  return probe.getTime();
+}
+
+/**
+ * 絶対時刻を、指定タイムゾーンの現地時刻基準で `wallDeltaMs` ミリ秒だけ平行移動する。
+ *
+ * DST を跨いでも現地時刻の差が保たれる（シリーズ分割で付け替える EXDATE・RDATE・
+ * `originalStart` を、新シリーズの各オカレンスと同じだけ動かすために使う）。
+ */
+function shiftInZone(instant: Date, wallDeltaMs: number, timeZone: TimeZoneId): Date {
+  const shifted = new Date(wallMsInZone(instant, timeZone) + wallDeltaMs);
+  return fromWallClock(
+    {
+      year: shifted.getUTCFullYear(),
+      month: shifted.getUTCMonth() + 1,
+      day: shifted.getUTCDate(),
+      hours: shifted.getUTCHours(),
+      minutes: shifted.getUTCMinutes(),
+      seconds: shifted.getUTCSeconds(),
+      milliseconds: shifted.getUTCMilliseconds(),
+    },
+    timeZone,
+  );
 }
 
 /** `id` のイベントに patch を適用した新しい配列を返す。 */
@@ -518,15 +560,40 @@ function splitAllDaySeries(
     return mapPatch(events, master.id, patch);
   }
 
+  // patch が開始日を動かす場合、付け替える EXDATE・RDATE・オーバーライドの
+  // originalStart も同じ暦日数だけ移動して、除外・置換の対応を保つ。
+  // 移動量は「開始を分割点に置いたマスターへ patch を適用した結果」から求める
+  const probe = applyPatch({ ...master, start: splitKey }, patch);
+  const probeKey = allDayKeyFromValue(probe.start, resolveTimeZone(probe, context));
+  const dayDelta = Math.round(
+    (dateFromKey(probeKey, DATE_KEY_ZONE).getTime() -
+      dateFromKey(splitKey, DATE_KEY_ZONE).getTime()) /
+      DAY_MS,
+  );
+  /** 引き継ぐ日付値を新シリーズの日付へ移動する（移動がなければそのまま）。 */
+  const shiftKey = (value: Date | string): Date | string =>
+    dayDelta === 0 ? value : addDaysToKey(allDayKeyFromValue(value, timeZone), dayDelta);
+
   const oldExdates: (Date | string)[] = [];
   const movedExdates: (Date | string)[] = [];
   for (const exdate of master.exdates ?? []) {
-    (allDayKeyFromValue(exdate, timeZone) < splitKey ? oldExdates : movedExdates).push(exdate);
+    if (allDayKeyFromValue(exdate, timeZone) < splitKey) {
+      oldExdates.push(exdate);
+    } else {
+      movedExdates.push(shiftKey(exdate));
+    }
   }
   const oldRdates: (Date | string)[] = [];
   const movedRdates: (Date | string)[] = [];
   for (const rdate of master.rdates ?? []) {
-    (allDayKeyFromValue(rdate, timeZone) < splitKey ? oldRdates : movedRdates).push(rdate);
+    const key = allDayKeyFromValue(rdate, timeZone);
+    if (key < splitKey) {
+      oldRdates.push(rdate);
+    } else if (key > splitKey) {
+      movedRdates.push(shiftKey(rdate));
+    }
+    // 分割点ちょうどの RDATE は新シリーズの start が表すため引き継がない
+    // （patch で日付を変えたとき、元の日に重複したオカレンスが残るのを防ぐ）
   }
 
   const recurrenceStart = dateFromKey(masterStartKey, DATE_KEY_ZONE);
@@ -557,6 +624,9 @@ function splitAllDaySeries(
   }
   const created = applyPatch(base, patch);
 
+  // 分割点以降（>=）のオーバーライドは新シリーズに付け替える。
+  // patch が開始日を動かした場合は originalStart も同じ日数だけ移動して、
+  // 新シリーズのオカレンスとの置換の対応を保つ（オーバーライド自身の start/end は変えない）
   const reassigned = events.map((event) => {
     if (event.id === master.id) {
       return oldMaster;
@@ -564,9 +634,13 @@ function splitAllDaySeries(
     if (event.recurringEventId !== master.id) {
       return event;
     }
-    return overrideAllDayAnchorKey(event, context, master) >= splitKey
+    const anchorKey = overrideAllDayAnchorKey(event, context, master);
+    if (anchorKey < splitKey) {
+      return event;
+    }
+    return dayDelta === 0
       ? { ...event, recurringEventId: newId }
-      : event;
+      : { ...event, recurringEventId: newId, originalStart: addDaysToKey(anchorKey, dayDelta) };
   });
   return [...reassigned, created];
 }
@@ -601,6 +675,20 @@ function splitSeries(
   const allDay = master.allDay ?? false;
   const splitTime = splitPoint.getTime();
 
+  // patch が開始時刻を動かす場合、付け替える EXDATE・RDATE・オーバーライドの
+  // originalStart も同じ現地時刻差で平行移動して、除外・置換の対応を保つ。
+  // 移動量は「開始を分割点に置いたマスターへ patch を適用した結果」から求める
+  const probeStart = parseStart(
+    applyPatch({ ...master, start: new Date(splitTime) }, patch),
+    context,
+  );
+  const wallDelta = wallMsInZone(probeStart, timeZone) - wallMsInZone(splitPoint, timeZone);
+  /** 引き継ぐ日時値を新シリーズの時刻へ平行移動する（移動がなければそのまま）。 */
+  const shiftValue = (value: Date | string): Date | string =>
+    wallDelta === 0
+      ? value
+      : shiftInZone(parseDateValue(value, timeZone, allDay), wallDelta, timeZone);
+
   // EXDATE を分割点で振り分ける（分割点ちょうどは新シリーズへ）
   const oldExdates: (Date | string)[] = [];
   const movedExdates: (Date | string)[] = [];
@@ -609,20 +697,22 @@ function splitSeries(
     if (time < splitTime) {
       oldExdates.push(exdate);
     } else {
-      movedExdates.push(exdate);
+      movedExdates.push(shiftValue(exdate));
     }
   }
 
-  // RDATE も EXDATE と対称に分割点で振り分ける（分割点ちょうどは新シリーズへ）
+  // RDATE も EXDATE と対称に分割点で振り分ける（分割点より後は新シリーズへ）
   const oldRdates: (Date | string)[] = [];
   const movedRdates: (Date | string)[] = [];
   for (const rdate of master.rdates ?? []) {
     const time = parseDateValue(rdate, timeZone, allDay).getTime();
     if (time < splitTime) {
       oldRdates.push(rdate);
-    } else {
-      movedRdates.push(rdate);
+    } else if (time > splitTime) {
+      movedRdates.push(shiftValue(rdate));
     }
+    // 分割点ちょうどの RDATE は新シリーズの start が表すため引き継がない
+    // （patch で時刻を変えたとき、元の時刻に重複したオカレンスが残るのを防ぐ）
   }
 
   // 旧シリーズ: 分割点の直前で打ち切り。patch は適用しない
@@ -648,7 +738,9 @@ function splitSeries(
   }
   const created = applyPatch(base, patch);
 
-  // 分割点以降（>=）のオーバーライドは新シリーズに付け替える
+  // 分割点以降（>=）のオーバーライドは新シリーズに付け替える。
+  // patch が開始時刻を動かした場合は originalStart も同じだけ平行移動して、
+  // 新シリーズのオカレンスとの置換の対応を保つ（オーバーライド自身の start/end は変えない）
   const reassigned = events.map((event) => {
     if (event.id === master.id) {
       return oldMaster;
@@ -656,9 +748,17 @@ function splitSeries(
     if (event.recurringEventId !== master.id) {
       return event;
     }
-    return overrideAnchor(event, context, master).getTime() >= splitTime
+    const anchor = overrideAnchor(event, context, master);
+    if (anchor.getTime() < splitTime) {
+      return event;
+    }
+    return wallDelta === 0
       ? { ...event, recurringEventId: newId }
-      : event;
+      : {
+          ...event,
+          recurringEventId: newId,
+          originalStart: shiftInZone(anchor, wallDelta, timeZone),
+        };
   });
   return [...reassigned, created];
 }

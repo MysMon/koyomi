@@ -42,9 +42,12 @@ export function buildListViewModel(params: {
 }): ListViewModel {
   const { currentDate, timeZone, occurrences, listDays, now } = params;
 
-  // 表示範囲: 基準日の 0:00 から listDays 日間（現地時刻基準で加算）
+  // 表示範囲: 基準日の 0:00 から listDays 日間（現地時刻基準で加算）。
+  // 基準日の 0:00 が DST 切替で存在しない場合は rangeStart が繰り上げ解決されるため、
+  // 加算前の現地時刻を維持する addDaysInZone の結果を日の開始へ再正規化する
+  // （dayEnds と同じ理由。しないと範囲が listDays + 1 日分に伸びる）
   const rangeStart = startOfDayInZone(currentDate, timeZone);
-  const rangeEnd = addDaysInZone(rangeStart, listDays, timeZone);
+  const rangeEnd = startOfDayInZone(addDaysInZone(rangeStart, listDays, timeZone), timeZone);
   const dayStarts = eachDayInRange({ start: rangeStart, end: rangeEnd }, timeZone);
 
   const todayKey = dateKeyInZone(now, timeZone);

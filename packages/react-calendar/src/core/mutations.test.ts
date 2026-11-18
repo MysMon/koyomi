@@ -825,6 +825,92 @@ describe("updateEventIn: scope 'thisAndFollowing'（シリーズ分割）", () =
     expect(findById(result, 'gen-1').exdates).toEqual([new Date('2026-07-04T00:00:00Z')]);
   });
 
+  describe('開始時刻を変えるパッチでの分割', () => {
+    /** 展開したオカレンスの開始 ISO 文字列一覧を返す。 */
+    function occurrenceStarts(events: readonly CalendarEvent[]): string[] {
+      return expandEvents({
+        events,
+        range: { start: new Date('2026-06-25T00:00:00Z'), end: new Date('2026-07-31T00:00:00Z') },
+        displayTimeZone: TOKYO,
+        defaultEventMinutes: 60,
+      }).map((o) => o.start.toISOString());
+    }
+
+    it('分割点より後の EXDATE は新シリーズの時刻へ移り、除外が保たれる', () => {
+      // 7/4 9:00 を EXDATE 済みの毎日 9:00（COUNT 5）を、7/3 以降 10:00 へ変更する。
+      // EXDATE も 10:00 へ平行移動し、7/4 は引き続き除外される
+      const master = makeMaster({
+        rrule: 'FREQ=DAILY;COUNT=5',
+        exdates: [new Date('2026-07-04T00:00:00Z')], // 東京 7/4 9:00
+      });
+      const result = updateEventIn(
+        [master],
+        'master-1',
+        { start: new Date('2026-07-03T01:00:00Z'), end: new Date('2026-07-03T02:00:00Z') },
+        { occurrenceStart: new Date('2026-07-03T00:00:00Z'), scope: 'thisAndFollowing' },
+        makeContext(),
+      );
+      expect(findById(result, 'gen-1').exdates).toEqual([new Date('2026-07-04T01:00:00Z')]);
+      expect(occurrenceStarts(result)).toEqual([
+        '2026-07-01T00:00:00.000Z', // 7/1 9:00（旧シリーズ）
+        '2026-07-02T00:00:00.000Z', // 7/2 9:00（旧シリーズ）
+        '2026-07-03T01:00:00.000Z', // 7/3 10:00（新シリーズ。7/4 は除外のまま）
+        '2026-07-05T01:00:00.000Z', // 7/5 10:00
+      ]);
+    });
+
+    it('分割点より後のオーバーライドは originalStart が新シリーズの時刻へ移り、置換が保たれる', () => {
+      // 7/4 のオカレンスを 11:00 へ移動済みの状態で 7/3 以降を 10:00 へ変更する。
+      // 7/4 は移動済みの 11:00 の 1 件だけになる（新シリーズの 10:00 と二重にならない）
+      const master = makeMaster({ rrule: 'FREQ=DAILY;COUNT=5' });
+      // 7/4 9:00 のオカレンスを 7/4 11:00 へ移動済み（originalStart = 7/4 9:00）
+      const override = makeOverride({
+        start: new Date('2026-07-04T02:00:00Z'),
+        end: new Date('2026-07-04T03:00:00Z'),
+        originalStart: new Date('2026-07-04T00:00:00Z'),
+      });
+      const result = updateEventIn(
+        [master, override],
+        'master-1',
+        { start: new Date('2026-07-03T01:00:00Z'), end: new Date('2026-07-03T02:00:00Z') },
+        { occurrenceStart: new Date('2026-07-03T00:00:00Z'), scope: 'thisAndFollowing' },
+        makeContext(),
+      );
+      expect(findById(result, 'ov-3').originalStart).toEqual(new Date('2026-07-04T01:00:00Z'));
+      expect(occurrenceStarts(result)).toEqual([
+        '2026-07-01T00:00:00.000Z', // 7/1 9:00（旧シリーズ）
+        '2026-07-02T00:00:00.000Z', // 7/2 9:00（旧シリーズ）
+        '2026-07-03T01:00:00.000Z', // 7/3 10:00（新シリーズ）
+        '2026-07-04T02:00:00.000Z', // 7/4 11:00（オーバーライド。10:00 は現れない）
+        '2026-07-05T01:00:00.000Z', // 7/5 10:00
+      ]);
+    });
+
+    it('分割点が RDATE 由来のとき、時刻を変えても元の時刻のオカレンスが残らない', () => {
+      // 隔週月曜 9:00（7/6 起点）＋臨時回 rdates 7/13 9:00。7/13 を「これ以降」で
+      // 10:00 へ変更すると、7/13 は 10:00 の 1 件だけになる。
+      // 分割点以降の新シリーズは分割点（7/13）を起点に隔週で展開される
+      const master = makeMaster({
+        start: new Date('2026-07-06T00:00:00Z'), // 東京 7/6(月) 9:00
+        end: new Date('2026-07-06T01:00:00Z'),
+        rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO;COUNT=3',
+        rdates: [new Date('2026-07-13T00:00:00Z')], // 東京 7/13(月) 9:00
+      });
+      const result = updateEventIn(
+        [master],
+        'master-1',
+        { start: new Date('2026-07-13T01:00:00Z'), end: new Date('2026-07-13T02:00:00Z') },
+        { occurrenceStart: new Date('2026-07-13T00:00:00Z'), scope: 'thisAndFollowing' },
+        makeContext(),
+      );
+      const starts = occurrenceStarts(result);
+      expect(starts).not.toContain('2026-07-13T00:00:00.000Z');
+      expect(starts).toContain('2026-07-13T01:00:00.000Z');
+      // 7/13 に 2 件現れない
+      expect(starts.filter((s) => s.startsWith('2026-07-13'))).toHaveLength(1);
+    });
+  });
+
   it('RDATE は EXDATE と対称に分割点を境（>= は新シリーズ）に振り分けられる', () => {
     const master = makeMaster({
       rdates: [new Date('2026-07-03T05:00:00Z'), new Date('2026-07-04T05:00:00Z')],
@@ -1040,6 +1126,77 @@ describe('updateEventIn: 参照先のないオーバーライド（親マスタ�
   });
 });
 
+describe('オーバーライドの日時解釈: 終日区分はマスターに従う', () => {
+  // 時間指定の繰り返しの 1 オカレンスを終日へ変換すると、オーバーライドは
+  // allDay: true を持つが originalStart はマスターのオカレンス（9:00 の時刻）を
+  // 指したまま。以後の操作もこの originalStart を expansion と同じく
+  // 「マスターの区分 = 時刻」として解釈し、オーバーライドを見失わないこと
+  const july3 = new Date('2026-07-03T00:00:00Z'); // 東京 7/3 9:00
+
+  /** master-1 の 7/3 のオカレンスを scope: 'this' で終日へ変換した配列を返す。 */
+  function convertJuly3ToAllDay(context: MutationContext): CalendarEvent[] {
+    return moveOccurrenceIn(
+      [makeMaster()],
+      'master-1',
+      { occurrenceStart: july3, newStart: july3, allDay: true, scope: 'this' },
+      context,
+    );
+  }
+
+  /** 展開したオカレンスの開始 ISO 文字列一覧を返す。 */
+  function occurrenceStarts(events: readonly CalendarEvent[]): string[] {
+    return expandEvents({
+      events,
+      range: { start: new Date('2026-06-25T00:00:00Z'), end: new Date('2026-07-20T00:00:00Z') },
+      displayTimeZone: TOKYO,
+      defaultEventMinutes: 60,
+    }).map((o) => o.start.toISOString());
+  }
+
+  it('終日化した後の scope: this の削除で、そのオカレンスが消える', () => {
+    const context = makeContext();
+    const converted = convertJuly3ToAllDay(context);
+    // 変換直後: 7/3 だけが終日（東京の 7/3 0:00 = 7/2 15:00Z）になっている
+    expect(occurrenceStarts(converted)).toContain('2026-07-02T15:00:00.000Z');
+    const deleted = deleteEventIn(
+      converted,
+      'master-1',
+      { occurrenceStart: july3, scope: 'this' },
+      context,
+    );
+    const starts = occurrenceStarts(deleted);
+    // 終日オカレンスもマスターの 9:00 も現れず、残りは 9 件
+    expect(starts).not.toContain('2026-07-02T15:00:00.000Z');
+    expect(starts).not.toContain('2026-07-03T00:00:00.000Z');
+    expect(starts).toHaveLength(9);
+  });
+
+  it('終日化した後の scope: this の再変更は、既存のオーバーライドに適用される', () => {
+    const context = makeContext();
+    const converted = convertJuly3ToAllDay(context);
+    const renamed = updateEventIn(
+      converted,
+      'master-1',
+      { title: '朝会（終日）' },
+      { occurrenceStart: july3, scope: 'this' },
+      context,
+    );
+    // 2 件目のオーバーライドを作らず、既存の gen-1 に適用される
+    expect(renamed).toHaveLength(2);
+    expect(findById(renamed, 'gen-1').title).toBe('朝会（終日）');
+  });
+
+  it('終日化したオーバーライドを ID で削除すると元のオカレンスが EXDATE になり、9:00 が復活しない', () => {
+    const context = makeContext();
+    const converted = convertJuly3ToAllDay(context);
+    const deleted = deleteEventIn(converted, 'gen-1', undefined, context);
+    expect(findById(deleted, 'master-1').exdates).toEqual([new Date('2026-07-03T00:00:00Z')]);
+    const starts = occurrenceStarts(deleted);
+    expect(starts).not.toContain('2026-07-03T00:00:00.000Z');
+    expect(starts).toHaveLength(9);
+  });
+});
+
 describe('オーバーライドの日時解釈: マスターの timeZone にフォールバックする', () => {
   // 外部データ同期パターン: マスターに明示 TZ（America/New_York）があり、
   // オーバーライド側は timeZone フィールドを持たない。
@@ -1179,6 +1336,23 @@ describe('deleteEventIn: 繰り返しイベント', () => {
       makeContext(),
     );
     expect(result).toEqual([makeMaster({ exdates: [occ] })]);
+  });
+
+  it("scope 'this' で既に除外済みのオカレンスを再度削除しても EXDATE は重複しない", () => {
+    const occ = new Date('2026-07-05T00:00:00Z');
+    const once = deleteEventIn(
+      [makeMaster()],
+      'master-1',
+      { occurrenceStart: occ, scope: 'this' },
+      makeContext(),
+    );
+    const twice = deleteEventIn(
+      once,
+      'master-1',
+      { occurrenceStart: occ, scope: 'this' },
+      makeContext(),
+    );
+    expect(findById(twice, 'master-1').exdates).toEqual([occ]);
   });
 
   it("scope 'this' は既存の EXDATE の末尾に追加する", () => {
@@ -1995,6 +2169,68 @@ describe('終日シリーズの分割データ移送', () => {
     expect(findById(result, beforeOverride.id).recurringEventId).toBe(master.id);
     expect(findById(result, afterOverride.id).recurringEventId).toBe('gen-1');
     expect(findById(result, unrelated.id)).toEqual(unrelated);
+  });
+
+  it('日付を動かす thisAndFollowing 更新では、引き継ぐ EXDATE・RDATE・originalStart も同じ日数だけ移る', () => {
+    const master: CalendarEvent = {
+      id: 'all-day-shift',
+      title: '変更前',
+      start: '2026-07-01',
+      allDay: true,
+      rrule: 'FREQ=DAILY;COUNT=5',
+      exdates: ['2026-07-04'],
+      rdates: ['2026-07-08'],
+    };
+    const afterOverride: CalendarEvent = {
+      id: 'after-override',
+      title: '後',
+      start: '2026-07-10',
+      allDay: true,
+      recurringEventId: master.id,
+      originalStart: '2026-07-04',
+    };
+    // 7/3 以降を 2 日後ろ（7/5 開始）へ動かす
+    const result = updateEventIn(
+      [master, afterOverride],
+      master.id,
+      { start: '2026-07-05', end: '2026-07-06' },
+      { occurrenceStart: new Date('2026-07-02T15:00:00Z'), scope: 'thisAndFollowing' },
+      makeAllDayContext(),
+    );
+    const newMaster = findById(result, 'gen-1');
+    // 除外 7/4・臨時回 7/8・置換対象 7/4 は、新シリーズでも同じ回（+2 日）を指す
+    expect(newMaster.exdates).toEqual(['2026-07-06']);
+    expect(newMaster.rdates).toEqual(['2026-07-10']);
+    expect(findById(result, 'after-override').originalStart).toBe('2026-07-06');
+  });
+
+  it('分割点が RDATE 由来の終日シリーズで日付を動かしても、元の日にオカレンスが残らない', () => {
+    // 毎週水曜（7/1 起点）＋臨時回 7/3(金)。7/3 を「これ以降」で 7/4 へ動かす
+    const master: CalendarEvent = {
+      id: 'all-day-rdate-split',
+      title: '臨時回つき',
+      start: '2026-07-01',
+      allDay: true,
+      rrule: 'FREQ=WEEKLY;COUNT=3',
+      rdates: ['2026-07-03'],
+    };
+    const result = updateEventIn(
+      [master],
+      master.id,
+      { start: '2026-07-04', end: '2026-07-05' },
+      { occurrenceStart: new Date('2026-07-02T15:00:00Z'), scope: 'thisAndFollowing' },
+      makeAllDayContext(),
+    );
+    const keys = expandEvents({
+      events: result,
+      range: { start: new Date('2026-06-25T00:00:00Z'), end: new Date('2026-07-31T00:00:00Z') },
+      displayTimeZone: TOKYO,
+      defaultEventMinutes: 60,
+    }).map((o) => o.start.toISOString());
+    // 7/3（東京の終日 = 7/2 15:00Z）は現れず、7/4 起点の新シリーズになる
+    expect(keys).not.toContain('2026-07-02T15:00:00.000Z');
+    expect(findById(result, 'gen-1').rdates ?? []).toEqual([]);
+    expect(keys).toContain('2026-07-03T15:00:00.000Z'); // 7/4
   });
 
   it('RRULE の thisAndFollowing 削除で分割点以降の付随データだけを除く', () => {

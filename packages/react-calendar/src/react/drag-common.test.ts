@@ -15,6 +15,7 @@ import { createEventHistory } from '../core/history';
 import { parseDateValue } from '../core/timezone';
 import type { CalendarApi, CalendarEvent, CalendarResource, EventOccurrence } from '../core/types';
 import {
+  allDayPatchRange,
   captureOccurrenceDeleteFocusContext,
   collectOverlapBlockersInRange,
   createDefaultEvent,
@@ -54,6 +55,31 @@ function makeMouseEvent(nativeEvent: MouseEvent): ReactMouseEvent<HTMLElement> {
 function makePointerEvent(nativeEvent: MouseEvent): ReactPointerEvent<HTMLElement> {
   return { nativeEvent } as ReactPointerEvent<HTMLElement>;
 }
+
+describe('allDayPatchRange', () => {
+  it('表示タイムゾーンの終日範囲を日付キー文字列の start / end（排他）に変換する', () => {
+    const range = {
+      start: new Date('2026-07-07T15:00:00Z'), // 東京 7/8 0:00
+      end: new Date('2026-07-09T15:00:00Z'), // 東京 7/10 0:00（排他）
+    };
+    expect(allDayPatchRange(range, 'Asia/Tokyo')).toEqual({
+      start: '2026-07-08',
+      end: '2026-07-10',
+    });
+  });
+
+  it('深夜 0:00 に DST が切り替わる日の繰り上げ済み範囲も、その日の日付キーになる', () => {
+    // America/Santiago の 2026-09-06 は 0:00 が存在せず、日の開始は 1:00（= 04:00Z）
+    const range = {
+      start: new Date('2026-09-06T04:00:00Z'), // 9/6 1:00（日の開始）
+      end: new Date('2026-09-07T03:00:00Z'), // 9/7 0:00（排他）
+    };
+    expect(allDayPatchRange(range, 'America/Santiago')).toEqual({
+      start: '2026-09-06',
+      end: '2026-09-07',
+    });
+  });
+});
 
 describe('eventNotificationProps', () => {
   it('コールバックが 1 つも指定されていない場合、キーを 1 つも含まないオブジェクトを返す', () => {

@@ -537,6 +537,29 @@ describe('buildTimelineViewModel', () => {
       expect(item?.startMinutes).toBe(1440 + 600);
       expect(vm.nowIndicatorMinutes).toBe(1440 + 600);
     });
+
+    it('DST 巻き戻り日（実時間 25 時間）に 2 回現れる 1 時間の 2 回目に終わる帯は、開始位置から実時間の長さになる', () => {
+      // 2026-11-01 は NY の DST 終了日（01:00〜01:59 が 2 回現れる）。
+      // 01:30 EDT（05:30Z）〜 01:00 EST（06:00Z）は実時間 30 分の予定で、
+      // 終了の現地時刻の分（60）が開始（90）を下回るため 90〜120 分の帯にする
+      const vm = build({
+        timeZone: NY,
+        timelineDays: 1,
+        currentDate: at('2026-11-01T12:00', NY),
+        now: at('2026-11-01T12:00', NY),
+        resources: [resource('r1')],
+        occurrences: [
+          makeOccurrence({
+            start: new Date('2026-11-01T05:30:00Z'),
+            end: new Date('2026-11-01T06:00:00Z'),
+            resourceId: 'r1',
+          }),
+        ],
+      });
+      const item = vm.rows[0]?.items[0];
+      expect(item?.startMinutes).toBe(90);
+      expect(item?.endMinutes).toBe(120);
+    });
   });
 
   describe('timelineScale（ズーム粒度）', () => {

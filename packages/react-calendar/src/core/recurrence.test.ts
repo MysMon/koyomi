@@ -14,6 +14,7 @@ import {
   expandRecurrence,
   normalizeRRuleString,
   previousOccurrenceStart,
+  toFakeUTC,
   truncateRRule,
 } from './recurrence';
 import { getWallClock } from './timezone';
@@ -707,6 +708,26 @@ describe('expandRecurrence', () => {
         range: { start: dtstart, end: new Date('2026-08-01T00:00:00Z') },
       }),
     ).toThrow(Error);
+  });
+
+  it('toFakeUTC は年 0〜99 を 1900 年代へ誤変換しない', () => {
+    // 0050-01-01T00:00Z の UTC 現地成分をそのまま fake-UTC に写しても年が 50 のまま
+    const year50 = new Date(0);
+    year50.setUTCFullYear(50, 0, 1);
+    year50.setUTCHours(0, 0, 0, 0);
+    expect(toFakeUTC(year50, 'UTC').getUTCFullYear()).toBe(50);
+  });
+
+  it('INTERVAL が 1 未満の RRULE は不正として Error を投げる（黙って 0 件にしない）', () => {
+    // RFC 5545 は INTERVAL を正の整数と定める
+    const dtstart = new Date('2026-07-01T00:00:00Z');
+    const range = { start: dtstart, end: new Date('2026-08-01T00:00:00Z') };
+    expect(() =>
+      expandRecurrence({ rrule: 'FREQ=DAILY;INTERVAL=0', dtstart, timeZone: TOKYO, range }),
+    ).toThrow(/INTERVAL/);
+    expect(() =>
+      expandRecurrence({ rrule: 'FREQ=DAILY;INTERVAL=-1', dtstart, timeZone: TOKYO, range }),
+    ).toThrow(/INTERVAL/);
   });
 });
 

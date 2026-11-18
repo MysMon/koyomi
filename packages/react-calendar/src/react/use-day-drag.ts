@@ -51,6 +51,7 @@ import type {
   ResolvedCalendarOptions,
 } from '../core/types';
 import {
+  allDayPatchRange,
   captureOccurrenceDeleteFocusContext,
   checkBeforeEventChange,
   checkBeforeEventDelete,
@@ -518,6 +519,11 @@ export function useDayDrag(params: {
       }
       let scope: RecurringEditScope | null = null;
       let changes: readonly EventChangeEntry[];
+      // 終日イベントの移動はタイムゾーンに依存しない日付キー文字列で書き込む
+      // （表示 TZ の絶対時刻のままだと timeZone を持つイベントで日付がずれる）
+      const patchRange = occurrence.allDay
+        ? allDayPatchRange(range, timeZoneRef.current)
+        : { start: range.start, end: range.end };
       if (occurrence.isRecurring) {
         const resolveRecurringScope = callbacksRef.current?.resolveRecurringScope;
         scope =
@@ -527,16 +533,12 @@ export function useDayDrag(params: {
         if (scope === null) {
           return;
         }
-        changes = apiRef.current.updateEvent(
-          occurrence.eventId,
-          { start: range.start, end: range.end },
-          { occurrenceStart: occurrence.originalStart, scope },
-        );
-      } else {
-        changes = apiRef.current.updateEvent(occurrence.eventId, {
-          start: range.start,
-          end: range.end,
+        changes = apiRef.current.updateEvent(occurrence.eventId, patchRange, {
+          occurrenceStart: occurrence.originalStart,
+          scope,
         });
+      } else {
+        changes = apiRef.current.updateEvent(occurrence.eventId, patchRange);
       }
       callbacksRef.current?.onEventChange?.({
         occurrence,

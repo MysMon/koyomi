@@ -63,17 +63,11 @@ function errorMessage(cause: unknown): string {
  */
 export function toFakeUTC(date: Date, timeZone: TimeZoneId): Date {
   const wall = getWallClock(date, timeZone);
-  return new Date(
-    Date.UTC(
-      wall.year,
-      wall.month - 1,
-      wall.day,
-      wall.hours,
-      wall.minutes,
-      wall.seconds,
-      wall.milliseconds,
-    ),
-  );
+  // 0〜99 年が 1900 年代に解釈されるのを避けるため、Date.UTC ではなく setter を使う
+  const fake = new Date(0);
+  fake.setUTCFullYear(wall.year, wall.month - 1, wall.day);
+  fake.setUTCHours(wall.hours, wall.minutes, wall.seconds, wall.milliseconds);
+  return fake;
 }
 
 /**
@@ -129,6 +123,17 @@ export function parseRRuleOptions(rrule: string): Partial<Options> {
   }
   if (typeof parsed.freq !== 'number' || !(parsed.freq in RRule.FREQUENCIES)) {
     throw new Error(`不正な RRULE です: '${rrule}'（FREQ が指定されていないか値が不正です）`);
+  }
+  // RFC 5545 は INTERVAL を正の整数と定める。rrule は 0 以下を例外にせず
+  // 展開結果が黙って 0 件になるため、ここで明示的に検証する
+  if (
+    parsed.interval !== undefined &&
+    parsed.interval !== null &&
+    (!Number.isInteger(parsed.interval) || parsed.interval < 1)
+  ) {
+    throw new Error(
+      `不正な RRULE です: '${rrule}'（INTERVAL は 1 以上の整数である必要があります）`,
+    );
   }
   // DTSTART 行や TZID が混入していても、このモジュールでは dtstart を
   // 引数から与えるため無視する（RRULE 本体のみを扱う）

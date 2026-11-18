@@ -860,12 +860,9 @@ describe('TimeGridView - A キーによる終日 ⇔ 時間指定の変換', () 
 
     const updated = sink.current?.api.getEvents()[0];
     expect(updated?.allDay).toBe(true);
-    if (!(updated?.start instanceof Date) || !(updated.end instanceof Date)) {
-      throw new Error('更新後の start/end が Date ではありません');
-    }
-    // 2026-07-15 0:00 JST 〜 2026-07-16 0:00 JST の 1 日分
-    expect(updated.start.toISOString()).toBe('2026-07-14T15:00:00.000Z');
-    expect(updated.end.toISOString()).toBe('2026-07-15T15:00:00.000Z');
+    // 終日への変換はタイムゾーンに依存しない日付キー文字列で書き込まれる（2026-07-15 の 1 日分）
+    expect(updated?.start).toBe('2026-07-15');
+    expect(updated?.end).toBe('2026-07-16');
     // 時間グリッドから消え、終日行の帯として描画され直す
     expect(container.querySelector('[data-koyomi="timegrid-event"]')).toBeNull();
     expect(container.querySelector('[data-koyomi="allday-event"]')).not.toBeNull();

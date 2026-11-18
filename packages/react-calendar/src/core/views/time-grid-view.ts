@@ -332,9 +332,17 @@ export function buildDayItems(
     const startsInDay = startMs >= dayStart.getTime();
     const endsAtOrAfterDayEnd = endMs >= dayEnd.getTime();
     const dayClampedStartMinutes = startsInDay ? minutesOfDayInZone(occurrence.start, timeZone) : 0;
-    const dayClampedEndMinutes = endsAtOrAfterDayEnd
+    let dayClampedEndMinutes = endsAtOrAfterDayEnd
       ? MINUTES_PER_DAY
       : minutesOfDayInZone(occurrence.end, timeZone);
+    if (dayClampedEndMinutes <= dayClampedStartMinutes) {
+      // DST の巻き戻り日、2 回現れる 1 時間の 2 回目に終わるオカレンスは終了の現地時刻の分が
+      // 開始を下回る。開始の現地時刻の位置から実時間の長さを保った区間として表示する
+      dayClampedEndMinutes = Math.min(
+        dayClampedStartMinutes + (endMs - startMs) / 60_000,
+        MINUTES_PER_DAY,
+      );
+    }
 
     // 日境界クランプ後の区間が表示時間帯と重ならなければ除外する
     if (
