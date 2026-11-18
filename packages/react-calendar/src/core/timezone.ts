@@ -3,13 +3,13 @@
  * タイムゾーンユーティリティ。
  *
  * タイムゾーン依存の日時計算はすべてこのモジュールを経由して行う。
- * 絶対時刻から現地時刻への変換には `@date-fns/tz` の {@link TZDate} を利用する。
+ * 絶対時刻から現地時刻への変換には `@date-fns/tz` の `tzOffset`（タイムゾーンのオフセット算出）を利用する。
  *
  * 「絶対時刻（時点）」= `Date` が指す UTC 時点。
  * 「現地時刻（wall clock）」= あるタイムゾーンで時計が示す年月日・時分。
  */
 
-import { TZDate } from '@date-fns/tz';
+import { tzOffset } from '@date-fns/tz';
 import type { TimeZoneId, Weekday } from './types';
 
 /**
@@ -101,13 +101,29 @@ export function isValidTimeZone(timeZone: string): boolean {
   if (timeZone === '') {
     return false;
   }
+  if (validTimeZones.has(timeZone)) {
+    return true;
+  }
   try {
     new Intl.DateTimeFormat(undefined, { timeZone });
-    return true;
   } catch {
     return false;
   }
+  if (validTimeZones.size >= VALID_TIME_ZONE_CACHE_LIMIT) {
+    validTimeZones.clear();
+  }
+  validTimeZones.add(timeZone);
+  return true;
 }
+
+/**
+ * 有効と判定済みのタイムゾーン ID。判定（`Intl.DateTimeFormat` の生成）は高コストで、
+ * イベント一覧の検証では同じ ID を件数ぶん繰り返し判定するため結果を再利用する。
+ */
+const validTimeZones = new Set<string>();
+
+/** {@link validTimeZones} の上限件数（超えたら破棄して作り直す）。 */
+const VALID_TIME_ZONE_CACHE_LIMIT = 1024;
 
 /**
  * 絶対時刻を、指定タイムゾーンにおける現地時刻の成分に分解する。
@@ -117,16 +133,67 @@ export function isValidTimeZone(timeZone: string): boolean {
  * @returns 現地時刻の成分（`month` は 1〜12）
  */
 export function getWallClock(date: Date, timeZone: TimeZoneId): Required<WallClockParts> {
-  const zoned = new TZDate(date.getTime(), timeZone);
+  const wall = wallClockDate(date.getTime(), timeZone);
   return {
-    year: zoned.getFullYear(),
-    month: zoned.getMonth() + 1,
-    day: zoned.getDate(),
-    hours: zoned.getHours(),
-    minutes: zoned.getMinutes(),
-    seconds: zoned.getSeconds(),
-    milliseconds: zoned.getMilliseconds(),
+    year: wall.getUTCFullYear(),
+    month: wall.getUTCMonth() + 1,
+    day: wall.getUTCDate(),
+    hours: wall.getUTCHours(),
+    minutes: wall.getUTCMinutes(),
+    seconds: wall.getUTCSeconds(),
+    milliseconds: wall.getUTCMilliseconds(),
   };
+}
+
+/** タイムゾーンごとの「絶対時刻（ミリ秒）→ UTC オフセット（分）」のキャッシュ。 */
+const zoneOffsetCache = new Map<TimeZoneId, Map<number, number>>();
+
+/** {@link zoneOffsetCache} の 1 タイムゾーンあたりの上限件数（超えたら破棄して作り直す）。 */
+const ZONE_OFFSET_CACHE_LIMIT = 16_384;
+
+/** {@link zoneOffsetCache} が保持するタイムゾーン数の上限（超えたら全体を破棄する）。 */
+const ZONE_OFFSET_CACHE_ZONE_LIMIT = 16;
+
+/**
+ * 指定時点における、指定タイムゾーンの UTC からのオフセット（分。秒を含む場合は小数）を返す。
+ *
+ * オフセットの取得（`Intl.DateTimeFormat` の整形）は高コストなため、同じ時点の
+ * 問い合わせ結果を再利用する。不正なタイムゾーン・無効な時点では `NaN` を返す。
+ */
+function zoneOffsetMinutes(instantMs: number, timeZone: TimeZoneId): number {
+  if (timeZone === 'UTC') {
+    return 0;
+  }
+  const cache = zoneOffsetCache.get(timeZone);
+  const cached = cache?.get(instantMs);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const offset = tzOffset(timeZone, new Date(instantMs));
+  if (Number.isNaN(offset)) {
+    return offset;
+  }
+  if (cache === undefined) {
+    if (zoneOffsetCache.size >= ZONE_OFFSET_CACHE_ZONE_LIMIT) {
+      zoneOffsetCache.clear();
+    }
+    zoneOffsetCache.set(timeZone, new Map([[instantMs, offset]]));
+  } else {
+    if (cache.size >= ZONE_OFFSET_CACHE_LIMIT) {
+      cache.clear();
+    }
+    cache.set(instantMs, offset);
+  }
+  return offset;
+}
+
+/**
+ * 絶対時刻を、UTC の各成分が指定タイムゾーンの現地時刻の成分になる `Date` に写す。
+ * 不正なタイムゾーン・無効な時点では Invalid Date を返す。
+ */
+function wallClockDate(instantMs: number, timeZone: TimeZoneId): Date {
+  // 秒を含む過去のオフセットの丸め誤差を避けるため、秒へ換算してから丸める
+  return new Date(instantMs - Math.round(-zoneOffsetMinutes(instantMs, timeZone) * 60) * 1000);
 }
 
 /** 1 日のミリ秒数。 */
@@ -180,6 +247,10 @@ export function fromWallClock(
   // TZDate の setter に現地時刻→絶対時刻の解決を委ねると、曖昧な時刻の解決が
   // 実行環境ローカル TZ の影響を受ける（ローカルより東のゾーンで反転する）ため使わない。
   const wallMs = wallClockAsUtcMs({ year, month, day, hours, minutes, seconds, milliseconds });
+  if (timeZone === 'UTC') {
+    // UTC はオフセットが常に 0 で、現地時刻と絶対時刻が一致する
+    return new Date(wallMs);
+  }
   // 隣接する切替は数か月離れているため、対象の現地時刻に効きうる切替は高々 1 つで、
   // 切替前後のオフセットは前後 24 時間の時点のオフセットに必ず含まれる
   const beforeOffsetMs = zoneOffsetMs(wallMs - DAY_IN_MS, timeZone);
@@ -235,6 +306,10 @@ export function startOfDayInZone(date: Date, timeZone: TimeZoneId): Date {
  * @param timeZone - タイムゾーン
  */
 export function addDaysInZone(date: Date, amount: number, timeZone: TimeZoneId): Date {
+  if (timeZone === 'UTC' && Number.isInteger(amount)) {
+    // UTC には DST がなく 1 日は常に 24 時間のため、絶対時刻への加算と一致する
+    return new Date(date.getTime() + amount * DAY_IN_MS);
+  }
   if (amount === 0) {
     // 曖昧な時刻の遅い方を指す時点を、現地時刻経由の再解決で早い方へ動かさない
     return new Date(date.getTime());
@@ -388,7 +463,7 @@ export function isSameDayInZone(a: Date, b: Date, timeZone: TimeZoneId): boolean
  * @returns 0 = 日曜日、…、6 = 土曜日
  */
 export function weekdayInZone(date: Date, timeZone: TimeZoneId): Weekday {
-  const day = new TZDate(date.getTime(), timeZone).getDay();
+  const day = wallClockDate(date.getTime(), timeZone).getUTCDay();
   switch (day) {
     case 0:
     case 1:

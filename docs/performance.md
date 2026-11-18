@@ -41,6 +41,30 @@ useCalendar({ slotMinTime: '07:00', slotMaxTime: '21:00' });
 で現在の表示範囲を検知し、必要な期間のイベントだけを `setEvents` で渡す実装が
 大量データ運用の基本です。
 
+### イベントオブジェクトの参照を保つ
+
+Koyomi は、イベントオブジェクトごとに日時の解釈結果と繰り返しの展開結果を保持し、
+同じオブジェクトが再び渡されたときに再利用します。予定要素の再描画の要否も
+イベントオブジェクトの参照で判定します。そのため、変更のないイベントは
+**同じオブジェクトのまま**渡し続けると、ナビゲーションや 1 件の更新後の再構築が
+速くなります。
+
+- `api.updateEvent` / `createEvent` / `deleteEvent` は、変更のないイベントの
+  オブジェクトをそのまま保ちます（追加の対応は不要です）
+- `useCalendar` の `events` や `api.setEvents` に配列を渡す場合は、レンダーのたびに
+  `events.map((e) => ({ ...e }))` のように全件を作り直さず、変更したイベントだけを
+  新しいオブジェクトに差し替えてください（`useMemo` やストアの不変更新が該当します）
+- イベントオブジェクトや `start` / `end` の `Date` をその場で書き換えた場合も、
+  書き換え後の値で正しく表示されます（保持した結果は使われず、再計算されます）
+
+10,000 件（うち約 1 割が繰り返し）のイベントでの目安（Node 22、計測日: 2026-11-18）:
+
+| 操作（週ビュー、`getViewModel` まで） | 同じオブジェクトを保つ | 全件を作り直す |
+| --- | ---: | ---: |
+| 1 件の `updateEvent` 後の再構築 | 約 18 ms | — |
+| `setEvents` 後の再構築 | 約 15 ms | 約 140 ms |
+| 次の週へのナビゲーション | 約 40 ms | — |
+
 ## 仮想化コンポーネントの使い分け
 
 上記の設定でも DOM 量が問題になる規模（数百〜数千件の予定・リソースを同時に表示する
@@ -309,14 +333,14 @@ React に依存しない処理だけを使う場合のみ
 
 ### 実測値の例
 
-最小アプリを esbuild 0.28.1 でバンドル（minify）した際のライブラリ寄与分
-（`react` / `react-dom` を external にした値。計測日: 2026-07-29）です。
+最小アプリを esbuild 0.28.2 でバンドル（minify）した際のライブラリ寄与分
+（`react` / `react-dom` を external にした値。計測日: 2026-11-18）です。
 
 | import する範囲 | raw | gzip |
 | --- | ---: | ---: |
-| 全ビュー + Toolbar（`CalendarView` / `Toolbar` / `useCalendar`） | 283.1 KB | 78.4 KB |
-| 月ビューのみ（`MonthView` / `CalendarProvider` / `useCalendar`） | 152.5 KB | 46.0 KB |
-| コアのみ（`@koyomi-cal/react/core` の `createCalendar`） | 104.8 KB | 31.4 KB |
+| 全ビュー + Toolbar（`CalendarView` / `Toolbar` / `useCalendar`） | 293.2 KB | 82.4 KB |
+| 月ビューのみ（`MonthView` / `CalendarProvider` / `useCalendar`） | 162.3 KB | 49.3 KB |
+| コアのみ（`@koyomi-cal/react/core` の `createCalendar`） | 113.0 KB | 34.3 KB |
 
 次のものは import する範囲によらず、`createCalendar`（`useCalendar` の内部）を
 使う限り常にバンドルに含まれます。tree-shaking では除外されない設計上の固定費

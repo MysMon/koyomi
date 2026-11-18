@@ -16,7 +16,7 @@
  */
 
 import { rangesOverlap } from './date-utils';
-import { expandRecurrence } from './recurrence';
+import { expandRecurrence, expandRecurrenceWithCache } from './recurrence';
 import { addDaysInZone, dateFromKey, dateKeyInZone, parseDateValue } from './timezone';
 import type { CalendarEvent, DateRange, EventId, EventOccurrence, TimeZoneId } from './types';
 
@@ -78,6 +78,46 @@ interface AllDaySpan {
 }
 
 /**
+ * イベントの `start` / `end` に指定された入力値の同一性を判定するための控え。
+ * 文字列は値そのもの、`Date` は参照と時刻（ミリ秒）の両方で比較する
+ * （同じ `Date` オブジェクトが書き換えられた場合も不一致として検出するため）。
+ */
+interface DateValueSnapshot {
+  /** 入力値そのもの（省略時は `undefined`）。 */
+  value: Date | string | undefined;
+  /** 入力値が `Date` の場合の時刻（ミリ秒）。それ以外は `0`。 */
+  time: number;
+}
+
+/** 入力値の控えを作る。 */
+function snapshotDateValue(value: Date | string | undefined): DateValueSnapshot {
+  return { value, time: value instanceof Date ? value.getTime() : 0 };
+}
+
+/** 入力値が控えと同一（解釈結果が変わらない）かどうかを判定する。 */
+function matchesDateValue(snapshot: DateValueSnapshot, value: Date | string | undefined): boolean {
+  return (
+    snapshot.value === value && (!(value instanceof Date) || value.getTime() === snapshot.time)
+  );
+}
+
+/** {@link resolveTimedSpan} の解釈結果と、その前提になった入力の控え。 */
+interface TimedSpanCacheEntry {
+  startInput: DateValueSnapshot;
+  endInput: DateValueSnapshot;
+  timeZone: TimeZoneId;
+  defaultEventMinutes: number;
+  startMs: number;
+  endMs: number;
+}
+
+/**
+ * イベントごとの {@link resolveTimedSpan} の結果。同じイベントは表示範囲の移動や
+ * 他のイベントの変更のたびに展開し直されるため、日時の解釈結果を再利用する。
+ */
+const timedSpanCache = new WeakMap<CalendarEvent, TimedSpanCacheEntry>();
+
+/**
  * 時間指定イベントの `start` / `end` を絶対時刻に変換する。
  * `end` 省略時は開始から `defaultEventMinutes` 分とみなす。
  */
@@ -86,13 +126,46 @@ function resolveTimedSpan(
   timeZone: TimeZoneId,
   defaultEventMinutes: number,
 ): TimedSpan {
+  const cached = timedSpanCache.get(event);
+  if (
+    cached !== undefined &&
+    cached.timeZone === timeZone &&
+    cached.defaultEventMinutes === defaultEventMinutes &&
+    matchesDateValue(cached.startInput, event.start) &&
+    matchesDateValue(cached.endInput, event.end)
+  ) {
+    return {
+      start: new Date(cached.startMs),
+      end: new Date(cached.endMs),
+      durationMs: cached.endMs - cached.startMs,
+    };
+  }
   const start = parseDateValue(event.start, timeZone, false);
   const end =
     event.end === undefined
       ? new Date(start.getTime() + defaultEventMinutes * MINUTE_MS)
       : parseDateValue(event.end, timeZone, false);
+  timedSpanCache.set(event, {
+    startInput: snapshotDateValue(event.start),
+    endInput: snapshotDateValue(event.end),
+    timeZone,
+    defaultEventMinutes,
+    startMs: start.getTime(),
+    endMs: end.getTime(),
+  });
   return { start, end, durationMs: end.getTime() - start.getTime() };
 }
+
+/** {@link resolveAllDaySpan} の解釈結果と、その前提になった入力の控え。 */
+interface AllDaySpanCacheEntry {
+  startInput: DateValueSnapshot;
+  endInput: DateValueSnapshot;
+  timeZone: TimeZoneId;
+  span: AllDaySpan;
+}
+
+/** イベントごとの {@link resolveAllDaySpan} の結果（{@link timedSpanCache} と同じ目的）。 */
+const allDaySpanCache = new WeakMap<CalendarEvent, AllDaySpanCacheEntry>();
 
 /**
  * 終日イベントの `start` / `end` を日付キーと日数に変換する。
@@ -101,6 +174,27 @@ function resolveTimedSpan(
  * 呼び出し側でオカレンスが生成されない。
  */
 function resolveAllDaySpan(event: CalendarEvent, interpretTimeZone: TimeZoneId): AllDaySpan {
+  const cached = allDaySpanCache.get(event);
+  if (
+    cached !== undefined &&
+    cached.timeZone === interpretTimeZone &&
+    matchesDateValue(cached.startInput, event.start) &&
+    matchesDateValue(cached.endInput, event.end)
+  ) {
+    return { startKey: cached.span.startKey, dayCount: cached.span.dayCount };
+  }
+  const span = computeAllDaySpan(event, interpretTimeZone);
+  allDaySpanCache.set(event, {
+    startInput: snapshotDateValue(event.start),
+    endInput: snapshotDateValue(event.end),
+    timeZone: interpretTimeZone,
+    span: { startKey: span.startKey, dayCount: span.dayCount },
+  });
+  return span;
+}
+
+/** {@link resolveAllDaySpan} の本体（キャッシュなしの解釈）。 */
+function computeAllDaySpan(event: CalendarEvent, interpretTimeZone: TimeZoneId): AllDaySpan {
   const startInstant = parseDateValue(event.start, interpretTimeZone, true);
   const startKey = dateKeyInZone(startInstant, interpretTimeZone);
   if (event.end === undefined) {
@@ -124,16 +218,34 @@ function addDaysToKey(key: string, amount: number): string {
   );
 }
 
+/**
+ * {@link projectAllDaySpan} の結果（開始・終了の絶対時刻のミリ秒）のキャッシュ。
+ * キーは `表示タイムゾーン|開始日の日付キー|日数`。同じ日付の終日イベントや
+ * 再展開のたびに同じ変換を繰り返さないために保持する。
+ */
+const allDayProjectionCache = new Map<string, readonly [startMs: number, endMs: number]>();
+
+/** {@link allDayProjectionCache} の上限件数（超えたら破棄して作り直す）。 */
+const ALL_DAY_PROJECTION_CACHE_LIMIT = 8192;
+
 /** 日付キー起点の終日スパンを、表示タイムゾーンの絶対時刻範囲に変換する。 */
 function projectAllDaySpan(
   startKey: string,
   dayCount: number,
   displayTimeZone: TimeZoneId,
 ): DateRange {
-  return {
-    start: dateFromKey(startKey, displayTimeZone),
-    end: dateFromKey(addDaysToKey(startKey, dayCount), displayTimeZone),
-  };
+  const cacheKey = `${displayTimeZone}|${startKey}|${dayCount}`;
+  const cached = allDayProjectionCache.get(cacheKey);
+  if (cached !== undefined) {
+    return { start: new Date(cached[0]), end: new Date(cached[1]) };
+  }
+  const start = dateFromKey(startKey, displayTimeZone);
+  const end = dateFromKey(addDaysToKey(startKey, dayCount), displayTimeZone);
+  if (allDayProjectionCache.size >= ALL_DAY_PROJECTION_CACHE_LIMIT) {
+    allDayProjectionCache.clear();
+  }
+  allDayProjectionCache.set(cacheKey, [start.getTime(), end.getTime()]);
+  return { start, end };
 }
 
 /** {@link EventOccurrence} を組み立てる。 */
@@ -284,12 +396,15 @@ function expandAllDayRecurrence(params: {
   const queryEnd = new Date(
     dateFromKey(dateKeyInZone(range.end, displayTimeZone), DATE_KEY_ZONE).getTime() + DAY_MS,
   );
-  const starts = expandRecurrence({
-    rrule,
-    dtstart: dateFromKey(span.startKey, DATE_KEY_ZONE),
-    timeZone: DATE_KEY_ZONE,
-    range: { start: queryStart, end: queryEnd },
-  });
+  const starts = expandRecurrenceWithCache(
+    {
+      rrule,
+      dtstart: dateFromKey(span.startKey, DATE_KEY_ZONE),
+      timeZone: DATE_KEY_ZONE,
+      range: { start: queryStart, end: queryEnd },
+    },
+    event,
+  );
   // rrule 由来のオカレンスキーに rdates 由来のキーを合成する（同一日付は Set が自然に重複排除する）
   const keys = new Set(starts.map((startUtc) => dateKeyInZone(startUtc, DATE_KEY_ZONE)));
   for (const rdateKey of rdateKeys) {
@@ -455,13 +570,16 @@ function expandRegularEvent(params: {
   const startMargin = Math.max(0, span.durationMs);
   const excludedInstants = resolveExcludedInstants(event, timeZone);
   const excludedTimes = new Set(excludedInstants.map((instant) => instant.getTime()));
-  const starts = expandRecurrence({
-    rrule: event.rrule,
-    dtstart: span.start,
-    timeZone,
-    exdates: excludedInstants,
-    range: { start: new Date(range.start.getTime() - startMargin), end: range.end },
-  });
+  const starts = expandRecurrenceWithCache(
+    {
+      rrule: event.rrule,
+      dtstart: span.start,
+      timeZone,
+      exdates: excludedInstants,
+      range: { start: new Date(range.start.getTime() - startMargin), end: range.end },
+    },
+    event,
+  );
   // rrule 由来のオカレンスの時刻に rdates 由来の時刻を合成する（同一ミリ秒は Set が自然に
   // 重複排除する。rdates も exdates による除外を受ける）
   const times = new Set(starts.map((occStart) => occStart.getTime()));
