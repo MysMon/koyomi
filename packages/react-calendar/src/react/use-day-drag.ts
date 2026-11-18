@@ -320,11 +320,19 @@ export function useDayDrag(params: {
   const keyboardTimedConversionRef = useRef(params.keyboardTimedConversion);
   keyboardTimedConversionRef.current = params.keyboardTimedConversion;
 
-  // アンマウント時、ドラッグ中であれば document リスナーを解除する
+  // アンマウント時に進行中のセッションがあれば、document リスナーを解除し、
+  // ストアに設定済みのドラッグプレビューも消す。プレビューはカレンダーの状態に入るため、
+  // 消さないと、ドラッグ中のビュー切替などでこのフックだけがアンマウントされた後も
+  // 残り続ける（確定・キャンセルのどちらも届かなくなるため）。セッションがなければ
+  // プレビューには触れない（他のフックが設定したプレビューを消さないため）。
   useEffect(() => {
     return () => {
-      sessionRef.current?.cleanup();
-      sessionRef.current = null;
+      const session = sessionRef.current;
+      if (session !== null) {
+        session.cleanup();
+        sessionRef.current = null;
+        apiRef.current.setDragPreview(null);
+      }
       clickSuppressor.dispose();
     };
   }, [clickSuppressor]);

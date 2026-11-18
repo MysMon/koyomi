@@ -1538,3 +1538,39 @@ describe('useExternalDrag - 宣言的な重なり・配置制約', () => {
     expect(onExternalDrop).not.toHaveBeenCalled();
   });
 });
+
+describe('useExternalDrag - ドラッグ中のアンマウント', () => {
+  it('ドラッグ中にアンマウントされると、ドラッグプレビューが状態に残らず、以降のポインタ操作も反映されない', () => {
+    const onExternalDrop = vi.fn();
+    const calendarSink: { current: UseCalendarResult | null } = { current: null };
+    const { container, unmount } = render(
+      <Harness
+        view="week"
+        onExternalDrop={onExternalDrop}
+        calendarSink={calendarSink}
+        snapMinutes={15}
+        defaultEventMinutes={60}
+      />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const column = container.querySelector(
+      '[data-koyomi="timegrid-day"][data-koyomi-date="2026-07-15"]',
+    );
+    if (!(source instanceof HTMLElement) || !(column instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockRect(column, { left: 0, top: 0, width: 100, height: 1440 });
+    mockElementsFromPoint([column]);
+    const api = calendarSink.current?.api;
+
+    firePointerDown(source);
+    movePointer(50, 600);
+    expect(api?.getState().dragPreview).not.toBeNull();
+
+    unmount();
+    expect(api?.getState().dragPreview).toBeNull();
+
+    releasePointer(50, 600);
+    expect(onExternalDrop).not.toHaveBeenCalled();
+  });
+});

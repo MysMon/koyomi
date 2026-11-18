@@ -289,10 +289,19 @@ export function useTimelineDrag(params: {
   const createdEventFocusControllerRef = useRef(createCreatedEventFocusController());
   const [isDragging, setIsDragging] = useState(false);
 
+  // アンマウント時に進行中のセッションがあれば、document リスナーを解除し、
+  // ストアに設定済みのドラッグプレビューも消す。プレビューはカレンダーの状態に入るため、
+  // 消さないと、ドラッグ中のビュー切替などでこのフックだけがアンマウントされた後も
+  // 残り続ける（確定・キャンセルのどちらも届かなくなるため）。セッションがなければ
+  // プレビューには触れない（他のフックが設定したプレビューを消さないため）。
   useEffect(() => {
     return () => {
-      dragSessionRef.current?.cleanup();
-      dragSessionRef.current = null;
+      const session = dragSessionRef.current;
+      if (session !== null) {
+        session.cleanup();
+        dragSessionRef.current = null;
+        paramsRef.current.calendar.api.setDragPreview(null);
+      }
       clickSuppressor.dispose();
     };
   }, [clickSuppressor]);

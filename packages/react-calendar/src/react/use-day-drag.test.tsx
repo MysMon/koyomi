@@ -4996,3 +4996,37 @@ describe('useDayDrag - RTL（dir="rtl"）の矢印キー', () => {
     expectDateKey(updated?.end, '2026-07-17');
   });
 });
+
+describe('useDayDrag - ドラッグ中のアンマウント', () => {
+  it('ドラッグ中にアンマウントされると、ドラッグプレビューが状態に残らない', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container, unmount } = render(<TestGrid api={api} resultRef={resultRef} />);
+    setupCellRects(container);
+    const cell = container.querySelector('[data-testid="cell-2026-07-08"]');
+    if (!(cell instanceof HTMLElement)) {
+      throw new Error('セル要素が見つかりません');
+    }
+
+    act(() => {
+      cell.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(4));
+    });
+    expect(api.getState().dragPreview).not.toBeNull();
+
+    act(() => {
+      unmount();
+    });
+
+    expect(api.getState().dragPreview).toBeNull();
+  });
+});

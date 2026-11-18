@@ -55,6 +55,7 @@
 - `onEventDoubleClick` / `onEventContextMenu` / `onEventHover` / `onEventHoverEnd` を再レンダーで差し替えても、月・週/日・リソース・タイムラインの各ビューの予定が古いコールバックを呼び続ける問題、および初回レンダー後に追加したコールバックが配線されない問題を修正。予定要素は常に最新のコールバックを呼び、コールバックの追加・削除に合わせて DOM props も増減する（未指定時に DOM props を付けない仕様は変わらない）
 - `useCalendarAnnouncer` の `wrapCallbacks` を使うと、週/日・リソース・タイムラインビューで列・行の `Enter` / `Space` による既定即時作成の後、新規予定へフォーカスが移らない問題を修正。`wrapCallbacks` は `onSelectRange` を追加しなくなり、既定即時作成の通知は `onEventCreate` 経由で行う（通知文言は変わらない）。これに伴い、`wrapCallbacks` の戻り値の `onSelectRange` は指定したときだけ存在し、既定即時作成のイベントのタイトルは `useCalendarAnnouncer` の `messages` ではなく `CalendarProvider` の `messages.common.untitledEvent` で決まる（`wrapCallbacks` を使わない場合と同じ）
 - `useCalendarClipboard` の貼り付けの制約判定がドラッグ操作と食い違う問題を修正。イベント個別の `constraint` / `overlap` を無視してグローバルの `eventConstraint` / `eventOverlap` だけで判定していたため、`constraint` を持つ予定を制約外へ貼り付けられる・`overlap: true` の予定を重ねて貼り付けられない、といった不一致があった。リソース/タイムラインビューでは別のレーンの予定とも重なり扱いになっていたが、貼り付けるイベントの割当先レーンごとに判定するようになった
+- ドラッグ中にビューがアンマウントされる（ドラッグ中のビュー切替など）と、ドラッグプレビュー（`state.dragPreview`）がカレンダーの状態に残り続ける問題を修正。月・週/日・リソース・タイムラインの各ビューのドラッグと `useExternalDrag` は、進行中のドラッグがある状態でアンマウントされるとプレビューを破棄する（変更は適用されない）
 
 ## [0.2.0] - 2026-07-30
 

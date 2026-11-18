@@ -3672,3 +3672,33 @@ describe('useResourceGridDrag - RTL（dir="rtl"）の矢印キー', () => {
     expect(sink.current?.api.getEvents()[0]).toMatchObject({ resourceId: 'room-a' });
   });
 });
+
+describe('useResourceGridDrag - ドラッグ中のアンマウント', () => {
+  it('ドラッグ中にアンマウントされると、ドラッグプレビューが状態に残らない', () => {
+    const event: CalendarEvent = {
+      id: 'ev-unmount',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container, unmount } = render(
+      <Harness resources={[ROOM_A, ROOM_B]} events={[event]} sink={sink} />,
+    );
+    mockAllColumnRects(container);
+    const api = sink.current?.api;
+
+    firePointerDown(
+      getEventElement(container, 'ev-unmount', `${DAY}T10:00`),
+      columnCenterX(0),
+      600,
+    );
+    movePointer(columnCenterX(1), 720);
+    expect(api?.getState().dragPreview).not.toBeNull();
+
+    unmount();
+
+    expect(api?.getState().dragPreview).toBeNull();
+  });
+});

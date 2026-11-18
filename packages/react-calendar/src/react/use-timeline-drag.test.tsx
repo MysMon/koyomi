@@ -2921,3 +2921,33 @@ describe('useTimelineDrag - RTL（dir="rtl"）', () => {
     });
   });
 });
+
+describe('useTimelineDrag - ドラッグ中のアンマウント', () => {
+  it('ドラッグ中にアンマウントされると、ドラッグプレビューが状態に残らない', () => {
+    const event: CalendarEvent = {
+      id: 'ev-unmount',
+      title: '荷揚げ',
+      start: `${DAY0}T10:00`,
+      end: `${DAY0}T11:00`,
+      resourceId: 'crane-1',
+    };
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container, unmount } = render(
+      <Harness resources={[CRANE_1, CRANE_2]} timelineDays={1} events={[event]} sink={sink} />,
+    );
+    mockAllRowRects(container, 1);
+    const api = sink.current?.api;
+
+    firePointerDown(
+      getItemElement(container, 'ev-unmount', `${DAY0}T10:00`),
+      dm(0, 10, 0),
+      rowCenterY(0),
+    );
+    movePointer(dm(0, 12, 0), rowCenterY(0));
+    expect(api?.getState().dragPreview).not.toBeNull();
+
+    unmount();
+
+    expect(api?.getState().dragPreview).toBeNull();
+  });
+});

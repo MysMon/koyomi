@@ -3166,3 +3166,47 @@ describe('useTimeGridDrag - RTL（dir="rtl"）の矢印キー', () => {
     });
   });
 });
+
+describe('useTimeGridDrag - ドラッグ中のアンマウント', () => {
+  it('ドラッグ中にアンマウントされると、ドラッグプレビューが状態に残らない', () => {
+    const event: CalendarEvent = {
+      id: 'ev-unmount-preview',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink, unmount } = renderHarness({ events: [event] });
+    const api = sink.current?.calendar.api;
+    const x = columnCenterX(TUE);
+
+    firePointerDown(
+      screen.getByTestId(`event-ev-unmount-preview@${at(`${TUE}T10:00`).toISOString()}`),
+      x,
+      600,
+    );
+    movePointer(x, 720);
+    expect(api?.getState().dragPreview).not.toBeNull();
+
+    unmount();
+
+    expect(api?.getState().dragPreview).toBeNull();
+  });
+
+  it('ドラッグしていないときのアンマウントでは、他の操作が設定したドラッグプレビューを消さない', () => {
+    const { sink, unmount } = renderHarness();
+    const api = sink.current?.calendar.api;
+    const preview = {
+      kind: 'create' as const,
+      occurrenceKey: null,
+      range: { start: at(`${TUE}T10:00`), end: at(`${TUE}T11:00`) },
+      allDay: false,
+    };
+    act(() => {
+      api?.setDragPreview(preview);
+    });
+
+    unmount();
+
+    expect(api?.getState().dragPreview).toEqual(preview);
+  });
+});

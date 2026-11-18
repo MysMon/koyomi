@@ -543,11 +543,19 @@ export function useExternalDrag<TPayload>(
   const overlapCacheRef = useRef(createOverlapBlockerCache());
   const [isDragging, setIsDragging] = useState(false);
 
-  // アンマウント時に進行中のセッションがあれば document リスナーを確実に解除する。
+  // アンマウント時に進行中のセッションがあれば、document リスナーを解除し、
+  // ストアに設定済みのドラッグプレビューも消す。プレビューはカレンダーの状態に入るため、
+  // 消さないと、ドラッグ中のビュー切替などでこのフックだけがアンマウントされた後も
+  // 残り続ける（確定・キャンセルのどちらも届かなくなるため）。セッションがなければ
+  // プレビューには触れない（他のフックが設定したプレビューを消さないため）。
   useEffect(() => {
     return () => {
-      cleanupRef.current?.();
-      cleanupRef.current = null;
+      const cleanup = cleanupRef.current;
+      if (cleanup !== null) {
+        cleanup();
+        cleanupRef.current = null;
+        paramsRef.current.calendar.api.setDragPreview(null);
+      }
     };
   }, []);
 
