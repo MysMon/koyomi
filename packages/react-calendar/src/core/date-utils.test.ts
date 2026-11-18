@@ -179,6 +179,32 @@ describe('addMonthsInZone', () => {
     const date = new Date('2026-11-15T01:00:00Z'); // 11/15 10:00 JST
     expect(addMonthsInZone(date, 2, TOKYO).toISOString()).toBe('2027-01-15T01:00:00.000Z');
   });
+
+  it('年を跨ぐ減算ができる', () => {
+    const date = new Date('2026-01-15T01:00:00Z'); // 1/15 10:00 JST
+    expect(addMonthsInZone(date, -2, TOKYO).toISOString()).toBe('2025-11-15T01:00:00.000Z');
+  });
+
+  it('加算結果が 2 回現れる時刻になる場合は早い方のオフセットで解決する（実行環境より東の Australia/Sydney）', () => {
+    // Sydney は 2026-04-05 03:00 AEDT に 02:00 AEST へ巻き戻り、4/5 の 02:00〜02:59 が 2 回現れる。
+    // 3/5 02:30 AEDT（UTC+11）= 3/4 15:30Z
+    const date = new Date('2026-03-04T15:30:00Z');
+    // 4/5 02:30 AEDT（UTC+11、早い方）
+    expect(addMonthsInZone(date, 1, 'Australia/Sydney').toISOString()).toBe(
+      '2026-04-04T15:30:00.000Z',
+    );
+  });
+
+  it('加算結果が 2 回現れる時刻になる場合は早い方のオフセットで解決する（America/New_York）', () => {
+    // 10/1 01:30 EDT + 1 ヶ月 = 11/1 01:30（2 回現れる）→ EDT（早い方）
+    const date = new Date('2026-10-01T05:30:00Z');
+    expect(addMonthsInZone(date, 1, NY).toISOString()).toBe('2026-11-01T05:30:00.000Z');
+  });
+
+  it('0 を加算すると同じ絶対時刻を返す（2 回現れる時刻の 2 回目でも変わらない）', () => {
+    const secondPass = new Date('2026-11-01T06:30:00Z'); // 11/1 01:30 EST（2 回目）
+    expect(addMonthsInZone(secondPass, 0, NY).getTime()).toBe(secondPass.getTime());
+  });
 });
 
 describe('monthGridRange', () => {

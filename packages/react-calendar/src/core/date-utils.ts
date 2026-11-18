@@ -6,8 +6,6 @@
  * 日付演算を提供する。タイムゾーン依存の基礎演算は {@link ./timezone} に委譲する。
  */
 
-import { TZDate } from '@date-fns/tz';
-import { addMonths } from 'date-fns';
 import {
   addDaysInZone,
   fromWallClock,
@@ -95,11 +93,24 @@ export function startOfMonthInZone(date: Date, timeZone: TimeZoneId): Date {
 /**
  * 指定タイムゾーンの現地時刻基準で月数を加算する。
  * 加算後に存在しない日（例: 1/31 + 1 ヶ月）は月末にクランプされる。
+ * 加算結果が存在しない時刻になる場合は繰り上げて、曖昧な時刻になる場合は
+ * 早い方のオフセットで解決される（{@link fromWallClock} と同じ規則）。
+ * `amount` が 0 の場合は同じ絶対時刻を返す。
  */
 export function addMonthsInZone(date: Date, amount: number, timeZone: TimeZoneId): Date {
-  // TZDate に対する date-fns の addMonths は指定 TZ の現地時刻を維持し、月末にクランプする
-  const zoned = addMonths(new TZDate(date.getTime(), timeZone), amount);
-  return new Date(zoned.getTime());
+  if (amount === 0) {
+    // 曖昧な時刻の遅い方を指す時点を、現地時刻経由の再解決で早い方へ動かさない
+    return new Date(date.getTime());
+  }
+  const wall = getWallClock(date, timeZone);
+  const monthIndex = wall.month - 1 + Math.trunc(amount);
+  const year = wall.year + Math.floor(monthIndex / 12);
+  const month = (((monthIndex % 12) + 12) % 12) + 1;
+  // 翌月の「0 日」= 対象月の末日。0〜99 年の誤変換を避けるため setter で組み立てる
+  const monthEnd = new Date(0);
+  monthEnd.setUTCFullYear(year, month, 0);
+  const day = Math.min(wall.day, monthEnd.getUTCDate());
+  return fromWallClock({ ...wall, year, month, day }, timeZone);
 }
 
 /**

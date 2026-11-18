@@ -488,6 +488,32 @@ describe('addDaysInZone', () => {
     const date = new Date('2026-06-30T15:00:00Z'); // 7/1 0:00 JST
     expect(addDaysInZone(date, 30, TOKYO).toISOString()).toBe('2026-07-30T15:00:00.000Z');
   });
+
+  it('加算結果が 2 回現れる時刻になる場合は早い方のオフセットで解決する（実行環境より東の Australia/Sydney）', () => {
+    // Sydney は 2026-04-05 03:00 AEDT に 02:00 AEST へ巻き戻り、4/5 の 02:00〜02:59 が 2 回現れる
+    const date = fromWallClock({ year: 2026, month: 4, day: 4, hours: 2, minutes: 30 }, SYDNEY);
+    const next = addDaysInZone(date, 1, SYDNEY);
+    // 4/5 02:30 AEDT（UTC+11、早い方）
+    expect(next.toISOString()).toBe('2026-04-04T15:30:00.000Z');
+    expect(next).toEqual(addMinutesInZone(date, 1440, SYDNEY));
+  });
+
+  it('加算結果が 2 回現れる時刻になる場合は早い方のオフセットで解決する（America/New_York・減算）', () => {
+    // 11/2 01:30 EST から 1 日戻ると 11/1 01:30（2 回現れる）→ EDT（早い方）
+    const date = new Date('2026-11-02T06:30:00Z');
+    expect(addDaysInZone(date, -1, NY).toISOString()).toBe('2026-11-01T05:30:00.000Z');
+  });
+
+  it('加算結果が存在しない時刻になる場合は直後の実在時刻へ繰り上げる', () => {
+    // 3/7 02:30 EST + 1 日 = 3/8 02:30（存在しない）→ 03:30 EDT
+    const date = new Date('2026-03-07T07:30:00Z');
+    expect(addDaysInZone(date, 1, NY).toISOString()).toBe('2026-03-08T07:30:00.000Z');
+  });
+
+  it('2 回現れる時刻の 2 回目に 0 を加算しても同じ絶対時刻を返す', () => {
+    const secondPass = new Date('2026-11-01T06:30:00Z'); // 11/1 01:30 EST（2 回目）
+    expect(addDaysInZone(secondPass, 0, NY).getTime()).toBe(secondPass.getTime());
+  });
 });
 
 describe('atMinutesOfDayInZone', () => {

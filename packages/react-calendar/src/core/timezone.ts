@@ -3,14 +3,13 @@
  * タイムゾーンユーティリティ。
  *
  * タイムゾーン依存の日時計算はすべてこのモジュールを経由して行う。
- * 内部的には date-fns v4 と `@date-fns/tz` の {@link TZDate} を利用する。
+ * 絶対時刻から現地時刻への変換には `@date-fns/tz` の {@link TZDate} を利用する。
  *
  * 「絶対時刻（時点）」= `Date` が指す UTC 時点。
  * 「現地時刻（wall clock）」= あるタイムゾーンで時計が示す年月日・時分。
  */
 
 import { TZDate } from '@date-fns/tz';
-import { addDays } from 'date-fns';
 import type { TimeZoneId, Weekday } from './types';
 
 /**
@@ -227,15 +226,26 @@ export function startOfDayInZone(date: Date, timeZone: TimeZoneId): Date {
  * 指定タイムゾーンの現地時刻基準で日数を加算する。
  *
  * DST を跨いでも現地時刻が維持される（例: 9:00 の予定は加算後も 9:00）。
+ * 加算結果が存在しない時刻になる場合は繰り上げて、曖昧な時刻になる場合は
+ * 早い方のオフセットで解決される（{@link fromWallClock} と同じ規則）。
+ * `amount` が 0 の場合は同じ絶対時刻を返す。
  *
  * @param date - 基準となる絶対時刻
  * @param amount - 加算する日数（負数で減算）
  * @param timeZone - タイムゾーン
  */
 export function addDaysInZone(date: Date, amount: number, timeZone: TimeZoneId): Date {
-  // TZDate に対する date-fns の addDays は指定 TZ の現地時刻を維持して日を進める
-  const zoned = addDays(new TZDate(date.getTime(), timeZone), amount);
-  return new Date(zoned.getTime());
+  if (amount === 0) {
+    // 曖昧な時刻の遅い方を指す時点を、現地時刻経由の再解決で早い方へ動かさない
+    return new Date(date.getTime());
+  }
+  const wall = getWallClock(date, timeZone);
+  // 現地時刻の成分をオフセットのない UTC 上の日時として組み立てて日を進め、
+  // 月・年への繰り上がり/繰り下がりを Date の正規化に任せる
+  const shifted = new Date(0);
+  shifted.setUTCFullYear(wall.year, wall.month - 1, wall.day + amount);
+  shifted.setUTCHours(wall.hours, wall.minutes, wall.seconds, wall.milliseconds);
+  return fromShiftedWallClock(shifted, timeZone);
 }
 
 /**
