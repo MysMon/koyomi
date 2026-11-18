@@ -15,6 +15,7 @@
 ### 変更
 
 - **[破壊的変更]** 対応する Node.js の下限を 20.19.0 から 22.22.2 に引き上げ（`engines`）。Node 20 系はサポート終了済みで、テスト基盤（vitest 5 / jsdom 30）も Node 22 以上を要求するため、CI の下限レグも 22.22.2 にした
+- `date-fns` への依存を削除（日付演算は自前の現地時刻演算と `@date-fns/tz` で行う。インストールされる依存が 1 つ減る）
 - 開発依存を更新（vitest 5.1・@vitest/coverage-v8 5.1・jsdom 30・vite 8.3・React 19.3（開発用）・Biome 2.5.13・Playwright 1.63 ほか）。`peerDependencies` の React 範囲（`^19.2.8`）は変更なし
 
 ### 修正

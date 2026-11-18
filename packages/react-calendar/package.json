@@ -12,7 +12,6 @@
     "recurrence",
     "rrule",
     "timezone",
-    "date-fns",
     "カレンダー",
     "予定表"
   ],
@@ -70,8 +69,7 @@
     "react-dom": "^19.2.8"
   },
   "dependencies": {
-    "@date-fns/tz": "^1.2.0",
-    "date-fns": "^4.1.0"
+    "@date-fns/tz": "^1.2.0"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",

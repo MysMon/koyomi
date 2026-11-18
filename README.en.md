@@ -20,7 +20,7 @@ A headless TypeScript/React calendar library.
 - ↩️ **Undo/redo** — Undo and redo of the operation history
 - 🎨 **Headless design** — Logic and markup only; styling is entirely up to you via CSS against `data-koyomi-*` attributes. A default theme (dark mode and RTL included) is bundled
 - 🌐 **Internationalization** — A message catalog (`ja` / `en` bundled) with partial overrides and custom locales, and automatic 12/24-hour format
-- 🌏 **Multi-timezone support** — Independent per-event and display timezones, plus secondary timezone axes (built on date-fns v4 + @date-fns/tz)
+- 🌏 **Multi-timezone support** — Independent per-event and display timezones, plus secondary timezone axes (built on @date-fns/tz)
 - 🔁 **Recurring events** — The major RRULE patterns of RFC 5545 plus RDATE / EXDATE, with a structured-state form editor included
 - 🗓️ **iCalendar (ICS) import/export** — `.ics` input/output that understands recurrence, overrides, and "this and following" series splits, plus partial import that skips malformed VEVENTs
 - 📜 **Large event sets and resource lists** — Virtualized views that only render the visible range, "+N more" overflow aggregation, and incremental data fetching driven by the visible range
