@@ -89,6 +89,8 @@ export type RecurrenceValidationIssue =
  * {@link unsupportedGenericFieldReason} の `unsupportedField` が指す、対応していない
  * RRULE のフィールドの安定識別子。`BYDAY_EXPANDED` / `BYMONTHDAY_EXPANDED` は
  * rrule.js 内部の展開済み表現（`bynweekday` / `bynmonthday`）を指す。
+ * `BYMONTHDAY_EXPANDED` は、月末から数える負の `BYMONTHDAY` のうち編集エディタが
+ * 扱えない値（`-1` 以外）にも使う。
  */
 export type RecurrenceUnsupportedField =
   | 'BYSETPOS'
@@ -105,8 +107,9 @@ export type RecurrenceUnsupportedField =
 /**
  * {@link parseRecurrenceRule} が編集エディタの対応範囲外と判断した理由の判別ユニオン。
  *
- * `invalidRRuleSyntax` のみ rrule.js が投げた例外由来で、`detail` に英語の原文
- * メッセージを保持する（それ以外は判定ロジックが直接返す固定コード）。文言化は
+ * `invalidRRuleSyntax` は主に rrule.js が投げた例外由来で、`detail` に英語の原文
+ * メッセージを保持する（それ以外は判定ロジックが直接返す固定コード）。
+ * `byDayFormatUnrecognized` は、同じ曜日が重複した `BYDAY` にも使う。文言化は
  * `@koyomi-cal/react` のメッセージカタログ（`catalog.recurrenceEditor.unsupportedReason`）
  * が担う。
  */
@@ -345,6 +348,8 @@ function resolvePatternForFrequency(
  * 対応範囲（`FREQ=DAILY/WEEKLY/MONTHLY/YEARLY`・`INTERVAL`・`BYDAY`・
  * `BYMONTHDAY`・`COUNT`/`UNTIL` のみ）外の指定、または不正な RRULE は
  * `kind: 'unsupported'` として元の文字列をそのまま保持する（書き換えない）。
+ * `kind: 'editable'` で返す `state` は常に {@link validateRecurrenceRuleState} を通る
+ * （`-1` 以外の負の `BYMONTHDAY` や同じ曜日が重複した `BYDAY` は対応範囲外）。
  *
  * `WKST` は、カレンダーの週の開始曜日（`weekStartsOn`、省略時は RRULE 既定の月曜）と
  * 一致する明示指定のみ受理し、不一致の明示指定は `kind: 'unsupported'` にする
@@ -433,10 +438,30 @@ export function parseRecurrenceRule(params: {
         ? { type: 'until', until: fromFakeUTC(parsed.until, timeZone) }
         : { type: 'never' };
 
-  return {
-    kind: 'editable',
-    state: { freq, interval, end, ...patternResolution.extra },
-  };
+  const state: RecurrenceRuleState = { freq, interval, end, ...patternResolution.extra };
+  // エディタの状態として検証を通らないルール（-1 以外の負の BYMONTHDAY、同じ曜日が
+  // 重複した BYDAY など）は編集可能として返さず、対応範囲外として元の文字列を保持する
+  const [issue] = validateRecurrenceRuleState(state);
+  if (issue !== undefined) {
+    return { kind: 'unsupported', rawRRule: rrule, reason: unsupportedReasonForIssue(issue) };
+  }
+  return { kind: 'editable', state };
+}
+
+/**
+ * 読み取った状態の検証エラーを、対応範囲外の理由へ対応づける。
+ *
+ * 専用のコードを持つ組み合わせ以外は、検証エラーの内容を `detail` に載せた
+ * `invalidRRuleSyntax` として返す。
+ */
+function unsupportedReasonForIssue(issue: RecurrenceValidationIssue): RecurrenceUnsupportedReason {
+  if (issue.field === 'monthlyPattern' && issue.code === 'dayOfMonthInvalid') {
+    return { code: 'unsupportedField', field: 'BYMONTHDAY_EXPANDED' };
+  }
+  if (issue.field === 'byWeekday') {
+    return { code: 'byDayFormatUnrecognized' };
+  }
+  return { code: 'invalidRRuleSyntax', detail: `${issue.field}: ${issue.code}` };
 }
 
 /**

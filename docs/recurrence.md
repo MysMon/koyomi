@@ -120,7 +120,7 @@ type RecurrenceEnd =
   | { type: 'until'; until: Date }; // イベント TZ の現地時刻として解釈される（後述の UNTIL と同じ規則）
 ```
 
-`parseRecurrenceRule` は RRULE 文字列をこの構造化状態に変換します。対応範囲外の指定（`BYSETPOS` や複数の `BYMONTHDAY` など）、不正な RRULE は `kind: 'unsupported'` として元の文字列（`rawRRule`）をそのまま保持します（書き換えません）。
+`parseRecurrenceRule` は RRULE 文字列をこの構造化状態に変換します。対応範囲外の指定（`BYSETPOS`、複数の `BYMONTHDAY`、`-1`（末日）以外の負の `BYMONTHDAY`、同じ曜日が重複した `BYDAY` など）、不正な RRULE は `kind: 'unsupported'` として元の文字列（`rawRRule`）をそのまま保持します（書き換えません）。`kind: 'editable'` で返る `state` は常に `validateRecurrenceRuleState` を通ります。
 
 ```ts
 import { buildRecurrenceRuleString, parseRecurrenceRule, resolveMessageCatalog } from '@koyomi-cal/react';
