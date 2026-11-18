@@ -1503,7 +1503,7 @@ resourceLanePatch({ resourceIds: ['a', 'c'] }, 'a', 'b'); // => { resourceIds: [
 | --- | --- |
 | `expandEvents(params): EventOccurrence[]` | イベント集合を指定範囲に展開し、オカレンス一覧を開始時刻順で返す |
 | `occurrenceKey(eventId, start): string` | オカレンスの一意キー（`` `${eventId}@${startのISO文字列}` ``）を組み立てる |
-| `resolveOccurrence(params): EventOccurrence | null` | 単一イベントの、指定したオカレンスの開始時刻におけるオカレンスを解決する。任意の `params.master`（`event` がオーバーライドの場合の親イベント）を渡すと、`event.timeZone` 省略時の解釈が `event.timeZone ?? master.timeZone ?? displayTimeZone` の 3 段フォールバックになり、`expandEvents` と同じ解釈が保証される（省略時は `event.timeZone ?? displayTimeZone` の 2 段のみで、マスターの `timeZone` へは継承されない） |
+| `resolveOccurrence(params): EventOccurrence | null` | 単一イベントの、指定したオカレンスの開始時刻におけるオカレンスを解決する。任意の `params.master`（`event` がオーバーライドの場合の親イベント）を渡すと、`event.timeZone` 省略時の解釈が `event.timeZone ?? master.timeZone ?? displayTimeZone` の 3 段フォールバックになり、`originalStart` を終日の日付として読むか時刻として読むかもマスターの `allDay` に従うため、`expandEvents` と同じ解釈が保証される（省略時は `event.timeZone ?? displayTimeZone` の 2 段のみで、マスターの `timeZone` へは継承されず、`originalStart` はオーバーライド自身の `allDay` に従って読む） |
 
 ```ts
 import { expandEvents, occurrenceKey, resolveOccurrence } from '@koyomi-cal/react';

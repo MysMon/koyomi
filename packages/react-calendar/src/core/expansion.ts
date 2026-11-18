@@ -674,7 +674,9 @@ export function expandEvents(params: {
  * @param params.defaultEventMinutes - `end` 省略時の既定の長さ（分）
  * @param params.master - `event` がオーバーライドの場合の親（マスター）イベント。
  *   渡せる場合は指定すると `event.timeZone` 省略時の解釈がマスターの
- *   `timeZone` にフォールバックする（expandEvents と同じ解釈を保証するため）
+ *   `timeZone` にフォールバックし、`originalStart` を終日の日付として読むか
+ *   時刻として読むかもマスターの `allDay` に従う（expandEvents と同じ解釈を
+ *   保証するため。省略時はオーバーライド自身の `allDay` に従う）
  * @returns オカレンス。該当するオカレンスが存在しない場合は `null`
  */
 export function resolveOccurrence(params: {
@@ -691,20 +693,29 @@ export function resolveOccurrence(params: {
   // オーバーライドイベント: 現在の start に一致した場合のみオカレンスとする
   const original = event.originalStart;
   if (event.recurringEventId !== undefined && original !== undefined) {
+    // originalStart はマスターのオカレンスを指すため、終日かどうかの解釈は
+    // オーバーライド自身ではなくマスターの区分に従う（expandEvents と同じ）。
+    // 終日の元オカレンスは表示 TZ におけるその日付の 0:00
+    const originalStart =
+      (master ?? event).allDay === true
+        ? dateFromKey(
+            dateKeyInZone(parseDateValue(original, timeZone, true), timeZone),
+            displayTimeZone,
+          )
+        : parseDateValue(original, timeZone, false);
     if (event.allDay === true) {
       const span = resolveAllDaySpan(event, timeZone);
       const projected = projectAllDaySpan(span.startKey, span.dayCount, displayTimeZone);
       if (projected.start.getTime() !== targetTime) {
         return null;
       }
-      const originalKey = dateKeyInZone(parseDateValue(original, timeZone, true), timeZone);
       return buildOccurrence({
         event,
         start: projected.start,
         end: projected.end,
         allDay: true,
         isRecurring: true,
-        originalStart: dateFromKey(originalKey, displayTimeZone),
+        originalStart,
       });
     }
     const span = resolveTimedSpan(event, timeZone, defaultEventMinutes);
@@ -717,7 +728,7 @@ export function resolveOccurrence(params: {
       end: span.end,
       allDay: false,
       isRecurring: true,
-      originalStart: parseDateValue(original, timeZone, false),
+      originalStart,
     });
   }
 

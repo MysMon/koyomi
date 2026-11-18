@@ -1204,6 +1204,76 @@ describe('resolveOccurrence', () => {
       expect(resolved?.start).toEqual(new Date('2026-07-03T18:00:00Z'));
       expect(resolved?.end).toEqual(new Date('2026-07-03T19:00:00Z'));
     });
+
+    describe('params.master を渡した場合の originalStart は、マスターの終日区分で解釈する（expandEvents と一致）', () => {
+      const range = { start: '2026-07-01T00:00:00Z', end: '2026-07-10T00:00:00Z' };
+
+      /** expandEvents の結果から、オーバーライド `ov` のオカレンスを取り出す。 */
+      function expandedOverride(master: CalendarEvent, override: CalendarEvent): EventOccurrence {
+        const occurrence = expand([master, override], range).find((occ) => occ.eventId === 'ov');
+        if (occurrence === undefined) {
+          throw new Error('オーバーライドのオカレンスが展開されていません');
+        }
+        return occurrence;
+      }
+
+      it('時間指定マスターの 1 オカレンスを終日化したオーバーライドは、originalStart を時刻として解釈する', () => {
+        const master = makeEvent({
+          id: 'timed-master',
+          start: '2026-07-01T09:00:00',
+          end: '2026-07-01T10:00:00',
+          rrule: 'FREQ=DAILY;COUNT=5',
+        });
+        const override = makeEvent({
+          id: 'ov',
+          start: '2026-07-03',
+          end: '2026-07-04',
+          allDay: true,
+          recurringEventId: 'timed-master',
+          originalStart: new Date('2026-07-03T00:00:00Z'), // 東京 7/3 9:00
+        });
+        const expanded = expandedOverride(master, override);
+        const resolved = resolveOccurrence({
+          event: override,
+          occurrenceStart: expanded.start,
+          displayTimeZone: TOKYO,
+          defaultEventMinutes: 60,
+          master,
+        });
+        // 終日の日付（7/3 0:00）へ切り捨てず、元オカレンスの時刻（9:00）のまま
+        expect(resolved?.originalStart).toEqual(new Date('2026-07-03T00:00:00Z'));
+        expect(resolved?.originalStart).toEqual(expanded.originalStart);
+      });
+
+      it('終日マスターの 1 オカレンスを時間指定化したオーバーライドは、originalStart を日付として解釈する', () => {
+        const master = makeEvent({
+          id: 'all-day-master',
+          start: '2026-07-01',
+          allDay: true,
+          timeZone: NY,
+          rrule: 'FREQ=DAILY;COUNT=5',
+        });
+        const override = makeEvent({
+          id: 'ov',
+          start: '2026-07-03T09:00:00',
+          end: '2026-07-03T10:00:00',
+          recurringEventId: 'all-day-master',
+          originalStart: '2026-07-03',
+        });
+        const expanded = expandedOverride(master, override);
+        const resolved = resolveOccurrence({
+          event: override,
+          occurrenceStart: expanded.start,
+          displayTimeZone: TOKYO,
+          defaultEventMinutes: 60,
+          master,
+        });
+        // 終日の元オカレンスは表示 TZ（東京）における 7/3 の 0:00
+        // （マスター TZ の NY 7/3 0:00 = 04:00Z ではない）
+        expect(resolved?.originalStart).toEqual(new Date('2026-07-02T15:00:00Z'));
+        expect(resolved?.originalStart).toEqual(expanded.originalStart);
+      });
+    });
   });
 
   describe('終日イベント', () => {
