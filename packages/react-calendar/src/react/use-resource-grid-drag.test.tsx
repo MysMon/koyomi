@@ -3548,3 +3548,94 @@ describe('useResourceGridDrag - ドラッグ・キャンセル直後の click �
     expect(sink.current?.api.getEvents()).toHaveLength(3);
   });
 });
+
+describe('useResourceGridDrag - 終日行に表示される複数日の時間指定の予定の列移動', () => {
+  /** 7/15（水）10:00 〜 7/16（木）12:00 の時間指定の予定（終日行に表示される）。 */
+  const MULTI_DAY_TIMED: CalendarEvent = {
+    id: 'ev-multi',
+    title: '出張',
+    start: `${DAY}T10:00`,
+    end: `${NEXT_DAY}T12:00`,
+    resourceId: 'room-a',
+  };
+  /** 水・木だけを終日営業とする営業時間（金曜へ掛かる範囲は配置制約に違反する）。 */
+  const WED_THU_ONLY: readonly BusinessHoursRule[] = [
+    { daysOfWeek: [3, 4], startTime: '00:00', endTime: '24:00' },
+  ];
+
+  function getAllDayItem(container: HTMLElement): HTMLElement {
+    const element = container.querySelector<HTMLElement>(
+      '[data-koyomi="resource-allday-cell"] [data-koyomi-occurrence]',
+    );
+    if (element === null) {
+      throw new Error('終日行のアイテムが見つかりません');
+    }
+    return element;
+  }
+
+  it('→ で翌日の列へ移すと、開始・終了の時刻を保ったまま 1 日後ろへ移動し、allDay: false で通知される', () => {
+    const onEventChange = vi.fn();
+    const onBeforeEventChange = vi.fn(() => true);
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      events: [MULTI_DAY_TIMED],
+      resourceViewDays: 3,
+      callbacks: { onEventChange, onBeforeEventChange },
+    });
+
+    fireEvent.keyDown(getAllDayItem(container), { key: 'ArrowRight' });
+
+    const moved = sink.current?.api.getEvents()[0];
+    expect(moved).toMatchObject({
+      start: at(`${NEXT_DAY}T10:00`),
+      end: at('2026-07-17T12:00'),
+    });
+    expect(moved?.allDay).toBeUndefined();
+    expect(onBeforeEventChange).toHaveBeenCalledWith(expect.objectContaining({ allDay: false }));
+    expect(onEventChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        newRange: { start: at(`${NEXT_DAY}T10:00`), end: at('2026-07-17T12:00') },
+        allDay: false,
+      }),
+    );
+  });
+
+  it('→ の移動先が配置制約（営業時間）に違反する場合は拒否される（時間指定の予定として判定する）', () => {
+    const onOperationRejected = vi.fn();
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      events: [MULTI_DAY_TIMED],
+      resourceViewDays: 3,
+      eventConstraint: 'businessHours',
+      businessHours: WED_THU_ONLY,
+      callbacks: { onOperationRejected },
+    });
+
+    fireEvent.keyDown(getAllDayItem(container), { key: 'ArrowRight' });
+
+    expect(onOperationRejected).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'move', reason: 'constraint' }),
+    );
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({
+      start: `${DAY}T10:00`,
+      end: `${NEXT_DAY}T12:00`,
+    });
+  });
+
+  it('ポインタで配置制約に違反する列へ動かしている間、dragPreview.invalid が true になる（確定時の判定と一致する）', () => {
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      events: [MULTI_DAY_TIMED],
+      resourceViewDays: 3,
+      eventConstraint: 'businessHours',
+      businessHours: WED_THU_ONLY,
+    });
+    mockAllColumnRects(container);
+
+    firePointerDown(getAllDayItem(container), columnCenterX(0), 10);
+    movePointer(columnCenterX(1), 10);
+
+    expect(sink.current?.state.dragPreview?.invalid).toBe(true);
+    pressEscape();
+  });
+});

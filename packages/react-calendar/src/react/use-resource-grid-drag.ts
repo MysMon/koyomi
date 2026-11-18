@@ -1218,10 +1218,13 @@ export function useResourceGridDrag(params: {
           { start: occurrenceForPreview.start, end: occurrenceForPreview.end },
           dayDelta,
         );
+        // 制約判定の終日区分は確定時と同じくオカレンス自身の値を使う（終日行には
+        // 複数日にまたがる時間指定の予定も並ぶ）。プレビューの `allDay` は表示先が
+        // 終日行であることを表すため `true` のまま
         const invalid = !isCandidateValid(
           occurrenceForPreview,
           conversionRange,
-          true,
+          occurrenceForPreview.allDay,
           session.targetResourceId,
         );
         paramsRef.current.calendar.api.setDragPreview({
@@ -1602,12 +1605,14 @@ export function useResourceGridDrag(params: {
         dayDelta === 0
           ? null
           : shiftRangeByDays({ start: occurrence.start, end: occurrence.end }, dayDelta);
+      // 終日区分は行（終日行かどうか）ではなくオカレンス自身の値を使う。終日行には
+      // 複数日にまたがる時間指定の予定も並ぶため、行の区分で確定すると時刻が失われる
       void commitKeyboardChange(
         occurrence,
         'move',
         range,
         targetLaneId,
-        allDay,
+        occurrence.allDay,
         sourceLaneId,
       ).catch(reportError);
       return;
