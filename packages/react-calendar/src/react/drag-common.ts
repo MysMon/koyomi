@@ -826,7 +826,6 @@ export function eventNotificationSignature(
   );
 }
 
-/** {@link createDefaultEvent} の `defaultEventTitle` 省略時に使う既定タイトル。 */
 /**
  * 終日イベントとして書き込むパッチの `start` / `end` を、タイムゾーンに依存しない
  * 日付キー文字列に変換する。
@@ -849,6 +848,7 @@ export function allDayPatchRange(
   };
 }
 
+/** {@link createDefaultEvent} の `defaultEventTitle` 省略時に使う既定タイトル。 */
 const FALLBACK_DEFAULT_EVENT_TITLE = '(タイトルなし)';
 
 /**
