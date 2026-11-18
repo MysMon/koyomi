@@ -1454,6 +1454,34 @@ describe('ResourceView - 終日行のあふれ（allDayMaxEvents）', () => {
     expect(details.visibleOccurrences).toHaveLength(2);
   });
 
+  it('「+N 件」ボタンのクリック・Enter では、終日セルのクリック作成（新しい終日の予定）は起きない', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const onAllDayOverflowClick = vi.fn();
+    const { container } = render(
+      <Harness
+        resources={[ROOM_A]}
+        events={alldayEvents(3)}
+        allDayMaxEvents={2}
+        callbacks={{ onAllDayOverflowClick }}
+        sink={sink}
+      />,
+    );
+    const overflowButton = container.querySelector('[data-koyomi="allday-overflow"]');
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('overflow button not found');
+    }
+
+    fireEvent.click(overflowButton);
+    fireEvent.keyDown(overflowButton, { key: 'Enter' });
+
+    expect(onAllDayOverflowClick).toHaveBeenCalledTimes(2);
+    expect(sink.current?.api.getEvents().map((event) => event.id)).toEqual([
+      'allday-0',
+      'allday-1',
+      'allday-2',
+    ]);
+  });
+
   it('renderOverflowLabel と overflowButtonProps がボタンに反映される', () => {
     const { container } = render(
       <Harness

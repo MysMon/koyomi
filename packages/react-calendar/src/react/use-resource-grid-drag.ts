@@ -124,6 +124,9 @@ const RESOURCE_ALLDAY_REGION_SELECTOR =
  */
 const RESOURCE_COLUMN_BODY_SELECTOR = '[data-koyomi="resource-column"]';
 
+/** 終日セル内の「+N 件」ボタン（`AllDayOverflowButton`）を示す `data-koyomi` 属性のセレクタ。 */
+const ALL_DAY_OVERFLOW_SELECTOR = '[data-koyomi="allday-overflow"]';
+
 /**
  * ポインタ位置が `selector` に一致する領域の上にあるかを判定する。
  *
@@ -1665,13 +1668,21 @@ export function useResourceGridDrag(params: {
 
   /**
    * 終日セルのクリックでその列の日 1 日の終日イベントを作成する。
-   * ドラッグ確定・Escape キャンセル直後の click では作成しない。
+   * ドラッグ確定・Escape キャンセル直後の click と、セル内の「+N 件」ボタン
+   * （`allday-overflow`）からバブルしてきた click では作成しない
+   * （後者は `onAllDayOverflowClick` のための操作であり、空き領域のクリックではない）。
    */
   function handleAllDayCellClick(
     column: ResourceColumn,
     event: ReactMouseEvent<HTMLElement>,
   ): void {
     if (clickSuppressor.shouldSuppress(event.nativeEvent)) {
+      return;
+    }
+    if (
+      event.target instanceof Element &&
+      event.target.closest(ALL_DAY_OVERFLOW_SELECTOR) !== null
+    ) {
       return;
     }
     createAllDayEventAt(column);
