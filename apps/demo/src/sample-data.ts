@@ -298,7 +298,7 @@ export const sampleEvents: CalendarEvent[] = [
     resourceId: 'car-1',
     start: `${dayKey(-12)}T10:00:00`,
     end: `${dayKey(-12)}T12:00:00`,
-    color: '#ef6c00',
+    color: '#a14600',
     location: 'B社本社',
   },
   {
@@ -325,8 +325,8 @@ export const sampleEvents: CalendarEvent[] = [
  */
 export const sampleResources: CalendarResource[] = [
   { id: 'room-a', title: '会議室A', color: '#3f51b5' },
-  { id: 'room-b', title: '会議室B', color: '#00897b' },
-  { id: 'car-1', title: '社用車1号', color: '#ef6c00' },
+  { id: 'room-b', title: '会議室B', color: '#00695c' },
+  { id: 'car-1', title: '社用車1号', color: '#a14600' },
 ];
 
 /**
