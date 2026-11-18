@@ -12,7 +12,13 @@
 import { act, fireEvent, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createCalendar } from '../core/calendar';
-import type { BusinessHoursRule, CalendarEvent, EventOccurrence } from '../core/types';
+import type {
+  BusinessHoursRule,
+  CalendarEvent,
+  CalendarResource,
+  CalendarViewType,
+  EventOccurrence,
+} from '../core/types';
 import type { UseCalendarResult } from './types';
 import { useCalendarClipboard } from './use-calendar-clipboard';
 
@@ -40,6 +46,10 @@ interface CalendarConstraintOverrides {
   eventConstraint?: 'businessHours' | readonly BusinessHoursRule[];
   /** {@link CalendarOptions.businessHours}。 */
   businessHours?: readonly BusinessHoursRule[];
+  /** {@link CalendarOptions.initialView}。 */
+  initialView?: CalendarViewType;
+  /** {@link CalendarOptions.resources}。 */
+  resources?: readonly CalendarResource[];
 }
 
 /** 固定タイムゾーン・固定基準日の `UseCalendarResult` 相当のオブジェクトを作るヘルパ。 */
@@ -552,6 +562,201 @@ describe('useCalendarClipboard', () => {
       expect(onPasteRejected).toHaveBeenCalledWith(
         expect.objectContaining({ reason: 'constraint' }),
       );
+    });
+  });
+
+  describe('宣言的制約の判定内容（イベント個別の constraint / overlap・レーン）', () => {
+    /** 全曜日 9:00〜18:00 の営業時間。 */
+    const HOURS: BusinessHoursRule[] = [
+      { daysOfWeek: [0, 1, 2, 3, 4, 5, 6], startTime: '09:00', endTime: '18:00' },
+    ];
+
+    /** 指定 ID のイベントの（表示範囲内の）オカレンスを取得する。 */
+    function occurrenceOf(calendar: UseCalendarResult, eventId: string): EventOccurrence {
+      const occurrence = calendar.api
+        .getOccurrences(calendar.api.getVisibleRange())
+        .find((item) => item.eventId === eventId);
+      if (occurrence === undefined) {
+        throw new Error(`オカレンスが見つかりません: ${eventId}`);
+      }
+      return occurrence;
+    }
+
+    /** `eventId` のオカレンスをコピーし、`newStart`（省略時は同じ日時）へ貼り付けた結果を返す。 */
+    function copyAndPaste(
+      calendar: UseCalendarResult,
+      eventId: string,
+      newStart?: Date,
+    ): { created: CalendarEvent | null; onPasteRejected: ReturnType<typeof vi.fn> } {
+      const onPasteRejected = vi.fn();
+      const { result } = renderHook(() => useCalendarClipboard({ calendar, onPasteRejected }));
+      act(() => {
+        result.current.copy(occurrenceOf(calendar, eventId));
+      });
+      // コールバック内での代入は型の絞り込みに反映されないため、入れ物経由で受け取る
+      const outcome: { value: CalendarEvent | null | Promise<CalendarEvent | null> } = {
+        value: null,
+      };
+      act(() => {
+        outcome.value = result.current.paste(newStart);
+      });
+      if (outcome.value instanceof Promise) {
+        throw new Error('同期的に完結するはずの貼り付けが Promise を返しました');
+      }
+      return { created: outcome.value, onPasteRejected };
+    }
+
+    it('イベント個別の constraint: "businessHours" を持つ予定は、eventConstraint 未指定でも営業時間外へ貼り付けできない', () => {
+      const calendar = makeCalendar([makeSingle({ constraint: 'businessHours' })], {
+        businessHours: HOURS,
+      });
+
+      // 東京 7/1 20:00（営業時間外）
+      const { created, onPasteRejected } = copyAndPaste(
+        calendar,
+        'single-1',
+        new Date('2026-07-01T11:00:00Z'),
+      );
+
+      expect(created).toBeNull();
+      expect(onPasteRejected).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'constraint' }),
+      );
+    });
+
+    it('イベント個別の constraint は eventConstraint より優先され、個別のルールに収まる貼り付けは通る', () => {
+      // 全体は営業時間（9:00〜18:00）に制限するが、この予定は個別に 0:00〜24:00 を許可する
+      const calendar = makeCalendar(
+        [
+          makeSingle({
+            constraint: [
+              { daysOfWeek: [0, 1, 2, 3, 4, 5, 6], startTime: '00:00', endTime: '24:00' },
+            ],
+          }),
+        ],
+        { eventConstraint: 'businessHours', businessHours: HOURS },
+      );
+
+      const { created } = copyAndPaste(calendar, 'single-1', new Date('2026-07-01T11:00:00Z'));
+
+      expect(created).not.toBeNull();
+    });
+
+    it('overlap: true の予定同士は、eventOverlap: false でも重ねて貼り付けできる', () => {
+      const calendar = makeCalendar([makeSingle({ overlap: true })], { eventOverlap: false });
+
+      // newStart 省略 → コピー元（overlap: true）と完全に重なる枠へ貼り付ける
+      const { created } = copyAndPaste(calendar, 'single-1');
+
+      expect(created).not.toBeNull();
+      expect(calendar.api.getEvents()).toHaveLength(2);
+    });
+
+    it('overlap: false の予定は、eventOverlap が既定（true）でも既存の予定に重ねて貼り付けできない', () => {
+      const calendar = makeCalendar([
+        makeSingle({ overlap: false }),
+        makeSingle({
+          id: 'other',
+          start: new Date('2026-07-01T03:00:00Z'), // 東京 12:00
+          end: new Date('2026-07-01T04:00:00Z'),
+        }),
+      ]);
+
+      const { created, onPasteRejected } = copyAndPaste(
+        calendar,
+        'single-1',
+        new Date('2026-07-01T03:00:00Z'),
+      );
+
+      expect(created).toBeNull();
+      expect(onPasteRejected).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'constraint' }),
+      );
+    });
+
+    describe.each(['resource', 'timeline'] as const)(
+      '%s ビュー（レーンごとの重なり判定）',
+      (initialView) => {
+        const RESOURCES: CalendarResource[] = [
+          { id: 'r1', title: 'R1' },
+          { id: 'r2', title: 'R2' },
+        ];
+        /** r1 の 9:00〜10:00・r2 の 12:00〜13:00・r1 の 15:00〜16:00（いずれも東京 7/1）。 */
+        const EVENTS: CalendarEvent[] = [
+          makeSingle({ resourceId: 'r1' }),
+          makeSingle({
+            id: 'other-lane',
+            resourceId: 'r2',
+            start: new Date('2026-07-01T03:00:00Z'),
+            end: new Date('2026-07-01T04:00:00Z'),
+          }),
+          makeSingle({
+            id: 'same-lane',
+            resourceId: 'r1',
+            start: new Date('2026-07-01T06:00:00Z'),
+            end: new Date('2026-07-01T07:00:00Z'),
+          }),
+        ];
+
+        it('eventOverlap: false でも、別のレーンの予定と同じ時間帯へは貼り付けできる', () => {
+          const calendar = makeCalendar(EVENTS, {
+            eventOverlap: false,
+            initialView,
+            resources: RESOURCES,
+          });
+
+          // r1 の予定を、r2 の予定と同じ 12:00 へ貼り付ける（貼り付け先のレーンは r1）
+          const { created } = copyAndPaste(calendar, 'single-1', new Date('2026-07-01T03:00:00Z'));
+
+          expect(created).toMatchObject({ resourceId: 'r1' });
+        });
+
+        it('eventOverlap: false のとき、同じレーンの予定と重なる貼り付けは拒否される', () => {
+          const calendar = makeCalendar(EVENTS, {
+            eventOverlap: false,
+            initialView,
+            resources: RESOURCES,
+          });
+
+          // r1 の予定を、同じ r1 の予定がある 15:00 へ貼り付ける
+          const { created, onPasteRejected } = copyAndPaste(
+            calendar,
+            'single-1',
+            new Date('2026-07-01T06:00:00Z'),
+          );
+
+          expect(created).toBeNull();
+          expect(onPasteRejected).toHaveBeenCalledWith(
+            expect.objectContaining({ reason: 'constraint' }),
+          );
+        });
+      },
+    );
+
+    it('レーンを持たないビュー（週ビュー）では、resourceId が違っても同じ時間帯の予定と重なり扱いになる', () => {
+      const calendar = makeCalendar(
+        [
+          makeSingle({ resourceId: 'r1' }),
+          makeSingle({
+            id: 'other-lane',
+            resourceId: 'r2',
+            start: new Date('2026-07-01T03:00:00Z'),
+            end: new Date('2026-07-01T04:00:00Z'),
+          }),
+        ],
+        {
+          eventOverlap: false,
+          initialView: 'week',
+          resources: [
+            { id: 'r1', title: 'R1' },
+            { id: 'r2', title: 'R2' },
+          ],
+        },
+      );
+
+      const { created } = copyAndPaste(calendar, 'single-1', new Date('2026-07-01T03:00:00Z'));
+
+      expect(created).toBeNull();
     });
   });
 });

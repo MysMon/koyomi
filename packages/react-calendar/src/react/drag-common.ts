@@ -14,6 +14,9 @@
  * - {@link laneIdFromEventTarget} — 操作した DOM 要素から操作元レーンのリソース ID を
  *   解決する（複数リソース割当のオカレンスは複数レーンに表示されるため、操作元の
  *   特定は DOM を正とする。リソースビュー・タイムラインの2フックで共有）
+ * - {@link resolveMoverBlocksOverlap} / {@link resolveConstraintRulesForOccurrence} —
+ *   動かしている側のイベント個別の `overlap` / `constraint` を踏まえた実効値の解決
+ *   （4 つのドラッグ系フックと `use-calendar-clipboard.ts` の貼り付けで共通）
  * - {@link collectOverlapBlockersInRange} — 重なり判定用ブロッカーの収集
  *   （時間グリッド・日単位（帯）・リソース・タイムライン・外部ドラッグの 5 フック共通。
  *   `api.getOccurrences` から収集することで、表示中のビューモデルに現れない
@@ -61,17 +64,23 @@
  */
 
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { type OverlapBlocker, occurrenceBlocksOverlap } from '../core/constraints';
+import {
+  type OverlapBlocker,
+  occurrenceBlocksOverlap,
+  resolveConstraintRules,
+} from '../core/constraints';
 import { rangesOverlap } from '../core/date-utils';
 import { assignedLaneIds, effectiveResourceIds } from '../core/resource-assignment';
 import { addDaysInZone, dateKeyInZone, startOfDayInZone } from '../core/timezone';
 import type {
+  BusinessHoursRule,
   CalendarApi,
   CalendarEvent,
   DateRange,
   EventChangeEntry,
   EventOccurrence,
   RecurringEditScope,
+  ResolvedCalendarOptions,
   TimeZoneId,
 } from '../core/types';
 import { resourceIdFromLaneKey } from '../core/views/lane-key';
@@ -315,6 +324,56 @@ export function collectOverlapBlockersInRange(
     end: occurrence.end,
     blocksOverlap: occurrenceBlocksOverlap(occurrence.event, eventOverlap),
   }));
+}
+
+/**
+ * 宣言的制約の判定で「動かしている側」になる対象。ドラッグ・キーボード操作では
+ * 対象のオカレンス、貼り付けでは貼り付けるイベントの入力を `event` に入れて渡す
+ * （イベント個別の `overlap` / `constraint` だけを参照する）。
+ */
+export interface ConstraintMover {
+  /** 動かしている側のイベント（個別の `overlap` / `constraint` を持ち得る）。 */
+  event: Pick<CalendarEvent, 'overlap' | 'constraint'>;
+}
+
+/**
+ * 動かしている側の overlap 実効値（重なりを拒否するか）を求める。
+ *
+ * イベント個別の `overlap` が優先され、未指定ならグローバル `eventOverlap` を使う
+ * （重ねられる側の判定 `occurrenceBlocksOverlap` と同じ規則）。新規作成・外部ドラッグ
+ * （`mover` が `null`）では個別設定が存在しないため、グローバル `eventOverlap` を
+ * そのまま動かしている側の値として使う。
+ *
+ * 4 つのドラッグ系フックと `useCalendarClipboard` の貼り付けが同じ実装を使う。
+ *
+ * @param mover - 動かしている側（新規作成は `null`）
+ * @param eventOverlap - {@link CalendarOptions.eventOverlap} の実効値
+ * @returns 動かしている側が重なりを拒否するか
+ */
+export function resolveMoverBlocksOverlap(
+  mover: ConstraintMover | null,
+  eventOverlap: boolean,
+): boolean {
+  return (mover?.event.overlap ?? eventOverlap) === false;
+}
+
+/**
+ * 対象（新規作成は `null`）に適用される配置制約の実効ルールを解決する。
+ * イベント個別の `constraint` が優先され、未指定ならグローバル `eventConstraint` を使う。
+ *
+ * 4 つのドラッグ系フックと `useCalendarClipboard` の貼り付けが同じ実装を使う。
+ *
+ * @param mover - 動かしている側（新規作成は `null`）
+ * @param eventConstraint - {@link CalendarOptions.eventConstraint} の実効値
+ * @param businessHours - {@link CalendarOptions.businessHours} の実効値
+ * @returns 適用するルール一覧（`null` は制約なし）
+ */
+export function resolveConstraintRulesForOccurrence(
+  mover: ConstraintMover | null,
+  eventConstraint: ResolvedCalendarOptions['eventConstraint'],
+  businessHours: readonly BusinessHoursRule[],
+): readonly BusinessHoursRule[] | null {
+  return resolveConstraintRules(mover?.event.constraint ?? eventConstraint, businessHours);
 }
 
 /**

@@ -13,7 +13,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { createCalendar } from '../core/calendar';
 import { createEventHistory } from '../core/history';
 import { parseDateValue } from '../core/timezone';
-import type { CalendarApi, CalendarEvent, CalendarResource, EventOccurrence } from '../core/types';
+import type {
+  BusinessHoursRule,
+  CalendarApi,
+  CalendarEvent,
+  CalendarResource,
+  EventOccurrence,
+} from '../core/types';
 import {
   allDayPatchRange,
   captureOccurrenceDeleteFocusContext,
@@ -25,6 +31,8 @@ import {
   eventNotificationProps,
   eventNotificationSignature,
   reportOperationRejected,
+  resolveConstraintRulesForOccurrence,
+  resolveMoverBlocksOverlap,
 } from './drag-common';
 import type { CalendarInteractionCallbacks, OperationRejection, RangeSelection } from './types';
 
@@ -832,5 +840,59 @@ describe('createClickSuppressor', () => {
     suppressor.dispose();
     expect(suppressor.shouldSuppress(recorded)).toBe(false);
     expect(suppressor.shouldSuppress(dispatchClick())).toBe(false);
+  });
+});
+
+describe('resolveMoverBlocksOverlap', () => {
+  it('動かしている側がない（新規作成）場合は eventOverlap の実効値に従う', () => {
+    expect(resolveMoverBlocksOverlap(null, false)).toBe(true);
+    expect(resolveMoverBlocksOverlap(null, true)).toBe(false);
+  });
+
+  it('イベント個別の overlap が eventOverlap より優先される', () => {
+    expect(resolveMoverBlocksOverlap({ event: { overlap: true } }, false)).toBe(false);
+    expect(resolveMoverBlocksOverlap({ event: { overlap: false } }, true)).toBe(true);
+  });
+
+  it('イベント個別の overlap が未指定なら eventOverlap に従う', () => {
+    expect(resolveMoverBlocksOverlap({ event: {} }, false)).toBe(true);
+    expect(resolveMoverBlocksOverlap({ event: {} }, true)).toBe(false);
+  });
+});
+
+describe('resolveConstraintRulesForOccurrence', () => {
+  const businessHours: readonly BusinessHoursRule[] = [
+    { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' },
+  ];
+  const ownRules: readonly BusinessHoursRule[] = [
+    { daysOfWeek: [6], startTime: '10:00', endTime: '12:00' },
+  ];
+
+  it('どちらも未指定なら null（制約なし）', () => {
+    expect(resolveConstraintRulesForOccurrence(null, null, businessHours)).toBeNull();
+    expect(resolveConstraintRulesForOccurrence({ event: {} }, null, businessHours)).toBeNull();
+  });
+
+  it('イベント個別の constraint が未指定なら eventConstraint を使う（"businessHours" は businessHours へ解決）', () => {
+    expect(resolveConstraintRulesForOccurrence({ event: {} }, 'businessHours', businessHours)).toBe(
+      businessHours,
+    );
+  });
+
+  it('イベント個別の constraint が eventConstraint より優先される', () => {
+    expect(
+      resolveConstraintRulesForOccurrence(
+        { event: { constraint: ownRules } },
+        'businessHours',
+        businessHours,
+      ),
+    ).toBe(ownRules);
+    expect(
+      resolveConstraintRulesForOccurrence(
+        { event: { constraint: 'businessHours' } },
+        null,
+        businessHours,
+      ),
+    ).toBe(businessHours);
   });
 });

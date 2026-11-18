@@ -45,11 +45,7 @@ import type {
   Ref,
 } from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import {
-  isDragCandidateValid,
-  occurrenceBlocksOverlap,
-  resolveConstraintRules,
-} from '../core/constraints';
+import { isDragCandidateValid } from '../core/constraints';
 import { occurrenceKey } from '../core/expansion';
 import { dragPreviewRange, timeAtGridPosition } from '../core/interaction';
 import { resourceLanePatch } from '../core/resource-assignment';
@@ -63,13 +59,11 @@ import {
   startOfDayInZone,
 } from '../core/timezone';
 import type {
-  BusinessHoursRule,
   CalendarEventPatch,
   DateRange,
   EventOccurrence,
   PositionedOccurrence,
   RecurringEditScope,
-  ResolvedCalendarOptions,
   ResourceColumn,
   TimeZoneId,
 } from '../core/types';
@@ -97,6 +91,8 @@ import {
   type OccurrenceDeleteFocusContext,
   originatesFromOccurrenceElement,
   reportOperationRejected,
+  resolveConstraintRulesForOccurrence,
+  resolveMoverBlocksOverlap,
   resolveScopeForRecurring,
 } from './drag-common';
 import { readingOrderArrowKey } from './text-direction';
@@ -386,32 +382,6 @@ function slotTimeRangeMinutes(options: { slotMinTime: string; slotMaxTime: strin
     rangeStartMinutes: parseSlotBoundaryTime(options.slotMinTime),
     rangeEndMinutes: parseSlotBoundaryTime(options.slotMaxTime),
   };
-}
-
-/**
- * 動かしている側の overlap 実効値（重なりを拒否するか）を求める。
- * 新規作成（`occurrence` が `null`）では動かしている側の個別設定が存在しないため、
- * グローバル `eventOverlap` をそのまま動かしている側の値として使う。
- */
-function resolveMoverBlocksOverlap(
-  occurrence: EventOccurrence | null,
-  eventOverlap: boolean,
-): boolean {
-  return occurrence === null
-    ? eventOverlap === false
-    : occurrenceBlocksOverlap(occurrence.event, eventOverlap);
-}
-
-/**
- * 対象（新規作成は `null`）に適用される配置制約の実効ルールを解決する。
- * イベント個別の `constraint` が優先され、未指定ならグローバル `eventConstraint` を使う。
- */
-function resolveConstraintRulesForOccurrence(
-  occurrence: EventOccurrence | null,
-  eventConstraint: ResolvedCalendarOptions['eventConstraint'],
-  businessHours: readonly BusinessHoursRule[],
-): readonly BusinessHoursRule[] | null {
-  return resolveConstraintRules(occurrence?.event.constraint ?? eventConstraint, businessHours);
 }
 
 /**
