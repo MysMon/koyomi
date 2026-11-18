@@ -232,7 +232,22 @@ function timedStyleFor(value: Date | string, tzid: TimeZoneId | undefined): Time
   return { kind: 'utc' };
 }
 
-/** 絶対時刻を出力形式に従ってプロパティ行（`NAME[;TZID=...]:値`）にする。 */
+/**
+ * 絶対時刻が、TZID 付きの現地時刻（オフセットなし）として書いても同じ時点へ戻るかを返す。
+ *
+ * DST の巻き戻りで 2 回現れる時刻の 2 回目は、現地時刻だけでは 1 回目（早い方の
+ * オフセット）と区別できず、取り込み時に 1 回目として解釈されるため `false` になる。
+ */
+function isRepresentableAsZonedWall(instant: Date, tzid: TimeZoneId): boolean {
+  return fromWallClock(getWallClock(instant, tzid), tzid).getTime() === instant.getTime();
+}
+
+/**
+ * 絶対時刻を出力形式に従ってプロパティ行（`NAME[;TZID=...]:値`）にする。
+ *
+ * TZID 付きの形式でも、現地時刻では表せない時点（{@link isRepresentableAsZonedWall}）は
+ * 絶対時刻を保つため UTC 形式で出力する。
+ */
 function formatTimedProperty(
   name: string,
   instant: Date,
@@ -241,6 +256,9 @@ function formatTimedProperty(
 ): string {
   switch (style.kind) {
     case 'zoned':
+      if (!isRepresentableAsZonedWall(instant, style.tzid)) {
+        return `${name}:${formatUtcDigits(instant)}`;
+      }
       return `${name};TZID=${style.tzid}:${formatWallDigits(getWallClock(instant, style.tzid))}`;
     case 'floating':
       return `${name}:${formatWallDigits(getWallClock(instant, fallbackTimeZone))}`;
@@ -362,7 +380,12 @@ function pushDateListProperties(
     const style = timedStyleFor(value, tzid);
     const instant = parseDateValue(value, interpretTimeZone, false);
     if (style.kind === 'zoned') {
-      zoned.push(formatWallDigits(getWallClock(instant, style.tzid)));
+      if (isRepresentableAsZonedWall(instant, style.tzid)) {
+        zoned.push(formatWallDigits(getWallClock(instant, style.tzid)));
+      } else {
+        // 現地時刻では表せない時点（2 回現れる時刻の 2 回目）は UTC 形式で絶対時刻を保つ
+        utc.push(formatUtcDigits(instant));
+      }
     } else if (style.kind === 'floating') {
       floating.push(formatWallDigits(getWallClock(instant, fallbackTimeZone)));
     } else {
@@ -378,6 +401,50 @@ function pushDateListProperties(
   if (utc.length > 0) {
     lines.push(`${name}:${utc.join(',')}`);
   }
+}
+
+/**
+ * 時間指定イベントの DTSTART / DTEND 行を返す。
+ *
+ * TZID 付きのイベントで、開始が現地時刻では表せない時点（DST の巻き戻りで 2 回現れる
+ * 時刻の 2 回目）の場合は次のように出力する:
+ *
+ * - RRULE なし: DTSTART / DTEND とも UTC 形式にして絶対時刻を保つ
+ * - RRULE あり: 繰り返しは DTSTART の現地時刻を基準に展開されるため TZID 付きを維持する。
+ *   展開されるオカレンスは早い方のオフセットの時点から始まるので、DTEND はその開始から
+ *   元の長さだけ後の時点にする
+ */
+function timedStartEndLines(
+  event: CalendarEvent,
+  startInstant: Date,
+  endInstant: Date,
+  startStyle: TimedValueStyle,
+  ctx: SerializeContext,
+): string[] {
+  if (startStyle.kind === 'zoned' && !isRepresentableAsZonedWall(startInstant, startStyle.tzid)) {
+    if (event.rrule === undefined) {
+      const utcStyle: TimedValueStyle = { kind: 'utc' };
+      return [
+        formatTimedProperty('DTSTART', startInstant, utcStyle, ctx.fallbackTimeZone),
+        formatTimedProperty('DTEND', endInstant, utcStyle, ctx.fallbackTimeZone),
+      ];
+    }
+    const wallStart = fromWallClock(getWallClock(startInstant, startStyle.tzid), startStyle.tzid);
+    const durationMs = endInstant.getTime() - startInstant.getTime();
+    return [
+      formatTimedProperty('DTSTART', wallStart, startStyle, ctx.fallbackTimeZone),
+      formatTimedProperty(
+        'DTEND',
+        new Date(wallStart.getTime() + durationMs),
+        startStyle,
+        ctx.fallbackTimeZone,
+      ),
+    ];
+  }
+  return [
+    formatTimedProperty('DTSTART', startInstant, startStyle, ctx.fallbackTimeZone),
+    formatTimedProperty('DTEND', endInstant, startStyle, ctx.fallbackTimeZone),
+  ];
 }
 
 /** 1 件のイベントを VEVENT の行配列（折り返し前）にする。 */
@@ -417,10 +484,7 @@ function serializeVEvent(event: CalendarEvent, ctx: SerializeContext): string[] 
       event.end !== undefined
         ? parseDateValue(event.end, interpretTimeZone, false)
         : new Date(startInstant.getTime() + ctx.defaultEventMinutes * 60_000);
-    lines.push(
-      formatTimedProperty('DTSTART', startInstant, startStyle, ctx.fallbackTimeZone),
-      formatTimedProperty('DTEND', endInstant, startStyle, ctx.fallbackTimeZone),
-    );
+    lines.push(...timedStartEndLines(event, startInstant, endInstant, startStyle, ctx));
   }
 
   if (event.rrule !== undefined) {
