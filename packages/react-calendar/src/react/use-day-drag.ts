@@ -67,6 +67,7 @@ import {
   type OccurrenceDeleteFocusContext,
   reportOperationRejected,
 } from './drag-common';
+import { readingOrderArrowKey } from './text-direction';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 
 /**
@@ -1044,7 +1045,9 @@ export function useDayDrag(params: {
         if (occurrence.event.editable === false) {
           return;
         }
-        switch (event.key) {
+        // RTL では日セルが右→左へ並ぶため、←/→ を並びの方向へ読み替える
+        // （「画面上でその方向に動く」を保つ。↑/↓ はそのまま）
+        switch (readingOrderArrowKey(event.key, event.currentTarget)) {
           case 'ArrowLeft': {
             event.preventDefault();
             if (event.shiftKey) {

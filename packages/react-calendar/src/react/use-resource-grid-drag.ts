@@ -99,6 +99,7 @@ import {
   reportOperationRejected,
   resolveScopeForRecurring,
 } from './drag-common';
+import { readingOrderArrowKey } from './text-direction';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 
 /**
@@ -1595,7 +1596,9 @@ export function useResourceGridDrag(params: {
         return;
       }
       const current = columns[index];
-      const target = columns[index + (event.key === 'ArrowLeft' ? -1 : 1)];
+      // RTL では列が右→左へ並ぶため、←/→ を並びの方向へ読み替える
+      const step = readingOrderArrowKey(event.key, event.currentTarget) === 'ArrowLeft' ? -1 : 1;
+      const target = columns[index + step];
       if (current === undefined || target === undefined) {
         return;
       }

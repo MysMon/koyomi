@@ -4927,3 +4927,72 @@ describe('useDayDrag - ドラッグ・キャンセル直後の click 抑止の�
     expect(onEventClick).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('useDayDrag - RTL（dir="rtl"）の矢印キー', () => {
+  /** 7/8〜7/9 の終日の予定 1 件を、`dir="rtl"` の祖先の下に描画する。 */
+  function renderRtl(): { api: CalendarApi; eventId: string; segment: HTMLElement } {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    // RTL では日セルが右→左へ並ぶ（画面上の左隣が翌日）
+    const { container } = render(
+      <div dir="rtl">
+        <TestGrid api={api} segments={[makeSegment(occurrence)]} resultRef={resultRef} />
+      </div>,
+    );
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+    return { api, eventId: created.id, segment };
+  }
+
+  it('← は画面上の左（翌日方向）へ 1 日移動する', () => {
+    const { api, eventId, segment } = renderRtl();
+
+    fireEvent.keyDown(segment, { key: 'ArrowLeft' });
+
+    const updated = api.getEvents().find((event) => event.id === eventId);
+    expectDateKey(updated?.start, '2026-07-09');
+    expectDateKey(updated?.end, '2026-07-11');
+  });
+
+  it('→ は画面上の右（前日方向）へ 1 日移動する', () => {
+    const { api, eventId, segment } = renderRtl();
+
+    fireEvent.keyDown(segment, { key: 'ArrowRight' });
+
+    const updated = api.getEvents().find((event) => event.id === eventId);
+    expectDateKey(updated?.start, '2026-07-07');
+    expectDateKey(updated?.end, '2026-07-09');
+  });
+
+  it('Shift+← は終了端（画面上の左端）を左へ動かし、終了日を 1 日延長する', () => {
+    const { api, eventId, segment } = renderRtl();
+
+    fireEvent.keyDown(segment, { key: 'ArrowLeft', shiftKey: true });
+
+    const updated = api.getEvents().find((event) => event.id === eventId);
+    expectDateKey(updated?.start, '2026-07-08');
+    expectDateKey(updated?.end, '2026-07-11');
+  });
+
+  it('↑ / ↓ の 1 週間移動は RTL でも変わらない', () => {
+    const { api, eventId, segment } = renderRtl();
+
+    fireEvent.keyDown(segment, { key: 'ArrowDown' });
+
+    const updated = api.getEvents().find((event) => event.id === eventId);
+    expectDateKey(updated?.start, '2026-07-15');
+    expectDateKey(updated?.end, '2026-07-17');
+  });
+});

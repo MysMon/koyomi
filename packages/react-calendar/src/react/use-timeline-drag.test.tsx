@@ -2804,3 +2804,120 @@ describe('useTimelineDrag - ドラッグ・キャンセル直後の click 抑止
     expect(onEventClick).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('useTimelineDrag - RTL（dir="rtl"）', () => {
+  /**
+   * `dir="rtl"` の祖先の下に描画する。RTL では時間軸が右→左へ並ぶ（帯は
+   * `insetInlineStart` で配置される）ため、行の右端が表示範囲の先頭になる。
+   * 行の幅は 1440px（1px = 1 分）なので、表示分 m の物理位置は clientX = 1440 - m。
+   */
+  function renderRtl(options: HarnessProps): {
+    container: HTMLElement;
+    sink: { current: UseCalendarResult | null };
+  } {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(
+      <div dir="rtl">
+        <Harness {...options} sink={sink} />
+      </div>,
+    );
+    mockAllRowRects(container, 1);
+    return { container, sink };
+  }
+
+  /** RTL で表示分（当日の hh:mm）に対応する clientX を返す。 */
+  function rtlX(hh: number, mm: number): number {
+    return MINUTES_PER_DAY - (hh * 60 + mm);
+  }
+
+  const EVENT: CalendarEvent = {
+    id: 'ev-rtl',
+    title: '荷揚げ',
+    start: `${DAY0}T10:00`,
+    end: `${DAY0}T11:00`,
+    resourceId: 'crane-1',
+  };
+
+  it('クリック作成は、行の右端からの距離に対応する時刻で作成される', () => {
+    const { container, sink } = renderRtl({ resources: [CRANE_1], timelineDays: 1 });
+    const row = container.querySelector('[data-koyomi="timeline-row"]');
+    if (row === null) {
+      throw new Error('行が見つかりません');
+    }
+
+    // 左端から 360px（右端から 1080px）= 18:00
+    firePointerDown(row, 360, rowCenterY(0));
+    releasePointer(360, rowCenterY(0));
+
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({ start: at(`${DAY0}T18:00`) });
+  });
+
+  it('帯を画面上の左へ 60px ドラッグすると 1 時間後ろへ移動する', () => {
+    const { container, sink } = renderRtl({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [EVENT],
+    });
+
+    firePointerDown(
+      getItemElement(container, 'ev-rtl', `${DAY0}T10:00`),
+      rtlX(10, 0),
+      rowCenterY(0),
+    );
+    movePointer(rtlX(11, 0), rowCenterY(0));
+    releasePointer(rtlX(11, 0), rowCenterY(0));
+
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({
+      start: at(`${DAY0}T11:00`),
+      end: at(`${DAY0}T12:00`),
+    });
+  });
+
+  it('← は画面上の左（未来方向）へ、→ は画面上の右（過去方向）へ snapMinutes 分移動する', async () => {
+    const { container, sink } = renderRtl({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [EVENT],
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(getItemElement(container, 'ev-rtl', `${DAY0}T10:00`), {
+        key: 'ArrowLeft',
+      });
+    });
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({
+      start: at(`${DAY0}T10:15`),
+      end: at(`${DAY0}T11:15`),
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(getItemElement(container, 'ev-rtl', `${DAY0}T10:15`), {
+        key: 'ArrowRight',
+      });
+    });
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({
+      start: at(`${DAY0}T10:00`),
+      end: at(`${DAY0}T11:00`),
+    });
+  });
+
+  it('Shift+← は終了端（画面上の左端）を左へ動かし、終了時刻を snapMinutes 分延長する', async () => {
+    const { container, sink } = renderRtl({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [EVENT],
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(getItemElement(container, 'ev-rtl', `${DAY0}T10:00`), {
+        key: 'ArrowLeft',
+        shiftKey: true,
+      });
+    });
+
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({
+      start: at(`${DAY0}T10:00`),
+      end: at(`${DAY0}T11:15`),
+    });
+  });
+});

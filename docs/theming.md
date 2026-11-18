@@ -320,7 +320,7 @@ console.log(eventEl?.style.getPropertyValue('--koyomi-event-color')); // => '#e6
 - **イベント色**: `event.color` を持つイベントには inline で `--koyomi-event-color` が設定されるだけなので、それを使うかどうか（`background-color: var(--koyomi-event-color, 既定色)` のように参照するか）は自前 CSS 側で決める必要があります。
 - **タッチデバイスの `touch-action`**: ドラッグ起点となる要素（`month-day` / `month-event` / `allday-cell` / `allday-event` / `timegrid-day` / `timegrid-event` / `resource-allday-cell` / `resource-column` / `timeline-row` / `timeline-item` / 各リサイズハンドル）には `touch-action: none` が必要です。これがないとタッチ操作のドラッグがブラウザのスクロールに奪われます（デフォルトテーマでは設定済み）。
 - **キーボードフォーカス**: 予定要素と日セルは `tabindex` によりフォーカス可能です。`:focus-visible` のアウトライン等、フォーカスリングのスタイルを必ず用意してください（デフォルトテーマでは設定済み）。
-- **RTL（右書き言語）**: イベントの水平位置はデフォルトコンポーネントが `insetInlineStart`（論理プロパティ）で出力するため、`dir="rtl"` の文書では自動で反転します。自前 CSS でも `border-inline-start` などの論理プロパティを使うと RTL 対応が保たれます（デフォルトテーマは論理プロパティで記述されています）。
+- **RTL（右書き言語）**: イベントの水平位置はデフォルトコンポーネントが `insetInlineStart`（論理プロパティ）で出力するため、`dir="rtl"` の文書では自動で反転します。ポインタ操作（タイムラインの時間軸を含む）と予定の `←` / `→` キーも、反転後の画面上の位置・方向に従います。自前 CSS でも `border-inline-start` などの論理プロパティを使うと RTL 対応が保たれます（デフォルトテーマは論理プロパティで記述されています）。
 - **`data-edge` は 2 つの語彙で使われます**: `data-edge="start|end"` はリサイズハンドル（`month-event-resize` / `allday-resize` / `timegrid-resize` / `timeline-resize`）の左右・上下端を表すのに対し、`data-edge="before|after"` は仮想化のスペーサ（`list-spacer` / `resource-header-spacer` / `resource-allday-spacer` / `resource-columns-spacer` / `timeline-row-spacer`）が窓の前後どちら側かを表します。同じ属性名ですが意味の異なる別々の語彙なので、`[data-edge="start"]` のようなセレクタが両方の文脈に意図せずマッチしないよう注意してください。
 
 ## renderEvent によるイベント内容のカスタマイズ

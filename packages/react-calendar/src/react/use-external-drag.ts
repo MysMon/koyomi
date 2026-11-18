@@ -51,6 +51,7 @@ import {
   collectOverlapBlockersInRange,
   createOverlapBlockerCache,
 } from './drag-common';
+import { inlineStartFraction, isRtl } from './text-direction';
 import type { UseCalendarResult } from './types';
 
 /** 1 日の分（24:00 = 1440 分）。 */
@@ -400,7 +401,9 @@ function resolveTimelineDrop(
   }
   const resourceId = resourceIdFromLaneKey(row.getAttribute('data-koyomi-resource'));
   const rect = row.getBoundingClientRect();
-  const fraction = fractionAlong(rect.left, rect.width, clientX);
+  // 帯は行頭（inline-start）からの割合で配置されるため、ポインタ位置も同じ基準で測る
+  // （RTL では行の右端が表示範囲の先頭になる）
+  const fraction = inlineStartFraction(rect, clientX, isRtl(row));
   const displayMinutes = fraction * days.length * MINUTES_PER_DAY;
   const start = timeAtTimelineOffset({ days, displayMinutes, timeZone, snap });
   return {

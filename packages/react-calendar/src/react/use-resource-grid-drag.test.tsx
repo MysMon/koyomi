@@ -3639,3 +3639,36 @@ describe('useResourceGridDrag - 終日行に表示される複数日の時間指
     pressEscape();
   });
 });
+
+describe('useResourceGridDrag - RTL（dir="rtl"）の矢印キー', () => {
+  it('← は画面上の左隣（列の並びで次）の列へ、→ は右隣（列の並びで前）の列へ移動する', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-rtl',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    // RTL では列が右→左へ並ぶ（room-a が右、room-b がその左）
+    const { container } = render(
+      <div dir="rtl">
+        <Harness resources={[ROOM_A, ROOM_B]} events={[event]} sink={sink} />
+      </div>,
+    );
+
+    await act(async () => {
+      fireEvent.keyDown(getEventElement(container, 'ev-rtl', `${DAY}T10:00`), {
+        key: 'ArrowLeft',
+      });
+    });
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({ resourceId: 'room-b' });
+
+    await act(async () => {
+      fireEvent.keyDown(getEventElement(container, 'ev-rtl', `${DAY}T10:00`), {
+        key: 'ArrowRight',
+      });
+    });
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({ resourceId: 'room-a' });
+  });
+});

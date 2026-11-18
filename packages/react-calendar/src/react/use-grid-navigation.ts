@@ -30,6 +30,7 @@
 
 import type { FocusEvent as ReactFocusEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { isRtl } from './text-direction';
 import type { UseCalendarResult } from './types';
 
 /**
@@ -182,11 +183,6 @@ function gridEdgeCell(matrix: CellMatrix, edge: 'first' | 'last'): HTMLElement |
 /** Ctrl / Meta / Alt のいずれかが押されているか。 */
 function hasCtrlLikeModifier(event: ReactKeyboardEvent<HTMLElement>): boolean {
   return event.ctrlKey || event.metaKey || event.altKey;
-}
-
-/** コンテナの書字方向が RTL か（`use-virtualizer.ts` の判定と同じ方法）。 */
-function isRtl(element: HTMLElement): boolean {
-  return getComputedStyle(element).direction === 'rtl';
 }
 
 /**

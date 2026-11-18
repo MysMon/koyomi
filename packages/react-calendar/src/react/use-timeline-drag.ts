@@ -99,6 +99,7 @@ import {
   reportOperationRejected,
   resolveScopeForRecurring,
 } from './drag-common';
+import { inlineStartFraction, isRtl, readingOrderArrowKey } from './text-direction';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 
 /** 1 日の分（24:00 = 1440 分）。 */
@@ -226,14 +227,6 @@ interface DragSession {
   hasMoved: boolean;
   /** document に登録したリスナーを解除し、オートスクロールを停止する。 */
   cleanup: () => void;
-}
-
-/** 行要素の矩形内でのポインタの横位置（0〜1）を求める（幅 0 以下は 0）。 */
-function fractionXFromClientX(rect: DOMRect, clientX: number): number {
-  if (rect.width <= 0) {
-    return 0;
-  }
-  return (clientX - rect.left) / rect.width;
 }
 
 /**
@@ -406,7 +399,13 @@ export function useTimelineDrag(params: {
     if (days.length === 0) {
       return null;
     }
-    const fraction = fractionXFromClientX(row.element.getBoundingClientRect(), clientX);
+    // 帯は行頭（inline-start）からの割合で配置されるため、ポインタ位置も同じ基準で測る
+    // （RTL では行の右端が表示範囲の先頭になる）
+    const fraction = inlineStartFraction(
+      row.element.getBoundingClientRect(),
+      clientX,
+      isRtl(row.element),
+    );
     return fraction * days.length * MINUTES_PER_DAY;
   }
 
@@ -1304,7 +1303,9 @@ export function useTimelineDrag(params: {
     const { state } = paramsRef.current.calendar;
     const timeZone = state.timeZone;
     const snap = state.options.snapMinutes;
-    const direction = event.key === 'ArrowLeft' ? -1 : 1;
+    // RTL では時間軸が右→左へ並ぶため、←/→ を並びの方向へ読み替える
+    // （「画面上でその方向に動く」を保つ）
+    const direction = readingOrderArrowKey(event.key, event.currentTarget) === 'ArrowLeft' ? -1 : 1;
     // 終日の帯、または timelineScale が 'hour' 以外のときは日単位で移動・リサイズする
     const daySnap = occurrence.allDay || state.options.timelineScale !== 'hour';
     let range: DateRange;

@@ -3084,3 +3084,85 @@ describe('useTimeGridDrag - ドラッグ・キャンセル直後の click 抑止
     expect(onEventClick).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('useTimeGridDrag - RTL（dir="rtl"）の矢印キー', () => {
+  it('← は画面上の左隣（翌日）の列へ、→ は右隣（前日）の列へ 1 日移動する', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-rtl',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const sink: { current: Sink | null } = { current: null };
+    const factory = (): CalendarApi =>
+      createCalendar({
+        timeZone: TOKYO,
+        initialView: 'week',
+        weekStartsOn: 0,
+        initialDate: NOW,
+        now: () => NOW,
+        events: [event],
+      });
+    // RTL では日列が右→左へ並ぶ（日曜が右端、土曜が左端）
+    render(
+      <div dir="rtl">
+        <Harness factory={factory} sink={sink} />
+      </div>,
+    );
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId(`event-ev-rtl@${at(`${TUE}T10:00`).toISOString()}`), {
+        key: 'ArrowLeft',
+      });
+    });
+    expect(sink.current?.calendar.api.getEvents()[0]).toMatchObject({
+      start: at(`${WED}T10:00`),
+      end: at(`${WED}T11:00`),
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId(`event-ev-rtl@${at(`${WED}T10:00`).toISOString()}`), {
+        key: 'ArrowRight',
+      });
+    });
+    expect(sink.current?.calendar.api.getEvents()[0]).toMatchObject({
+      start: at(`${TUE}T10:00`),
+      end: at(`${TUE}T11:00`),
+    });
+  });
+
+  it('↑ / ↓ の時間移動は RTL でも変わらない', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-rtl',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const sink: { current: Sink | null } = { current: null };
+    const factory = (): CalendarApi =>
+      createCalendar({
+        timeZone: TOKYO,
+        initialView: 'week',
+        weekStartsOn: 0,
+        initialDate: NOW,
+        now: () => NOW,
+        events: [event],
+        snapMinutes: 15,
+      });
+    render(
+      <div dir="rtl">
+        <Harness factory={factory} sink={sink} />
+      </div>,
+    );
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId(`event-ev-rtl@${at(`${TUE}T10:00`).toISOString()}`), {
+        key: 'ArrowDown',
+      });
+    });
+    expect(sink.current?.calendar.api.getEvents()[0]).toMatchObject({
+      start: at(`${TUE}T10:15`),
+      end: at(`${TUE}T11:15`),
+    });
+  });
+});

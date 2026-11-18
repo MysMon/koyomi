@@ -82,6 +82,7 @@ import {
   reportOperationRejected,
   resolveScopeForRecurring,
 } from './drag-common';
+import { readingOrderArrowKey } from './text-direction';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 
 /**
@@ -352,6 +353,9 @@ function calendarDaySpan(range: DateRange, timeZone: TimeZoneId): number {
  * - `Shift+ArrowUp` / `Shift+ArrowDown` — 終了時刻を ∓/± `snap` 分リサイズする。
  *   最小長 `snap` 分を下回る場合は変更しない（`range` は現状の範囲のまま返す）
  * - `ArrowLeft` / `ArrowRight` — オカレンスを ∓/± 1 日移動する
+ *
+ * @param key - 並びの方向に読み替え済みのキー（`readingOrderArrowKey` の戻り値。
+ *   `'ArrowLeft'` = 前日方向、`'ArrowRight'` = 翌日方向）
  */
 function arrowKeyChange(
   occurrence: EventOccurrence,
@@ -1331,7 +1335,10 @@ export function useTimeGridDrag(params: {
     }
 
     const { state } = paramsRef.current.calendar;
-    const change = arrowKeyChange(occurrence, event.key, event.shiftKey, {
+    // RTL では日列が右→左へ並ぶため、←/→ を並びの方向へ読み替える
+    // （「画面上でその方向に動く」を保つ。↑/↓ はそのまま）
+    const key = readingOrderArrowKey(event.key, event.currentTarget);
+    const change = arrowKeyChange(occurrence, key, event.shiftKey, {
       timeZone: state.timeZone,
       snap: state.options.snapMinutes,
     });

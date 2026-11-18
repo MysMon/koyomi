@@ -958,6 +958,43 @@ describe('useExternalDrag - タイムラインビュー', () => {
     });
   });
 
+  it('dir="rtl" では、行の右端からの距離に対応する時刻へ解決される', () => {
+    const onExternalDrop = vi.fn();
+    const { container } = render(
+      <div dir="rtl">
+        <Harness
+          view="timeline"
+          resources={[ROOM_A]}
+          onExternalDrop={onExternalDrop}
+          snapMinutes={15}
+          defaultEventMinutes={30}
+        />
+      </div>,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const row = container.querySelector(
+      '[data-koyomi="timeline-row"][data-koyomi-resource="r:room-a"]',
+    );
+    if (!(source instanceof HTMLElement) || !(row instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    // RTL では時間軸が右→左へ並ぶ。幅 1440px（1px = 1 分）の左端から 360px は
+    // 右端から 1080px = 18:00
+    mockRect(row, { left: 0, top: 0, width: 1440, height: 40 });
+    mockElementsFromPoint([row]);
+
+    firePointerDown(source);
+    movePointer(360, 20);
+    releasePointer(360, 20);
+
+    expect(onExternalDrop).toHaveBeenCalledWith({
+      range: { start: at('2026-07-15T18:00'), end: at('2026-07-15T18:30') },
+      allDay: false,
+      resourceId: 'room-a',
+      payload: { title: '外部の予定' },
+    });
+  });
+
   it('未割り当て行へドロップすると resourceId が null になる', () => {
     const onExternalDrop = vi.fn();
     const { container } = render(
