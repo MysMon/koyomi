@@ -130,6 +130,7 @@ const events = eventsFromIcs(icsText);
 | `SUMMARY` / `LOCATION` / `DESCRIPTION` | `title`（ない場合は空文字）/ `location` / `description` |
 | `VALUE=DATE` の `DTSTART`/`DTEND` | `allDay: true` と `'YYYY-MM-DD'` 文字列 |
 | `TZID` 付きの日時 | `timeZone`（`DTSTART` の TZID）とオフセットなし文字列。`DTSTART` と異なる TZID の値（`DTEND` 等）は絶対時刻の `Date` になる |
+| `DURATION`（`DTEND` がない場合） | `DTSTART` に長さを加えた `end`。日・週の部分は現地時刻を保って加算し（終日は日数）、時・分・秒の部分は実時間で加算する。フローティング時刻は現地時刻のまま加算する。長さ 0 は `end` なし。`DTEND` と両方ある場合は `DTEND` を優先する |
 | UTC（末尾 `Z`）の日時 | `'2026-07-01T01:00:00Z'` 形式のオフセット付き文字列 |
 | フローティング時刻 | オフセットなし文字列（表示タイムゾーンで解釈される） |
 | `RRULE` | `rrule`。UTC 表記の `UNTIL` はイベント TZ（`timeZone` のない UTC 形式のイベントは表示タイムゾーン）の現地時刻へ変換される。フローティングのイベントの `UNTIL` は現地時刻のまま取り込まれる |
@@ -227,7 +228,6 @@ RFC 5545 のうち Koyomi のイベントモデルに対応する表現がない
 | `VTIMEZONE` 定義 | 無視。`TZID` は独自定義ではなく IANA タイムゾーン ID として解釈する（Google カレンダー・Outlook の IANA ID 出力と互換） |
 | `EXRULE` | 無視（RFC 5545 で廃止されたプロパティ） |
 | `VALUE=PERIOD` の `RDATE` | 無視（期間付き RDATE は表現できないため） |
-| `DURATION` | 無視（`DTEND` がなければ `end` なしになり、表示時は `defaultEventMinutes` が適用される） |
 | `VALARM`、`VTODO` / `VJOURNAL` / `VFREEBUSY` などの VEVENT 以外のコンポーネント | 無視 |
 | `DTSTAMP` / `SEQUENCE` / `ORGANIZER` / `ATTENDEE` / `X-` プロパティなどの未対応プロパティ | 無視 |
 | `RECURRENCE-ID` のない同一 `UID` の VEVENT の 2 件目以降 | 無視（最初の 1 件を取り込み、`id` が重複した配列を返さない。`eventsFromIcsWithIssues` では読み飛ばした VEVENT が `issues` に記録される） |
@@ -238,7 +238,7 @@ RFC 5545 のうち Koyomi のイベントモデルに対応する表現がない
 | --- | --- |
 | `DTSTART` のない VEVENT | 開始日時がないと `CalendarEvent` を構成できない |
 | IANA として無効な `TZID`（Outlook の独自タイムゾーン名等） | 黙って別のタイムゾーンで解釈すると日時が静かにずれるため |
-| 解釈できない日時値・不正な `RRULE` | 同上 |
+| 解釈できない日時値・不正な `RRULE`・不正な `DURATION`（負の長さ、終日の `DTSTART` に対する時刻成分を含む長さ等） | 同上 |
 | `':'` のない行、`BEGIN`/`END` の対応が取れないコンポーネント構造 | iCalendar として不正なため |
 
 ## 往復変換（round-trip）の注意

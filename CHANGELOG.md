@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### 追加
+
+- ICS 取り込みが `DURATION` に対応。`DTEND` の代わりに `DURATION` で長さを指定した VEVENT の `end` を `DTSTART` から算出する（従来は無視され、`defaultEventMinutes` の長さで表示されていた）。不正な `DURATION` は他の不正な日時値と同じく `Error`（`eventsFromIcsWithIssues` では `issues`）になる
+
 ### 変更
 
 - **[破壊的変更]** 対応する Node.js の下限を 20.19.0 から 22.22.2 に引き上げ（`engines`）。Node 20 系はサポート終了済みで、テスト基盤（vitest 5 / jsdom 30）も Node 22 以上を要求するため、CI の下限レグも 22.22.2 にした
