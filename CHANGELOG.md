@@ -36,6 +36,7 @@
 - 「この予定のみ削除」を同じオカレンスに繰り返すと `exdates` に同じ値が積み上がる問題を修正（重複しては追加しない）
 - ICS 取り込みで `RECURRENCE-ID` のない同一 `UID` の VEVENT が複数あると `id` が重複した配列を返す問題を修正。最初の 1 件を取り込み、`eventsFromIcsWithIssues` では読み飛ばした VEVENT を `issues` に記録する
 - `isoWeekNumberInZone` / 繰り返し展開の内部変換が西暦 0〜99 年を 1900 年代として誤変換する問題を修正（`fromWallClock` と同じ setter 経由の組み立てに統一）
+- 深夜 0:00 に DST が切り替わり 0:00 が存在しない日（`Africa/Cairo`・`America/Santiago`・`America/Havana` 等の切替日）に、週/日・リソース・タイムラインビューのポインタ位置から求める日時（`timeAtGridPosition` / `timeAtTimelineOffset`）と追加の時間軸（`timeAxisZones`）のラベルが、表示上の現地時刻より 1 時間遅れる問題を修正。目盛りの現地時刻どおりの日時・ラベルになる。あわせて、複数日のタイムラインでこの日の前日 24:00 に終わる予定の帯が翌日へ 1 時間はみ出す問題を修正
 
 ## [0.2.0] - 2026-07-30
 

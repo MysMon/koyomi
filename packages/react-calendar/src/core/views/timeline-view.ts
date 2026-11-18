@@ -389,6 +389,9 @@ export function buildTimelineViewModel(params: {
     weekday: weekdayInZone(date, timeZone),
   }));
   const dayIndexByKey = new Map<string, number>(days.map((day, index) => [day.key, index]));
+  const dayIndexByStartMs = new Map<number, number>(
+    days.map((day, index) => [day.date.getTime(), index]),
+  );
 
   // 目盛り: scale で分岐する。
   // - 'hour'        — 日ごとに slotMinutes 刻み（1440 の非約数では日ごとに切り上げ個数になる。既存挙動）
@@ -425,6 +428,17 @@ export function buildTimelineViewModel(params: {
       return 0;
     }
     return dayIndex * MINUTES_PER_DAY + minutesOfDayInZone(instant, timeZone);
+  }
+
+  /**
+   * 排他的な終了時刻を表示分に変換する。日の開始ちょうどに終わる場合は、その日の
+   * 現地時刻の分ではなく前日の終端（日インデックス × 1440）とする。0:00 が存在せず
+   * 日の開始が 1:00 になる日（深夜 0:00 に DST が切り替わる日）でも、前日の 24:00 に
+   * 終わる帯が翌日へはみ出さない。
+   */
+  function endDisplayMinutesOf(instant: Date): number {
+    const dayIndex = dayIndexByStartMs.get(instant.getTime());
+    return dayIndex !== undefined ? dayIndex * MINUTES_PER_DAY : displayMinutesOf(instant);
   }
 
   /** オカレンスを表示分の区間（RowEntry）に変換する。表示範囲と重ならなければ `null`。 */
@@ -474,7 +488,7 @@ export function buildTimelineViewModel(params: {
     const startsInRange = startMs >= rangeStart.getTime();
     const endsInRange = endMs < rangeEnd.getTime();
     const startMinutes = startsInRange ? displayMinutesOf(occurrence.start) : 0;
-    let endMinutes = endsInRange ? displayMinutesOf(occurrence.end) : totalMinutes;
+    let endMinutes = endsInRange ? endDisplayMinutesOf(occurrence.end) : totalMinutes;
     if (endMinutes <= startMinutes) {
       // DST の巻き戻り日、2 回現れる 1 時間の 2 回目に終わるオカレンスは終了の現地時刻の分が
       // 開始を下回る。開始の現地時刻の位置から実時間の長さを保った帯として表示する

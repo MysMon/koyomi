@@ -18,7 +18,7 @@ import type { TimeGridItemInput } from '../layout/time-grid-layout';
 import { layoutTimeGridItems } from '../layout/time-grid-layout';
 import {
   addDaysInZone,
-  addMinutesInZone,
+  atMinutesOfDayInZone,
   dateKeyInZone,
   formatSlotLabel,
   isSameDayInZone,
@@ -458,13 +458,14 @@ export function buildBusinessHourSlots(
  * 主軸（表示タイムゾーン）＋追加軸（{@link CalendarOptions.timeAxisZones}）の
  * 時間軸配列を構築する（Google カレンダーのセカンダリタイムゾーン相当）。
  *
- * 追加軸の各スロットのラベルは、表示範囲の最初の日の 0:00（`rangeStart`）を基準に
- * `addMinutesInZone(rangeStart, slot.minutes, timeZone)` で主軸の現地時刻を維持した
- * 絶対時刻を算出し、それを追加軸のタイムゾーンの現地時刻へ変換して求める。
+ * 追加軸の各スロットのラベルは、`rangeStart` が属する日の主軸の現地時刻
+ * `slot.minutes` 分にあたる絶対時刻を算出し、それを追加軸のタイムゾーンの現地時刻へ
+ * 変換して求める。主軸の 0:00 が存在しない日（深夜 0:00 に DST が切り替わる日）でも、
+ * ラベルは主軸の目盛りの現地時刻と対応する。
  * 固定オフセットの加算ではなく実際のタイムゾーン変換で算出するため、`rangeStart` が
  * 追加軸側の DST 切替日であれば、切替前後でラベルのオフセットも正しく変わる。
  *
- * @param params.rangeStart - 表示範囲の最初の日の 0:00（主軸のタイムゾーンにおける絶対時刻）
+ * @param params.rangeStart - 表示範囲の最初の日の開始（主軸のタイムゾーンにおける絶対時刻）
  * @param params.timeZone - 表示タイムゾーン（主軸）
  * @param params.slots - 主軸の目盛り（{@link buildSlots} の結果）
  * @param params.timeAxisZones - 追加軸のタイムゾーン一覧。省略時は `[]`
@@ -487,7 +488,7 @@ export function buildTimeAxes(params: {
   const extraAxes: TimeAxis[] = timeAxisZones.map((zone) => ({
     timeZone: zone,
     slots: slots.map((slot) => {
-      const instant = addMinutesInZone(rangeStart, slot.minutes, timeZone);
+      const instant = atMinutesOfDayInZone(rangeStart, slot.minutes, timeZone);
       const zonedMinutes = minutesOfDayInZone(instant, zone);
       return { minutes: slot.minutes, label: formatSlotLabel(zonedMinutes, locale) };
     }),

@@ -258,6 +258,14 @@ export function addMinutesInZone(date: Date, amount: number, timeZone: TimeZoneI
   const shifted = new Date(0);
   shifted.setUTCFullYear(wall.year, wall.month - 1, wall.day);
   shifted.setUTCHours(wall.hours, wall.minutes + amount, wall.seconds, wall.milliseconds);
+  return fromShiftedWallClock(shifted, timeZone);
+}
+
+/**
+ * オフセットのない UTC 上の日時として組み立てた現地時刻（暦演算の結果）を、
+ * 指定タイムゾーンの絶対時刻へ変換する（{@link fromWallClock} と同じ規則）。
+ */
+function fromShiftedWallClock(shifted: Date, timeZone: TimeZoneId): Date {
   return fromWallClock(
     {
       year: shifted.getUTCFullYear(),
@@ -270,6 +278,36 @@ export function addMinutesInZone(date: Date, amount: number, timeZone: TimeZoneI
     },
     timeZone,
   );
+}
+
+/**
+ * 指定タイムゾーンで `day` が属する暦日の、0:00 から数えた現地時刻 `minutes` 分に
+ * あたる絶対時刻を返す。
+ *
+ * 「日の開始」への分加算（{@link addMinutesInZone}）と違い、暦日の年月日と分から
+ * 現地時刻を直接組み立てる。深夜 0:00 に DST が切り替わり日の開始が 0:00 でない日
+ * （`Africa/Cairo`・`America/Santiago` 等の切替日）でも、`minutes` は
+ * {@link minutesOfDayInZone} が返す現地時刻の分と対応する。
+ * 存在しない時刻は直後の実在時刻へ繰り上げ、曖昧な時刻は早い方のオフセットで
+ * 解決される（{@link fromWallClock} と同じ規則）。
+ *
+ * @param day - 対象の暦日に属する絶対時刻（通常はその日の開始）
+ * @param minutes - その日の 0:00 から数えた現地時刻の分。1440 以上は翌日以降へ繰り上がる
+ * @param timeZone - タイムゾーン
+ * @returns 対応する絶対時刻
+ * @example
+ * ```ts
+ * // Africa/Cairo の 2026-04-24 は 0:00 が存在せず、日の開始は 1:00
+ * const day = dateFromKey('2026-04-24', 'Africa/Cairo');
+ * atMinutesOfDayInZone(day, 600, 'Africa/Cairo'); // => 現地時刻 10:00（2026-04-24T07:00:00.000Z）
+ * ```
+ */
+export function atMinutesOfDayInZone(day: Date, minutes: number, timeZone: TimeZoneId): Date {
+  const wall = getWallClock(day, timeZone);
+  const shifted = new Date(0);
+  shifted.setUTCFullYear(wall.year, wall.month - 1, wall.day);
+  shifted.setUTCHours(0, minutes, 0, 0);
+  return fromShiftedWallClock(shifted, timeZone);
 }
 
 /**

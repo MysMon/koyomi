@@ -560,6 +560,50 @@ describe('buildTimelineViewModel', () => {
       expect(item?.startMinutes).toBe(90);
       expect(item?.endMinutes).toBe(120);
     });
+
+    it('0:00 が存在しない日（Africa/Cairo 2026-04-24）の日の開始ちょうどに終わる帯は、前日の終端（1440 分）で終わる', () => {
+      // 4/24 は 0:00 に DST が始まり、日の開始は 1:00 EEST（= 4/23 24:00 と同じ時点）。
+      // 4/23 22:00〜24:00 の予定は 1 日目の 1320〜1440 分の帯になる
+      const CAIRO = 'Africa/Cairo';
+      const vm = build({
+        timeZone: CAIRO,
+        timelineDays: 2,
+        currentDate: at('2026-04-23T12:00', CAIRO),
+        now: at('2026-04-23T12:00', CAIRO),
+        resources: [resource('r1')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-04-23T22:00', CAIRO),
+            end: at('2026-04-24T00:00', CAIRO),
+            resourceId: 'r1',
+          }),
+        ],
+      });
+      const item = vm.rows[0]?.items[0];
+      expect(item?.startMinutes).toBe(1320);
+      expect(item?.endMinutes).toBe(1440);
+    });
+
+    it('0:00 が存在しない日の日の開始に始まる帯は、その日の現地時刻（1:00）の位置から始まる', () => {
+      const CAIRO = 'Africa/Cairo';
+      const vm = build({
+        timeZone: CAIRO,
+        timelineDays: 2,
+        currentDate: at('2026-04-23T12:00', CAIRO),
+        now: at('2026-04-23T12:00', CAIRO),
+        resources: [resource('r1')],
+        occurrences: [
+          makeOccurrence({
+            start: at('2026-04-24T01:00', CAIRO),
+            end: at('2026-04-24T02:00', CAIRO),
+            resourceId: 'r1',
+          }),
+        ],
+      });
+      const item = vm.rows[0]?.items[0];
+      expect(item?.startMinutes).toBe(1440 + 60);
+      expect(item?.endMinutes).toBe(1440 + 120);
+    });
   });
 
   describe('timelineScale（ズーム粒度）', () => {

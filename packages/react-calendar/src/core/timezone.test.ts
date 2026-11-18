@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addDaysInZone,
   addMinutesInZone,
+  atMinutesOfDayInZone,
   dateFromKey,
   dateKeyInZone,
   formatSlotLabel,
@@ -486,6 +487,45 @@ describe('addDaysInZone', () => {
   it('複数日をまとめて加算できる', () => {
     const date = new Date('2026-06-30T15:00:00Z'); // 7/1 0:00 JST
     expect(addDaysInZone(date, 30, TOKYO).toISOString()).toBe('2026-07-30T15:00:00.000Z');
+  });
+});
+
+describe('atMinutesOfDayInZone', () => {
+  it('その日の暦日の 0:00 から数えた現地時刻の分に対応する絶対時刻を返す', () => {
+    const day = dateFromKey('2026-07-01', TOKYO);
+    // 7/1 9:30 JST
+    expect(atMinutesOfDayInZone(day, 570, TOKYO).toISOString()).toBe('2026-07-01T00:30:00.000Z');
+  });
+
+  it('基準が日の途中の時刻でも、その暦日の 0:00 から数える', () => {
+    const noon = new Date('2026-07-01T03:00:00Z'); // 7/1 12:00 JST
+    expect(atMinutesOfDayInZone(noon, 570, TOKYO).toISOString()).toBe('2026-07-01T00:30:00.000Z');
+  });
+
+  it('1440 分は翌日の 0:00 になる', () => {
+    const day = dateFromKey('2026-07-01', TOKYO);
+    expect(atMinutesOfDayInZone(day, 1440, TOKYO)).toEqual(dateFromKey('2026-07-02', TOKYO));
+  });
+
+  it('0:00 が存在しない日（Africa/Cairo 2026-04-24）でも現地時刻の分に対応する', () => {
+    const CAIRO = 'Africa/Cairo';
+    // 日の開始は 1:00 EEST（UTC+3）。600 分 = 10:00 EEST = 07:00Z
+    const day = dateFromKey('2026-04-24', CAIRO);
+    expect(getWallClock(day, CAIRO).hours).toBe(1);
+    expect(atMinutesOfDayInZone(day, 600, CAIRO).toISOString()).toBe('2026-04-24T07:00:00.000Z');
+    // 存在しない 0:30 は繰り上げて 1:30 EEST
+    expect(atMinutesOfDayInZone(day, 30, CAIRO).toISOString()).toBe('2026-04-23T22:30:00.000Z');
+  });
+
+  it('存在しない時刻は繰り上げ、2 回現れる時刻は早い方のオフセットで解決する（America/New_York）', () => {
+    // 3/8 2:30 は存在しない → 3:30 EDT
+    expect(atMinutesOfDayInZone(dateFromKey('2026-03-08', NY), 150, NY).toISOString()).toBe(
+      '2026-03-08T07:30:00.000Z',
+    );
+    // 11/1 1:30 は 2 回現れる → EDT（早い方）
+    expect(atMinutesOfDayInZone(dateFromKey('2026-11-01', NY), 90, NY).toISOString()).toBe(
+      '2026-11-01T05:30:00.000Z',
+    );
   });
 });
 
