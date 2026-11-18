@@ -91,7 +91,7 @@ function App() {
 - **`editable: false`** — 表示・クリックは通常どおりできるが、移動・リサイズ・**キーボードでの削除（Delete/Backspace）**はすべて無効になる。リサイズハンドル自体が描画されない
 - **タッチデバイス** — デフォルトテーマがドラッグ起点の要素に `touch-action: none` を設定しているため、ドラッグがスクロールに奪われません。独自 CSS でテーマを構築する場合は同様の設定が必要です（[テーマとスタイリング](./theming.md) 参照）。ブラウザがポインタを中断した場合（`pointercancel`）はドラッグが安全にキャンセルされます
 - **オートスクロール** — 時間グリッドの縦スクロール領域では、ドラッグ中にポインタが上下端へ近づくと自動でスクロールします
-- **表示時間帯の制限（slotMinTime/slotMaxTime）** — ポインタでの作成・移動・リサイズ・終日⇔時間指定変換は表示時間帯 `[slotMinTime, slotMaxTime)` の範囲内にクランプされます（範囲外の領域自体が描画されないため）。矢印キーによる移動・リサイズはクランプされません（詳細は [ビュー: 表示時間帯](./views.md#表示時間帯slotmintimeslotmaxtime) を参照）
+- **表示時間帯の制限（slotMinTime/slotMaxTime）** — ポインタでの作成・移動・リサイズ・終日⇔時間指定変換と、[外部ドラッグ](#外部ドラッグ受け入れカレンダー外からのドラッグ)のドロップ位置は表示時間帯 `[slotMinTime, slotMaxTime)` の範囲内にクランプされます（範囲外の領域自体が描画されないため）。矢印キーによる移動・リサイズはクランプされません（詳細は [ビュー: 表示時間帯](./views.md#表示時間帯slotmintimeslotmaxtime) を参照）
 
 ```tsx
 import { CalendarProvider, TimeGridView, useCalendar } from '@koyomi-cal/react';
@@ -1106,7 +1106,7 @@ function CustomDayRow() {
 | ビュー | ドロップ先 | 解決される範囲 |
 | --- | --- | --- |
 | 月（`month`） | 日セル | その日 1 日分の終日範囲（`allDay: true`） |
-| 週/日（`week` / `day`） | 時間グリッドの日列 | ポインタ位置の時刻から `defaultEventMinutes` 分（`snapMinutes` でスナップ） |
+| 週/日（`week` / `day`） | 時間グリッドの日列 | ポインタ位置の時刻から `defaultEventMinutes` 分（`snapMinutes` でスナップ。開始は表示時間帯 `[slotMinTime, slotMaxTime)` の範囲内にクランプ） |
 | 週/日（`week` / `day`） | 終日行のセル | その日 1 日分の終日範囲 |
 | リスト（`list`） | 日セクション | その日 1 日分の終日範囲。リストビューは予定がある日だけを日セクションとして描画するため、ドロップを受け付けるのもその上に限られます |
 | 複数月（`multiMonth`） | 日セル | その日 1 日分の終日範囲（前後月の日付のセルは対象外） |

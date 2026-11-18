@@ -38,7 +38,12 @@ import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { isDragCandidateValid, resolveConstraintRules } from '../core/constraints';
 import { timeAtGridPosition, timeAtTimelineOffset } from '../core/interaction';
-import { addDaysInZone, addMinutesInZone, dateFromKey } from '../core/timezone';
+import {
+  addDaysInZone,
+  addMinutesInZone,
+  dateFromKey,
+  parseSlotBoundaryTime,
+} from '../core/timezone';
 import type { DateRange, TimeZoneId } from '../core/types';
 import { resourceIdFromLaneKey } from '../core/views/lane-key';
 import {
@@ -253,18 +258,36 @@ function resolveListDrop(
   return resolveDayDrop(elements, '[data-koyomi="list-day"]', timeZone);
 }
 
+/** 縦方向が時間軸のビュー（週/日・リソース）でのドロップ先解決に使う設定値。 */
+interface TimeAxisDropContext {
+  /** 表示タイムゾーン。 */
+  timeZone: TimeZoneId;
+  /** スナップ間隔（分）。 */
+  snap: number;
+  /** ドロップで作る範囲の長さ（分）。 */
+  defaultEventMinutes: number;
+  /** 表示時間帯の開始（`slotMinTime` の分。列の上端に対応する）。 */
+  rangeStartMinutes: number;
+  /** 表示時間帯の終了（`slotMaxTime` の分。列の下端に対応する）。 */
+  rangeEndMinutes: number;
+}
+
 /**
  * 週/日ビュー（時間グリッド）での解決。
  * 終日行のセル（`allday-cell`）なら終日 1 日分の範囲、時間グリッドの日列
  * （`timegrid-day`）ならポインタの縦位置から算出した時間指定の範囲を返す。
  * どちらにも該当しなければ `null`。
+ *
+ * 日列の高さは表示時間帯（`slotMinTime`〜`slotMaxTime`）に対応するため、縦位置は
+ * `context.rangeStartMinutes`〜`context.rangeEndMinutes` に対応づけて時刻へ変換する
+ * （ビルトインのドラッグ操作と同じ対応づけ・同じクランプ）。
  */
 function resolveTimeGridDrop(
   elements: readonly Element[],
   clientY: number,
-  context: { timeZone: TimeZoneId; snap: number; defaultEventMinutes: number },
+  context: TimeAxisDropContext,
 ): ExternalDropResolution | null {
-  const { timeZone, snap, defaultEventMinutes } = context;
+  const { timeZone, snap, defaultEventMinutes, rangeStartMinutes, rangeEndMinutes } = context;
   const alldayCell = closestAmong(elements, '[data-koyomi="allday-cell"]');
   if (alldayCell !== null) {
     const dateKey = alldayCell.getAttribute('data-koyomi-date');
@@ -289,6 +312,8 @@ function resolveTimeGridDrop(
     fractionY: fractionAlong(rect.top, rect.height, clientY),
     timeZone,
     snap,
+    rangeStartMinutes,
+    rangeEndMinutes,
   });
   return {
     range: { start, end: addMinutesInZone(start, defaultEventMinutes, timeZone) },
@@ -304,13 +329,14 @@ function resolveTimeGridDrop(
  *
  * 対象の日は要素の `data-koyomi-date`（列の日付キー。複数日表示で列ごとに異なる）
  * から求め、属性が無い場合は表示範囲の先頭日（`context.day`）にフォールバックする。
+ * 列の縦位置と時刻の対応づけは {@link resolveTimeGridDrop} と同じ（表示時間帯に従う）。
  */
 function resolveResourceDrop(
   elements: readonly Element[],
   clientY: number,
-  context: { timeZone: TimeZoneId; snap: number; defaultEventMinutes: number; day: Date },
+  context: TimeAxisDropContext & { day: Date },
 ): ExternalDropResolution | null {
-  const { timeZone, snap, defaultEventMinutes, day } = context;
+  const { timeZone, snap, defaultEventMinutes, day, rangeStartMinutes, rangeEndMinutes } = context;
   /** 要素の `data-koyomi-date` から列の日を求める（無ければ先頭日）。 */
   function columnDay(element: Element): Date {
     const dateKey = element.getAttribute('data-koyomi-date');
@@ -337,6 +363,8 @@ function resolveResourceDrop(
     fractionY: fractionAlong(rect.top, rect.height, clientY),
     timeZone,
     snap,
+    rangeStartMinutes,
+    rangeEndMinutes,
   });
   return {
     range: { start, end: addMinutesInZone(start, defaultEventMinutes, timeZone) },
@@ -432,6 +460,10 @@ function resolveExternalDrop(
     snap: options.snapMinutes,
     defaultEventMinutes: options.defaultEventMinutes,
   };
+  const slotRange = {
+    rangeStartMinutes: parseSlotBoundaryTime(options.slotMinTime),
+    rangeEndMinutes: parseSlotBoundaryTime(options.slotMaxTime),
+  };
   switch (viewModel.type) {
     case 'month':
     case 'multiMonth':
@@ -439,9 +471,13 @@ function resolveExternalDrop(
     case 'list':
       return resolveListDrop(elements, timeZone);
     case 'timeGrid':
-      return resolveTimeGridDrop(elements, clientY, context);
+      return resolveTimeGridDrop(elements, clientY, { ...context, ...slotRange });
     case 'resource':
-      return resolveResourceDrop(elements, clientY, { ...context, day: viewModel.date });
+      return resolveResourceDrop(elements, clientY, {
+        ...context,
+        ...slotRange,
+        day: viewModel.date,
+      });
     case 'timeline':
       return resolveTimelineDrop(elements, clientX, {
         ...context,
