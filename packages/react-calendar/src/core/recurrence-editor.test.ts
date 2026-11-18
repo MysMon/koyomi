@@ -366,11 +366,11 @@ describe('parseRecurrenceRule', () => {
   });
 
   describe('unsupported の reason コード網羅', () => {
-    // `unsupportedField.field` の `BYDAY_EXPANDED` / `BYMONTHDAY_EXPANDED`、および
-    // `byDayFormatUnrecognized` は、rrule.js 自身の RRULE 文字列パーサ（`RRule.parseString`）
-    // と正規化（`normalizeRRuleString` が使う `RRule.optionsToString`）の往復では
-    // 到達しない防御的な分岐（rrule.js のパーサは常にこれらの形式を経由せず値を返す）
-    // のため、ここでは通常の RRULE 文字列からの到達を確認しない。
+    // `unsupportedField.field` の `BYDAY_EXPANDED` は、rrule.js 自身の RRULE 文字列パーサ
+    // （`RRule.parseString`）と正規化（`normalizeRRuleString` が使う
+    // `RRule.optionsToString`）の往復では到達しない防御的な分岐（rrule.js のパーサは
+    // 常にこの形式を経由せず値を返す）のため、ここでは通常の RRULE 文字列からの到達を
+    // 確認しない。
     const cases: readonly [string, RecurrenceUnsupportedReason][] = [
       ['FREQ=DAILY;BYSETPOS=1', { code: 'unsupportedField', field: 'BYSETPOS' }],
       ['FREQ=DAILY;BYMONTH=1', { code: 'unsupportedField', field: 'BYMONTH' }],
@@ -392,12 +392,55 @@ describe('parseRecurrenceRule', () => {
       ['FREQ=MONTHLY;BYDAY=MO,WE', { code: 'monthlyByDayMultipleTokensUnsupported' }],
       ['FREQ=MONTHLY;BYDAY=MO', { code: 'monthlyByDayOrdinalRequired' }],
       ['FREQ=MONTHLY;BYDAY=5MO', { code: 'monthlyByDayOrdinalOutOfRange' }],
+      // -1（末日）以外の負の BYMONTHDAY はエディタの状態として検証を通らない
+      ['FREQ=MONTHLY;BYMONTHDAY=-2', { code: 'unsupportedField', field: 'BYMONTHDAY_EXPANDED' }],
+      // 同じ曜日の重複はエディタの状態として検証を通らない
+      ['FREQ=WEEKLY;BYDAY=MO,MO', { code: 'byDayFormatUnrecognized' }],
     ];
 
     it.each(cases)('%s → %j', (rrule, expectedReason) => {
       const result = parseRecurrenceRule({ rrule, dtstart: TOKYO_JULY_1_9AM, timeZone: TOKYO });
       expect(result.kind).toBe('unsupported');
       expect(result.kind === 'unsupported' && result.reason).toEqual(expectedReason);
+    });
+  });
+
+  describe('editable の state は validateRecurrenceRuleState を必ず通る', () => {
+    it.each([
+      'FREQ=MONTHLY;BYMONTHDAY=-2',
+      'FREQ=MONTHLY;BYMONTHDAY=-31',
+      'FREQ=MONTHLY;BYMONTHDAY=-1',
+      'FREQ=MONTHLY;BYMONTHDAY=31',
+      'FREQ=WEEKLY;BYDAY=MO,MO',
+      'FREQ=WEEKLY;BYDAY=MO,WE,MO',
+      'FREQ=WEEKLY;BYDAY=MO,WE',
+      'FREQ=DAILY;COUNT=1',
+    ])('%s', (rrule) => {
+      const result = parseRecurrenceRule({ rrule, dtstart: TOKYO_JULY_1_9AM, timeZone: TOKYO });
+      if (result.kind === 'editable') {
+        expect(validateRecurrenceRuleState(result.state)).toEqual([]);
+      } else {
+        // 検証を通らない状態になるルールは、元の文字列を保持した unsupported になる
+        expect(result).toMatchObject({ kind: 'unsupported', rawRRule: rrule });
+      }
+    });
+
+    it('BYMONTHDAY=-1（末日）は editable のまま', () => {
+      expect(
+        parseRecurrenceRule({
+          rrule: 'FREQ=MONTHLY;BYMONTHDAY=-1',
+          dtstart: TOKYO_JULY_1_9AM,
+          timeZone: TOKYO,
+        }),
+      ).toEqual({
+        kind: 'editable',
+        state: {
+          freq: 'monthly',
+          interval: 1,
+          monthlyPattern: { kind: 'dayOfMonth', day: -1 },
+          end: { type: 'never' },
+        },
+      });
     });
   });
 });
@@ -631,6 +674,19 @@ describe('buildRecurrenceRuleString', () => {
     });
     const reparsed = parseRecurrenceRule({ rrule, dtstart: TOKYO_JULY_1_9AM, timeZone: TOKYO });
     expect(reparsed).toEqual({ kind: 'editable', state });
+  });
+
+  it('西暦 1000 年未満の UNTIL は年を 4 桁にゼロ埋めして出力する', () => {
+    const rrule = buildRecurrenceRuleString({
+      state: {
+        freq: 'daily',
+        interval: 1,
+        end: { type: 'until', until: new Date('0999-03-05T00:00:00Z') },
+      },
+      dtstart: new Date('0999-03-01T00:00:00Z'),
+      timeZone: 'UTC',
+    });
+    expect(rrule).toBe('FREQ=DAILY;UNTIL=09990305T000000Z');
   });
 
   it('interval:1 のときは INTERVAL を明示的に出力しない', () => {

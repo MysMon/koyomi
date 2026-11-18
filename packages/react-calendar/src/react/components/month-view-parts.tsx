@@ -20,7 +20,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   Ref,
 } from 'react';
-import { memo, useRef, useState } from 'react';
+import { memo, useRef } from 'react';
 import { addDaysInZone, startOfDayInZone } from '../../core/timezone';
 import type {
   CalendarViewType,
@@ -33,6 +33,7 @@ import type {
 } from '../../core/types';
 import type { CommonMessages } from '../locales/types';
 import type {
+  CalendarInteractionCallbacks,
   EventContentContext,
   EventContentRenderer,
   MonthOverflowButtonProps,
@@ -45,6 +46,7 @@ import {
   timedTextEventContentContext,
   titleOnlyEventContentContext,
 } from './event-content';
+import { useStableHandlers } from './stable-handlers';
 
 /**
  * `MonthWeekRow` / `MonthEventButton` が実際に必要とするドラッグハンドラだけを
@@ -62,21 +64,26 @@ export interface MonthDayDragHandlers {
  * `useDayDrag` の戻り値は毎レンダー新しいオブジェクト（関数含む）になるため、
  * そのまま `memo` 化した子コンポーネント（`MonthWeekRow` / `MonthEventButton`）の
  * props に渡すと再レンダー抑制が効かない。ここで参照が変わらないラッパーを
- * 1 度だけ作り、呼び出し時に ref 経由で常に最新のハンドラへ委譲することで、
+ * 作り（作り直す条件は `useStableHandlers` を参照）、呼び出し時に ref 経由で常に最新のハンドラへ委譲することで、
  * props の同一性を保ったまま最新の挙動を保証する
  * （`time-grid-view.tsx` の `useStableColumnDrag` と同じパターン。`MonthView` と
  * `MultiMonthView` の両方から使う）。
  */
-export function useStableDayDrag(dayDrag: DayDragHandlers): MonthDayDragHandlers {
+export function useStableDayDrag(
+  dayDrag: DayDragHandlers,
+  callbacks: CalendarInteractionCallbacks,
+): MonthDayDragHandlers {
   const dragRef = useRef(dayDrag);
   dragRef.current = dayDrag;
-  const [stable] = useState<MonthDayDragHandlers>(() => ({
-    getDayCellProps: (day) => dragRef.current.getDayCellProps(day),
-    getSegmentProps: (segment) => dragRef.current.getSegmentProps(segment),
-    getSegmentResizeHandleProps: (segment, edge) =>
-      dragRef.current.getSegmentResizeHandleProps(segment, edge),
-  }));
-  return stable;
+  return useStableHandlers<MonthDayDragHandlers>(
+    () => ({
+      getDayCellProps: (day) => dragRef.current.getDayCellProps(day),
+      getSegmentProps: (segment) => dragRef.current.getSegmentProps(segment),
+      getSegmentResizeHandleProps: (segment, edge) =>
+        dragRef.current.getSegmentResizeHandleProps(segment, edge),
+    }),
+    callbacks,
+  );
 }
 
 /** `Intl.DateTimeFormat` インスタンスのキャッシュ（`locale|timeZone|種別` をキーにする）。 */

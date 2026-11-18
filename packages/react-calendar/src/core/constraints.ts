@@ -17,7 +17,7 @@ import {
   startOfDayInZone,
   weekdayInZone,
 } from './timezone';
-import type { BusinessHoursRule, CalendarEvent, DateRange, TimeZoneId } from './types';
+import type { BusinessHoursRule, CalendarEvent, DateRange, TimeZoneId, Weekday } from './types';
 
 /**
  * 重なり判定の対象となる既存オカレンス 1 件分（絶対時刻の区間のみ）。
@@ -91,11 +91,40 @@ export function hasBlockingOverlap(
 }
 
 /**
+ * 指定曜日に該当するルールの時間帯を、互いに重ならない区間（その日の 0:00 からの分、
+ * 開始の昇順）にまとめる。隣接（前の終了 = 次の開始）・重複するルールは 1 区間に結合する。
+ */
+function mergedBusinessMinutes(
+  rules: readonly BusinessHoursRule[],
+  weekday: Weekday,
+): { start: number; end: number }[] {
+  const intervals = rules
+    .filter((rule) => rule.daysOfWeek.includes(weekday))
+    .map((rule) => ({
+      start: parseTimeOfDay(rule.startTime),
+      // endTime は日の終端 '24:00'（= 1440）を許容する
+      end: parseSlotBoundaryTime(rule.endTime),
+    }))
+    .sort((a, b) => a.start - b.start);
+  const merged: { start: number; end: number }[] = [];
+  for (const interval of intervals) {
+    const last = merged[merged.length - 1];
+    if (last !== undefined && interval.start <= last.end) {
+      last.end = Math.max(last.end, interval.end);
+    } else {
+      merged.push(interval);
+    }
+  }
+  return merged;
+}
+
+/**
  * `range`（終日を除く）が `rules` の和集合に完全に収まっているかどうかを判定する。
  *
  * 日ごとに走査し、各日の候補区間（現地時刻の日境界でクランプ済み）が、その日の
- * 曜日に該当するいずれかのルールの `startTime`〜`endTime` に完全に収まっているかを
- * 確認する（1 日でも収まらない部分があれば `false`）。DST の切替日でも現地時刻
+ * 曜日に該当するルールの `startTime`〜`endTime` を合わせた時間帯（隣接・重複する
+ * ルールは 1 つの連続した時間帯として扱う）に完全に収まっているかを確認する
+ * （1 日でも収まらない部分があれば `false`）。DST の切替日でも現地時刻
  * 基準で判定するため、実際の経過時間（23/25 時間）の影響を受けない。
  *
  * 日をまたぐ候補区間は、その初日が必ず日境界（24:00 相当）まで達するため、
@@ -131,15 +160,9 @@ export function isRangeWithinBusinessHours(
       // 翌日の 0 分を返してしまうため、その日の終端として 1440 に正規化する。
       const endMinutes =
         segmentEnd.getTime() === dayEnd.getTime() ? 1440 : minutesOfDayInZone(segmentEnd, timeZone);
-      const coveredByAnyRule = rules.some((rule) => {
-        if (!rule.daysOfWeek.includes(weekday)) {
-          return false;
-        }
-        const ruleStart = parseTimeOfDay(rule.startTime);
-        // endTime は日の終端 '24:00'（= 1440）を許容する
-        const ruleEnd = parseSlotBoundaryTime(rule.endTime);
-        return startMinutes >= ruleStart && endMinutes <= ruleEnd;
-      });
+      const coveredByAnyRule = mergedBusinessMinutes(rules, weekday).some(
+        (interval) => startMinutes >= interval.start && endMinutes <= interval.end,
+      );
       if (!coveredByAnyRule) {
         return false;
       }

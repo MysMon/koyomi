@@ -632,6 +632,24 @@ describe('buildTimeGridViewModel', () => {
       });
     });
 
+    it('0:00 が存在しない日（Africa/Cairo 2026-04-24）でも追加軸のラベルは主軸の現地時刻に対応する', () => {
+      // 4/24 は 0:00 に DST が始まり、日の開始は 1:00 EEST（UTC+3）。
+      // 主軸 10:00 EEST = 07:00 UTC（日の開始からの経過分で数えると 08:00 になってしまう）
+      const CAIRO: TimeZoneId = 'Africa/Cairo';
+      const model = build({
+        viewType: 'day',
+        timeZone: CAIRO,
+        currentDate: parseDateValue('2026-04-24T12:00', CAIRO, false),
+        slotMinutes: 60,
+        timeAxisZones: [UTC],
+      });
+      const utcAxis = model.days[0]?.timeAxes[1];
+      expect(utcAxis?.slots.find((slot) => slot.minutes === 600)).toEqual({
+        minutes: 600,
+        label: '07:00',
+      });
+    });
+
     it('timeAxisZones 未指定時は各日の timeAxes も主軸のみの 1 要素配列になる', () => {
       const model = build({ slotMinutes: 60 });
       for (const day of model.days) {

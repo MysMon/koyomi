@@ -3,14 +3,13 @@
  * タイムゾーンユーティリティ。
  *
  * タイムゾーン依存の日時計算はすべてこのモジュールを経由して行う。
- * 内部的には date-fns v4 と `@date-fns/tz` の {@link TZDate} を利用する。
+ * 絶対時刻から現地時刻への変換には `@date-fns/tz` の `tzOffset`（タイムゾーンのオフセット算出）を利用する。
  *
  * 「絶対時刻（時点）」= `Date` が指す UTC 時点。
  * 「現地時刻（wall clock）」= あるタイムゾーンで時計が示す年月日・時分。
  */
 
-import { TZDate } from '@date-fns/tz';
-import { addDays } from 'date-fns';
+import { tzOffset } from '@date-fns/tz';
 import type { TimeZoneId, Weekday } from './types';
 
 /**
@@ -102,13 +101,29 @@ export function isValidTimeZone(timeZone: string): boolean {
   if (timeZone === '') {
     return false;
   }
+  if (validTimeZones.has(timeZone)) {
+    return true;
+  }
   try {
     new Intl.DateTimeFormat(undefined, { timeZone });
-    return true;
   } catch {
     return false;
   }
+  if (validTimeZones.size >= VALID_TIME_ZONE_CACHE_LIMIT) {
+    validTimeZones.clear();
+  }
+  validTimeZones.add(timeZone);
+  return true;
 }
+
+/**
+ * 有効と判定済みのタイムゾーン ID。判定（`Intl.DateTimeFormat` の生成）は高コストで、
+ * イベント一覧の検証では同じ ID を件数ぶん繰り返し判定するため結果を再利用する。
+ */
+const validTimeZones = new Set<string>();
+
+/** {@link validTimeZones} の上限件数（超えたら破棄して作り直す）。 */
+const VALID_TIME_ZONE_CACHE_LIMIT = 1024;
 
 /**
  * 絶対時刻を、指定タイムゾーンにおける現地時刻の成分に分解する。
@@ -118,16 +133,67 @@ export function isValidTimeZone(timeZone: string): boolean {
  * @returns 現地時刻の成分（`month` は 1〜12）
  */
 export function getWallClock(date: Date, timeZone: TimeZoneId): Required<WallClockParts> {
-  const zoned = new TZDate(date.getTime(), timeZone);
+  const wall = wallClockDate(date.getTime(), timeZone);
   return {
-    year: zoned.getFullYear(),
-    month: zoned.getMonth() + 1,
-    day: zoned.getDate(),
-    hours: zoned.getHours(),
-    minutes: zoned.getMinutes(),
-    seconds: zoned.getSeconds(),
-    milliseconds: zoned.getMilliseconds(),
+    year: wall.getUTCFullYear(),
+    month: wall.getUTCMonth() + 1,
+    day: wall.getUTCDate(),
+    hours: wall.getUTCHours(),
+    minutes: wall.getUTCMinutes(),
+    seconds: wall.getUTCSeconds(),
+    milliseconds: wall.getUTCMilliseconds(),
   };
+}
+
+/** タイムゾーンごとの「絶対時刻（ミリ秒）→ UTC オフセット（分）」のキャッシュ。 */
+const zoneOffsetCache = new Map<TimeZoneId, Map<number, number>>();
+
+/** {@link zoneOffsetCache} の 1 タイムゾーンあたりの上限件数（超えたら破棄して作り直す）。 */
+const ZONE_OFFSET_CACHE_LIMIT = 16_384;
+
+/** {@link zoneOffsetCache} が保持するタイムゾーン数の上限（超えたら全体を破棄する）。 */
+const ZONE_OFFSET_CACHE_ZONE_LIMIT = 16;
+
+/**
+ * 指定時点における、指定タイムゾーンの UTC からのオフセット（分。秒を含む場合は小数）を返す。
+ *
+ * オフセットの取得（`Intl.DateTimeFormat` の整形）は高コストなため、同じ時点の
+ * 問い合わせ結果を再利用する。不正なタイムゾーン・無効な時点では `NaN` を返す。
+ */
+function zoneOffsetMinutes(instantMs: number, timeZone: TimeZoneId): number {
+  if (timeZone === 'UTC') {
+    return 0;
+  }
+  const cache = zoneOffsetCache.get(timeZone);
+  const cached = cache?.get(instantMs);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const offset = tzOffset(timeZone, new Date(instantMs));
+  if (Number.isNaN(offset)) {
+    return offset;
+  }
+  if (cache === undefined) {
+    if (zoneOffsetCache.size >= ZONE_OFFSET_CACHE_ZONE_LIMIT) {
+      zoneOffsetCache.clear();
+    }
+    zoneOffsetCache.set(timeZone, new Map([[instantMs, offset]]));
+  } else {
+    if (cache.size >= ZONE_OFFSET_CACHE_LIMIT) {
+      cache.clear();
+    }
+    cache.set(instantMs, offset);
+  }
+  return offset;
+}
+
+/**
+ * 絶対時刻を、UTC の各成分が指定タイムゾーンの現地時刻の成分になる `Date` に写す。
+ * 不正なタイムゾーン・無効な時点では Invalid Date を返す。
+ */
+function wallClockDate(instantMs: number, timeZone: TimeZoneId): Date {
+  // 秒を含む過去のオフセットの丸め誤差を避けるため、秒へ換算してから丸める
+  return new Date(instantMs - Math.round(-zoneOffsetMinutes(instantMs, timeZone) * 60) * 1000);
 }
 
 /** 1 日のミリ秒数。 */
@@ -181,6 +247,10 @@ export function fromWallClock(
   // TZDate の setter に現地時刻→絶対時刻の解決を委ねると、曖昧な時刻の解決が
   // 実行環境ローカル TZ の影響を受ける（ローカルより東のゾーンで反転する）ため使わない。
   const wallMs = wallClockAsUtcMs({ year, month, day, hours, minutes, seconds, milliseconds });
+  if (timeZone === 'UTC') {
+    // UTC はオフセットが常に 0 で、現地時刻と絶対時刻が一致する
+    return new Date(wallMs);
+  }
   // 隣接する切替は数か月離れているため、対象の現地時刻に効きうる切替は高々 1 つで、
   // 切替前後のオフセットは前後 24 時間の時点のオフセットに必ず含まれる
   const beforeOffsetMs = zoneOffsetMs(wallMs - DAY_IN_MS, timeZone);
@@ -227,15 +297,30 @@ export function startOfDayInZone(date: Date, timeZone: TimeZoneId): Date {
  * 指定タイムゾーンの現地時刻基準で日数を加算する。
  *
  * DST を跨いでも現地時刻が維持される（例: 9:00 の予定は加算後も 9:00）。
+ * 加算結果が存在しない時刻になる場合は繰り上げて、曖昧な時刻になる場合は
+ * 早い方のオフセットで解決される（{@link fromWallClock} と同じ規則）。
+ * `amount` が 0 の場合は同じ絶対時刻を返す。
  *
  * @param date - 基準となる絶対時刻
  * @param amount - 加算する日数（負数で減算）
  * @param timeZone - タイムゾーン
  */
 export function addDaysInZone(date: Date, amount: number, timeZone: TimeZoneId): Date {
-  // TZDate に対する date-fns の addDays は指定 TZ の現地時刻を維持して日を進める
-  const zoned = addDays(new TZDate(date.getTime(), timeZone), amount);
-  return new Date(zoned.getTime());
+  if (timeZone === 'UTC' && Number.isInteger(amount)) {
+    // UTC には DST がなく 1 日は常に 24 時間のため、絶対時刻への加算と一致する
+    return new Date(date.getTime() + amount * DAY_IN_MS);
+  }
+  if (amount === 0) {
+    // 曖昧な時刻の遅い方を指す時点を、現地時刻経由の再解決で早い方へ動かさない
+    return new Date(date.getTime());
+  }
+  const wall = getWallClock(date, timeZone);
+  // 現地時刻の成分をオフセットのない UTC 上の日時として組み立てて日を進め、
+  // 月・年への繰り上がり/繰り下がりを Date の正規化に任せる
+  const shifted = new Date(0);
+  shifted.setUTCFullYear(wall.year, wall.month - 1, wall.day + amount);
+  shifted.setUTCHours(wall.hours, wall.minutes, wall.seconds, wall.milliseconds);
+  return fromShiftedWallClock(shifted, timeZone);
 }
 
 /**
@@ -258,6 +343,14 @@ export function addMinutesInZone(date: Date, amount: number, timeZone: TimeZoneI
   const shifted = new Date(0);
   shifted.setUTCFullYear(wall.year, wall.month - 1, wall.day);
   shifted.setUTCHours(wall.hours, wall.minutes + amount, wall.seconds, wall.milliseconds);
+  return fromShiftedWallClock(shifted, timeZone);
+}
+
+/**
+ * オフセットのない UTC 上の日時として組み立てた現地時刻（暦演算の結果）を、
+ * 指定タイムゾーンの絶対時刻へ変換する（{@link fromWallClock} と同じ規則）。
+ */
+function fromShiftedWallClock(shifted: Date, timeZone: TimeZoneId): Date {
   return fromWallClock(
     {
       year: shifted.getUTCFullYear(),
@@ -273,6 +366,36 @@ export function addMinutesInZone(date: Date, amount: number, timeZone: TimeZoneI
 }
 
 /**
+ * 指定タイムゾーンで `day` が属する暦日の、0:00 から数えた現地時刻 `minutes` 分に
+ * あたる絶対時刻を返す。
+ *
+ * 「日の開始」への分加算（{@link addMinutesInZone}）と違い、暦日の年月日と分から
+ * 現地時刻を直接組み立てる。深夜 0:00 に DST が切り替わり日の開始が 0:00 でない日
+ * （`Africa/Cairo`・`America/Santiago` 等の切替日）でも、`minutes` は
+ * {@link minutesOfDayInZone} が返す現地時刻の分と対応する。
+ * 存在しない時刻は直後の実在時刻へ繰り上げ、曖昧な時刻は早い方のオフセットで
+ * 解決される（{@link fromWallClock} と同じ規則）。
+ *
+ * @param day - 対象の暦日に属する絶対時刻（通常はその日の開始）
+ * @param minutes - その日の 0:00 から数えた現地時刻の分。1440 以上は翌日以降へ繰り上がる
+ * @param timeZone - タイムゾーン
+ * @returns 対応する絶対時刻
+ * @example
+ * ```ts
+ * // Africa/Cairo の 2026-04-24 は 0:00 が存在せず、日の開始は 1:00
+ * const day = dateFromKey('2026-04-24', 'Africa/Cairo');
+ * atMinutesOfDayInZone(day, 600, 'Africa/Cairo'); // => 現地時刻 10:00（2026-04-24T07:00:00.000Z）
+ * ```
+ */
+export function atMinutesOfDayInZone(day: Date, minutes: number, timeZone: TimeZoneId): Date {
+  const wall = getWallClock(day, timeZone);
+  const shifted = new Date(0);
+  shifted.setUTCFullYear(wall.year, wall.month - 1, wall.day);
+  shifted.setUTCHours(0, minutes, 0, 0);
+  return fromShiftedWallClock(shifted, timeZone);
+}
+
+/**
  * 指定タイムゾーンにおける `'YYYY-MM-DD'` 形式の日付キーを返す。
  *
  * @param date - 絶対時刻
@@ -285,7 +408,8 @@ export function addMinutesInZone(date: Date, amount: number, timeZone: TimeZoneI
  */
 export function dateKeyInZone(date: Date, timeZone: TimeZoneId): string {
   const wall = getWallClock(date, timeZone);
-  return `${wall.year}-${pad2(wall.month)}-${pad2(wall.day)}`;
+  // 西暦 1000 年未満も dateFromKey が受け付ける 4 桁の年にそろえる
+  return `${String(wall.year).padStart(4, '0')}-${pad2(wall.month)}-${pad2(wall.day)}`;
 }
 
 /**
@@ -339,7 +463,7 @@ export function isSameDayInZone(a: Date, b: Date, timeZone: TimeZoneId): boolean
  * @returns 0 = 日曜日、…、6 = 土曜日
  */
 export function weekdayInZone(date: Date, timeZone: TimeZoneId): Weekday {
-  const day = new TZDate(date.getTime(), timeZone).getDay();
+  const day = wallClockDate(date.getTime(), timeZone).getUTCDay();
   switch (day) {
     case 0:
     case 1:

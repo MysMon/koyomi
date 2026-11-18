@@ -22,7 +22,7 @@
  */
 
 import type { CSSProperties, ReactElement, Ref } from 'react';
-import { memo, useRef, useState } from 'react';
+import { memo, useRef } from 'react';
 import type {
   BusinessHourRange,
   CalendarResource,
@@ -35,9 +35,12 @@ import type {
   TimelineSlot,
   TimeZoneId,
 } from '../../core/types';
+import type { CalendarInteractionCallbacks } from '../types';
 import type { TimelineDragHandlers, TimelinePreviewSegment } from '../use-timeline-drag';
 import { formatDayHeader, formatMonthTitle, formatRangeTitle } from './format';
 import { formatDateLabel, formatTimeLabel } from './month-view-parts';
+import { sameOccurrence } from './occurrence-equality';
+import { useStableHandlers } from './stable-handlers';
 
 /**
  * タイムラインの帯（`timeline-item`）の `parts.timeText` 用に、時間指定イベントの
@@ -140,19 +143,24 @@ export interface TimelineRowDragHandlers {
 /**
  * `useTimelineDrag` の戻り値は毎レンダー新しいオブジェクト（関数含む）になるため、
  * そのまま `memo` 化した子コンポーネントの props に渡すと再レンダー抑制が効かない。
- * ここで参照が変わらないラッパーを 1 度だけ作り、呼び出し時に ref 経由で常に最新の
+ * ここで参照が変わらないラッパーを作り（作り直す条件は `useStableHandlers` を参照）、呼び出し時に ref 経由で常に最新の
  * ハンドラへ委譲することで、props の同一性を保ったまま最新の挙動を保証する
  * （`time-grid-view.tsx` の `useStableColumnDrag` と同じ設計）。
  */
-export function useStableTimelineDrag(drag: TimelineDragHandlers): TimelineRowDragHandlers {
+export function useStableTimelineDrag(
+  drag: TimelineDragHandlers,
+  callbacks: CalendarInteractionCallbacks,
+): TimelineRowDragHandlers {
   const dragRef = useRef(drag);
   dragRef.current = drag;
-  const [stable] = useState<TimelineRowDragHandlers>(() => ({
-    getRowProps: (row) => dragRef.current.getRowProps(row),
-    getItemProps: (item) => dragRef.current.getItemProps(item),
-    getResizeHandleProps: (item, edge) => dragRef.current.getResizeHandleProps(item, edge),
-  }));
-  return stable;
+  return useStableHandlers<TimelineRowDragHandlers>(
+    () => ({
+      getRowProps: (row) => dragRef.current.getRowProps(row),
+      getItemProps: (item) => dragRef.current.getItemProps(item),
+      getResizeHandleProps: (item, edge) => dragRef.current.getResizeHandleProps(item, edge),
+    }),
+    callbacks,
+  );
 }
 
 /**
@@ -210,20 +218,16 @@ export function sameResource(a: CalendarResource | null, b: CalendarResource | n
   return a.id === b.id && a.title === b.title && a.color === b.color;
 }
 
-/** `TimelineItem` 1 件分の、表示に影響する内容が等しいかどうかを比較する。 */
+/**
+ * `TimelineItem` 1 件分の、表示・イベントハンドラに影響する内容が等しいかどうかを
+ * 比較する（オカレンスは {@link sameOccurrence}、加えて配置情報）。
+ */
 export function sameTimelineItem(a: TimelineItem, b: TimelineItem): boolean {
   if (a === b) {
     return true;
   }
   return (
-    a.occurrence.key === b.occurrence.key &&
-    a.occurrence.event.title === b.occurrence.event.title &&
-    a.occurrence.event.color === b.occurrence.event.color &&
-    a.occurrence.event.resourceId === b.occurrence.event.resourceId &&
-    a.occurrence.event.editable === b.occurrence.event.editable &&
-    a.occurrence.allDay === b.occurrence.allDay &&
-    a.occurrence.start.getTime() === b.occurrence.start.getTime() &&
-    a.occurrence.end.getTime() === b.occurrence.end.getTime() &&
+    sameOccurrence(a.occurrence, b.occurrence) &&
     a.startMinutes === b.startMinutes &&
     a.endMinutes === b.endMinutes &&
     a.lane === b.lane &&

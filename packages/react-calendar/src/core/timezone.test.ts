@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addDaysInZone,
   addMinutesInZone,
+  atMinutesOfDayInZone,
   dateFromKey,
   dateKeyInZone,
   formatSlotLabel,
@@ -487,6 +488,71 @@ describe('addDaysInZone', () => {
     const date = new Date('2026-06-30T15:00:00Z'); // 7/1 0:00 JST
     expect(addDaysInZone(date, 30, TOKYO).toISOString()).toBe('2026-07-30T15:00:00.000Z');
   });
+
+  it('加算結果が 2 回現れる時刻になる場合は早い方のオフセットで解決する（実行環境より東の Australia/Sydney）', () => {
+    // Sydney は 2026-04-05 03:00 AEDT に 02:00 AEST へ巻き戻り、4/5 の 02:00〜02:59 が 2 回現れる
+    const date = fromWallClock({ year: 2026, month: 4, day: 4, hours: 2, minutes: 30 }, SYDNEY);
+    const next = addDaysInZone(date, 1, SYDNEY);
+    // 4/5 02:30 AEDT（UTC+11、早い方）
+    expect(next.toISOString()).toBe('2026-04-04T15:30:00.000Z');
+    expect(next).toEqual(addMinutesInZone(date, 1440, SYDNEY));
+  });
+
+  it('加算結果が 2 回現れる時刻になる場合は早い方のオフセットで解決する（America/New_York・減算）', () => {
+    // 11/2 01:30 EST から 1 日戻ると 11/1 01:30（2 回現れる）→ EDT（早い方）
+    const date = new Date('2026-11-02T06:30:00Z');
+    expect(addDaysInZone(date, -1, NY).toISOString()).toBe('2026-11-01T05:30:00.000Z');
+  });
+
+  it('加算結果が存在しない時刻になる場合は直後の実在時刻へ繰り上げる', () => {
+    // 3/7 02:30 EST + 1 日 = 3/8 02:30（存在しない）→ 03:30 EDT
+    const date = new Date('2026-03-07T07:30:00Z');
+    expect(addDaysInZone(date, 1, NY).toISOString()).toBe('2026-03-08T07:30:00.000Z');
+  });
+
+  it('2 回現れる時刻の 2 回目に 0 を加算しても同じ絶対時刻を返す', () => {
+    const secondPass = new Date('2026-11-01T06:30:00Z'); // 11/1 01:30 EST（2 回目）
+    expect(addDaysInZone(secondPass, 0, NY).getTime()).toBe(secondPass.getTime());
+  });
+});
+
+describe('atMinutesOfDayInZone', () => {
+  it('その日の暦日の 0:00 から数えた現地時刻の分に対応する絶対時刻を返す', () => {
+    const day = dateFromKey('2026-07-01', TOKYO);
+    // 7/1 9:30 JST
+    expect(atMinutesOfDayInZone(day, 570, TOKYO).toISOString()).toBe('2026-07-01T00:30:00.000Z');
+  });
+
+  it('基準が日の途中の時刻でも、その暦日の 0:00 から数える', () => {
+    const noon = new Date('2026-07-01T03:00:00Z'); // 7/1 12:00 JST
+    expect(atMinutesOfDayInZone(noon, 570, TOKYO).toISOString()).toBe('2026-07-01T00:30:00.000Z');
+  });
+
+  it('1440 分は翌日の 0:00 になる', () => {
+    const day = dateFromKey('2026-07-01', TOKYO);
+    expect(atMinutesOfDayInZone(day, 1440, TOKYO)).toEqual(dateFromKey('2026-07-02', TOKYO));
+  });
+
+  it('0:00 が存在しない日（Africa/Cairo 2026-04-24）でも現地時刻の分に対応する', () => {
+    const CAIRO = 'Africa/Cairo';
+    // 日の開始は 1:00 EEST（UTC+3）。600 分 = 10:00 EEST = 07:00Z
+    const day = dateFromKey('2026-04-24', CAIRO);
+    expect(getWallClock(day, CAIRO).hours).toBe(1);
+    expect(atMinutesOfDayInZone(day, 600, CAIRO).toISOString()).toBe('2026-04-24T07:00:00.000Z');
+    // 存在しない 0:30 は繰り上げて 1:30 EEST
+    expect(atMinutesOfDayInZone(day, 30, CAIRO).toISOString()).toBe('2026-04-23T22:30:00.000Z');
+  });
+
+  it('存在しない時刻は繰り上げ、2 回現れる時刻は早い方のオフセットで解決する（America/New_York）', () => {
+    // 3/8 2:30 は存在しない → 3:30 EDT
+    expect(atMinutesOfDayInZone(dateFromKey('2026-03-08', NY), 150, NY).toISOString()).toBe(
+      '2026-03-08T07:30:00.000Z',
+    );
+    // 11/1 1:30 は 2 回現れる → EDT（早い方）
+    expect(atMinutesOfDayInZone(dateFromKey('2026-11-01', NY), 90, NY).toISOString()).toBe(
+      '2026-11-01T05:30:00.000Z',
+    );
+  });
 });
 
 describe('addMinutesInZone', () => {
@@ -567,6 +633,15 @@ describe('dateKeyInZone', () => {
   it('月・日が 1 桁の場合はゼロ埋めされる', () => {
     const date = new Date('2026-01-05T00:00:00Z');
     expect(dateKeyInZone(date, UTC)).toBe('2026-01-05');
+  });
+
+  it('西暦 1000 年未満の年は 4 桁にゼロ埋めされ、dateFromKey で元の日付へ戻せる', () => {
+    const year999 = new Date('0999-03-01T12:00:00Z');
+    expect(dateKeyInZone(year999, UTC)).toBe('0999-03-01');
+    expect(dateFromKey(dateKeyInZone(year999, UTC), UTC).toISOString()).toBe(
+      '0999-03-01T00:00:00.000Z',
+    );
+    expect(dateKeyInZone(new Date('0050-12-31T12:00:00Z'), UTC)).toBe('0050-12-31');
   });
 });
 

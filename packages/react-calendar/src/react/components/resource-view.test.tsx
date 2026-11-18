@@ -1454,6 +1454,34 @@ describe('ResourceView - 終日行のあふれ（allDayMaxEvents）', () => {
     expect(details.visibleOccurrences).toHaveLength(2);
   });
 
+  it('「+N 件」ボタンのクリック・Enter では、終日セルのクリック作成（新しい終日の予定）は起きない', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const onAllDayOverflowClick = vi.fn();
+    const { container } = render(
+      <Harness
+        resources={[ROOM_A]}
+        events={alldayEvents(3)}
+        allDayMaxEvents={2}
+        callbacks={{ onAllDayOverflowClick }}
+        sink={sink}
+      />,
+    );
+    const overflowButton = container.querySelector('[data-koyomi="allday-overflow"]');
+    if (!(overflowButton instanceof HTMLElement)) {
+      throw new Error('overflow button not found');
+    }
+
+    fireEvent.click(overflowButton);
+    fireEvent.keyDown(overflowButton, { key: 'Enter' });
+
+    expect(onAllDayOverflowClick).toHaveBeenCalledTimes(2);
+    expect(sink.current?.api.getEvents().map((event) => event.id)).toEqual([
+      'allday-0',
+      'allday-1',
+      'allday-2',
+    ]);
+  });
+
   it('renderOverflowLabel と overflowButtonProps がボタンに反映される', () => {
     const { container } = render(
       <Harness
@@ -1476,5 +1504,138 @@ describe('ResourceView - 終日行のあふれ（allDayMaxEvents）', () => {
     expect(
       overflowButton?.querySelector('[data-testid="custom-allday-overflow"]')?.textContent,
     ).toBe('2026-07-15:他1件');
+  });
+});
+
+describe('ResourceView - イベント内容の更新と再レンダー抑制', () => {
+  const EVENTS: readonly CalendarEvent[] = [
+    {
+      id: 'a',
+      title: 'A',
+      start: '2026-07-15T10:00',
+      end: '2026-07-15T11:00',
+      resourceId: 'room-a',
+      location: '会議室1',
+    },
+    {
+      id: 'b',
+      title: 'B',
+      start: '2026-07-15T13:00',
+      end: '2026-07-15T14:00',
+      resourceId: 'room-b',
+    },
+    {
+      id: 'c',
+      title: 'C',
+      start: '2026-07-15',
+      end: '2026-07-16',
+      allDay: true,
+      resourceId: 'room-a',
+      location: '本社',
+    },
+  ];
+
+  /** 予定ごとの location を描画し、呼び出しを記録するレンダラー。 */
+  function makeRenderer() {
+    return vi.fn<EventContentRenderer>((occurrence) => (
+      <span data-testid={`loc-${occurrence.eventId}`}>{occurrence.event.location}</span>
+    ));
+  }
+
+  it('updateEvent でタイトル・色以外の項目（location）を変えると、時間指定・終日のどちらも renderEventContent の表示が更新される', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { getByTestId } = render(
+      <Harness
+        resources={[ROOM_A]}
+        events={EVENTS}
+        sink={sink}
+        renderEventContent={makeRenderer()}
+      />,
+    );
+
+    act(() => {
+      sink.current?.api.updateEvent('a', { location: '会議室2' });
+      sink.current?.api.updateEvent('c', { location: '支社' });
+    });
+
+    expect(getByTestId('loc-a').textContent).toBe('会議室2');
+    expect(getByTestId('loc-c').textContent).toBe('支社');
+  });
+
+  it('ある列の予定を更新しても、別の列の予定と同じ列の終日アイテムは再レンダーされない（renderEventContent の呼び出し回数で確認する性能ピン留め）', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const renderEventContent = makeRenderer();
+    render(
+      <Harness
+        resources={[ROOM_A, ROOM_B]}
+        events={EVENTS}
+        sink={sink}
+        renderEventContent={renderEventContent}
+      />,
+    );
+    const callsFor = (eventId: string): number =>
+      renderEventContent.mock.calls.filter(([occurrence]) => occurrence.eventId === eventId).length;
+    const before = { b: callsFor('b'), c: callsFor('c') };
+
+    act(() => {
+      sink.current?.api.updateEvent('a', { location: '会議室2' });
+    });
+
+    expect(callsFor('b')).toBe(before.b);
+    expect(callsFor('c')).toBe(before.c);
+  });
+});
+
+describe('ResourceView - 追加通知コールバックの差し替え', () => {
+  const EVENTS: readonly CalendarEvent[] = [
+    {
+      id: 'a',
+      title: 'A',
+      start: '2026-07-15T10:00',
+      end: '2026-07-15T11:00',
+      resourceId: 'room-a',
+    },
+  ];
+
+  const RESOURCES: readonly CalendarResource[] = [ROOM_A];
+
+  /** 対象の予定要素を取得する。 */
+  function eventElement(container: HTMLElement): HTMLElement {
+    const element = container.querySelector<HTMLElement>('[data-koyomi-occurrence]');
+    if (element === null) {
+      throw new Error('予定要素が見つかりません');
+    }
+    return element;
+  }
+
+  it('callbacks を差し替えた後のダブルクリックは、差し替え後の onEventDoubleClick だけを呼ぶ', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const { container, rerender } = render(
+      <Harness resources={RESOURCES} events={EVENTS} callbacks={{ onEventDoubleClick: first }} />,
+    );
+    rerender(
+      <Harness resources={RESOURCES} events={EVENTS} callbacks={{ onEventDoubleClick: second }} />,
+    );
+
+    fireEvent.doubleClick(eventElement(container));
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('後から onEventContextMenu を指定すると予定要素に配線され、指定を外すと呼ばれなくなる', () => {
+    const onEventContextMenu = vi.fn();
+    const { container, rerender } = render(
+      <Harness resources={RESOURCES} events={EVENTS} callbacks={{}} />,
+    );
+
+    rerender(<Harness resources={RESOURCES} events={EVENTS} callbacks={{ onEventContextMenu }} />);
+    fireEvent.contextMenu(eventElement(container));
+    expect(onEventContextMenu).toHaveBeenCalledTimes(1);
+
+    rerender(<Harness resources={RESOURCES} events={EVENTS} callbacks={{}} />);
+    fireEvent.contextMenu(eventElement(container));
+    expect(onEventContextMenu).toHaveBeenCalledTimes(1);
   });
 });

@@ -120,7 +120,7 @@ type RecurrenceEnd =
   | { type: 'until'; until: Date }; // イベント TZ の現地時刻として解釈される（後述の UNTIL と同じ規則）
 ```
 
-`parseRecurrenceRule` は RRULE 文字列をこの構造化状態に変換します。対応範囲外の指定（`BYSETPOS` や複数の `BYMONTHDAY` など）、不正な RRULE は `kind: 'unsupported'` として元の文字列（`rawRRule`）をそのまま保持します（書き換えません）。
+`parseRecurrenceRule` は RRULE 文字列をこの構造化状態に変換します。対応範囲外の指定（`BYSETPOS`、複数の `BYMONTHDAY`、`-1`（末日）以外の負の `BYMONTHDAY`、同じ曜日が重複した `BYDAY` など）、不正な RRULE は `kind: 'unsupported'` として元の文字列（`rawRRule`）をそのまま保持します（書き換えません）。`kind: 'editable'` で返る `state` は常に `validateRecurrenceRuleState` を通ります。
 
 ```ts
 import { buildRecurrenceRuleString, parseRecurrenceRule, resolveMessageCatalog } from '@koyomi-cal/react';
@@ -974,6 +974,8 @@ calendar.updateEvent(override!.id, { title: '朝会（社内向け）' });
 `originalStart` も同じ現地時刻差（終日は同じ日数）だけ移動し、除外・置換が
 新シリーズの対応するオカレンスに効き続けます（オーバーライド自身の
 `start` / `end` は変わりません）。
+開始日時の移動に連動する RRULE の指定も新シリーズで同じだけ移動します
+（[開始日時の移動に連動する RRULE の指定](#開始日時の移動に連動する-rrule-の指定) を参照）。
 
 対象オカレンスが `rdates` 由来（RRULE のパターン外の臨時回）の場合も同様に
 分割でき、新シリーズの起点（`INTERVAL` などの位相の基準）はその分割点になります。
@@ -1063,8 +1065,36 @@ const newSeries = events.find((e) => e.id !== 'standup' && e.recurringEventId ==
 
 ### scope: 'all' — すべて
 
-マスターのイベント自体を直接変更します。既存のオーバーライドはそのまま
-維持されます。
+シリーズ全体に変更を適用します。既存のオーバーライドの内容（`start` / `end` /
+タイトル等）はそのまま維持されます。
+
+パッチの `start` / `end` は「対象オカレンス（`occurrenceStart`）の変更後の日時」を
+表します。対象が最初のオカレンスならパッチの値がそのままマスターの `start` / `end`
+になります。対象が最初以外のオカレンスの場合は、対象オカレンスの変更前後の差
+（現地時刻差。終日は日数）だけマスターの起点を動かします。3 回目のオカレンスを
+1 時間後ろへ動かすと、全オカレンスが 1 時間後ろへ動きます（起点が 3 回目の日へ
+移ることはありません）。終了だけを変えるパッチは全オカレンスの長さを変えます。
+
+開始日時が動く場合は、`exdates`・`rdates`・オーバーライドの `originalStart` も
+同じだけ移動し、除外・置換が対応するオカレンスに効き続けます。終日 ⇔ 時間指定の
+変換では起点の日付だけを保ち、`exdates`・`rdates`・オーバーライドは移動しません。
+`timeZone` を変えるパッチは、パッチの値をそのままマスターに適用します。
+
+#### 開始日時の移動に連動する RRULE の指定
+
+`'all'` / `'thisAndFollowing'` で開始日時を動かすと、開始日時を言い換えている
+RRULE の指定と、現地時刻で表された終了条件も同じだけ移動します（パッチが `rrule` を
+指定している場合は、パッチの `rrule` がそのまま使われます）。
+
+| RRULE の指定 | 移動のしかた |
+| --- | --- |
+| `UNTIL` | 日時形式は開始と同じ現地時刻差、日付のみの形式は開始日の移動日数だけ移動する（最後のオカレンスが欠けない） |
+| 曜日だけの `BYDAY`（例: `BYDAY=MO,WE`。`BYSETPOS` を伴わない、`FREQ=DAILY` 以外） | 各曜日を開始日の移動日数だけずらす（毎週水曜を金曜へ動かすと毎週金曜になる） |
+| 開始が表す第 N 曜日の `BYDAY`（単一値。例: `2TU` / `-1FR`） | 移動先の第 N 曜日にする。移動先が第 5 曜日になる場合は最終曜日（`-1`）にする |
+| 開始の日と一致する単一の `BYMONTHDAY`、開始の月と一致する単一の `BYMONTH` | 移動先の日・月にする |
+
+開始と一致しない指定（開始が 15 日なのに `BYMONTHDAY=1` 等）や複数値の
+`BYMONTHDAY` など、開始の言い換えではない指定は変わりません。
 
 ```ts
 import { createCalendar } from '@koyomi-cal/react';
@@ -1211,6 +1241,8 @@ const occurrences = calendar.getOccurrences({
 `timeZone` → 表示タイムゾーン」の順にフォールバックします。マスターに明示的な
 `timeZone` を設定している場合、オーバーライド側で `timeZone` を省略しても
 マスターと同じ現地時刻の解釈になります（展開時・編集時とも同じ規則）。
+終日のマスターに属するオーバーライドの `originalStart` を `Date` で渡す場合も、
+同じ順で決まるタイムゾーンにおける日付として読みます。
 
 ## RDATE — パターン外のオカレンスを追加する（rdates）
 

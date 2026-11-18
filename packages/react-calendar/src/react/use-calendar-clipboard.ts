@@ -16,7 +16,9 @@
  * （`eventOverlap` / `eventConstraint` / `businessHours`。判定は `core/constraints` の
  * {@link isDragCandidateValid} が唯一の入口）と、適用前フック
  * {@link UseCalendarClipboardOptions.callbacks}.`onBeforeSelectRange` の両方を通過するかを
- * 判定する（他のドラッグ系フックの新規作成と同じ判定順序・同じ判定内容）。いずれかで
+ * 判定する（他のドラッグ系フックと同じ判定順序・同じ判定内容。貼り付けるイベント個別の
+ * `overlap` / `constraint` を優先し、レーンを持つビューでは割当先レーンごとに重なりを
+ * 判定する）。いずれかで
  * 拒否された場合はイベントを作成せず {@link UseCalendarClipboardOptions.onPasteRejected} を
  * 呼ぶ。`onBeforeSelectRange` が `Promise` を返す場合のみ {@link UseCalendarClipboardResult.paste}
  * の戻り値も `Promise` になり、それ以外（宣言的制約による拒否・同期的な
@@ -27,12 +29,13 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { isDragCandidateValid, resolveConstraintRules } from '../core/constraints';
+import { isDragCandidateValid } from '../core/constraints';
 import {
   buildOccurrenceCopy,
   type MutationReadContext,
   placeEventInputAt,
 } from '../core/mutations';
+import { assignedLaneIds } from '../core/resource-assignment';
 import {
   addDaysInZone,
   addMinutesInZone,
@@ -52,9 +55,41 @@ import {
   checkBeforeSelectRange,
   collectOverlapBlockersInRange,
   createOverlapBlockerCache,
+  resolveConstraintRulesForOccurrence,
+  resolveMoverBlocksOverlap,
 } from './drag-common';
 import type { CalendarInteractionCallbacks, RangeSelection, UseCalendarResult } from './types';
 import { isIgnoredTarget } from './use-calendar-shortcuts';
+
+/** {@link collectOverlapBlockersInRange} に渡すレーン指定（`undefined` はレーン区分なし）。 */
+type PasteLane = Parameters<typeof collectOverlapBlockersInRange>[4];
+
+/**
+ * 貼り付けの重なり判定を行うレーンの一覧を返す。
+ *
+ * レーンを持つビュー（リソース・タイムライン）では、貼り付けるイベントが表示される
+ * レーン（割当先のリソース。複数リソース割当なら各レーン、割当なし・参照先のない ID のみ
+ * なら未割り当てレーン）ごとに判定する。それ以外のビューにはレーンの概念がないため、
+ * レーン指定なし（全オカレンスが対象）の 1 件だけを返す。ドラッグ操作の判定
+ * （各フックが `collectOverlapBlockersInRange` に渡すレーン）と同じ区分になる。
+ *
+ * @param placed - 貼り付けるイベントの入力
+ * @param state - カレンダーの現在の状態（表示中のビュー・リソース一覧）
+ * @returns 判定対象のレーン指定の一覧（必ず 1 件以上）
+ */
+function pasteTargetLanes(
+  placed: CalendarEventInput,
+  state: UseCalendarResult['state'],
+): readonly PasteLane[] {
+  if (state.view !== 'resource' && state.view !== 'timeline') {
+    return [undefined];
+  }
+  const knownIds = new Set(state.resources.map((resource) => resource.id));
+  return assignedLaneIds(placed, knownIds).map((laneId) => ({
+    resources: state.resources,
+    laneId,
+  }));
+}
 
 /** クリップボードに保持するコピー内容（内部用）。 */
 interface ClipboardSnapshot {
@@ -286,24 +321,31 @@ export function useCalendarClipboard(
         return null;
       }
 
-      const blockers = collectOverlapBlockersInRange(
-        api,
-        overlapCacheRef.current,
-        range,
-        state.options.eventOverlap,
+      // ドラッグ操作と同じ判定内容にする: 動かしている側（貼り付けるイベント）の個別の
+      // `overlap` / `constraint` を優先し、レーンを持つビューでは貼り付け先のレーン
+      // （イベントの割当先。複数リソース割当なら各レーン）ごとに重なりを判定する
+      const mover = { event: placed };
+      const constraintValid = pasteTargetLanes(placed, state).every((lane) =>
+        isDragCandidateValid({
+          range,
+          allDay,
+          excludeKey: null,
+          moverBlocksOverlap: resolveMoverBlocksOverlap(mover, state.options.eventOverlap),
+          blockers: collectOverlapBlockersInRange(
+            api,
+            overlapCacheRef.current,
+            range,
+            state.options.eventOverlap,
+            lane,
+          ),
+          constraintRules: resolveConstraintRulesForOccurrence(
+            mover,
+            state.options.eventConstraint,
+            state.options.businessHours,
+          ),
+          timeZone: state.timeZone,
+        }),
       );
-      const constraintValid = isDragCandidateValid({
-        range,
-        allDay,
-        excludeKey: null,
-        moverBlocksOverlap: state.options.eventOverlap === false,
-        blockers,
-        constraintRules: resolveConstraintRules(
-          state.options.eventConstraint,
-          state.options.businessHours,
-        ),
-        timeZone: state.timeZone,
-      });
       if (!constraintValid) {
         return rejectFor('constraint');
       }

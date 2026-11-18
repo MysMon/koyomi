@@ -121,7 +121,7 @@ export function MonthView(props: MonthViewProps): ReactElement | null {
   // dayDrag は毎レンダー新しいオブジェクトになるため、MonthWeekRow（memo化済み）への
   // 再レンダー抑制が効くよう、参照が変わらないラッパー経由で渡す（詳細は
   // useStableDayDrag のコメントを参照）。
-  const stableDayDrag = useStableDayDrag(dayDrag);
+  const stableDayDrag = useStableDayDrag(dayDrag, callbacks);
 
   /** 指定日の day ビューへ切り替える。 */
   const goToDay = useCallback(

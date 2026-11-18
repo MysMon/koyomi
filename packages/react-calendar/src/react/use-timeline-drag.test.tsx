@@ -2716,3 +2716,238 @@ describe('useTimelineDrag - 終日 ⇔ 時間指定の変換（A キー）', () 
     });
   });
 });
+
+describe('useTimelineDrag - ドラッグ・キャンセル直後の click 抑止の有効範囲', () => {
+  const EVENTS: CalendarEvent[] = [
+    {
+      id: 'ev-moved',
+      title: 'A',
+      start: `${DAY0}T10:00`,
+      end: `${DAY0}T11:00`,
+      resourceId: 'crane-1',
+    },
+    {
+      id: 'ev-other',
+      title: 'B',
+      start: `${DAY0}T20:00`,
+      end: `${DAY0}T21:00`,
+      resourceId: 'crane-1',
+    },
+  ];
+
+  it('帯のドラッグ移動を確定した直後の click では onEventClick を呼ばない', () => {
+    const onEventClick = vi.fn();
+    const { container } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 1,
+      events: EVENTS,
+      callbacks: { onEventClick },
+    });
+    mockAllRowRects(container, 1);
+
+    firePointerDown(
+      getItemElement(container, 'ev-moved', `${DAY0}T10:00`),
+      dm(0, 10, 0),
+      rowCenterY(0),
+    );
+    movePointer(dm(0, 14, 0), rowCenterY(0));
+    releasePointer(dm(0, 14, 0), rowCenterY(0));
+    fireEvent.click(getItemElement(container, 'ev-moved', `${DAY0}T14:00`));
+
+    expect(onEventClick).not.toHaveBeenCalled();
+  });
+
+  it('作成ドラッグを Escape でキャンセルした後、行に届いた click の次の帯クリックは onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const { container } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 1,
+      events: EVENTS,
+      callbacks: { onEventClick },
+    });
+    mockAllRowRects(container, 1);
+    const row = container.querySelector('[data-koyomi="timeline-row"]');
+    if (row === null) {
+      throw new Error('行が見つかりません');
+    }
+
+    firePointerDown(row, dm(0, 15, 0), rowCenterY(0));
+    movePointer(dm(0, 16, 0), rowCenterY(0));
+    pressEscape();
+    releasePointer(dm(0, 16, 0), rowCenterY(0));
+    // 同じポインタ操作が生む click は pointerdown した行に届く（帯には届かない）
+    fireEvent.click(row);
+
+    fireEvent.click(getItemElement(container, 'ev-other', `${DAY0}T20:00`));
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('帯のドラッグ移動を確定した後、別の帯の Enter は onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const { container } = renderHarness({
+      resources: [CRANE_1, CRANE_2],
+      timelineDays: 1,
+      events: EVENTS,
+      callbacks: { onEventClick },
+    });
+    mockAllRowRects(container, 1);
+
+    firePointerDown(
+      getItemElement(container, 'ev-moved', `${DAY0}T10:00`),
+      dm(0, 10, 0),
+      rowCenterY(0),
+    );
+    movePointer(dm(0, 14, 0), rowCenterY(0));
+    releasePointer(dm(0, 14, 0), rowCenterY(0));
+
+    fireEvent.keyDown(getItemElement(container, 'ev-other', `${DAY0}T20:00`), { key: 'Enter' });
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useTimelineDrag - RTL（dir="rtl"）', () => {
+  /**
+   * `dir="rtl"` の祖先の下に描画する。RTL では時間軸が右→左へ並ぶ（帯は
+   * `insetInlineStart` で配置される）ため、行の右端が表示範囲の先頭になる。
+   * 行の幅は 1440px（1px = 1 分）なので、表示分 m の物理位置は clientX = 1440 - m。
+   */
+  function renderRtl(options: HarnessProps): {
+    container: HTMLElement;
+    sink: { current: UseCalendarResult | null };
+  } {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(
+      <div dir="rtl">
+        <Harness {...options} sink={sink} />
+      </div>,
+    );
+    mockAllRowRects(container, 1);
+    return { container, sink };
+  }
+
+  /** RTL で表示分（当日の hh:mm）に対応する clientX を返す。 */
+  function rtlX(hh: number, mm: number): number {
+    return MINUTES_PER_DAY - (hh * 60 + mm);
+  }
+
+  const EVENT: CalendarEvent = {
+    id: 'ev-rtl',
+    title: '荷揚げ',
+    start: `${DAY0}T10:00`,
+    end: `${DAY0}T11:00`,
+    resourceId: 'crane-1',
+  };
+
+  it('クリック作成は、行の右端からの距離に対応する時刻で作成される', () => {
+    const { container, sink } = renderRtl({ resources: [CRANE_1], timelineDays: 1 });
+    const row = container.querySelector('[data-koyomi="timeline-row"]');
+    if (row === null) {
+      throw new Error('行が見つかりません');
+    }
+
+    // 左端から 360px（右端から 1080px）= 18:00
+    firePointerDown(row, 360, rowCenterY(0));
+    releasePointer(360, rowCenterY(0));
+
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({ start: at(`${DAY0}T18:00`) });
+  });
+
+  it('帯を画面上の左へ 60px ドラッグすると 1 時間後ろへ移動する', () => {
+    const { container, sink } = renderRtl({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [EVENT],
+    });
+
+    firePointerDown(
+      getItemElement(container, 'ev-rtl', `${DAY0}T10:00`),
+      rtlX(10, 0),
+      rowCenterY(0),
+    );
+    movePointer(rtlX(11, 0), rowCenterY(0));
+    releasePointer(rtlX(11, 0), rowCenterY(0));
+
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({
+      start: at(`${DAY0}T11:00`),
+      end: at(`${DAY0}T12:00`),
+    });
+  });
+
+  it('← は画面上の左（未来方向）へ、→ は画面上の右（過去方向）へ snapMinutes 分移動する', async () => {
+    const { container, sink } = renderRtl({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [EVENT],
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(getItemElement(container, 'ev-rtl', `${DAY0}T10:00`), {
+        key: 'ArrowLeft',
+      });
+    });
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({
+      start: at(`${DAY0}T10:15`),
+      end: at(`${DAY0}T11:15`),
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(getItemElement(container, 'ev-rtl', `${DAY0}T10:15`), {
+        key: 'ArrowRight',
+      });
+    });
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({
+      start: at(`${DAY0}T10:00`),
+      end: at(`${DAY0}T11:00`),
+    });
+  });
+
+  it('Shift+← は終了端（画面上の左端）を左へ動かし、終了時刻を snapMinutes 分延長する', async () => {
+    const { container, sink } = renderRtl({
+      resources: [CRANE_1],
+      timelineDays: 1,
+      events: [EVENT],
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(getItemElement(container, 'ev-rtl', `${DAY0}T10:00`), {
+        key: 'ArrowLeft',
+        shiftKey: true,
+      });
+    });
+
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({
+      start: at(`${DAY0}T10:00`),
+      end: at(`${DAY0}T11:15`),
+    });
+  });
+});
+
+describe('useTimelineDrag - ドラッグ中のアンマウント', () => {
+  it('ドラッグ中にアンマウントされると、ドラッグプレビューが状態に残らない', () => {
+    const event: CalendarEvent = {
+      id: 'ev-unmount',
+      title: '荷揚げ',
+      start: `${DAY0}T10:00`,
+      end: `${DAY0}T11:00`,
+      resourceId: 'crane-1',
+    };
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container, unmount } = render(
+      <Harness resources={[CRANE_1, CRANE_2]} timelineDays={1} events={[event]} sink={sink} />,
+    );
+    mockAllRowRects(container, 1);
+    const api = sink.current?.api;
+
+    firePointerDown(
+      getItemElement(container, 'ev-unmount', `${DAY0}T10:00`),
+      dm(0, 10, 0),
+      rowCenterY(0),
+    );
+    movePointer(dm(0, 12, 0), rowCenterY(0));
+    expect(api?.getState().dragPreview).not.toBeNull();
+
+    unmount();
+
+    expect(api?.getState().dragPreview).toBeNull();
+  });
+});

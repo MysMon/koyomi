@@ -12,7 +12,6 @@
     "recurrence",
     "rrule",
     "timezone",
-    "date-fns",
     "カレンダー",
     "予定表"
   ],
@@ -52,7 +51,7 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22.22.2"
   },
   "publishConfig": {
     "access": "public"
@@ -70,24 +69,23 @@
     "react-dom": "^19.2.8"
   },
   "dependencies": {
-    "@date-fns/tz": "^1.2.0",
-    "date-fns": "^4.1.0"
+    "@date-fns/tz": "^1.2.0"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
-    "@testing-library/jest-dom": "^7.0.0",
-    "@testing-library/react": "^16.1.0",
-    "@testing-library/user-event": "^14.5.0",
-    "@types/node": "^26.1.2",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "@vitest/coverage-v8": "^4.1.10",
-    "jsdom": "^29.1.1",
-    "publint": "0.3.22",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/node": "^26.5.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitest/coverage-v8": "^5.1.0",
+    "jsdom": "^30.0.1",
+    "publint": "0.3.24",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "rrule": "^2.8.1",
     "tsup": "^8.3.0",
-    "vitest": "^4.1.10"
+    "vitest": "^5.1.0"
   }
 }

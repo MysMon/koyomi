@@ -1161,12 +1161,15 @@ function makeFakeDayDrag(
   };
 }
 
+/** 追加通知コールバックを持たない、参照の変わらない callbacks。 */
+const NO_CALLBACKS: CalendarInteractionCallbacks = {};
+
 /** `useStableDayDrag` の戻り値を呼び出し元へ通知するだけのテスト用ハーネス。 */
 function StableDayDragHarness(props: {
   dayDrag: DayDragHandlers;
   onStable: (stable: MonthDayDragHandlers) => void;
 }): null {
-  const stable = useStableDayDrag(props.dayDrag);
+  const stable = useStableDayDrag(props.dayDrag, NO_CALLBACKS);
   props.onStable(stable);
   return null;
 }
@@ -1263,5 +1266,47 @@ describe('MonthView - dayDrag 参照安定化による再レンダー抑制', ()
     // 第5週は selectionSpan が null のまま、dayDrag も参照安定であるため
     // MonthWeekRow の memo が効き、再レンダーされない（renderDayCell も再度呼ばれない）
     expect(countFor('2026-07-29')).toBe(baselineWeek5);
+  });
+});
+
+describe('MonthView - 追加通知コールバックの差し替え', () => {
+  const EVENTS: readonly CalendarEvent[] = [
+    { id: 'a', title: 'A', start: '2026-07-15', end: '2026-07-16', allDay: true },
+  ];
+
+  /** 対象の予定要素を取得する。 */
+  function eventElement(container: HTMLElement): HTMLElement {
+    const element = container.querySelector<HTMLElement>('[data-koyomi-occurrence]');
+    if (element === null) {
+      throw new Error('予定要素が見つかりません');
+    }
+    return element;
+  }
+
+  it('callbacks を差し替えた後のダブルクリックは、差し替え後の onEventDoubleClick だけを呼ぶ', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const { container, rerender } = render(
+      <Harness events={EVENTS} callbacks={{ onEventDoubleClick: first }} />,
+    );
+    rerender(<Harness events={EVENTS} callbacks={{ onEventDoubleClick: second }} />);
+
+    fireEvent.doubleClick(eventElement(container));
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('後から onEventContextMenu を指定すると予定要素に配線され、指定を外すと呼ばれなくなる', () => {
+    const onEventContextMenu = vi.fn();
+    const { container, rerender } = render(<Harness events={EVENTS} callbacks={{}} />);
+
+    rerender(<Harness events={EVENTS} callbacks={{ onEventContextMenu }} />);
+    fireEvent.contextMenu(eventElement(container));
+    expect(onEventContextMenu).toHaveBeenCalledTimes(1);
+
+    rerender(<Harness events={EVENTS} callbacks={{}} />);
+    fireEvent.contextMenu(eventElement(container));
+    expect(onEventContextMenu).toHaveBeenCalledTimes(1);
   });
 });

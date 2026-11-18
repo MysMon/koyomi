@@ -44,11 +44,7 @@ import type {
   Ref,
 } from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import {
-  isDragCandidateValid,
-  occurrenceBlocksOverlap,
-  resolveConstraintRules,
-} from '../core/constraints';
+import { isDragCandidateValid } from '../core/constraints';
 import { occurrenceKey } from '../core/expansion';
 import {
   type DayDragMode,
@@ -65,12 +61,10 @@ import {
   startOfDayInZone,
 } from '../core/timezone';
 import type {
-  BusinessHoursRule,
   CalendarEventPatch,
   DateRange,
   EventOccurrence,
   RecurringEditScope,
-  ResolvedCalendarOptions,
   TimelineItem,
   TimelineRow,
 } from '../core/types';
@@ -78,12 +72,14 @@ import {
   allDayPatchRange,
   attachDragSessionListeners,
   autoScrollVelocity,
+  type ClickSuppressor,
   captureOccurrenceDeleteFocusContext,
   checkBeforeEventChange,
   checkBeforeEventDelete,
   checkBeforeSelectRange,
   collectOverlapBlockersInRange,
   createAutoScrollLoop,
+  createClickSuppressor,
   createCreatedEventFocusController,
   createDefaultEvent,
   createOccurrenceDeleteFocusController,
@@ -95,8 +91,11 @@ import {
   type OccurrenceDeleteFocusContext,
   originatesFromOccurrenceElement,
   reportOperationRejected,
+  resolveConstraintRulesForOccurrence,
+  resolveMoverBlocksOverlap,
   resolveScopeForRecurring,
 } from './drag-common';
+import { inlineStartFraction, isRtl, readingOrderArrowKey } from './text-direction';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 
 /** 1 日の分（24:00 = 1440 分）。 */
@@ -226,14 +225,6 @@ interface DragSession {
   cleanup: () => void;
 }
 
-/** 行要素の矩形内でのポインタの横位置（0〜1）を求める（幅 0 以下は 0）。 */
-function fractionXFromClientX(rect: DOMRect, clientX: number): number {
-  if (rect.width <= 0) {
-    return 0;
-  }
-  return (clientX - rect.left) / rect.width;
-}
-
 /**
  * 終日 ⇔ 時間指定変換のキーボードトグル（A キー）かどうかを判定する。
  *
@@ -253,32 +244,6 @@ function isConversionToggleKey(event: {
   return (
     (event.key === 'a' || event.key === 'A') && !event.ctrlKey && !event.metaKey && !event.altKey
   );
-}
-
-/**
- * 動かしている側の overlap 実効値（重なりを拒否するか）を求める。
- * 新規作成（`occurrence` が `null`）では動かしている側の個別設定が存在しないため、
- * グローバル `eventOverlap` をそのまま動かしている側の値として使う。
- */
-function resolveMoverBlocksOverlap(
-  occurrence: EventOccurrence | null,
-  eventOverlap: boolean,
-): boolean {
-  return occurrence === null
-    ? eventOverlap === false
-    : occurrenceBlocksOverlap(occurrence.event, eventOverlap);
-}
-
-/**
- * 対象（新規作成は `null`）に適用される配置制約の実効ルールを解決する。
- * イベント個別の `constraint` が優先され、未指定ならグローバル `eventConstraint` を使う。
- */
-function resolveConstraintRulesForOccurrence(
-  occurrence: EventOccurrence | null,
-  eventConstraint: ResolvedCalendarOptions['eventConstraint'],
-  businessHours: readonly BusinessHoursRule[],
-): readonly BusinessHoursRule[] | null {
-  return resolveConstraintRules(occurrence?.event.constraint ?? eventConstraint, businessHours);
 }
 
 /**
@@ -312,20 +277,34 @@ export function useTimelineDrag(params: {
   const overlapCacheRef = useRef(createOverlapBlockerCache());
   /** 進行中のドラッグセッション（非ドラッグ中は `null`）。 */
   const dragSessionRef = useRef<DragSession | null>(null);
-  /** 直後の click イベントを 1 回だけ抑制するフラグ。 */
-  const suppressNextClickRef = useRef(false);
+  /** ドラッグ確定・Escape キャンセル直後の click を 1 回だけ抑止する管理オブジェクト。 */
+  const clickSuppressorRef = useRef<ClickSuppressor | null>(null);
+  if (clickSuppressorRef.current === null) {
+    clickSuppressorRef.current = createClickSuppressor();
+  }
+  const clickSuppressor = clickSuppressorRef.current;
   /** キーボード削除後のフォーカス復帰を管理するコントローラ（本フック内で使い回す）。 */
   const deleteFocusControllerRef = useRef(createOccurrenceDeleteFocusController());
   /** キーボード作成による既定即時作成後のフォーカス移動を管理するコントローラ。 */
   const createdEventFocusControllerRef = useRef(createCreatedEventFocusController());
   const [isDragging, setIsDragging] = useState(false);
 
+  // アンマウント時に進行中のセッションがあれば、document リスナーを解除し、
+  // ストアに設定済みのドラッグプレビューも消す。プレビューはカレンダーの状態に入るため、
+  // 消さないと、ドラッグ中のビュー切替などでこのフックだけがアンマウントされた後も
+  // 残り続ける（確定・キャンセルのどちらも届かなくなるため）。セッションがなければ
+  // プレビューには触れない（他のフックが設定したプレビューを消さないため）。
   useEffect(() => {
     return () => {
-      dragSessionRef.current?.cleanup();
-      dragSessionRef.current = null;
+      const session = dragSessionRef.current;
+      if (session !== null) {
+        session.cleanup();
+        dragSessionRef.current = null;
+        paramsRef.current.calendar.api.setDragPreview(null);
+      }
+      clickSuppressor.dispose();
     };
-  }, []);
+  }, [clickSuppressor]);
 
   // キーボード削除・キーボード作成の確定後、DOM 更新完了後（再レンダー後）に一度だけ
   // フォーカス解決を試みる（`virtual-resource-view.tsx` の pinned フォーカス復元と同じ
@@ -399,7 +378,13 @@ export function useTimelineDrag(params: {
     if (days.length === 0) {
       return null;
     }
-    const fraction = fractionXFromClientX(row.element.getBoundingClientRect(), clientX);
+    // 帯は行頭（inline-start）からの割合で配置されるため、ポインタ位置も同じ基準で測る
+    // （RTL では行の右端が表示範囲の先頭になる）
+    const fraction = inlineStartFraction(
+      row.element.getBoundingClientRect(),
+      clientX,
+      isRtl(row.element),
+    );
     return fraction * days.length * MINUTES_PER_DAY;
   }
 
@@ -730,7 +715,7 @@ export function useTimelineDrag(params: {
       if (occurrence === null) {
         return;
       }
-      suppressNextClickRef.current = true;
+      clickSuppressor.arm();
 
       const range = computeRangeFromEvent(session, nativeEvent.clientX, nativeEvent.clientY);
       if (range === null) {
@@ -949,7 +934,7 @@ export function useTimelineDrag(params: {
       if (nativeEvent.key !== 'Escape') {
         return;
       }
-      suppressNextClickRef.current = true;
+      clickSuppressor.arm();
       cancelSession();
     };
 
@@ -1087,8 +1072,7 @@ export function useTimelineDrag(params: {
 
   /** クリック（ドラッグに至らなかった場合）で `onEventClick` を呼ぶ。 */
   function handleItemClick(occurrence: EventOccurrence, event: ReactMouseEvent<HTMLElement>): void {
-    if (suppressNextClickRef.current) {
-      suppressNextClickRef.current = false;
+    if (clickSuppressor.shouldSuppress(event.nativeEvent)) {
       return;
     }
     paramsRef.current.callbacks?.onEventClick?.(occurrence, event.nativeEvent);
@@ -1298,7 +1282,9 @@ export function useTimelineDrag(params: {
     const { state } = paramsRef.current.calendar;
     const timeZone = state.timeZone;
     const snap = state.options.snapMinutes;
-    const direction = event.key === 'ArrowLeft' ? -1 : 1;
+    // RTL では時間軸が右→左へ並ぶため、←/→ を並びの方向へ読み替える
+    // （「画面上でその方向に動く」を保つ）
+    const direction = readingOrderArrowKey(event.key, event.currentTarget) === 'ArrowLeft' ? -1 : 1;
     // 終日の帯、または timelineScale が 'hour' 以外のときは日単位で移動・リサイズする
     const daySnap = occurrence.allDay || state.options.timelineScale !== 'hour';
     let range: DateRange;
@@ -1380,7 +1366,7 @@ export function useTimelineDrag(params: {
       },
       tabIndex: 0,
       'data-koyomi-occurrence': occurrence.key,
-      ...eventNotificationProps(paramsRef.current.callbacks, occurrence),
+      ...eventNotificationProps(() => paramsRef.current.callbacks, occurrence),
     };
     if (dragSessionRef.current?.occurrence?.key === occurrence.key) {
       return { ...base, 'data-koyomi-dragging': 'true' };

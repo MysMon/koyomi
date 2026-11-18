@@ -538,7 +538,7 @@ export function VirtualTimelineView(props: VirtualTimelineViewProps): ReactEleme
     callbacks,
     defaultEventTitle: commonMessages.untitledEvent,
   });
-  const stableDrag = useStableTimelineDrag(drag);
+  const stableDrag = useStableTimelineDrag(drag, callbacks);
   // api の参照は再レンダリングを跨いで安定するため、onToggleCollapse も安定する
   // （`TimelineView` と同じ狙い）。
   const onToggleCollapse = useCallback(

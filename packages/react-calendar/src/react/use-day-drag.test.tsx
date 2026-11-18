@@ -4829,3 +4829,204 @@ describe('useDayDrag - 拒否通知（onOperationRejected）', () => {
     expect(onOperationRejected).not.toHaveBeenCalled();
   });
 });
+
+describe('useDayDrag - ドラッグ・キャンセル直後の click 抑止の有効範囲', () => {
+  /** 終日の予定 2 件（7/8〜7/9 と 7/12）を持つグリッドを描画する。 */
+  function renderTwoSegments(onEventClick: () => void): {
+    container: HTMLElement;
+    first: HTMLElement;
+    second: HTMLElement;
+  } {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const a = api.createEvent({ title: 'A', start: '2026-07-08', end: '2026-07-10', allDay: true });
+    const b = api.createEvent({ title: 'B', start: '2026-07-12', end: '2026-07-13', allDay: true });
+    const occurrences = api.getOccurrences(WIDE_RANGE);
+    const occurrenceA = occurrences.find((occ) => occ.eventId === a.id);
+    const occurrenceB = occurrences.find((occ) => occ.eventId === b.id);
+    if (occurrenceA === undefined || occurrenceB === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container } = render(
+      <TestGrid
+        api={api}
+        segments={[makeSegment(occurrenceA), makeSegment(occurrenceB)]}
+        callbacks={{ onEventClick }}
+        resultRef={resultRef}
+      />,
+    );
+    setupCellRects(container);
+    const first = container.querySelector(`[data-testid="seg-${occurrenceA.key}"]`);
+    const second = container.querySelector(`[data-testid="seg-${occurrenceB.key}"]`);
+    if (!(first instanceof HTMLElement) || !(second instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+    return { container, first, second };
+  }
+
+  it('セルの範囲選択ドラッグを Escape でキャンセルした後、セルに届いた click の次のセグメントクリックは onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const { container, second } = renderTwoSegments(onEventClick);
+    const cell = container.querySelector('[data-testid="cell-2026-07-06"]');
+    if (!(cell instanceof HTMLElement)) {
+      throw new Error('セル要素が見つかりません');
+    }
+
+    act(() => {
+      cell.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(0),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(1));
+    });
+    act(() => {
+      dispatchEscape();
+    });
+    act(() => {
+      dispatchPointerUp(cellCenterX(1));
+    });
+    // 同じポインタ操作が生む click は pointerdown したセルに届く（セグメントには届かない）
+    act(() => {
+      cell.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    act(() => {
+      second.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('セグメントのドラッグ移動を確定した後、別のセグメントの Enter は onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const { first, second } = renderTwoSegments(onEventClick);
+
+    act(() => {
+      first.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2), // 7/8
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(3)); // 7/9（+1 日）
+    });
+    act(() => {
+      dispatchPointerUp(cellCenterX(3));
+    });
+
+    fireEvent.keyDown(second, { key: 'Enter' });
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useDayDrag - RTL（dir="rtl"）の矢印キー', () => {
+  /** 7/8〜7/9 の終日の予定 1 件を、`dir="rtl"` の祖先の下に描画する。 */
+  function renderRtl(): { api: CalendarApi; eventId: string; segment: HTMLElement } {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const created = api.createEvent({
+      title: '出張',
+      start: '2026-07-08',
+      end: '2026-07-10',
+      allDay: true,
+    });
+    const occurrence = api.getOccurrences(WIDE_RANGE).find((occ) => occ.eventId === created.id);
+    if (occurrence === undefined) {
+      throw new Error('オカレンスが見つかりません');
+    }
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    // RTL では日セルが右→左へ並ぶ（画面上の左隣が翌日）
+    const { container } = render(
+      <div dir="rtl">
+        <TestGrid api={api} segments={[makeSegment(occurrence)]} resultRef={resultRef} />
+      </div>,
+    );
+    const segment = container.querySelector(`[data-testid="seg-${occurrence.key}"]`);
+    if (!(segment instanceof HTMLElement)) {
+      throw new Error('セグメント要素が見つかりません');
+    }
+    return { api, eventId: created.id, segment };
+  }
+
+  it('← は画面上の左（翌日方向）へ 1 日移動する', () => {
+    const { api, eventId, segment } = renderRtl();
+
+    fireEvent.keyDown(segment, { key: 'ArrowLeft' });
+
+    const updated = api.getEvents().find((event) => event.id === eventId);
+    expectDateKey(updated?.start, '2026-07-09');
+    expectDateKey(updated?.end, '2026-07-11');
+  });
+
+  it('→ は画面上の右（前日方向）へ 1 日移動する', () => {
+    const { api, eventId, segment } = renderRtl();
+
+    fireEvent.keyDown(segment, { key: 'ArrowRight' });
+
+    const updated = api.getEvents().find((event) => event.id === eventId);
+    expectDateKey(updated?.start, '2026-07-07');
+    expectDateKey(updated?.end, '2026-07-09');
+  });
+
+  it('Shift+← は終了端（画面上の左端）を左へ動かし、終了日を 1 日延長する', () => {
+    const { api, eventId, segment } = renderRtl();
+
+    fireEvent.keyDown(segment, { key: 'ArrowLeft', shiftKey: true });
+
+    const updated = api.getEvents().find((event) => event.id === eventId);
+    expectDateKey(updated?.start, '2026-07-08');
+    expectDateKey(updated?.end, '2026-07-11');
+  });
+
+  it('↑ / ↓ の 1 週間移動は RTL でも変わらない', () => {
+    const { api, eventId, segment } = renderRtl();
+
+    fireEvent.keyDown(segment, { key: 'ArrowDown' });
+
+    const updated = api.getEvents().find((event) => event.id === eventId);
+    expectDateKey(updated?.start, '2026-07-15');
+    expectDateKey(updated?.end, '2026-07-17');
+  });
+});
+
+describe('useDayDrag - ドラッグ中のアンマウント', () => {
+  it('ドラッグ中にアンマウントされると、ドラッグプレビューが状態に残らない', () => {
+    const api = makeCalendarApi({ timeZone: TOKYO, now: () => NOW, initialDate: NOW });
+    const resultRef: { current: DayDragHandlers | null } = { current: null };
+    const { container, unmount } = render(<TestGrid api={api} resultRef={resultRef} />);
+    setupCellRects(container);
+    const cell = container.querySelector('[data-testid="cell-2026-07-08"]');
+    if (!(cell instanceof HTMLElement)) {
+      throw new Error('セル要素が見つかりません');
+    }
+
+    act(() => {
+      cell.dispatchEvent(
+        new MouseEvent('pointerdown', {
+          clientX: cellCenterX(2),
+          clientY: 25,
+          button: 0,
+          bubbles: true,
+        }),
+      );
+    });
+    act(() => {
+      dispatchPointerMove(cellCenterX(4));
+    });
+    expect(api.getState().dragPreview).not.toBeNull();
+
+    act(() => {
+      unmount();
+    });
+
+    expect(api.getState().dragPreview).toBeNull();
+  });
+});

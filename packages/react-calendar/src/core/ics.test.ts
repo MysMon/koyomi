@@ -178,6 +178,111 @@ describe('eventsToIcs', () => {
     });
   });
 
+  describe('DST の巻き戻りで 2 回現れる時刻の 2 回目（TZID 付きの現地時刻では表せない時点）', () => {
+    // NY 2026-11-01 は 01:00〜01:59 が 2 回現れる。06:30Z は 2 回目（EST）の 01:30 で、
+    // TZID 付きの現地時刻 01:30 は取り込み時に 1 回目（EDT、05:30Z）として解釈される
+
+    it('単発イベントの開始がこの時点なら、DTSTART / DTEND を UTC 形式で出力する', () => {
+      const ics = toIcs([
+        {
+          id: 'e1',
+          title: 'A',
+          start: new Date('2026-11-01T06:30:00Z'),
+          end: new Date('2026-11-01T07:30:00Z'),
+          timeZone: NY,
+        },
+      ]);
+      expect(ics).toContain('DTSTART:20261101T063000Z\r\n');
+      expect(ics).toContain('DTEND:20261101T073000Z\r\n');
+    });
+
+    it('終了だけがこの時点なら、DTSTART は TZID 付きのまま DTEND だけを UTC 形式で出力する', () => {
+      // 00:30 EDT（04:30Z）〜 2 回目の 01:30 EST（06:30Z）
+      const ics = toIcs([
+        {
+          id: 'e1',
+          title: 'A',
+          start: new Date('2026-11-01T04:30:00Z'),
+          end: new Date('2026-11-01T06:30:00Z'),
+          timeZone: NY,
+        },
+      ]);
+      expect(ics).toContain('DTSTART;TZID=America/New_York:20261101T003000\r\n');
+      expect(ics).toContain('DTEND:20261101T063000Z\r\n');
+    });
+
+    it('1 回目の時刻（早い方のオフセット）は TZID 付きの現地時刻のまま出力する', () => {
+      const ics = toIcs([
+        {
+          id: 'e1',
+          title: 'A',
+          start: new Date('2026-11-01T05:30:00Z'),
+          end: new Date('2026-11-01T07:30:00Z'),
+          timeZone: NY,
+        },
+      ]);
+      expect(ics).toContain('DTSTART;TZID=America/New_York:20261101T013000\r\n');
+      expect(ics).toContain('DTEND;TZID=America/New_York:20261101T023000\r\n');
+    });
+
+    it('RRULE を持つイベントの DTSTART は TZID 付きを維持し、DTEND は長さを保つ時点を UTC 形式で出力する', () => {
+      // 繰り返しは現地時刻 01:30 で展開され、11/1 のオカレンスは 1 回目（05:30Z）になる。
+      // 長さ 1 時間を保つ DTEND は 06:30Z（2 回目の 01:30）
+      const ics = toIcs([
+        {
+          id: 'e1',
+          title: 'A',
+          start: new Date('2026-11-01T06:30:00Z'),
+          end: new Date('2026-11-01T07:30:00Z'),
+          timeZone: NY,
+          rrule: 'FREQ=DAILY;COUNT=3',
+        },
+      ]);
+      expect(ics).toContain('DTSTART;TZID=America/New_York:20261101T013000\r\n');
+      expect(ics).toContain('DTEND:20261101T063000Z\r\n');
+    });
+
+    it('exdates / rdates のうちこの時点にあたる値だけを UTC 形式の別プロパティで出力する', () => {
+      const ics = toIcs([
+        {
+          id: 'e1',
+          title: 'A',
+          start: '2026-10-30T01:30:00',
+          timeZone: NY,
+          rrule: 'FREQ=DAILY;COUNT=5',
+          exdates: ['2026-10-31T01:30:00', new Date('2026-11-01T06:30:00Z')],
+          rdates: [new Date('2026-11-01T06:45:00Z')],
+        },
+      ]);
+      expect(ics).toContain('EXDATE;TZID=America/New_York:20261031T013000\r\n');
+      expect(ics).toContain('EXDATE:20261101T063000Z\r\n');
+      expect(ics).toContain('RDATE:20261101T064500Z\r\n');
+    });
+
+    it('オーバーライドの originalStart がこの時点なら、RECURRENCE-ID を UTC 形式で出力する', () => {
+      const ics = toIcs([
+        {
+          id: 'm1',
+          title: '毎日',
+          start: '2026-10-30T01:30:00',
+          timeZone: NY,
+          rrule: 'FREQ=DAILY;COUNT=5',
+          rdates: [new Date('2026-11-01T06:30:00Z')],
+        },
+        {
+          id: 'ov1',
+          title: '変更',
+          start: '2026-11-01T09:00:00',
+          end: '2026-11-01T10:00:00',
+          timeZone: NY,
+          recurringEventId: 'm1',
+          originalStart: new Date('2026-11-01T06:30:00Z'),
+        },
+      ]);
+      expect(ics).toContain('RECURRENCE-ID:20261101T063000Z\r\n');
+    });
+  });
+
   describe('RRULE', () => {
     it('rrule を正規化して RRULE プロパティに出力する', () => {
       const ics = toIcs([
@@ -1237,6 +1342,147 @@ describe('eventsFromIcs', () => {
     });
   });
 
+  describe('DURATION（DTEND の代わりの長さ指定）', () => {
+    /** DTSTART 行と DURATION 行だけを差し替えた VEVENT 1 件を取り込む。 */
+    function importWithDuration(dtstartLine: string, ...extraLines: string[]): CalendarEvent {
+      const events = eventsFromIcs(
+        icsText('BEGIN:VEVENT', 'UID:e1', dtstartLine, ...extraLines, 'SUMMARY:A', 'END:VEVENT'),
+      );
+      const event = events[0];
+      if (event === undefined) {
+        throw new Error('VEVENT が取り込まれませんでした');
+      }
+      return event;
+    }
+
+    it('UTC 形式の DTSTART には実時間の長さを加えた UTC の end を設定する', () => {
+      const event = importWithDuration('DTSTART:20260701T010000Z', 'DURATION:PT30M');
+      expect(event.end).toBe('2026-07-01T01:30:00Z');
+    });
+
+    it('時・分・秒を組み合わせた長さを解釈する', () => {
+      const event = importWithDuration('DTSTART:20260701T010000Z', 'DURATION:PT1H15M30S');
+      expect(event.end).toBe('2026-07-01T02:15:30Z');
+    });
+
+    it('日と時刻を組み合わせた長さ（P1DT2H）を解釈する', () => {
+      const event = importWithDuration('DTSTART:20260701T230000Z', 'DURATION:P1DT2H');
+      expect(event.end).toBe('2026-07-03T01:00:00Z');
+    });
+
+    it('週単位の長さ（P2W）を 14 日として解釈する', () => {
+      const event = importWithDuration('DTSTART:20260701T010000Z', 'DURATION:P2W');
+      expect(event.end).toBe('2026-07-15T01:00:00Z');
+    });
+
+    it('正符号（+）付きの長さを受け付ける', () => {
+      const event = importWithDuration('DTSTART:20260701T010000Z', 'DURATION:+PT45M');
+      expect(event.end).toBe('2026-07-01T01:45:00Z');
+    });
+
+    it('フローティング時刻の DTSTART には現地時刻に長さを加えた end を設定する', () => {
+      const event = importWithDuration('DTSTART:20260701T233000', 'DURATION:PT1H');
+      expect(event.end).toBe('2026-07-02T00:30:00');
+    });
+
+    it('TZID 付きの DTSTART にはイベント TZ の現地時刻で end を設定する', () => {
+      const event = importWithDuration(
+        'DTSTART;TZID=America/New_York:20260706T100000',
+        'DURATION:PT90M',
+      );
+      expect(event.timeZone).toBe(NY);
+      expect(event.end).toBe('2026-07-06T11:30:00');
+    });
+
+    it('TZID 付きの DTSTART の時刻部分は DST 切替をまたいでも実時間で加算する', () => {
+      // 2026-03-08 02:00 EST → 03:00 EDT。01:30 EST から実時間 1 時間後は 03:30 EDT
+      const event = importWithDuration(
+        'DTSTART;TZID=America/New_York:20260308T013000',
+        'DURATION:PT1H',
+      );
+      expect(event.end).toBe('2026-03-08T03:30:00');
+    });
+
+    it('TZID 付きの DTSTART の日部分は DST 切替日でも現地時刻を保って加算する', () => {
+      // 切替日（実時間 23 時間）をまたぐ P1D は翌日の同じ現地時刻になる
+      const event = importWithDuration(
+        'DTSTART;TZID=America/New_York:20260307T100000',
+        'DURATION:P1D',
+      );
+      expect(event.end).toBe('2026-03-08T10:00:00');
+    });
+
+    it('終日（VALUE=DATE）の DTSTART には日数を加えた排他的な end を設定する', () => {
+      const event = importWithDuration('DTSTART;VALUE=DATE:20260801', 'DURATION:P2D');
+      expect(event.allDay).toBe(true);
+      expect(event.end).toBe('2026-08-03');
+    });
+
+    it('終日の DTSTART に週単位の長さを指定できる', () => {
+      const event = importWithDuration('DTSTART;VALUE=DATE:20260801', 'DURATION:P1W');
+      expect(event.end).toBe('2026-08-08');
+    });
+
+    it('DTEND と DURATION の両方がある場合は DTEND を優先する', () => {
+      const event = importWithDuration(
+        'DTSTART:20260701T010000Z',
+        'DTEND:20260701T030000Z',
+        'DURATION:PT30M',
+      );
+      expect(event.end).toBe('2026-07-01T03:00:00Z');
+    });
+
+    it('長さ 0（PT0S）は end なしとして取り込む', () => {
+      const event = importWithDuration('DTSTART:20260701T010000Z', 'DURATION:PT0S');
+      expect(event.end).toBeUndefined();
+    });
+
+    it('取り込んだ予定は DURATION の長さで展開される', () => {
+      const [event] = eventsFromIcs(
+        icsText(
+          'BEGIN:VEVENT',
+          'UID:e1',
+          'DTSTART:20260701T010000Z',
+          'DURATION:PT30M',
+          'SUMMARY:A',
+          'END:VEVENT',
+        ),
+      );
+      if (event === undefined) {
+        throw new Error('VEVENT が取り込まれませんでした');
+      }
+      const occurrences = expandEvents({
+        events: [event],
+        range: { start: new Date('2026-07-01T00:00:00Z'), end: new Date('2026-07-02T00:00:00Z') },
+        displayTimeZone: TOKYO,
+        defaultEventMinutes: 60,
+      });
+      expect(occurrences[0]?.end.toISOString()).toBe('2026-07-01T01:30:00.000Z');
+    });
+
+    it.each([
+      ['負の長さ', '-PT30M'],
+      ['P のない値', 'T30M'],
+      ['成分のない値', 'P'],
+      ['時刻成分のない T', 'P1DT'],
+      ['週と日の混在', 'P1W2D'],
+      ['数値でない値', 'PT1.5H'],
+    ])('不正な DURATION（%s）は Error にする', (_label, value) => {
+      const message = captureErrorMessage(() =>
+        importWithDuration('DTSTART:20260701T010000Z', `DURATION:${value}`),
+      );
+      expect(message).toContain('DURATION');
+      expect(message).toContain(value);
+    });
+
+    it('終日の DTSTART に時刻成分を含む DURATION は Error にする', () => {
+      const message = captureErrorMessage(() =>
+        importWithDuration('DTSTART;VALUE=DATE:20260801', 'DURATION:PT12H'),
+      );
+      expect(message).toContain('DURATION');
+    });
+  });
+
   describe('非対応構文の扱い', () => {
     it('VTIMEZONE 定義は無視し、TZID は IANA タイムゾーン ID として解釈する', () => {
       const events = eventsFromIcs(
@@ -1282,14 +1528,13 @@ describe('eventsFromIcs', () => {
       expect(events[0]?.title).toBe('本体');
     });
 
-    it('EXRULE・DURATION・X- プロパティは無視する', () => {
+    it('EXRULE・X- プロパティは無視する', () => {
       const events = eventsFromIcs(
         icsText(
           'BEGIN:VEVENT',
           'UID:e1',
           'DTSTART:20260701T010000Z',
           'EXRULE:FREQ=WEEKLY',
-          'DURATION:PT30M',
           'X-CUSTOM-PROP:value',
           'SUMMARY:A',
           'END:VEVENT',
@@ -1799,6 +2044,66 @@ describe('往復変換（round-trip）', () => {
         allDay: o.allDay,
       }));
     expect(summarize(round)).toEqual(summarize(source));
+  });
+
+  it('DST の巻き戻りで 2 回現れる時刻の 2 回目を含むイベントも、往復後のオカレンス展開の結果が一致する', () => {
+    // NY 2026-11-01 の 06:00Z〜06:59Z は 2 回目（EST）の 01:00〜01:59
+    const fallBack: readonly CalendarEvent[] = [
+      {
+        id: 'single-second-pass',
+        title: '単発（開始が 2 回目）',
+        start: new Date('2026-11-01T06:30:00Z'),
+        end: new Date('2026-11-01T07:30:00Z'),
+        timeZone: NY,
+      },
+      {
+        id: 'single-end-second-pass',
+        title: '単発（終了が 2 回目）',
+        start: new Date('2026-11-01T04:30:00Z'),
+        end: new Date('2026-11-01T06:30:00Z'),
+        timeZone: NY,
+      },
+      {
+        id: 'daily-second-pass',
+        title: '毎日（開始が 2 回目）',
+        start: new Date('2026-11-01T06:30:00Z'),
+        end: new Date('2026-11-01T07:30:00Z'),
+        timeZone: NY,
+        rrule: 'FREQ=DAILY;COUNT=3',
+      },
+      {
+        id: 'daily-with-lists',
+        title: '毎日（EXDATE / RDATE が 2 回目）',
+        start: '2026-10-30T01:15:00',
+        end: '2026-10-30T01:45:00',
+        timeZone: NY,
+        rrule: 'FREQ=DAILY;COUNT=5',
+        exdates: [new Date('2026-11-01T06:15:00Z')],
+        rdates: [new Date('2026-11-01T06:50:00Z')],
+      },
+      {
+        id: 'rdates-only',
+        title: 'RDATE のみ（開始が 2 回目）',
+        start: new Date('2026-11-01T06:10:00Z'),
+        end: new Date('2026-11-01T06:20:00Z'),
+        timeZone: NY,
+        rdates: ['2026-11-03T09:00:00'],
+      },
+    ];
+    const round = eventsFromIcs(eventsToIcs(fallBack, { dtstamp: STAMP, timeZone: TOKYO }), {
+      timeZone: TOKYO,
+    });
+    const range = {
+      start: new Date('2026-10-29T00:00:00Z'),
+      end: new Date('2026-11-06T00:00:00Z'),
+    };
+    const summarize = (events: readonly CalendarEvent[]) =>
+      expandEvents({ events, range, displayTimeZone: TOKYO, defaultEventMinutes: 60 }).map((o) => ({
+        title: o.event.title,
+        start: o.start.toISOString(),
+        end: o.end.toISOString(),
+      }));
+    expect(summarize(round)).toEqual(summarize(fallBack));
   });
 
   it('インポート → エクスポート → インポートで結果が安定する（不動点）', () => {

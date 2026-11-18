@@ -13,16 +13,26 @@ import { describe, expect, it, vi } from 'vitest';
 import { createCalendar } from '../core/calendar';
 import { createEventHistory } from '../core/history';
 import { parseDateValue } from '../core/timezone';
-import type { CalendarApi, CalendarEvent, CalendarResource, EventOccurrence } from '../core/types';
+import type {
+  BusinessHoursRule,
+  CalendarApi,
+  CalendarEvent,
+  CalendarResource,
+  EventOccurrence,
+} from '../core/types';
 import {
   allDayPatchRange,
   captureOccurrenceDeleteFocusContext,
   collectOverlapBlockersInRange,
+  createClickSuppressor,
   createDefaultEvent,
   createOccurrenceDeleteFocusController,
   createOverlapBlockerCache,
   eventNotificationProps,
+  eventNotificationSignature,
   reportOperationRejected,
+  resolveConstraintRulesForOccurrence,
+  resolveMoverBlocksOverlap,
 } from './drag-common';
 import type { CalendarInteractionCallbacks, OperationRejection, RangeSelection } from './types';
 
@@ -84,7 +94,7 @@ describe('allDayPatchRange', () => {
 describe('eventNotificationProps', () => {
   it('コールバックが 1 つも指定されていない場合、キーを 1 つも含まないオブジェクトを返す', () => {
     const occurrence = makeOccurrence();
-    const props = eventNotificationProps(undefined, occurrence);
+    const props = eventNotificationProps(() => undefined, occurrence);
     expect(Object.keys(props)).toEqual([]);
   });
 
@@ -92,7 +102,7 @@ describe('eventNotificationProps', () => {
     const occurrence = makeOccurrence();
     const onEventDoubleClick = vi.fn();
     const callbacks: CalendarInteractionCallbacks = { onEventDoubleClick };
-    const props = eventNotificationProps(callbacks, occurrence);
+    const props = eventNotificationProps(() => callbacks, occurrence);
 
     expect(Object.keys(props)).toEqual(['onDoubleClick']);
     const nativeEvent = new MouseEvent('dblclick');
@@ -104,7 +114,7 @@ describe('eventNotificationProps', () => {
   it('onEventContextMenu のみ指定時、onContextMenu だけを含み、preventDefault は呼ばれない', () => {
     const occurrence = makeOccurrence();
     const onEventContextMenu = vi.fn();
-    const props = eventNotificationProps({ onEventContextMenu }, occurrence);
+    const props = eventNotificationProps(() => ({ onEventContextMenu }), occurrence);
 
     expect(Object.keys(props)).toEqual(['onContextMenu']);
     const nativeEvent = new MouseEvent('contextmenu', { cancelable: true });
@@ -119,7 +129,7 @@ describe('eventNotificationProps', () => {
   it('onEventHover のみ指定時、onPointerEnter だけを含む', () => {
     const occurrence = makeOccurrence();
     const onEventHover = vi.fn();
-    const props = eventNotificationProps({ onEventHover }, occurrence);
+    const props = eventNotificationProps(() => ({ onEventHover }), occurrence);
 
     expect(Object.keys(props)).toEqual(['onPointerEnter']);
     const nativeEvent = new MouseEvent('pointerover');
@@ -131,7 +141,7 @@ describe('eventNotificationProps', () => {
   it('onEventHoverEnd のみ指定時、onPointerLeave だけを含む', () => {
     const occurrence = makeOccurrence();
     const onEventHoverEnd = vi.fn();
-    const props = eventNotificationProps({ onEventHoverEnd }, occurrence);
+    const props = eventNotificationProps(() => ({ onEventHoverEnd }), occurrence);
 
     expect(Object.keys(props)).toEqual(['onPointerLeave']);
     const nativeEvent = new MouseEvent('pointerout');
@@ -148,9 +158,70 @@ describe('eventNotificationProps', () => {
       onEventHover: vi.fn(),
       onEventHoverEnd: vi.fn(),
     };
-    const props = eventNotificationProps(callbacks, occurrence);
+    const props = eventNotificationProps(() => callbacks, occurrence);
     expect(Object.keys(props).sort()).toEqual(
       ['onContextMenu', 'onDoubleClick', 'onPointerEnter', 'onPointerLeave'].sort(),
+    );
+  });
+
+  it('ハンドラは生成時ではなく呼び出し時点のコールバックを読む（生成後に差し替えたコールバックが呼ばれる）', () => {
+    const occurrence = makeOccurrence();
+    const first = vi.fn();
+    const second = vi.fn();
+    let callbacks: CalendarInteractionCallbacks = { onEventDoubleClick: first };
+    const props = eventNotificationProps(() => callbacks, occurrence);
+
+    callbacks = { onEventDoubleClick: second };
+    props.onDoubleClick?.(makeMouseEvent(new MouseEvent('dblclick')));
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('生成後にコールバックが外された場合、ハンドラは何もしない（例外を投げない）', () => {
+    const occurrence = makeOccurrence();
+    const onEventHover = vi.fn();
+    let callbacks: CalendarInteractionCallbacks = { onEventHover };
+    const props = eventNotificationProps(() => callbacks, occurrence);
+
+    callbacks = {};
+    expect(() =>
+      props.onPointerEnter?.(makePointerEvent(new MouseEvent('pointerover'))),
+    ).not.toThrow();
+    expect(onEventHover).not.toHaveBeenCalled();
+  });
+});
+
+describe('eventNotificationSignature', () => {
+  it('コールバック未指定（undefined・空オブジェクト）は同じ値になる', () => {
+    expect(eventNotificationSignature(undefined)).toBe(eventNotificationSignature({}));
+  });
+
+  it('同じ組み合わせなら関数の参照が違っても同じ値になる', () => {
+    expect(eventNotificationSignature({ onEventHover: () => {} })).toBe(
+      eventNotificationSignature({ onEventHover: () => {} }),
+    );
+  });
+
+  it('4 つのコールバックの有無の組み合わせ 16 通りがすべて異なる値になる', () => {
+    const handler = (): void => {};
+    const signatures = new Set<number>();
+    for (let mask = 0; mask < 16; mask += 1) {
+      signatures.add(
+        eventNotificationSignature({
+          ...((mask & 1) !== 0 ? { onEventDoubleClick: handler } : {}),
+          ...((mask & 2) !== 0 ? { onEventContextMenu: handler } : {}),
+          ...((mask & 4) !== 0 ? { onEventHover: handler } : {}),
+          ...((mask & 8) !== 0 ? { onEventHoverEnd: handler } : {}),
+        }),
+      );
+    }
+    expect(signatures.size).toBe(16);
+  });
+
+  it('追加通知以外のコールバック（onEventClick 等）の有無は値に影響しない', () => {
+    expect(eventNotificationSignature({ onEventClick: () => {} })).toBe(
+      eventNotificationSignature({}),
     );
   });
 });
@@ -716,5 +787,112 @@ describe('reportOperationRejected', () => {
 
     expect(() => reportOperationRejected({}, rejection)).not.toThrow();
     expect(() => reportOperationRejected(undefined, rejection)).not.toThrow();
+  });
+});
+
+describe('createClickSuppressor', () => {
+  /** document へ click をディスパッチし、そのイベントを返す。 */
+  function dispatchClick(): MouseEvent {
+    const event = new MouseEvent('click', { bubbles: true });
+    document.body.dispatchEvent(event);
+    return event;
+  }
+
+  it('予約していない状態では、どの click も抑止対象にならない', () => {
+    const suppressor = createClickSuppressor();
+    expect(suppressor.shouldSuppress(dispatchClick())).toBe(false);
+    suppressor.dispose();
+  });
+
+  it('予約後に最初に届いた click だけが抑止対象になり、2 回目以降は対象にならない', () => {
+    const suppressor = createClickSuppressor();
+    suppressor.arm();
+    expect(suppressor.shouldSuppress(dispatchClick())).toBe(true);
+    expect(suppressor.shouldSuppress(dispatchClick())).toBe(false);
+    suppressor.dispose();
+  });
+
+  it('click が届く前に次の pointerdown が起きると、予約は破棄される', () => {
+    const suppressor = createClickSuppressor();
+    suppressor.arm();
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    expect(suppressor.shouldSuppress(dispatchClick())).toBe(false);
+    suppressor.dispose();
+  });
+
+  it('click が届く前に Escape 以外のキーが押されると予約は破棄され、Escape では維持される', () => {
+    const suppressor = createClickSuppressor();
+    suppressor.arm();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(suppressor.shouldSuppress(dispatchClick())).toBe(true);
+
+    suppressor.arm();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(suppressor.shouldSuppress(dispatchClick())).toBe(false);
+    suppressor.dispose();
+  });
+
+  it('dispose 後は予約が無効になり、記録済みの click も抑止対象でなくなる', () => {
+    const suppressor = createClickSuppressor();
+    suppressor.arm();
+    const recorded = dispatchClick();
+    suppressor.arm();
+    suppressor.dispose();
+    expect(suppressor.shouldSuppress(recorded)).toBe(false);
+    expect(suppressor.shouldSuppress(dispatchClick())).toBe(false);
+  });
+});
+
+describe('resolveMoverBlocksOverlap', () => {
+  it('動かしている側がない（新規作成）場合は eventOverlap の実効値に従う', () => {
+    expect(resolveMoverBlocksOverlap(null, false)).toBe(true);
+    expect(resolveMoverBlocksOverlap(null, true)).toBe(false);
+  });
+
+  it('イベント個別の overlap が eventOverlap より優先される', () => {
+    expect(resolveMoverBlocksOverlap({ event: { overlap: true } }, false)).toBe(false);
+    expect(resolveMoverBlocksOverlap({ event: { overlap: false } }, true)).toBe(true);
+  });
+
+  it('イベント個別の overlap が未指定なら eventOverlap に従う', () => {
+    expect(resolveMoverBlocksOverlap({ event: {} }, false)).toBe(true);
+    expect(resolveMoverBlocksOverlap({ event: {} }, true)).toBe(false);
+  });
+});
+
+describe('resolveConstraintRulesForOccurrence', () => {
+  const businessHours: readonly BusinessHoursRule[] = [
+    { daysOfWeek: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' },
+  ];
+  const ownRules: readonly BusinessHoursRule[] = [
+    { daysOfWeek: [6], startTime: '10:00', endTime: '12:00' },
+  ];
+
+  it('どちらも未指定なら null（制約なし）', () => {
+    expect(resolveConstraintRulesForOccurrence(null, null, businessHours)).toBeNull();
+    expect(resolveConstraintRulesForOccurrence({ event: {} }, null, businessHours)).toBeNull();
+  });
+
+  it('イベント個別の constraint が未指定なら eventConstraint を使う（"businessHours" は businessHours へ解決）', () => {
+    expect(resolveConstraintRulesForOccurrence({ event: {} }, 'businessHours', businessHours)).toBe(
+      businessHours,
+    );
+  });
+
+  it('イベント個別の constraint が eventConstraint より優先される', () => {
+    expect(
+      resolveConstraintRulesForOccurrence(
+        { event: { constraint: ownRules } },
+        'businessHours',
+        businessHours,
+      ),
+    ).toBe(ownRules);
+    expect(
+      resolveConstraintRulesForOccurrence(
+        { event: { constraint: 'businessHours' } },
+        null,
+        businessHours,
+      ),
+    ).toBe(businessHours);
   });
 });

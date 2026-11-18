@@ -125,7 +125,7 @@ export function MultiMonthView(props: MultiMonthViewProps): ReactElement | null 
   // 再レンダー抑制が効くよう、参照が変わらないラッパー経由で渡す（詳細は
   // `month-view-parts.tsx` の useStableDayDrag のコメントを参照。全月で共有する
   // 単一インスタンスなので、ラッパーも 1 つだけ作れば足りる）。
-  const stableDayDrag = useStableDayDrag(dayDrag);
+  const stableDayDrag = useStableDayDrag(dayDrag, callbacks);
   // roving tabindex（gridNavigation）。前後月セルは非インタラクティブ（対象外）の
   // ため、既定 Tab ストップ・フォールバックとも月本体の日だけから決める
   const multiMonthViewModel = viewModel.type === 'multiMonth' ? viewModel : null;

@@ -7,8 +7,9 @@
  * （announcer は `calendar.api` / `calendar.state` のみを参照するため、
  * `useCalendar` 経由の購読は不要）。
  */
-import { act, renderHook } from '@testing-library/react';
+import { act, fireEvent, render, renderHook } from '@testing-library/react';
 import type { ReactElement } from 'react';
+import { useMemo } from 'react';
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { createCalendar } from '../core/calendar';
@@ -20,8 +21,19 @@ import type {
   EventOccurrence,
 } from '../core/types';
 import { formatViewTitle } from './components/format';
+import { ResourceView } from './components/resource-view';
+import { TimeGridView } from './components/time-grid-view';
+import { TimelineView } from './components/timeline-view';
+import { CalendarProvider } from './context';
+import { createDefaultEvent } from './drag-common';
 import type { MessageCatalogOverrides } from './locales/types';
-import type { OperationRejection, RangeSelection } from './types';
+import type {
+  CalendarInteractionCallbacks,
+  OperationRejection,
+  RangeSelection,
+  UseCalendarResult,
+} from './types';
+import { useCalendar } from './use-calendar';
 import type { UseCalendarAnnouncerOptions } from './use-calendar-announcer';
 import { useCalendarAnnouncer } from './use-calendar-announcer';
 
@@ -34,6 +46,22 @@ function makeCalendar(
 ): UseCalendarAnnouncerOptions['calendar'] {
   const api = createCalendar({ timeZone: 'Asia/Tokyo', locale: 'ja', ...options });
   return { api, state: api.getState(), viewModel: api.getViewModel() };
+}
+
+/**
+ * `onSelectRange` 未指定時の既定即時作成を、ドラッグ系フックと同じ共通実装
+ * （`createDefaultEvent`）で実行する。フックは作成の確定後に `callbacks.onEventCreate` を
+ * 呼ぶため、`wrapCallbacks` の戻り値を渡すと作成の自動通知まで含めて再現できる。
+ *
+ * @param title - 作成するイベントのタイトル（各ビューが渡す `defaultEventTitle` に相当）
+ */
+function createByDefault(
+  calendar: UseCalendarAnnouncerOptions['calendar'],
+  callbacks: CalendarInteractionCallbacks,
+  selection: RangeSelection,
+  title?: string,
+): void {
+  createDefaultEvent(calendar.api, selection, title, callbacks);
 }
 
 /** テスト用の最小限のオカレンス。 */
@@ -411,13 +439,15 @@ describe('useCalendarAnnouncer', () => {
       expect(result.current.message).toBe('');
     });
 
-    it('callbacks.onSelectRange が未指定の場合、既定即時作成を代行し「作成しました」で announce する', () => {
+    it('callbacks.onSelectRange が未指定の場合、onSelectRange は定義されず、既定即時作成の確定を「作成しました」で announce する', () => {
       const calendar = makeCalendar();
       const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
       const wrapped = result.current.wrapCallbacks({});
+      // 定義すると、ドラッグ系フックが「アプリが作成を引き受けた」と判断してしまう
+      expect(wrapped.onSelectRange).toBeUndefined();
 
       act(() => {
-        wrapped.onSelectRange?.({
+        createByDefault(calendar, wrapped, {
           range: {
             start: new Date('2026-07-16T01:00:00Z'),
             end: new Date('2026-07-16T02:00:00Z'),
@@ -437,13 +467,13 @@ describe('useCalendarAnnouncer', () => {
       expect(result.current.message).toBe('(タイトルなし) を 7月16日 10:00〜11:00 に作成しました');
     });
 
-    it('selection.resourceId が null のときは createEvent に resourceId キー自体を渡さない', () => {
+    it('selection.resourceId が null のときは作成イベントに resourceId を付けず、未割り当てとして announce する', () => {
       const calendar = makeCalendar();
       const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
       const wrapped = result.current.wrapCallbacks({});
 
       act(() => {
-        wrapped.onSelectRange?.({
+        createByDefault(calendar, wrapped, {
           range: {
             start: new Date('2026-07-16T01:00:00Z'),
             end: new Date('2026-07-16T02:00:00Z'),
@@ -458,14 +488,14 @@ describe('useCalendarAnnouncer', () => {
       expect(result.current.message).toContain('（未割り当て）');
     });
 
-    it('selection.resourceId が文字列のときは createEvent に resourceId を渡し、リソース名で announce する', () => {
+    it('selection.resourceId が文字列のときは作成イベントに resourceId が付き、リソース名で announce する', () => {
       const resources: CalendarResource[] = [{ id: 'r1', title: '会議室A' }];
       const calendar = makeCalendar({ resources });
       const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
       const wrapped = result.current.wrapCallbacks({});
 
       act(() => {
-        wrapped.onSelectRange?.({
+        createByDefault(calendar, wrapped, {
           range: {
             start: new Date('2026-07-16T01:00:00Z'),
             end: new Date('2026-07-16T02:00:00Z'),
@@ -486,7 +516,7 @@ describe('useCalendarAnnouncer', () => {
       const wrapped = result.current.wrapCallbacks({});
 
       act(() => {
-        wrapped.onSelectRange?.({
+        createByDefault(calendar, wrapped, {
           range: {
             start: new Date('2026-07-16T01:00:00Z'),
             end: new Date('2026-07-16T15:00:00Z'),
@@ -507,7 +537,7 @@ describe('useCalendarAnnouncer', () => {
       const wrapped = result.current.wrapCallbacks({});
 
       act(() => {
-        wrapped.onSelectRange?.({
+        createByDefault(calendar, wrapped, {
           range: {
             start: new Date('2026-07-16T01:00:00Z'),
             end: new Date('2026-07-16T02:00:00Z'),
@@ -520,7 +550,7 @@ describe('useCalendarAnnouncer', () => {
       expect(result.current.message).toBe('');
     });
 
-    it('callbacks.onEventCreate が指定されている場合、既定即時作成の代行後に作成イベント・changes・selection 付きで呼ばれる', () => {
+    it('callbacks.onEventCreate が指定されている場合、既定即時作成の確定後に作成イベント・changes・selection 付きで呼ばれる', () => {
       const calendar = makeCalendar();
       const onEventCreate = vi.fn();
       const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
@@ -534,7 +564,7 @@ describe('useCalendarAnnouncer', () => {
       };
 
       act(() => {
-        wrapped.onSelectRange?.(selection);
+        createByDefault(calendar, wrapped, selection);
       });
 
       const events = calendar.api.getEvents();
@@ -546,7 +576,7 @@ describe('useCalendarAnnouncer', () => {
       });
     });
 
-    it('callbacks.onSelectRange が指定済みの場合、onEventCreate は呼ばれない（既定即時作成の代行自体が行われないため）', () => {
+    it('callbacks.onSelectRange が指定済みの場合、onEventCreate は呼ばれない（既定即時作成自体が行われないため）', () => {
       const calendar = makeCalendar();
       const onSelectRange = vi.fn();
       const onEventCreate = vi.fn();
@@ -699,14 +729,14 @@ describe('useCalendarAnnouncer', () => {
       expect(wrapped.onError).toBe(onError);
     });
 
-    it('callbacks 省略時は onEventChange/onEventDelete/onSelectRange/onOperationRejected 以外のキーを持たない', () => {
+    it('callbacks 省略時は onEventChange/onEventDelete/onEventCreate/onOperationRejected 以外のキーを持たない', () => {
       const calendar = makeCalendar();
       const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
 
       const wrapped = result.current.wrapCallbacks();
 
       expect(Object.keys(wrapped).sort()).toEqual(
-        ['onEventChange', 'onEventDelete', 'onOperationRejected', 'onSelectRange'].sort(),
+        ['onEventChange', 'onEventCreate', 'onEventDelete', 'onOperationRejected'].sort(),
       );
     });
   });
@@ -994,7 +1024,7 @@ describe('useCalendarAnnouncer', () => {
       };
 
       act(() => {
-        wrapped.onSelectRange?.(selection);
+        createByDefault(calendar, wrapped, selection);
       });
 
       expect(eventCreated).toHaveBeenCalledTimes(1);
@@ -1051,20 +1081,24 @@ describe('useCalendarAnnouncer', () => {
       expect(result.current.message).toBe('カスタム表示切替文言');
     });
 
-    it('messages.common.untitledEvent を指定すると、既定即時作成のタイトルにも announcer の通知にも反映される', () => {
+    it('既定即時作成の通知は、作成されたイベントのタイトル（作成側が渡した既定タイトル）を読み上げる', () => {
       const calendar = makeCalendar();
-      const messages: MessageCatalogOverrides = { common: { untitledEvent: '（無題）' } };
-      const { result } = renderHook(() => useCalendarAnnouncer({ calendar, messages }));
+      const { result } = renderHook(() => useCalendarAnnouncer({ calendar }));
       const wrapped = result.current.wrapCallbacks({});
 
       act(() => {
-        wrapped.onSelectRange?.({
-          range: {
-            start: new Date('2026-07-16T01:00:00Z'),
-            end: new Date('2026-07-16T02:00:00Z'),
+        createByDefault(
+          calendar,
+          wrapped,
+          {
+            range: {
+              start: new Date('2026-07-16T01:00:00Z'),
+              end: new Date('2026-07-16T02:00:00Z'),
+            },
+            allDay: false,
           },
-          allDay: false,
-        });
+          '（無題）',
+        );
       });
 
       const events = calendar.api.getEvents();
@@ -1130,4 +1164,73 @@ describe('useCalendarAnnouncer', () => {
       expect(result.current.announce).toBe(announce);
     });
   });
+});
+
+describe('useCalendarAnnouncer - ビルトインビューでのキーボード作成', () => {
+  const NOW = new Date('2026-07-15T01:00:00Z'); // 東京 2026-07-15 10:00
+  const NO_EVENTS: readonly CalendarEvent[] = [];
+  const RESOURCES: readonly CalendarResource[] = [{ id: 'r1', title: '会議室A' }];
+
+  /** `wrapCallbacks({})` を `CalendarProvider` に渡してビューを描画するハーネス。 */
+  function Harness(props: {
+    view: 'day' | 'resource' | 'timeline';
+    sink: { current: UseCalendarResult | null };
+  }): ReactElement {
+    const calendar = useCalendar({
+      timeZone: 'Asia/Tokyo',
+      now: () => NOW,
+      initialDate: NOW,
+      initialView: props.view,
+      events: NO_EVENTS,
+      resources: RESOURCES,
+    });
+    props.sink.current = calendar;
+    const announcer = useCalendarAnnouncer({ calendar });
+    const callbacks = useMemo(() => announcer.wrapCallbacks({}), [announcer.wrapCallbacks]);
+    return (
+      <>
+        <div data-testid="live" {...announcer.liveRegionProps}>
+          {announcer.message}
+        </div>
+        <CalendarProvider value={calendar} callbacks={callbacks}>
+          {props.view === 'day' && <TimeGridView />}
+          {props.view === 'resource' && <ResourceView />}
+          {props.view === 'timeline' && <TimelineView />}
+        </CalendarProvider>
+      </>
+    );
+  }
+
+  it.each([
+    ['day', '[data-koyomi="timegrid-day"]', '(タイトルなし) を 7月15日 0:00〜1:00 に作成しました'],
+    [
+      'resource',
+      '[data-koyomi="resource-column"]',
+      '(タイトルなし) を 7月15日 0:00〜1:00 に作成しました（会議室A）',
+    ],
+    [
+      'timeline',
+      '[data-koyomi="timeline-row"]',
+      '(タイトルなし) を 7月15日 0:00〜1:00 に作成しました（会議室A）',
+    ],
+  ] as const)(
+    '%s ビュー: 列・行の Enter による既定即時作成の後、新規予定へフォーカスが移り、作成が通知される',
+    (view, selector, expectedMessage) => {
+      const sink: { current: UseCalendarResult | null } = { current: null };
+      const { container, getByTestId } = render(<Harness view={view} sink={sink} />);
+      const track = container.querySelector<HTMLElement>(selector);
+      if (track === null) {
+        throw new Error(`作成対象の要素が見つかりません: ${selector}`);
+      }
+
+      act(() => track.focus());
+      fireEvent.keyDown(track, { key: 'Enter' });
+
+      expect(sink.current?.api.getEvents()).toHaveLength(1);
+      const created = container.querySelector('[data-koyomi-occurrence]');
+      expect(created).not.toBeNull();
+      expect(document.activeElement).toBe(created);
+      expect(getByTestId('live').textContent).toBe(expectedMessage);
+    },
+  );
 });

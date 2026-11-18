@@ -181,6 +181,69 @@ describe('isRangeWithinBusinessHours', () => {
     expect(isRangeWithinBusinessHours(candidate, nightRules, TOKYO)).toBe(true);
   });
 
+  describe('複数ルールの和集合', () => {
+    // 2026-07-15 は水曜
+    const morning: BusinessHoursRule = {
+      daysOfWeek: [1, 2, 3, 4, 5],
+      startTime: '09:00',
+      endTime: '12:00',
+    };
+    const afternoon: BusinessHoursRule = {
+      daysOfWeek: [1, 2, 3, 4, 5],
+      startTime: '12:00',
+      endTime: '18:00',
+    };
+
+    it('隣接する 2 件（09:00〜12:00 と 12:00〜18:00）にまたがる 11:00〜13:00 は true', () => {
+      const candidate = range('2026-07-15T11:00:00+09:00', '2026-07-15T13:00:00+09:00');
+      expect(isRangeWithinBusinessHours(candidate, [morning, afternoon], TOKYO)).toBe(true);
+    });
+
+    it('ルールの並び順に依存しない（後ろの時間帯のルールが先でも true）', () => {
+      const candidate = range('2026-07-15T11:00:00+09:00', '2026-07-15T13:00:00+09:00');
+      expect(isRangeWithinBusinessHours(candidate, [afternoon, morning], TOKYO)).toBe(true);
+    });
+
+    it('重なり合う 2 件（09:00〜13:00 と 12:00〜18:00）にまたがる範囲は true', () => {
+      const overlapping: BusinessHoursRule = { ...morning, endTime: '13:00' };
+      const candidate = range('2026-07-15T09:00:00+09:00', '2026-07-15T18:00:00+09:00');
+      expect(isRangeWithinBusinessHours(candidate, [overlapping, afternoon], TOKYO)).toBe(true);
+    });
+
+    it('3 件が連なる場合（09:00〜12:00・12:00〜15:00・15:00〜18:00）も全体を 1 つの時間帯として扱う', () => {
+      const rules: readonly BusinessHoursRule[] = [
+        { ...afternoon, startTime: '15:00', endTime: '18:00' },
+        morning,
+        { ...afternoon, startTime: '12:00', endTime: '15:00' },
+      ];
+      const candidate = range('2026-07-15T10:00:00+09:00', '2026-07-15T17:00:00+09:00');
+      expect(isRangeWithinBusinessHours(candidate, rules, TOKYO)).toBe(true);
+    });
+
+    it('ルールの間に隙間（12:00〜13:00 の昼休み）があれば、隙間をまたぐ範囲は false', () => {
+      const afterLunch: BusinessHoursRule = { ...afternoon, startTime: '13:00' };
+      const candidate = range('2026-07-15T11:00:00+09:00', '2026-07-15T14:00:00+09:00');
+      expect(isRangeWithinBusinessHours(candidate, [morning, afterLunch], TOKYO)).toBe(false);
+      // 隙間の手前・後ろにそれぞれ収まる範囲は true
+      expect(
+        isRangeWithinBusinessHours(
+          range('2026-07-15T11:00:00+09:00', '2026-07-15T12:00:00+09:00'),
+          [morning, afterLunch],
+          TOKYO,
+        ),
+      ).toBe(true);
+    });
+
+    it('別の曜日のルールは和集合に含めない（水曜の午前 + 木曜の午後では水曜の 11:00〜13:00 は false）', () => {
+      const rules: readonly BusinessHoursRule[] = [
+        { ...morning, daysOfWeek: [3] },
+        { ...afternoon, daysOfWeek: [4] },
+      ];
+      const candidate = range('2026-07-15T11:00:00+09:00', '2026-07-15T13:00:00+09:00');
+      expect(isRangeWithinBusinessHours(candidate, rules, TOKYO)).toBe(false);
+    });
+  });
+
   it('DST 切替日（America/New_York, 2026-03-08 は 2:00→3:00 で 23 時間しかない日）でも現地時刻基準で正しく判定する', () => {
     const dstRule: BusinessHoursRule = {
       daysOfWeek: [0, 1, 2, 3, 4, 5, 6],

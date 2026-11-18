@@ -8,7 +8,7 @@
  * ポインタイベントから座標割合を求め、このモジュールに委譲する。
  */
 
-import { addDaysInZone, addMinutesInZone, dateKeyInZone } from './timezone';
+import { addDaysInZone, addMinutesInZone, atMinutesOfDayInZone, dateKeyInZone } from './timezone';
 import type { DateRange, EventOccurrence, TimeZoneId } from './types';
 
 /** 1 日のミリ秒数。 */
@@ -64,11 +64,12 @@ export function snapToInterval(minutes: number, snap: number): number {
  * 上限に、`rangeStartMinutes` を下限にクランプされる。範囲が `interval` 未満の場合は
  * 上限も `rangeStartMinutes` になり、常に範囲の開始時刻を返す。
  *
- * 現地時刻への分加算（{@link addMinutesInZone}）で日時化するため、
- * DST の切り替え日でも縦位置と現地時刻の対応が保たれる
- * （存在しない時刻は直後の実在時刻に繰り上げて解決される）。
+ * 対象日の年月日と分から現地時刻を組み立てて日時化するため、DST の切り替え日
+ * （0:00 が存在せず日の開始が 1:00 になる日を含む）でも縦位置と現地時刻の対応が保たれる
+ * （存在しない時刻は直後の実在時刻に繰り上げ、2 回現れる時刻は早い方のオフセットで
+ * 解決される）。
  *
- * @param params.day - 対象列の日の 0:00（絶対時刻）
+ * @param params.day - 対象列の日の開始（絶対時刻）
  * @param params.fractionY - 列内の縦位置（0 = `rangeStartMinutes`、1 = `rangeEndMinutes`）
  * @param params.timeZone - 表示タイムゾーン
  * @param params.snap - スナップ間隔（分）
@@ -102,7 +103,7 @@ export function timeAtGridPosition(params: {
     Math.floor((rangeEndMinutes - 1) / interval) * interval,
   );
   const minutes = Math.min(Math.max(snapped, rangeStartMinutes), maxOnGrid);
-  return addMinutesInZone(day, minutes, timeZone);
+  return atMinutesOfDayInZone(day, minutes, timeZone);
 }
 
 /**
@@ -110,8 +111,8 @@ export function timeAtGridPosition(params: {
  * 絶対時刻を計算する。
  *
  * 表示分は `日インデックス × 1440 + その日の 0:00 からの分` として解釈し、
- * 該当日の 0:00 への現地時刻の分加算（{@link addMinutesInZone}）で日時化する
- * （DST の切り替え日でも表示位置と現地時刻の対応が保たれる）。
+ * 該当日の年月日と分から現地時刻を組み立てて日時化する（DST の切り替え日や、
+ * 0:00 が存在せず日の開始が 1:00 になる日でも表示位置と現地時刻の対応が保たれる）。
  *
  * 境界仕様は用途別（{@link timeAtGridPosition} が開始時刻用途として 1440 未満に
  * クランプする規則に準拠）:
@@ -165,7 +166,7 @@ export function timeAtTimelineOffset(params: {
   // 最終日の 1440 分（翌日 0:00）として解決する
   const dayIndex = Math.min(Math.floor(minutes / MINUTES_PER_DAY), days.length - 1);
   const day = days[dayIndex] ?? firstDay;
-  return addMinutesInZone(day, minutes - dayIndex * MINUTES_PER_DAY, timeZone);
+  return atMinutesOfDayInZone(day, minutes - dayIndex * MINUTES_PER_DAY, timeZone);
 }
 
 /**

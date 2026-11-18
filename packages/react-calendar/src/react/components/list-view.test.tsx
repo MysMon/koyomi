@@ -630,3 +630,52 @@ describe('ListView', () => {
     },
   );
 });
+
+describe('ListView - イベント内容の更新', () => {
+  it('updateEvent でタイトル・色以外の項目（location）を変えると renderEvent の表示が更新される', () => {
+    const apiRef: { current: CalendarApi | null } = { current: null };
+    const renderEvent = (occurrence: EventOccurrence): ReactElement => (
+      <span data-testid="loc">{occurrence.event.location}</span>
+    );
+    const events: CalendarEvent[] = [
+      {
+        id: 'e1',
+        title: '会議',
+        start: '2026-07-16T10:00:00',
+        end: '2026-07-16T11:00:00',
+        location: '会議室1',
+      },
+    ];
+    const { getByTestId } = render(
+      <TestListView events={events} renderEvent={renderEvent} apiRef={apiRef} />,
+    );
+
+    act(() => {
+      apiRef.current?.updateEvent('e1', { location: '会議室2' });
+    });
+
+    expect(getByTestId('loc').textContent).toBe('会議室2');
+  });
+
+  it('updateEvent の後のクリックでは、最新のイベント内容を持つオカレンスが onEventClick に渡る', () => {
+    const apiRef: { current: CalendarApi | null } = { current: null };
+    const onEventClick = vi.fn<(occurrence: EventOccurrence) => void>();
+    const events: CalendarEvent[] = [
+      { id: 'e1', title: '会議', start: '2026-07-16T10:00:00', end: '2026-07-16T11:00:00' },
+    ];
+    const { container } = render(
+      <TestListView events={events} callbacks={{ onEventClick }} apiRef={apiRef} />,
+    );
+
+    act(() => {
+      apiRef.current?.updateEvent('e1', { description: '更新後' });
+    });
+    const row = container.querySelector('[data-koyomi="list-event"]');
+    if (row === null) {
+      throw new Error('イベント行が見つかりません');
+    }
+    fireEvent.click(row);
+
+    expect(onEventClick.mock.calls[0]?.[0].event.description).toBe('更新後');
+  });
+});

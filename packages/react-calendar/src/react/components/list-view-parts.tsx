@@ -31,6 +31,7 @@ import type {
 } from '../types';
 import { listEventContentContext, resolveEventContent } from './event-content';
 import { formatOccurrenceRangeLabel } from './month-view-parts';
+import { sameOccurrence } from './occurrence-equality';
 
 /**
  * 時間指定イベントの時刻ラベルを作る（表示タイムゾーンにおける、ロケールに応じた時刻表記の範囲）。
@@ -169,25 +170,6 @@ export interface ListDaySectionProps {
   itemWindow?: ListDayItemWindow;
 }
 
-/**
- * `EventOccurrence` の、リスト行の表示に影響する内容が等しいかどうかを比較する。
- * `time-grid-view.tsx` の `samePositionedOccurrence` と同じ観点（キー・タイトル・色・
- * 編集可否・開始/終了時刻）で比較する。
- */
-function sameListOccurrence(a: EventOccurrence, b: EventOccurrence): boolean {
-  if (a === b) {
-    return true;
-  }
-  return (
-    a.key === b.key &&
-    a.event.title === b.event.title &&
-    a.event.color === b.event.color &&
-    a.event.editable === b.event.editable &&
-    a.start.getTime() === b.start.getTime() &&
-    a.end.getTime() === b.end.getTime()
-  );
-}
-
 /** `EventOccurrence` 配列の内容が等しいかどうかを比較する。 */
 function sameListOccurrences(
   a: readonly EventOccurrence[],
@@ -201,7 +183,7 @@ function sameListOccurrences(
   }
   return a.every((occurrence, index) => {
     const other = b[index];
-    return other !== undefined && sameListOccurrence(occurrence, other);
+    return other !== undefined && sameOccurrence(occurrence, other);
   });
 }
 
@@ -337,7 +319,7 @@ function ListDaySectionImpl(props: ListDaySectionProps): ReactElement {
         {...(extra.pinned === true ? { 'data-koyomi-pinned': 'true' } : {})}
         {...(extra.style !== undefined ? { style: extra.style } : {})}
         {...(eventTabbable === false || extra.pinned === true ? { tabIndex: -1 } : {})}
-        {...eventNotificationProps(callbacks, occurrence)}
+        {...eventNotificationProps(() => callbacks, occurrence)}
       >
         {resolveEventContent(renderEvent, renderEventContent, occurrence, occurrence, ctx)}
       </button>

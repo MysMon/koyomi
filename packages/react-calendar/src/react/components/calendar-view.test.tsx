@@ -2,10 +2,15 @@
  * `CalendarView` のテスト。ビューに応じた出し分けとルート要素の属性を検証する。
  */
 
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { CalendarEvent, CalendarResource, CalendarViewType } from '../../core/types';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type {
+  CalendarEvent,
+  CalendarOptions,
+  CalendarResource,
+  CalendarViewType,
+} from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { EventContentRenderer } from '../types';
 import { useCalendar } from '../use-calendar';
@@ -29,6 +34,7 @@ function renderView(
   props?: CalendarViewProps,
   events?: readonly CalendarEvent[],
   resources?: readonly CalendarResource[],
+  options?: Pick<CalendarOptions, 'allDayMaxEvents' | 'listDays' | 'timelineDays'>,
 ) {
   function Harness(): ReactElement {
     const calendar = useCalendar({
@@ -38,6 +44,7 @@ function renderView(
       initialView,
       events: events ?? DEFAULT_EVENTS,
       resources: resources ?? EMPTY_RESOURCES,
+      ...(options ?? {}),
     });
     return (
       <CalendarProvider value={calendar}>
@@ -46,6 +53,38 @@ function renderView(
     );
   }
   return render(<Harness />);
+}
+
+/**
+ * 仮想化ビューのスクロールコンテナにビューポート寸法を与えてスクロールイベントを流し、
+ * 可視範囲の再計算（rAF）を待つ。
+ */
+async function settleViewport(
+  container: HTMLElement,
+  selector: string,
+  dimension: 'clientHeight' | 'clientWidth',
+): Promise<void> {
+  const scroller = container.querySelector(selector);
+  if (!(scroller instanceof HTMLElement)) {
+    throw new Error(`スクロールコンテナ ${selector} が見つかりません`);
+  }
+  Object.defineProperty(scroller, dimension, { configurable: true, value: 1000 });
+  await act(async () => {
+    scroller.dispatchEvent(new Event('scroll'));
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+  });
+}
+
+/** 同じ日の終日イベントを指定件数作る（終日行の「+N 件」を出すため）。 */
+function alldayEvents(count: number, resourceId?: string): CalendarEvent[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `ad-${index}`,
+    title: `終日${index}`,
+    start: '2026-07-15',
+    end: '2026-07-16',
+    allDay: true,
+    ...(resourceId !== undefined ? { resourceId } : {}),
+  }));
 }
 
 describe('CalendarView', () => {
@@ -535,6 +574,134 @@ describe('CalendarView', () => {
       expect(container.querySelector('[data-koyomi-virtualized="true"]')).not.toBeNull();
       // timeline 系 props（renderTimelineEvent）が VirtualTimelineView へ転送される
       expect(container.querySelector('[data-testid="v"]')?.textContent).toBe('会議');
+    });
+  });
+
+  describe('終日行の「+N 件」ボタンへの転送', () => {
+    it('timeGridOverflowButtonProps が TimeGridView の overflowButtonProps へ転送される', () => {
+      const { container } = renderView(
+        'week',
+        {
+          timeGridOverflowButtonProps: () => ({ 'aria-haspopup': 'true', 'aria-expanded': false }),
+        },
+        alldayEvents(4),
+        undefined,
+        { allDayMaxEvents: 2 },
+      );
+      const overflow = container.querySelector('[data-koyomi="allday-overflow"]');
+      expect(overflow).toHaveAttribute('aria-haspopup', 'true');
+      expect(overflow).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('renderTimeGridOverflowLabel が TimeGridView の renderOverflowLabel へ転送される', () => {
+      const { container } = renderView(
+        'week',
+        {
+          renderTimeGridOverflowLabel: (day, ctx) => (
+            <span data-testid="tg-overflow">
+              {day.key}:他{ctx.hiddenOccurrences.length}件
+            </span>
+          ),
+        },
+        alldayEvents(4),
+        undefined,
+        { allDayMaxEvents: 2 },
+      );
+      expect(container.querySelector('[data-testid="tg-overflow"]')?.textContent).toBe(
+        '2026-07-15:他2件',
+      );
+    });
+
+    it.each([
+      ['ResourceView', false],
+      ['VirtualResourceView', true],
+    ] as const)(
+      'resourceOverflowButtonProps / renderResourceOverflowLabel が %s へ転送される',
+      (_name, virtualizeResource) => {
+        const resources: CalendarResource[] = [{ id: 'room-a', title: '会議室A' }];
+        const { container } = renderView(
+          'resource',
+          {
+            virtualizeResource,
+            resourceOverflowButtonProps: () => ({ 'aria-haspopup': 'true' }),
+            renderResourceOverflowLabel: (column, ctx) => (
+              <span data-testid="rs-overflow">
+                {column.resource?.id}:他{ctx.hiddenOccurrences.length}件
+              </span>
+            ),
+          },
+          alldayEvents(4, 'room-a'),
+          resources,
+          { allDayMaxEvents: 2 },
+        );
+        const overflow = container.querySelector('[data-koyomi="allday-overflow"]');
+        expect(overflow).toHaveAttribute('aria-haspopup', 'true');
+        expect(container.querySelector('[data-testid="rs-overflow"]')?.textContent).toBe(
+          'room-a:他2件',
+        );
+      },
+    );
+  });
+
+  describe('仮想化ビューの調整用 props の転送', () => {
+    const RESOURCES: CalendarResource[] = [
+      { id: 'room-a', title: '会議室A' },
+      { id: 'room-b', title: '会議室B' },
+    ];
+
+    it('onListVisibleRangeChange が VirtualListView の onVisibleRangeChange へ転送される', async () => {
+      const onListVisibleRangeChange = vi.fn();
+      const { container } = renderView(
+        'list',
+        { virtualizeList: true, onListVisibleRangeChange },
+        DEFAULT_EVENTS,
+        undefined,
+        { listDays: 10 },
+      );
+      await settleViewport(container, '[data-koyomi="list"]', 'clientHeight');
+      expect(onListVisibleRangeChange).toHaveBeenCalled();
+    });
+
+    it('resourceColumnWidth が VirtualResourceView の columnWidth へ転送される', () => {
+      const { container } = renderView(
+        'resource',
+        { virtualizeResource: true, resourceColumnWidth: 90 },
+        DEFAULT_EVENTS,
+        RESOURCES,
+      );
+      const column = container.querySelector('[data-koyomi="resource-column"]');
+      expect((column as HTMLElement | null)?.style.minWidth).toBe('90px');
+    });
+
+    it('onResourceVisibleRangeChange が VirtualResourceView の onVisibleRangeChange へ転送される', async () => {
+      const onResourceVisibleRangeChange = vi.fn();
+      const { container } = renderView(
+        'resource',
+        { virtualizeResource: true, onResourceVisibleRangeChange },
+        DEFAULT_EVENTS,
+        RESOURCES,
+      );
+      await settleViewport(container, '[data-koyomi="resource"]', 'clientWidth');
+      expect(onResourceVisibleRangeChange).toHaveBeenCalled();
+    });
+
+    it('onTimelineVisibleRangeChange が VirtualTimelineView の onVisibleRangeChange へ転送される', async () => {
+      const onTimelineVisibleRangeChange = vi.fn();
+      const { container } = renderView(
+        'timeline',
+        { virtualizeTimeline: true, onTimelineVisibleRangeChange },
+        DEFAULT_EVENTS,
+        RESOURCES,
+        { timelineDays: 3 },
+      );
+      await settleViewport(container, '[data-koyomi="timeline-body"]', 'clientHeight');
+      expect(onTimelineVisibleRangeChange).toHaveBeenCalled();
+    });
+
+    it('仮想化を有効にしていないビューでは可視範囲の通知は呼ばれない（対検証）', () => {
+      const onResourceVisibleRangeChange = vi.fn();
+      renderView('resource', { onResourceVisibleRangeChange }, DEFAULT_EVENTS, RESOURCES);
+      expect(onResourceVisibleRangeChange).not.toHaveBeenCalled();
     });
   });
 

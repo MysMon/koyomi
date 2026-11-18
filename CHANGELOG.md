@@ -7,8 +7,24 @@
 
 ## [Unreleased]
 
+### 追加
+
+- `CalendarView` から子ビューの props を追加で指定できるようにした。週/日・リソースビューの終日行の「+N 件」（`timeGridOverflowButtonProps` / `renderTimeGridOverflowLabel` / `resourceOverflowButtonProps` / `renderResourceOverflowLabel`）、仮想化ビューの調整値と可視範囲の通知（`listEstimateItemHeight` / `listSectionItemWindowThreshold` / `onListVisibleRangeChange` / `resourceColumnWidth` / `resourceOverscan` / `onResourceVisibleRangeChange` / `timelineEstimateRowHeight` / `timelineOverscan` / `timelineOverscanDays` / `onTimelineVisibleRangeChange`）
+- ICS 取り込みが `DURATION` に対応。`DTEND` の代わりに `DURATION` で長さを指定した VEVENT の `end` を `DTSTART` から算出する（従来は無視され、`defaultEventMinutes` の長さで表示されていた）。不正な `DURATION` は他の不正な日時値と同じく `Error`（`eventsFromIcsWithIssues` では `issues`）になる
+
+### 変更
+
+- 大量イベントでの再構築を高速化（表示結果は変わらない）。10,000 件（約 1 割が繰り返し）の週ビューで、1 件の `updateEvent` 後の再構築が約 300 ms → 約 18 ms、次の週へのナビゲーションが約 320 ms → 約 40 ms、初回構築が約 390 ms → 約 170 ms。タイムゾーンのオフセット算出の再利用、イベントオブジェクトごとの日時解釈・繰り返し展開結果の保持、`isValidTimeZone` の判定結果の再利用による。変更のないイベントを同じオブジェクトのまま渡すと効果が大きい（[パフォーマンス](./docs/performance.md#イベントオブジェクトの参照を保つ)）
+- **[破壊的変更]** 対応する Node.js の下限を 20.19.0 から 22.22.2 に引き上げ（`engines`）。Node 20 系はサポート終了済みで、テスト基盤（vitest 5 / jsdom 30）も Node 22 以上を要求するため、CI の下限レグも 22.22.2 にした
+- `date-fns` への依存を削除（日付演算は自前の現地時刻演算と `@date-fns/tz` で行う。インストールされる依存が 1 つ減る）
+- 開発依存を更新（vitest 5.1・@vitest/coverage-v8 5.1・jsdom 30・vite 8.3・React 19.3（開発用）・Biome 2.5.13・Playwright 1.63 ほか）。`peerDependencies` の React 範囲（`^19.2.8`）は変更なし
+
 ### 修正
 
+- **[重要]** 繰り返し予定の最初以外のオカレンスを「すべての予定」（`scope: 'all'`）で移動・リサイズすると、繰り返しの起点がそのオカレンスの日へ移り、それより前のオカレンスが消える問題を修正。対象オカレンスの変更前後の差（現地時刻差。終日は日数）だけシリーズ全体を動かす。終了だけの変更は全オカレンスの長さを変える
+- **[重要]** 曜日・日を指定した繰り返し（`FREQ=WEEKLY;BYDAY=WE`、`FREQ=MONTHLY;BYMONTHDAY=15` 等）を「これ以降」「すべての予定」で別の曜日・日へ動かすと、動かした先にオカレンスが現れない問題を修正。開始日時を言い換えている `BYDAY` / `BYMONTHDAY` / `BYMONTH` を開始と同じだけ移動する（毎週水曜を金曜へ動かすと毎週金曜になる）
+- 「すべての予定」（および最初のオカレンスへの「これ以降」）で開始日時を変えると、`exdates`・`rdates`・オーバーライドが新しい時刻と噛み合わず、削除済みオカレンスの復活・オカレンスの二重表示が起きる問題を修正。同じ現地時刻差（終日は同じ日数）だけ移動する
+- 「これ以降」「すべての予定」で開始時刻を後ろへ動かすと、`UNTIL` で終わる繰り返しの最後のオカレンスが欠ける問題を修正。`UNTIL` も開始と同じだけ移動する
 - **[重要]** `fromWallClock` の曖昧な時刻（DST の巻き戻りで 2 回現れる時刻）の解決が実行環境のローカルタイムゾーンに依存し、ローカルより東のゾーン（`Australia/Sydney`・`Pacific/Auckland` 等）で docs の「早い方のオフセット」規則に反して遅い方を返す問題を修正。`'later'` 指定が実質無効になる問題、`addMinutesInZone` で巻き戻り日の 60 分加算が 120 分進む問題も同時に解消。切替前後のオフセットからの逆算と現地時刻への往復検証で自前解決し、TZDate の setter への解決委譲をやめた
 - **[重要]** ICS 取り込みで UTC 形式の `DTSTART` を持つ VEVENT の `UNTIL` を実行環境のローカルタイムゾーンの現地時刻へ変換していた問題を修正。表示タイムゾーンがローカルと異なるカレンダーで、Google/Outlook 由来の ICS を取り込むと `UNTIL` 後のオカレンスが余分に現れていた。`eventsFromIcs` / `eventsFromIcsWithIssues` に表示タイムゾーンを渡す `timeZone` オプション（`EventsFromIcsOptions`）を追加し、フローティング・終日のシリーズ分割点の解釈にも同じ値を使う（省略時は従来どおりローカルタイムゾーン）
 - **[重要]** 時間指定の繰り返しの 1 オカレンスを「この予定のみ」で終日へ変換すると、そのオーバーライドが以後のスコープ操作から見つからなくなる問題を修正（削除が効かない・再変更で二重になる・ID 指定の削除で元のオカレンスが復活する）。`originalStart` の終日解釈をオーバーライド自身ではなくマスターの区分に従わせ、展開時の解釈と一致させた
@@ -22,6 +38,26 @@
 - 「この予定のみ削除」を同じオカレンスに繰り返すと `exdates` に同じ値が積み上がる問題を修正（重複しては追加しない）
 - ICS 取り込みで `RECURRENCE-ID` のない同一 `UID` の VEVENT が複数あると `id` が重複した配列を返す問題を修正。最初の 1 件を取り込み、`eventsFromIcsWithIssues` では読み飛ばした VEVENT を `issues` に記録する
 - `isoWeekNumberInZone` / 繰り返し展開の内部変換が西暦 0〜99 年を 1900 年代として誤変換する問題を修正（`fromWallClock` と同じ setter 経由の組み立てに統一）
+- 深夜 0:00 に DST が切り替わり 0:00 が存在しない日（`Africa/Cairo`・`America/Santiago`・`America/Havana` 等の切替日）に、週/日・リソース・タイムラインビューのポインタ位置から求める日時（`timeAtGridPosition` / `timeAtTimelineOffset`）と追加の時間軸（`timeAxisZones`）のラベルが、表示上の現地時刻より 1 時間遅れる問題を修正。目盛りの現地時刻どおりの日時・ラベルになる。あわせて、複数日のタイムラインでこの日の前日 24:00 に終わる予定の帯が翌日へ 1 時間はみ出す問題を修正
+- 終日の繰り返しに属するオーバーライドが `originalStart` を `Date` で持ち、イベントのタイムゾーンと表示タイムゾーンが異なる場合に、編集・削除が展開時と別の日付を対象にする問題を修正（オーバーライドの ID で削除すると隣の日が除外される、「この予定のみ」の再変更・削除が既存のオーバーライドを見つけられない）。展開時と同じく「オーバーライドの `timeZone` → マスターの `timeZone` → 表示タイムゾーン」の順で決まるタイムゾーンの日付として読む
+- `resolveOccurrence` に `master` を渡しても、終日区分がマスターと異なるオーバーライド（時間指定の繰り返しの 1 回を終日にしたもの、またはその逆）の `originalStart` が `expandEvents` の結果と食い違う問題を修正。`master` を渡した場合は `originalStart` をマスターの `allDay` に従って読み、`expandEvents` と同じ値を返す
+- `eventConstraint` / `constraint`（`isRangeWithinBusinessHours`）が、予定の範囲を 1 件のルールだけで覆えることを要求していた問題を修正。午前 `09:00`〜`12:00` と午後 `12:00`〜`18:00` のように隣接・重複するルールにまたがる予定（11:00〜13:00 等）が拒否されていた。その曜日に該当するルールを合わせた時間帯に収まっていれば許可する
+- 西暦 1000 年未満の日付で `dateKeyInZone` が年をゼロ埋めせず（`'999-03-01'`）、`dateFromKey` が受け付けない日付キーになる問題を修正。この年代の終日イベントを展開すると `Error` になっていた。年を 4 桁にゼロ埋めする（`'0999-03-01'`）。`buildRecurrenceRuleString` が出力する `UNTIL` の年も同様に 4 桁にそろえる
+- `eventsToIcs` が、`timeZone` を持つイベントの日時のうち DST の巻き戻りで 2 回現れる時刻の 2 回目にあたる値を TZID 付きの現地時刻で出力し、取り込み直すと絶対時刻が 1 時間早まる問題を修正（繰り返しイベントではオカレンスの長さが 1 時間延び、該当時刻の `exdates` が別のオカレンスを除外していた）。該当する値は UTC 形式で出力し、往復後もオカレンス展開の結果が一致する。`rrule` を持つイベントの `DTSTART` は TZID 付きのまま、`DTEND` でオカレンスの長さを保つ
+- `addDaysInZone` / `addMonthsInZone` の結果が DST の巻き戻りで 2 回現れる時刻になる場合の解決が実行環境のローカルタイムゾーンに依存し、ローカルより東のゾーン（`Australia/Sydney` 等）で遅い方のオフセットになる問題を修正。`fromWallClock` / `addMinutesInZone` と同じく、実行環境によらず早い方のオフセットで解決する
+- `parseRecurrenceRule` が、`-1`（末日）以外の負の `BYMONTHDAY`（`FREQ=MONTHLY;BYMONTHDAY=-2` 等）や同じ曜日が重複した `BYDAY`（`BYDAY=MO,MO`）を、`validateRecurrenceRuleState` を通らない状態のまま `kind: 'editable'` で返す問題を修正。対応範囲外として元の文字列を保持した `kind: 'unsupported'` を返す
+- `today()` が、表示中の日時が既に現在日時と同じでも購読者へ通知し `getState()` のスナップショットを作り直す問題を修正。日時が変わらない場合は通知せず、同じスナップショットを返す（`goTo` / `setView` と同じ扱い）
+- ドラッグでの移動・リサイズの確定後や `Escape` でのキャンセル後に、次の予定クリック・Enter が 1 回無視される（`onEventClick` が呼ばれない）ことがある問題を修正。作成ドラッグのキャンセル後や、移動で予定の要素が入れ替わった後など、ブラウザの click が予定以外に届く場合に起きていた。抑止の対象は同じポインタ操作が生む click 1 回だけになり、次のポインタ操作・キー操作には持ち越されない（月・週/日・リソース・タイムラインの各ビュー共通）
+- 週/日・リソース・タイムライン・リストの各ビューで、タイトル・色・`resourceId`・`editable`・日時以外の項目（`location` / `description` / `rrule` / `extendedProps` 等）だけを更新した予定が再描画されず、古い内容のまま残る問題を修正。`renderEventContent` / `renderEvent` の表示が更新されない、`onEventClick` などのコールバックに更新前のオカレンスが渡る、`rrule` を後から付けた予定のドラッグで `resolveRecurringScope` が呼ばれない、といった症状を解消する。変更のない予定の再レンダー抑制は維持される（イベントのオブジェクト参照が変わらない限り再描画しない）
+- リソースビューの終日行に表示される複数日の時間指定の予定を `←` / `→` で隣の列へ移すと、開始・終了が日付だけの終日形式で書き込まれ時刻が失われる問題を修正。ポインタでの列間移動と同じく時刻を保ったまま日数だけが変わり、`onBeforeEventChange` / `onEventChange` には `allDay: false` が渡る。配置制約（`eventConstraint`）も時間指定の予定として判定され、ポインタ移動中のプレビューの `invalid` も確定時の判定と一致するようになった
+- リソースビュー（`ResourceView` / `VirtualResourceView`）の終日行の「+N 件」ボタンをクリックすると、`onAllDayOverflowClick` に加えてその列の終日の予定まで作成される（`onSelectRange` が呼ばれる）問題を修正。「+N 件」ボタンの操作では終日セルのクリック作成は起きない
+- `useExternalDrag` が `slotMinTime` / `slotMaxTime` を無視し、週/日・リソースビューで列の高さを常に 0:00〜24:00 として時刻へ変換していた問題を修正。表示時間帯を制限しているとき、外部ドラッグのプレビューとドロップがポインタ位置とは違う時刻（表示時間帯の外を含む）になっていた。ビルトインのドラッグ操作と同じく、列の高さを表示時間帯に対応づけ、開始を表示時間帯内にクランプする
+- `dir="rtl"` の文書で、タイムラインビューのポインタ操作（作成・移動・リサイズ）と `useExternalDrag` のタイムラインへのドロップが、画面上の位置を左右反転した時刻に解決される問題を修正。帯の配置（行頭からの割合）と同じ基準でポインタ位置を測るようになった
+- `dir="rtl"` の文書で、フォーカス中の予定の `←` / `→`（`Shift` 併用のリサイズを含む）が画面上の方向と逆に動く問題を修正。月・週/日・リソース・タイムラインの各ビューで、日・列・時間軸の並びが反転するのに合わせてキーの対応も反転し、常に画面上の方向へ動く
+- `onEventDoubleClick` / `onEventContextMenu` / `onEventHover` / `onEventHoverEnd` を再レンダーで差し替えても、月・週/日・リソース・タイムラインの各ビューの予定が古いコールバックを呼び続ける問題、および初回レンダー後に追加したコールバックが配線されない問題を修正。予定要素は常に最新のコールバックを呼び、コールバックの追加・削除に合わせて DOM props も増減する（未指定時に DOM props を付けない仕様は変わらない）
+- `useCalendarAnnouncer` の `wrapCallbacks` を使うと、週/日・リソース・タイムラインビューで列・行の `Enter` / `Space` による既定即時作成の後、新規予定へフォーカスが移らない問題を修正。`wrapCallbacks` は `onSelectRange` を追加しなくなり、既定即時作成の通知は `onEventCreate` 経由で行う（通知文言は変わらない）。これに伴い、`wrapCallbacks` の戻り値の `onSelectRange` は指定したときだけ存在し、既定即時作成のイベントのタイトルは `useCalendarAnnouncer` の `messages` ではなく `CalendarProvider` の `messages.common.untitledEvent` で決まる（`wrapCallbacks` を使わない場合と同じ）
+- `useCalendarClipboard` の貼り付けの制約判定がドラッグ操作と食い違う問題を修正。イベント個別の `constraint` / `overlap` を無視してグローバルの `eventConstraint` / `eventOverlap` だけで判定していたため、`constraint` を持つ予定を制約外へ貼り付けられる・`overlap: true` の予定を重ねて貼り付けられない、といった不一致があった。リソース/タイムラインビューでは別のレーンの予定とも重なり扱いになっていたが、貼り付けるイベントの割当先レーンごとに判定するようになった
+- ドラッグ中にビューがアンマウントされる（ドラッグ中のビュー切替など）と、ドラッグプレビュー（`state.dragPreview`）がカレンダーの状態に残り続ける問題を修正。月・週/日・リソース・タイムラインの各ビューのドラッグと `useExternalDrag` は、進行中のドラッグがある状態でアンマウントされるとプレビューを破棄する（変更は適用されない）
 
 ## [0.2.0] - 2026-07-30
 

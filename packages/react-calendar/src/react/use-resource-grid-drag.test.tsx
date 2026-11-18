@@ -3456,3 +3456,249 @@ describe('useResourceGridDrag - 終日 ⇔ 時間指定の変換（A キー）',
     });
   });
 });
+
+describe('useResourceGridDrag - ドラッグ・キャンセル直後の click 抑止の有効範囲', () => {
+  const EVENTS: CalendarEvent[] = [
+    {
+      id: 'ev-moved',
+      title: 'A',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    },
+    {
+      id: 'ev-other',
+      title: 'B',
+      start: `${DAY}T20:00`,
+      end: `${DAY}T21:00`,
+      resourceId: 'room-a',
+    },
+  ];
+
+  it('予定のドラッグ移動を確定した直後の click では onEventClick を呼ばない', () => {
+    const onEventClick = vi.fn();
+    const { container } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: EVENTS,
+      callbacks: { onEventClick },
+    });
+    mockAllColumnRects(container);
+
+    firePointerDown(getEventElement(container, 'ev-moved', `${DAY}T10:00`), columnCenterX(0), 600);
+    movePointer(columnCenterX(0), 840);
+    releasePointer(columnCenterX(0), 840);
+    fireEvent.click(getEventElement(container, 'ev-moved', `${DAY}T14:00`));
+
+    expect(onEventClick).not.toHaveBeenCalled();
+  });
+
+  it('作成ドラッグを Escape でキャンセルした後、列に届いた click の次の予定クリックは onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const { container } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: EVENTS,
+      callbacks: { onEventClick },
+    });
+    mockAllColumnRects(container);
+    const column = getColumnElement(container, 0);
+
+    firePointerDown(column, columnCenterX(0), 900);
+    movePointer(columnCenterX(0), 960);
+    pressEscape();
+    releasePointer(columnCenterX(0), 960);
+    // 同じポインタ操作が生む click は pointerdown した列に届く（予定には届かない）
+    fireEvent.click(column);
+
+    fireEvent.click(getEventElement(container, 'ev-other', `${DAY}T20:00`));
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('予定のドラッグ移動を確定した後、別の予定の Enter は onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const { container } = renderHarness({
+      resources: [ROOM_A, ROOM_B],
+      events: EVENTS,
+      callbacks: { onEventClick },
+    });
+    mockAllColumnRects(container);
+
+    firePointerDown(getEventElement(container, 'ev-moved', `${DAY}T10:00`), columnCenterX(0), 600);
+    movePointer(columnCenterX(0), 840);
+    releasePointer(columnCenterX(0), 840);
+
+    fireEvent.keyDown(getEventElement(container, 'ev-other', `${DAY}T20:00`), { key: 'Enter' });
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('予定のドラッグ移動を確定した後、列に届いた click の次の終日セルのクリックは終日の予定を作成する', () => {
+    const { container, sink } = renderHarness({ resources: [ROOM_A, ROOM_B], events: EVENTS });
+    mockAllColumnRects(container);
+
+    firePointerDown(getEventElement(container, 'ev-moved', `${DAY}T10:00`), columnCenterX(0), 600);
+    movePointer(columnCenterX(0), 840);
+    releasePointer(columnCenterX(0), 840);
+    // 同じポインタ操作が生む click は時間グリッドの列に届く
+    fireEvent.click(getColumnElement(container, 0));
+
+    const cell = container.querySelector('[data-koyomi="resource-allday-cell"]');
+    if (cell === null) {
+      throw new Error('終日セルが見つかりません');
+    }
+    fireEvent.click(cell);
+    expect(sink.current?.api.getEvents()).toHaveLength(3);
+  });
+});
+
+describe('useResourceGridDrag - 終日行に表示される複数日の時間指定の予定の列移動', () => {
+  /** 7/15（水）10:00 〜 7/16（木）12:00 の時間指定の予定（終日行に表示される）。 */
+  const MULTI_DAY_TIMED: CalendarEvent = {
+    id: 'ev-multi',
+    title: '出張',
+    start: `${DAY}T10:00`,
+    end: `${NEXT_DAY}T12:00`,
+    resourceId: 'room-a',
+  };
+  /** 水・木だけを終日営業とする営業時間（金曜へ掛かる範囲は配置制約に違反する）。 */
+  const WED_THU_ONLY: readonly BusinessHoursRule[] = [
+    { daysOfWeek: [3, 4], startTime: '00:00', endTime: '24:00' },
+  ];
+
+  function getAllDayItem(container: HTMLElement): HTMLElement {
+    const element = container.querySelector<HTMLElement>(
+      '[data-koyomi="resource-allday-cell"] [data-koyomi-occurrence]',
+    );
+    if (element === null) {
+      throw new Error('終日行のアイテムが見つかりません');
+    }
+    return element;
+  }
+
+  it('→ で翌日の列へ移すと、開始・終了の時刻を保ったまま 1 日後ろへ移動し、allDay: false で通知される', () => {
+    const onEventChange = vi.fn();
+    const onBeforeEventChange = vi.fn(() => true);
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      events: [MULTI_DAY_TIMED],
+      resourceViewDays: 3,
+      callbacks: { onEventChange, onBeforeEventChange },
+    });
+
+    fireEvent.keyDown(getAllDayItem(container), { key: 'ArrowRight' });
+
+    const moved = sink.current?.api.getEvents()[0];
+    expect(moved).toMatchObject({
+      start: at(`${NEXT_DAY}T10:00`),
+      end: at('2026-07-17T12:00'),
+    });
+    expect(moved?.allDay).toBeUndefined();
+    expect(onBeforeEventChange).toHaveBeenCalledWith(expect.objectContaining({ allDay: false }));
+    expect(onEventChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        newRange: { start: at(`${NEXT_DAY}T10:00`), end: at('2026-07-17T12:00') },
+        allDay: false,
+      }),
+    );
+  });
+
+  it('→ の移動先が配置制約（営業時間）に違反する場合は拒否される（時間指定の予定として判定する）', () => {
+    const onOperationRejected = vi.fn();
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      events: [MULTI_DAY_TIMED],
+      resourceViewDays: 3,
+      eventConstraint: 'businessHours',
+      businessHours: WED_THU_ONLY,
+      callbacks: { onOperationRejected },
+    });
+
+    fireEvent.keyDown(getAllDayItem(container), { key: 'ArrowRight' });
+
+    expect(onOperationRejected).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'move', reason: 'constraint' }),
+    );
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({
+      start: `${DAY}T10:00`,
+      end: `${NEXT_DAY}T12:00`,
+    });
+  });
+
+  it('ポインタで配置制約に違反する列へ動かしている間、dragPreview.invalid が true になる（確定時の判定と一致する）', () => {
+    const { container, sink } = renderHarness({
+      resources: [ROOM_A],
+      events: [MULTI_DAY_TIMED],
+      resourceViewDays: 3,
+      eventConstraint: 'businessHours',
+      businessHours: WED_THU_ONLY,
+    });
+    mockAllColumnRects(container);
+
+    firePointerDown(getAllDayItem(container), columnCenterX(0), 10);
+    movePointer(columnCenterX(1), 10);
+
+    expect(sink.current?.state.dragPreview?.invalid).toBe(true);
+    pressEscape();
+  });
+});
+
+describe('useResourceGridDrag - RTL（dir="rtl"）の矢印キー', () => {
+  it('← は画面上の左隣（列の並びで次）の列へ、→ は右隣（列の並びで前）の列へ移動する', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-rtl',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    // RTL では列が右→左へ並ぶ（room-a が右、room-b がその左）
+    const { container } = render(
+      <div dir="rtl">
+        <Harness resources={[ROOM_A, ROOM_B]} events={[event]} sink={sink} />
+      </div>,
+    );
+
+    await act(async () => {
+      fireEvent.keyDown(getEventElement(container, 'ev-rtl', `${DAY}T10:00`), {
+        key: 'ArrowLeft',
+      });
+    });
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({ resourceId: 'room-b' });
+
+    await act(async () => {
+      fireEvent.keyDown(getEventElement(container, 'ev-rtl', `${DAY}T10:00`), {
+        key: 'ArrowRight',
+      });
+    });
+    expect(sink.current?.api.getEvents()[0]).toMatchObject({ resourceId: 'room-a' });
+  });
+});
+
+describe('useResourceGridDrag - ドラッグ中のアンマウント', () => {
+  it('ドラッグ中にアンマウントされると、ドラッグプレビューが状態に残らない', () => {
+    const event: CalendarEvent = {
+      id: 'ev-unmount',
+      title: '会議',
+      start: `${DAY}T10:00`,
+      end: `${DAY}T11:00`,
+      resourceId: 'room-a',
+    };
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const { container, unmount } = render(
+      <Harness resources={[ROOM_A, ROOM_B]} events={[event]} sink={sink} />,
+    );
+    mockAllColumnRects(container);
+    const api = sink.current?.api;
+
+    firePointerDown(
+      getEventElement(container, 'ev-unmount', `${DAY}T10:00`),
+      columnCenterX(0),
+      600,
+    );
+    movePointer(columnCenterX(1), 720);
+    expect(api?.getState().dragPreview).not.toBeNull();
+
+    unmount();
+
+    expect(api?.getState().dragPreview).toBeNull();
+  });
+});

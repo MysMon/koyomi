@@ -27,11 +27,7 @@ import type {
   Ref,
 } from 'react';
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import {
-  isDragCandidateValid,
-  occurrenceBlocksOverlap,
-  resolveConstraintRules,
-} from '../core/constraints';
+import { isDragCandidateValid } from '../core/constraints';
 import type { DayDragMode } from '../core/interaction';
 import { dayDragPreviewRange, timeAtGridPosition } from '../core/interaction';
 import {
@@ -42,7 +38,6 @@ import {
   startOfDayInZone,
 } from '../core/timezone';
 import type {
-  BusinessHoursRule,
   DateRange,
   EventChangeEntry,
   EventOccurrence,
@@ -52,11 +47,13 @@ import type {
 } from '../core/types';
 import {
   allDayPatchRange,
+  type ClickSuppressor,
   captureOccurrenceDeleteFocusContext,
   checkBeforeEventChange,
   checkBeforeEventDelete,
   checkBeforeSelectRange,
   collectOverlapBlockersInRange,
+  createClickSuppressor,
   createDefaultEvent,
   createOccurrenceDeleteFocusController,
   createOverlapBlockerCache,
@@ -64,7 +61,10 @@ import {
   eventNotificationProps,
   type OccurrenceDeleteFocusContext,
   reportOperationRejected,
+  resolveConstraintRulesForOccurrence,
+  resolveMoverBlocksOverlap,
 } from './drag-common';
+import { readingOrderArrowKey } from './text-direction';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 
 /**
@@ -224,32 +224,6 @@ function fractionYFromClientY(rect: DOMRect, clientY: number): number {
 }
 
 /**
- * 動かしている側の overlap 実効値（重なりを拒否するか）を求める。
- * 新規作成（`occurrence` が `null`）では動かしている側の個別設定が存在しないため、
- * グローバル `eventOverlap` をそのまま動かしている側の値として使う。
- */
-function resolveMoverBlocksOverlap(
-  occurrence: EventOccurrence | null,
-  eventOverlap: boolean,
-): boolean {
-  return occurrence === null
-    ? eventOverlap === false
-    : occurrenceBlocksOverlap(occurrence.event, eventOverlap);
-}
-
-/**
- * 対象（新規作成は `null`）に適用される配置制約の実効ルールを解決する。
- * イベント個別の `constraint` が優先され、未指定ならグローバル `eventConstraint` を使う。
- */
-function resolveConstraintRulesForOccurrence(
-  occurrence: EventOccurrence | null,
-  eventConstraint: ResolvedCalendarOptions['eventConstraint'],
-  businessHours: readonly BusinessHoursRule[],
-): readonly BusinessHoursRule[] | null {
-  return resolveConstraintRules(occurrence?.event.constraint ?? eventConstraint, businessHours);
-}
-
-/**
  * 終日 ⇔ 時間指定変換のキーボードトグル（A キー）かどうかを判定する。
  *
  * 大文字（Shift や CapsLock による `'A'`）も対象にする。Ctrl / Cmd / Alt を伴う場合は
@@ -316,12 +290,16 @@ export function useDayDrag(params: {
   /** 進行中のドラッグセッション（非ドラッグ中は `null`）。 */
   const sessionRef = useRef<DragSession | null>(null);
   /**
-   * 直後の click イベントを 1 回だけ抑制するフラグ。
+   * ドラッグ確定・Escape キャンセル直後の click を 1 回だけ抑止する管理オブジェクト。
    * ブラウザは pointerup の後に click を自動発火するため、ドラッグ移動が確定した
    * 直後のその click では `onEventClick` を誤って発火させたくない
-   * （`use-time-grid-drag.ts` の `suppressNextClickRef` と同じパターン）。
+   * （`use-time-grid-drag.ts` と同じパターン）。
    */
-  const suppressNextClickRef = useRef(false);
+  const clickSuppressorRef = useRef<ClickSuppressor | null>(null);
+  if (clickSuppressorRef.current === null) {
+    clickSuppressorRef.current = createClickSuppressor();
+  }
+  const clickSuppressor = clickSuppressorRef.current;
   /** キーボード削除後のフォーカス復帰を管理するコントローラ（本フック内で使い回す）。 */
   const deleteFocusControllerRef = useRef(createOccurrenceDeleteFocusController());
 
@@ -342,13 +320,22 @@ export function useDayDrag(params: {
   const keyboardTimedConversionRef = useRef(params.keyboardTimedConversion);
   keyboardTimedConversionRef.current = params.keyboardTimedConversion;
 
-  // アンマウント時、ドラッグ中であれば document リスナーを解除する
+  // アンマウント時に進行中のセッションがあれば、document リスナーを解除し、
+  // ストアに設定済みのドラッグプレビューも消す。プレビューはカレンダーの状態に入るため、
+  // 消さないと、ドラッグ中のビュー切替などでこのフックだけがアンマウントされた後も
+  // 残り続ける（確定・キャンセルのどちらも届かなくなるため）。セッションがなければ
+  // プレビューには触れない（他のフックが設定したプレビューを消さないため）。
   useEffect(() => {
     return () => {
-      sessionRef.current?.cleanup();
-      sessionRef.current = null;
+      const session = sessionRef.current;
+      if (session !== null) {
+        session.cleanup();
+        sessionRef.current = null;
+        apiRef.current.setDragPreview(null);
+      }
+      clickSuppressor.dispose();
     };
-  }, []);
+  }, [clickSuppressor]);
 
   // キーボード削除確定後、DOM 更新完了後（再レンダー後）に一度だけフォーカス解決を試みる
   // （`virtual-resource-view.tsx` の pinned フォーカス復元と同じ「無条件・毎レンダーの
@@ -842,7 +829,7 @@ export function useDayDrag(params: {
       // 移動・リサイズが確定した直後、ブラウザが自動発火する click を 1 回だけ抑制する。
       // resolveRecurringScope の解決を待つ前（同期のうち）にフラグを立てることで、
       // 確定処理が非同期でも click 到達前に確実に反映されるようにする。
-      suppressNextClickRef.current = true;
+      clickSuppressor.arm();
       if (session.timedConversion !== null) {
         void commitTimedConversion(occurrence, session.timedConversion).catch(reportError);
         return;
@@ -868,7 +855,7 @@ export function useDayDrag(params: {
       }
       // Escape 押下時にポインタボタンがまだ離されていない場合、直後の pointerup で
       // ブラウザが自動発火する click により onEventClick が誤発火し得るため抑制する。
-      suppressNextClickRef.current = true;
+      clickSuppressor.arm();
       cancelSession();
     };
 
@@ -984,8 +971,7 @@ export function useDayDrag(params: {
         beginDrag('move', occurrence, anchorDay);
       },
       onClick: (event: ReactMouseEvent<HTMLElement>) => {
-        if (suppressNextClickRef.current) {
-          suppressNextClickRef.current = false;
+        if (clickSuppressor.shouldSuppress(event.nativeEvent)) {
           return;
         }
         callbacksRef.current?.onEventClick?.(occurrence, event.nativeEvent);
@@ -1038,7 +1024,9 @@ export function useDayDrag(params: {
         if (occurrence.event.editable === false) {
           return;
         }
-        switch (event.key) {
+        // RTL では日セルが右→左へ並ぶため、←/→ を並びの方向へ読み替える
+        // （「画面上でその方向に動く」を保つ。↑/↓ はそのまま）
+        switch (readingOrderArrowKey(event.key, event.currentTarget)) {
           case 'ArrowLeft': {
             event.preventDefault();
             if (event.shiftKey) {
@@ -1081,7 +1069,7 @@ export function useDayDrag(params: {
       },
       tabIndex: 0,
       'data-koyomi-occurrence': occurrence.key,
-      ...eventNotificationProps(callbacksRef.current, occurrence),
+      ...eventNotificationProps(() => callbacksRef.current, occurrence),
     };
     return isDraggingThis ? { ...base, 'data-koyomi-dragging': 'true' } : base;
   }

@@ -201,6 +201,53 @@ describe('timeAtGridPosition', () => {
     });
   });
 
+  describe('Africa/Cairo の DST 開始日（2026-04-24、0:00 が存在せず日の開始が 1:00 になる）', () => {
+    const CAIRO = 'Africa/Cairo';
+    // 0:00 EET は存在しないため、日の開始は 1:00 EEST（UTC+3）= 前日 22:00Z
+    const dstDay = dateFromKey('2026-04-24', CAIRO);
+
+    it('縦位置 10/24 は現地時刻 10:00 を返す（日の開始からの経過時間ではなく現地時刻に対応する）', () => {
+      const result = timeAtGridPosition({
+        day: dstDay,
+        fractionY: 10 / 24,
+        timeZone: CAIRO,
+        snap: 15,
+      });
+      expect(getWallClock(result, CAIRO)).toMatchObject({ hours: 10, minutes: 0, day: 24 });
+      // 10:00 EEST（UTC+3）
+      expect(result.toISOString()).toBe('2026-04-24T07:00:00.000Z');
+    });
+
+    it('存在しない時間帯（0:00〜0:59）に相当する位置は直後の実在時刻へ繰り上げて解決される', () => {
+      const top = timeAtGridPosition({ day: dstDay, fractionY: 0, timeZone: CAIRO, snap: 15 });
+      expect(getWallClock(top, CAIRO)).toMatchObject({ hours: 1, minutes: 0, day: 24 });
+      const half = timeAtGridPosition({
+        day: dstDay,
+        fractionY: 30 / 1440,
+        timeZone: CAIRO,
+        snap: 15,
+      });
+      expect(getWallClock(half, CAIRO)).toMatchObject({ hours: 1, minutes: 30, day: 24 });
+    });
+
+    it('fractionY = 1 は現地時刻 23:45 にクランプされる', () => {
+      const result = timeAtGridPosition({ day: dstDay, fractionY: 1, timeZone: CAIRO, snap: 15 });
+      expect(getWallClock(result, CAIRO)).toMatchObject({ hours: 23, minutes: 45, day: 24 });
+    });
+  });
+
+  describe('America/New_York の DST 終了日（2026-11-01）', () => {
+    it('2 回現れる時刻（1:30）に相当する位置は早い方のオフセット（EDT）で解決される', () => {
+      const result = timeAtGridPosition({
+        day: dateFromKey('2026-11-01', NY),
+        fractionY: 90 / 1440,
+        timeZone: NY,
+        snap: 15,
+      });
+      expect(result.toISOString()).toBe('2026-11-01T05:30:00.000Z');
+    });
+  });
+
   describe('表示範囲制限（rangeStartMinutes/rangeEndMinutes）', () => {
     it('省略時は既定 0/1440 として扱われ、明示指定と完全一致する（回帰ペア）', () => {
       const omitted = timeAtGridPosition({
@@ -975,6 +1022,26 @@ describe('timeAtTimelineOffset', () => {
     expect(timeAtTimelineOffset({ days, displayMinutes: 1440, timeZone: NY, snap: 15 })).toEqual(
       at('2026-03-09T00:00', NY),
     );
+  });
+
+  it('0:00 が存在しない日（Africa/Cairo 2026-04-24）でも表示分は現地時刻に対応する', () => {
+    const CAIRO = 'Africa/Cairo';
+    // 4/24 は 0:00 に DST が始まり、日の開始は 1:00 EEST
+    const days = [dateFromKey('2026-04-23', CAIRO), dateFromKey('2026-04-24', CAIRO)];
+    // 2 日目の 600 分 = 4/24 10:00 EEST（UTC+3）
+    expect(
+      timeAtTimelineOffset({ days, displayMinutes: 1440 + 600, timeZone: CAIRO, snap: 15 }),
+    ).toEqual(new Date('2026-04-24T07:00:00Z'));
+    // 排他端は最終日の翌日 0:00（4/25 0:00 EEST）
+    expect(
+      timeAtTimelineOffset({
+        days,
+        displayMinutes: 2880,
+        timeZone: CAIRO,
+        snap: 15,
+        allowExclusiveEnd: true,
+      }),
+    ).toEqual(new Date('2026-04-24T21:00:00Z'));
   });
 
   it('表示日が空の場合は例外を投げる', () => {

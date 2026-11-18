@@ -3009,3 +3009,204 @@ describe('useTimeGridDrag - キーボードによる日列からの作成', () =
     expect(sink.current?.calendar.api.getEvents()).toHaveLength(0);
   });
 });
+
+describe('useTimeGridDrag - ドラッグ・キャンセル直後の click 抑止の有効範囲', () => {
+  it('作成ドラッグを Escape でキャンセルした後、列に届いた click の次の予定クリックは onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const event: CalendarEvent = {
+      id: 'ev-after-cancel',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    renderHarness({ events: [event], callbacks: { onEventClick } });
+    const column = screen.getByTestId(`day-${TUE}`);
+    const eventEl = screen.getByTestId(`event-ev-after-cancel@${at(`${TUE}T10:00`).toISOString()}`);
+    const x = columnCenterX(TUE);
+
+    firePointerDown(column, x, 900);
+    movePointer(x, 960);
+    pressEscape();
+    releasePointer(x, 960);
+    // 同じポインタ操作が生む click は pointerdown した列に届く（予定には届かない）
+    fireEvent.click(column);
+
+    fireEvent.click(eventEl);
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('予定のドラッグ移動を確定した後、別の予定の Enter は onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const events: CalendarEvent[] = [
+      { id: 'ev-moved', title: 'A', start: `${TUE}T10:00`, end: `${TUE}T11:00` },
+      { id: 'ev-other', title: 'B', start: `${TUE}T20:00`, end: `${TUE}T21:00` },
+    ];
+    renderHarness({ events, callbacks: { onEventClick } });
+    const x = columnCenterX(TUE);
+
+    firePointerDown(
+      screen.getByTestId(`event-ev-moved@${at(`${TUE}T10:00`).toISOString()}`),
+      x,
+      600,
+    );
+    movePointer(x, 840);
+    releasePointer(x, 840);
+
+    fireEvent.keyDown(screen.getByTestId(`event-ev-other@${at(`${TUE}T20:00`).toISOString()}`), {
+      key: 'Enter',
+    });
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+    expect(onEventClick.mock.calls[0]?.[0]).toMatchObject({ eventId: 'ev-other' });
+  });
+
+  it('ドラッグ移動を確定した後に次のポインタ操作を始めると、その操作の click は onEventClick を呼ぶ', () => {
+    const onEventClick = vi.fn();
+    const events: CalendarEvent[] = [
+      { id: 'ev-moved', title: 'A', start: `${TUE}T10:00`, end: `${TUE}T11:00` },
+      { id: 'ev-other', title: 'B', start: `${TUE}T20:00`, end: `${TUE}T21:00` },
+    ];
+    renderHarness({ events, callbacks: { onEventClick } });
+    const x = columnCenterX(TUE);
+
+    firePointerDown(
+      screen.getByTestId(`event-ev-moved@${at(`${TUE}T10:00`).toISOString()}`),
+      x,
+      600,
+    );
+    movePointer(x, 840);
+    releasePointer(x, 840);
+
+    // 移動確定分の click が届かないまま、別の予定を押して離す（移動なし）
+    const other = screen.getByTestId(`event-ev-other@${at(`${TUE}T20:00`).toISOString()}`);
+    firePointerDown(other, x, 1230);
+    releasePointer(x, 1230);
+    fireEvent.click(other);
+    expect(onEventClick).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useTimeGridDrag - RTL（dir="rtl"）の矢印キー', () => {
+  it('← は画面上の左隣（翌日）の列へ、→ は右隣（前日）の列へ 1 日移動する', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-rtl',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const sink: { current: Sink | null } = { current: null };
+    const factory = (): CalendarApi =>
+      createCalendar({
+        timeZone: TOKYO,
+        initialView: 'week',
+        weekStartsOn: 0,
+        initialDate: NOW,
+        now: () => NOW,
+        events: [event],
+      });
+    // RTL では日列が右→左へ並ぶ（日曜が右端、土曜が左端）
+    render(
+      <div dir="rtl">
+        <Harness factory={factory} sink={sink} />
+      </div>,
+    );
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId(`event-ev-rtl@${at(`${TUE}T10:00`).toISOString()}`), {
+        key: 'ArrowLeft',
+      });
+    });
+    expect(sink.current?.calendar.api.getEvents()[0]).toMatchObject({
+      start: at(`${WED}T10:00`),
+      end: at(`${WED}T11:00`),
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId(`event-ev-rtl@${at(`${WED}T10:00`).toISOString()}`), {
+        key: 'ArrowRight',
+      });
+    });
+    expect(sink.current?.calendar.api.getEvents()[0]).toMatchObject({
+      start: at(`${TUE}T10:00`),
+      end: at(`${TUE}T11:00`),
+    });
+  });
+
+  it('↑ / ↓ の時間移動は RTL でも変わらない', async () => {
+    const event: CalendarEvent = {
+      id: 'ev-rtl',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const sink: { current: Sink | null } = { current: null };
+    const factory = (): CalendarApi =>
+      createCalendar({
+        timeZone: TOKYO,
+        initialView: 'week',
+        weekStartsOn: 0,
+        initialDate: NOW,
+        now: () => NOW,
+        events: [event],
+        snapMinutes: 15,
+      });
+    render(
+      <div dir="rtl">
+        <Harness factory={factory} sink={sink} />
+      </div>,
+    );
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByTestId(`event-ev-rtl@${at(`${TUE}T10:00`).toISOString()}`), {
+        key: 'ArrowDown',
+      });
+    });
+    expect(sink.current?.calendar.api.getEvents()[0]).toMatchObject({
+      start: at(`${TUE}T10:15`),
+      end: at(`${TUE}T11:15`),
+    });
+  });
+});
+
+describe('useTimeGridDrag - ドラッグ中のアンマウント', () => {
+  it('ドラッグ中にアンマウントされると、ドラッグプレビューが状態に残らない', () => {
+    const event: CalendarEvent = {
+      id: 'ev-unmount-preview',
+      title: '会議',
+      start: `${TUE}T10:00`,
+      end: `${TUE}T11:00`,
+    };
+    const { sink, unmount } = renderHarness({ events: [event] });
+    const api = sink.current?.calendar.api;
+    const x = columnCenterX(TUE);
+
+    firePointerDown(
+      screen.getByTestId(`event-ev-unmount-preview@${at(`${TUE}T10:00`).toISOString()}`),
+      x,
+      600,
+    );
+    movePointer(x, 720);
+    expect(api?.getState().dragPreview).not.toBeNull();
+
+    unmount();
+
+    expect(api?.getState().dragPreview).toBeNull();
+  });
+
+  it('ドラッグしていないときのアンマウントでは、他の操作が設定したドラッグプレビューを消さない', () => {
+    const { sink, unmount } = renderHarness();
+    const api = sink.current?.calendar.api;
+    const preview = {
+      kind: 'create' as const,
+      occurrenceKey: null,
+      range: { start: at(`${TUE}T10:00`), end: at(`${TUE}T11:00`) },
+      allDay: false,
+    };
+    act(() => {
+      api?.setDragPreview(preview);
+    });
+
+    unmount();
+
+    expect(api?.getState().dragPreview).toEqual(preview);
+  });
+});

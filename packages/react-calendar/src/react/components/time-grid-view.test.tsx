@@ -13,6 +13,7 @@ import type {
   CalendarEvent,
   CalendarViewType,
   EventOccurrence,
+  PositionedOccurrence,
 } from '../../core/types';
 import { CalendarProvider } from '../context';
 import type { MessageCatalogOverrides } from '../locales/types';
@@ -1498,5 +1499,194 @@ describe('TimeGridView - 終日行のあふれ（allDayMaxEvents）', () => {
     expect(container.querySelectorAll('[data-koyomi="allday-event"]')).toHaveLength(2);
     const overflowButton = container.querySelector('[data-koyomi="allday-overflow"]');
     expect(overflowButton?.textContent).toBe('+1 件');
+  });
+});
+
+describe('TimeGridView - イベント内容の更新と再レンダー抑制', () => {
+  const EVENTS: readonly CalendarEvent[] = [
+    {
+      id: 'a',
+      title: 'A',
+      start: '2026-07-15T10:00',
+      end: '2026-07-15T11:00',
+      location: '会議室1',
+    },
+    { id: 'b', title: 'B', start: '2026-07-15T13:00', end: '2026-07-15T14:00' },
+  ];
+
+  /** 予定ボタンを取得する（オカレンスキーは `${eventId}@${開始時刻}`）。 */
+  function eventButton(container: HTMLElement, eventId: string): HTMLElement {
+    const element = container.querySelector<HTMLElement>(
+      `[data-koyomi="timegrid-event"][data-koyomi-occurrence^="${eventId}@"]`,
+    );
+    if (element === null) {
+      throw new Error(`予定ボタンが見つかりません: ${eventId}`);
+    }
+    return element;
+  }
+
+  it('updateEvent でタイトル・色以外の項目（location）を変えると renderEvent の表示が更新される', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const renderEvent = (item: PositionedOccurrence): ReactElement => (
+      <span data-testid={`loc-${item.occurrence.eventId}`}>{item.occurrence.event.location}</span>
+    );
+    const { getByTestId } = render(
+      <Harness initialView="day" events={EVENTS} sink={sink} viewProps={{ renderEvent }} />,
+    );
+
+    act(() => {
+      sink.current?.api.updateEvent('a', { location: '会議室2' });
+    });
+
+    expect(getByTestId('loc-a').textContent).toBe('会議室2');
+  });
+
+  it('別の予定を更新しても、変更のない予定のボタンは再レンダーされない（renderEvent の呼び出し回数で確認する性能ピン留め）', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const renderEvent = vi.fn((item: PositionedOccurrence) => (
+      <span>{item.occurrence.event.title}</span>
+    ));
+    render(<Harness initialView="day" events={EVENTS} sink={sink} viewProps={{ renderEvent }} />);
+    const callsFor = (eventId: string): number =>
+      renderEvent.mock.calls.filter(([item]) => item.occurrence.eventId === eventId).length;
+    const before = { a: callsFor('a'), b: callsFor('b') };
+
+    act(() => {
+      sink.current?.api.updateEvent('a', { location: '会議室2' });
+    });
+
+    expect(callsFor('a')).toBe(before.a + 1);
+    expect(callsFor('b')).toBe(before.b);
+  });
+
+  it('updateEvent の後のクリックでは、最新のイベント内容を持つオカレンスが onEventClick に渡る', () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const onEventClick = vi.fn<(occurrence: EventOccurrence) => void>();
+    const { container } = render(
+      <Harness initialView="day" events={EVENTS} sink={sink} callbacks={{ onEventClick }} />,
+    );
+
+    act(() => {
+      sink.current?.api.updateEvent('a', { description: '更新後' });
+    });
+    fireEvent.click(eventButton(container, 'a'));
+
+    expect(onEventClick.mock.calls[0]?.[0].event.description).toBe('更新後');
+  });
+
+  it('updateEvent で rrule を付けた予定をドラッグ移動すると resolveRecurringScope が呼ばれる', async () => {
+    const sink: { current: UseCalendarResult | null } = { current: null };
+    const resolveRecurringScope = vi.fn(async () => null);
+    const { container } = render(
+      <Harness
+        initialView="day"
+        events={EVENTS}
+        sink={sink}
+        callbacks={{ resolveRecurringScope }}
+      />,
+    );
+    act(() => {
+      sink.current?.api.updateEvent('a', { rrule: 'FREQ=DAILY;COUNT=5' });
+    });
+    const column = container.querySelector<HTMLElement>('[data-koyomi="timegrid-day"]');
+    if (column === null) {
+      throw new Error('日列が見つかりません');
+    }
+    // 列の高さ 1440px = 24h（1px = 1 分）
+    column.getBoundingClientRect = () => DOMRect.fromRect({ x: 0, y: 0, width: 100, height: 1440 });
+
+    // jsdom は PointerEvent 未実装のため MouseEvent で代用する
+    fireEvent(
+      eventButton(container, 'a'),
+      new MouseEvent('pointerdown', { clientX: 50, clientY: 600, button: 0, bubbles: true }),
+    );
+    act(() => {
+      document.dispatchEvent(new MouseEvent('pointermove', { clientX: 50, clientY: 840 }));
+    });
+    await act(async () => {
+      document.dispatchEvent(new MouseEvent('pointerup', { clientX: 50, clientY: 840 }));
+    });
+
+    expect(resolveRecurringScope).toHaveBeenCalledTimes(1);
+    // null（キャンセル）を返したため、開始時刻は変わらない
+    expect(sink.current?.api.getEvents()[0]?.start).toBe('2026-07-15T10:00');
+  });
+});
+
+describe('TimeGridView - 追加通知コールバックの差し替え', () => {
+  const EVENTS: readonly CalendarEvent[] = [
+    { id: 'a', title: 'A', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+  ];
+
+  /** 対象の予定要素を取得する。 */
+  function eventElement(container: HTMLElement): HTMLElement {
+    const element = container.querySelector<HTMLElement>('[data-koyomi-occurrence]');
+    if (element === null) {
+      throw new Error('予定要素が見つかりません');
+    }
+    return element;
+  }
+
+  it('callbacks を差し替えた後のダブルクリックは、差し替え後の onEventDoubleClick だけを呼ぶ', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const { container, rerender } = render(
+      <Harness initialView="day" events={EVENTS} callbacks={{ onEventDoubleClick: first }} />,
+    );
+    rerender(
+      <Harness initialView="day" events={EVENTS} callbacks={{ onEventDoubleClick: second }} />,
+    );
+
+    fireEvent.doubleClick(eventElement(container));
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('後から onEventContextMenu を指定すると予定要素に配線され、指定を外すと呼ばれなくなる', () => {
+    const onEventContextMenu = vi.fn();
+    const { container, rerender } = render(
+      <Harness initialView="day" events={EVENTS} callbacks={{}} />,
+    );
+
+    rerender(<Harness initialView="day" events={EVENTS} callbacks={{ onEventContextMenu }} />);
+    fireEvent.contextMenu(eventElement(container));
+    expect(onEventContextMenu).toHaveBeenCalledTimes(1);
+
+    rerender(<Harness initialView="day" events={EVENTS} callbacks={{}} />);
+    fireEvent.contextMenu(eventElement(container));
+    expect(onEventContextMenu).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('TimeGridView - callbacks の差し替えと再レンダー抑制', () => {
+  it('追加通知コールバックの有無が変わらない callbacks の差し替えでは、予定ボタンは再レンダーされない（renderEvent の呼び出し回数で確認する性能ピン留め）', () => {
+    const events: readonly CalendarEvent[] = [
+      { id: 'a', title: 'A', start: '2026-07-15T10:00', end: '2026-07-15T11:00' },
+    ];
+    const renderEvent = vi.fn((item: PositionedOccurrence) => (
+      <span>{item.occurrence.event.title}</span>
+    ));
+    const viewProps = { renderEvent };
+    const { rerender } = render(
+      <Harness
+        initialView="day"
+        events={events}
+        viewProps={viewProps}
+        callbacks={{ onEventDoubleClick: () => {} }}
+      />,
+    );
+    const before = renderEvent.mock.calls.length;
+
+    rerender(
+      <Harness
+        initialView="day"
+        events={events}
+        viewProps={viewProps}
+        callbacks={{ onEventDoubleClick: () => {} }}
+      />,
+    );
+
+    expect(renderEvent.mock.calls.length).toBe(before);
   });
 });

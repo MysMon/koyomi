@@ -232,7 +232,22 @@ function timedStyleFor(value: Date | string, tzid: TimeZoneId | undefined): Time
   return { kind: 'utc' };
 }
 
-/** 絶対時刻を出力形式に従ってプロパティ行（`NAME[;TZID=...]:値`）にする。 */
+/**
+ * 絶対時刻が、TZID 付きの現地時刻（オフセットなし）として書いても同じ時点へ戻るかを返す。
+ *
+ * DST の巻き戻りで 2 回現れる時刻の 2 回目は、現地時刻だけでは 1 回目（早い方の
+ * オフセット）と区別できず、取り込み時に 1 回目として解釈されるため `false` になる。
+ */
+function isRepresentableAsZonedWall(instant: Date, tzid: TimeZoneId): boolean {
+  return fromWallClock(getWallClock(instant, tzid), tzid).getTime() === instant.getTime();
+}
+
+/**
+ * 絶対時刻を出力形式に従ってプロパティ行（`NAME[;TZID=...]:値`）にする。
+ *
+ * TZID 付きの形式でも、現地時刻では表せない時点（{@link isRepresentableAsZonedWall}）は
+ * 絶対時刻を保つため UTC 形式で出力する。
+ */
 function formatTimedProperty(
   name: string,
   instant: Date,
@@ -241,6 +256,9 @@ function formatTimedProperty(
 ): string {
   switch (style.kind) {
     case 'zoned':
+      if (!isRepresentableAsZonedWall(instant, style.tzid)) {
+        return `${name}:${formatUtcDigits(instant)}`;
+      }
       return `${name};TZID=${style.tzid}:${formatWallDigits(getWallClock(instant, style.tzid))}`;
     case 'floating':
       return `${name}:${formatWallDigits(getWallClock(instant, fallbackTimeZone))}`;
@@ -362,7 +380,12 @@ function pushDateListProperties(
     const style = timedStyleFor(value, tzid);
     const instant = parseDateValue(value, interpretTimeZone, false);
     if (style.kind === 'zoned') {
-      zoned.push(formatWallDigits(getWallClock(instant, style.tzid)));
+      if (isRepresentableAsZonedWall(instant, style.tzid)) {
+        zoned.push(formatWallDigits(getWallClock(instant, style.tzid)));
+      } else {
+        // 現地時刻では表せない時点（2 回現れる時刻の 2 回目）は UTC 形式で絶対時刻を保つ
+        utc.push(formatUtcDigits(instant));
+      }
     } else if (style.kind === 'floating') {
       floating.push(formatWallDigits(getWallClock(instant, fallbackTimeZone)));
     } else {
@@ -378,6 +401,50 @@ function pushDateListProperties(
   if (utc.length > 0) {
     lines.push(`${name}:${utc.join(',')}`);
   }
+}
+
+/**
+ * 時間指定イベントの DTSTART / DTEND 行を返す。
+ *
+ * TZID 付きのイベントで、開始が現地時刻では表せない時点（DST の巻き戻りで 2 回現れる
+ * 時刻の 2 回目）の場合は次のように出力する:
+ *
+ * - RRULE なし: DTSTART / DTEND とも UTC 形式にして絶対時刻を保つ
+ * - RRULE あり: 繰り返しは DTSTART の現地時刻を基準に展開されるため TZID 付きを維持する。
+ *   展開されるオカレンスは早い方のオフセットの時点から始まるので、DTEND はその開始から
+ *   元の長さだけ後の時点にする
+ */
+function timedStartEndLines(
+  event: CalendarEvent,
+  startInstant: Date,
+  endInstant: Date,
+  startStyle: TimedValueStyle,
+  ctx: SerializeContext,
+): string[] {
+  if (startStyle.kind === 'zoned' && !isRepresentableAsZonedWall(startInstant, startStyle.tzid)) {
+    if (event.rrule === undefined) {
+      const utcStyle: TimedValueStyle = { kind: 'utc' };
+      return [
+        formatTimedProperty('DTSTART', startInstant, utcStyle, ctx.fallbackTimeZone),
+        formatTimedProperty('DTEND', endInstant, utcStyle, ctx.fallbackTimeZone),
+      ];
+    }
+    const wallStart = fromWallClock(getWallClock(startInstant, startStyle.tzid), startStyle.tzid);
+    const durationMs = endInstant.getTime() - startInstant.getTime();
+    return [
+      formatTimedProperty('DTSTART', wallStart, startStyle, ctx.fallbackTimeZone),
+      formatTimedProperty(
+        'DTEND',
+        new Date(wallStart.getTime() + durationMs),
+        startStyle,
+        ctx.fallbackTimeZone,
+      ),
+    ];
+  }
+  return [
+    formatTimedProperty('DTSTART', startInstant, startStyle, ctx.fallbackTimeZone),
+    formatTimedProperty('DTEND', endInstant, startStyle, ctx.fallbackTimeZone),
+  ];
 }
 
 /** 1 件のイベントを VEVENT の行配列（折り返し前）にする。 */
@@ -417,10 +484,7 @@ function serializeVEvent(event: CalendarEvent, ctx: SerializeContext): string[] 
       event.end !== undefined
         ? parseDateValue(event.end, interpretTimeZone, false)
         : new Date(startInstant.getTime() + ctx.defaultEventMinutes * 60_000);
-    lines.push(
-      formatTimedProperty('DTSTART', startInstant, startStyle, ctx.fallbackTimeZone),
-      formatTimedProperty('DTEND', endInstant, startStyle, ctx.fallbackTimeZone),
-    );
+    lines.push(...timedStartEndLines(event, startInstant, endInstant, startStyle, ctx));
   }
 
   if (event.rrule !== undefined) {
@@ -700,6 +764,87 @@ function toEventValue(value: IcsDateValue, eventTimeZone: TimeZoneId | undefined
   }
 }
 
+/** DURATION 値（RFC 5545 §3.3.6 の dur-value）。週のみ、または日と時刻の組み合わせ。 */
+const DURATION_PATTERN = /^([+-])?P(?:(\d+)W|(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?)$/;
+
+/** 解析済みの DURATION。日数（週は 7 日に換算）と時刻部分の秒数に分ける。 */
+interface IcsDuration {
+  days: number;
+  seconds: number;
+}
+
+/**
+ * DURATION 値を解析する。負の長さ・成分のない値・書式違反は `Error` にする。
+ */
+function parseIcsDuration(raw: string): IcsDuration {
+  const match = DURATION_PATTERN.exec(raw);
+  const invalid = (): Error => new Error(`DURATION の値を長さとして解釈できません: '${raw}'`);
+  if (match === null) {
+    throw invalid();
+  }
+  const [, sign, weeks, days, hours, minutes, seconds] = match;
+  const hasTimePart = hours !== undefined || minutes !== undefined || seconds !== undefined;
+  const hasAnyPart = weeks !== undefined || days !== undefined || hasTimePart;
+  // 'P' / 'PT' / 'P1DT' のように成分が欠けた値、VEVENT の長さとして無効な負の値を弾く
+  if (sign === '-' || !hasAnyPart || (raw.includes('T') && !hasTimePart)) {
+    throw invalid();
+  }
+  return {
+    days: Number(weeks ?? 0) * 7 + Number(days ?? 0),
+    seconds: Number(hours ?? 0) * 3600 + Number(minutes ?? 0) * 60 + Number(seconds ?? 0),
+  };
+}
+
+/** UTC の瞬間を `'YYYY-MM-DDTHH:mm:ss'` にする（{@link parseIcsDateValue} が作る形式）。 */
+function localStringFromUtcInstant(instant: Date): string {
+  return instant.toISOString().slice(0, 19);
+}
+
+/**
+ * `DTSTART` と `DURATION` から終了の日時値を求める（RFC 5545 §3.3.6）。
+ *
+ * - 終日（DATE）: 日数を加えた排他的な終了日。時刻成分を含む長さは `Error`
+ * - UTC: 実時間で加算する
+ * - TZID 付き: 日の部分は現地時刻を保って加算し、時刻の部分は実時間で加算する
+ * - フローティング: タイムゾーンが決まらないため現地時刻のまま加算する
+ *
+ * @returns 終了の日時値。長さ 0 の場合は `undefined`（終了なし）
+ */
+function endFromDuration(dtstart: IcsDateValue, raw: string): IcsDateValue | undefined {
+  const duration = parseIcsDuration(raw);
+  if (duration.days === 0 && duration.seconds === 0) {
+    return undefined;
+  }
+  switch (dtstart.type) {
+    case 'date':
+      if (duration.seconds !== 0) {
+        throw new Error(`終日の DTSTART に時刻成分を含む DURATION は指定できません: '${raw}'`);
+      }
+      return { type: 'date', key: addDaysToDateKey(dtstart.key, duration.days) };
+    case 'utc': {
+      const startMs = new Date(dtstart.iso).getTime();
+      const endMs = startMs + (duration.days * 86_400 + duration.seconds) * 1000;
+      return { type: 'utc', iso: `${localStringFromUtcInstant(new Date(endMs))}Z` };
+    }
+    case 'floating': {
+      // 現地時刻を UTC とみなして加算する（DST のない空間での現地時刻の演算）
+      const startMs = new Date(`${dtstart.local}Z`).getTime();
+      const endMs = startMs + (duration.days * 86_400 + duration.seconds) * 1000;
+      return { type: 'floating', local: localStringFromUtcInstant(new Date(endMs)) };
+    }
+    case 'zoned': {
+      const start = fromWallClock(wallPartsFromLocal(dtstart.local), dtstart.tzid);
+      const afterDays = addDaysInZone(start, duration.days, dtstart.tzid);
+      const end = new Date(afterDays.getTime() + duration.seconds * 1000);
+      const wall = getWallClock(end, dtstart.tzid);
+      const pad = (value: number): string => String(value).padStart(2, '0');
+      const date = `${String(wall.year).padStart(4, '0')}-${pad(wall.month)}-${pad(wall.day)}`;
+      const time = `${pad(wall.hours)}:${pad(wall.minutes)}:${pad(wall.seconds)}`;
+      return { type: 'zoned', local: `${date}T${time}`, tzid: dtstart.tzid };
+    }
+  }
+}
+
 /** VEVENT 1 件分のプロパティの集約結果。 */
 interface CollectedVEvent {
   uid: string | undefined;
@@ -709,6 +854,7 @@ interface CollectedVEvent {
   status: string | undefined;
   dtstart: IcsDateValue | undefined;
   dtend: IcsDateValue | undefined;
+  durationRaw: string | undefined;
   rruleRaw: string | undefined;
   exdates: IcsDateValue[];
   rdates: IcsDateValue[];
@@ -725,6 +871,7 @@ function collectVEventProperties(props: readonly ContentLine[]): CollectedVEvent
     status: undefined,
     dtstart: undefined,
     dtend: undefined,
+    durationRaw: undefined,
     rruleRaw: undefined,
     exdates: [],
     rdates: [],
@@ -753,6 +900,9 @@ function collectVEventProperties(props: readonly ContentLine[]): CollectedVEvent
       case 'DTEND':
         collected.dtend = parseIcsDateValue(prop.value, prop.params, 'DTEND');
         break;
+      case 'DURATION':
+        collected.durationRaw = prop.value;
+        break;
       case 'RRULE':
         collected.rruleRaw = prop.value;
         break;
@@ -777,7 +927,7 @@ function collectVEventProperties(props: readonly ContentLine[]): CollectedVEvent
         };
         break;
       default:
-        // EXRULE・DURATION・DTSTAMP・X- プロパティなど対応しないものは無視する
+        // EXRULE・DTSTAMP・X- プロパティなど対応しないものは無視する
         break;
     }
   }
@@ -910,8 +1060,14 @@ function buildEventFromVEvent(
   if (timeZone !== undefined) {
     event.timeZone = timeZone;
   }
-  if (collected.dtend !== undefined) {
-    event.end = toEventValue(collected.dtend, timeZone);
+  // DTEND と DURATION は排他（RFC 5545 §3.6.1）。両方ある不正な入力は DTEND を優先する
+  const endValue =
+    collected.dtend ??
+    (collected.durationRaw !== undefined
+      ? endFromDuration(collected.dtstart, collected.durationRaw)
+      : undefined);
+  if (endValue !== undefined) {
+    event.end = toEventValue(endValue, timeZone);
   }
   if (collected.rruleRaw !== undefined) {
     event.rrule = untilForImport(
@@ -1163,7 +1319,7 @@ function findRawTextValue(props: readonly ContentLine[], name: string): string |
  * - `EXDATE` / `RDATE` は `exdates` / `rdates` になる。`STATUS:CANCELLED` の
  *   オーバーライドは同じ `UID` のマスターの `exdates` に変換される
  *   （`RANGE=THISANDFUTURE` 付きは「これ以降の削除」としてシリーズを打ち切る）
- * - `VTIMEZONE` 定義・`EXRULE`・`VALUE=PERIOD` の `RDATE`・`DURATION`・`VALARM`・
+ * - `VTIMEZONE` 定義・`EXRULE`・`VALUE=PERIOD` の `RDATE`・`VALARM`・
  *   未対応プロパティは無視する（`TZID` は IANA タイムゾーン ID として解釈する）
  *
  * @param ics - iCalendar 文字列（改行は CRLF / LF のどちらでもよい）

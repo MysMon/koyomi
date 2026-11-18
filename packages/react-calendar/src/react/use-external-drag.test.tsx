@@ -553,6 +553,80 @@ describe('useExternalDrag - 週ビュー（時間グリッド）', () => {
     });
   });
 
+  it('slotMinTime/slotMaxTime 指定時は、列の高さを表示時間帯に対応づけてドロップ位置を解決する（プレビューも同じ）', () => {
+    const onExternalDrop = vi.fn();
+    const calendarSink: { current: UseCalendarResult | null } = { current: null };
+    const { container } = render(
+      <Harness
+        view="week"
+        onExternalDrop={onExternalDrop}
+        calendarSink={calendarSink}
+        slotMinTime="08:00"
+        slotMaxTime="18:00"
+        snapMinutes={15}
+        defaultEventMinutes={60}
+      />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const column = container.querySelector(
+      '[data-koyomi="timegrid-day"][data-koyomi-date="2026-07-15"]',
+    );
+    if (!(source instanceof HTMLElement) || !(column instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    // 表示時間帯 08:00〜18:00（600 分）を 600px で表示する。y=120 は 08:00 + 120 分 = 10:00
+    mockRect(column, { left: 0, top: 0, width: 100, height: 600 });
+    mockElementsFromPoint([column]);
+
+    firePointerDown(source);
+    movePointer(50, 120);
+    expect(calendarSink.current?.state.dragPreview?.range).toEqual({
+      start: at('2026-07-15T10:00'),
+      end: at('2026-07-15T11:00'),
+    });
+    releasePointer(50, 120);
+
+    expect(onExternalDrop).toHaveBeenCalledWith({
+      range: { start: at('2026-07-15T10:00'), end: at('2026-07-15T11:00') },
+      allDay: false,
+      payload: { title: '外部の予定' },
+    });
+  });
+
+  it('slotMaxTime 指定時、列の下端へのドロップは表示時間帯内の最後のスナップ位置にクランプされる', () => {
+    const onExternalDrop = vi.fn();
+    const { container } = render(
+      <Harness
+        view="week"
+        onExternalDrop={onExternalDrop}
+        slotMinTime="08:00"
+        slotMaxTime="18:00"
+        snapMinutes={15}
+        defaultEventMinutes={60}
+      />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const column = container.querySelector(
+      '[data-koyomi="timegrid-day"][data-koyomi-date="2026-07-15"]',
+    );
+    if (!(source instanceof HTMLElement) || !(column instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockRect(column, { left: 0, top: 0, width: 100, height: 600 });
+    mockElementsFromPoint([column]);
+
+    firePointerDown(source);
+    movePointer(50, 600); // 列の下端 = 18:00（排他端）
+    releasePointer(50, 600);
+
+    // 開始は 18:00 未満で最大のスナップ位置（17:45）になる
+    expect(onExternalDrop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        range: { start: at('2026-07-15T17:45'), end: at('2026-07-15T18:45') },
+      }),
+    );
+  });
+
   it('終日行のセルへドロップすると、その日 1 日分の終日範囲で onExternalDrop が呼ばれる', () => {
     const onExternalDrop = vi.fn();
     const { container } = render(<Harness view="week" onExternalDrop={onExternalDrop} />);
@@ -648,6 +722,42 @@ describe('useExternalDrag - リソースビュー', () => {
 
     expect(onExternalDrop).toHaveBeenCalledWith({
       range: { start: at('2026-07-15T09:00'), end: at('2026-07-15T09:30') },
+      allDay: false,
+      resourceId: 'room-a',
+      payload: { title: '外部の予定' },
+    });
+  });
+
+  it('slotMinTime/slotMaxTime 指定時は、列の高さを表示時間帯に対応づけてドロップ位置を解決する', () => {
+    const onExternalDrop = vi.fn();
+    const { container } = render(
+      <Harness
+        view="resource"
+        resources={[ROOM_A]}
+        onExternalDrop={onExternalDrop}
+        slotMinTime="08:00"
+        slotMaxTime="18:00"
+        snapMinutes={15}
+        defaultEventMinutes={30}
+      />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const column = container.querySelector(
+      '[data-koyomi="resource-column"][data-koyomi-resource="r:room-a"]',
+    );
+    if (!(source instanceof HTMLElement) || !(column instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    // 表示時間帯 08:00〜18:00（600 分）を 600px で表示する。y=120 は 08:00 + 120 分 = 10:00
+    mockRect(column, { left: 0, top: 0, width: 100, height: 600 });
+    mockElementsFromPoint([column]);
+
+    firePointerDown(source);
+    movePointer(50, 120);
+    releasePointer(50, 120);
+
+    expect(onExternalDrop).toHaveBeenCalledWith({
+      range: { start: at('2026-07-15T10:00'), end: at('2026-07-15T10:30') },
       allDay: false,
       resourceId: 'room-a',
       payload: { title: '外部の予定' },
@@ -842,6 +952,43 @@ describe('useExternalDrag - タイムラインビュー', () => {
 
     expect(onExternalDrop).toHaveBeenCalledWith({
       range: { start: at('2026-07-15T10:00'), end: at('2026-07-15T10:30') },
+      allDay: false,
+      resourceId: 'room-a',
+      payload: { title: '外部の予定' },
+    });
+  });
+
+  it('dir="rtl" では、行の右端からの距離に対応する時刻へ解決される', () => {
+    const onExternalDrop = vi.fn();
+    const { container } = render(
+      <div dir="rtl">
+        <Harness
+          view="timeline"
+          resources={[ROOM_A]}
+          onExternalDrop={onExternalDrop}
+          snapMinutes={15}
+          defaultEventMinutes={30}
+        />
+      </div>,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const row = container.querySelector(
+      '[data-koyomi="timeline-row"][data-koyomi-resource="r:room-a"]',
+    );
+    if (!(source instanceof HTMLElement) || !(row instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    // RTL では時間軸が右→左へ並ぶ。幅 1440px（1px = 1 分）の左端から 360px は
+    // 右端から 1080px = 18:00
+    mockRect(row, { left: 0, top: 0, width: 1440, height: 40 });
+    mockElementsFromPoint([row]);
+
+    firePointerDown(source);
+    movePointer(360, 20);
+    releasePointer(360, 20);
+
+    expect(onExternalDrop).toHaveBeenCalledWith({
+      range: { start: at('2026-07-15T18:00'), end: at('2026-07-15T18:30') },
       allDay: false,
       resourceId: 'room-a',
       payload: { title: '外部の予定' },
@@ -1348,15 +1495,15 @@ describe('useExternalDrag - 宣言的な重なり・配置制約', () => {
   });
 
   it('週ビューで slotMinTime/slotMaxTime の表示時間帯外にある既存イベントとの重なりも eventOverlap: false のもとで拒否される（ビューモデルに描画されない予定が対象）', () => {
-    // 外部ドラッグのドロップ位置計算（resolveTimeGridDrop）は slotMinTime/slotMaxTime で
-    // クランプされないため、表示時間帯外（20:00）へもドロップし得る。その位置にある
-    // 既存イベントは day.items から除外され、ビューモデル由来のブロッカー収集では見えない。
+    // ドロップの開始位置は表示時間帯内にクランプされるが、終了（開始 + defaultEventMinutes）は
+    // 表示時間帯の外（18:00 以降）へはみ出し得る。その位置にある既存イベントは day.items から
+    // 除外され、ビューモデル由来のブロッカー収集では見えない。
     const onExternalDrop = vi.fn();
     const existingHidden: CalendarEvent = {
       id: 'existing-hidden',
       title: '既存（表示時間帯外）',
-      start: '2026-07-15T20:00',
-      end: '2026-07-15T20:30',
+      start: '2026-07-15T18:00',
+      end: '2026-07-15T18:30',
     };
     const calendarSink: { current: UseCalendarResult | null } = { current: null };
     const { container } = render(
@@ -1379,14 +1526,51 @@ describe('useExternalDrag - 宣言的な重なり・配置制約', () => {
     if (!(source instanceof HTMLElement) || !(column instanceof HTMLElement)) {
       throw new Error('要素が見つかりません');
     }
-    mockRect(column, { left: 0, top: 0, width: 100, height: 1440 });
+    // 表示時間帯 08:00〜18:00（600 分）を 600px で表示する
+    mockRect(column, { left: 0, top: 0, width: 100, height: 600 });
     mockElementsFromPoint([column]);
 
     firePointerDown(source);
-    movePointer(50, 1200); // 20:00（表示時間帯外だがドロップ位置はクランプされない）
+    movePointer(50, 585); // 17:45 開始 → 17:45〜18:15（18:00〜18:30 の既存と重なる）
     expect(calendarSink.current?.state.dragPreview?.invalid).toBe(true);
 
-    releasePointer(50, 1200);
+    releasePointer(50, 585);
+    expect(onExternalDrop).not.toHaveBeenCalled();
+  });
+});
+
+describe('useExternalDrag - ドラッグ中のアンマウント', () => {
+  it('ドラッグ中にアンマウントされると、ドラッグプレビューが状態に残らず、以降のポインタ操作も反映されない', () => {
+    const onExternalDrop = vi.fn();
+    const calendarSink: { current: UseCalendarResult | null } = { current: null };
+    const { container, unmount } = render(
+      <Harness
+        view="week"
+        onExternalDrop={onExternalDrop}
+        calendarSink={calendarSink}
+        snapMinutes={15}
+        defaultEventMinutes={60}
+      />,
+    );
+    const source = container.querySelector('[data-testid="external-source"]');
+    const column = container.querySelector(
+      '[data-koyomi="timegrid-day"][data-koyomi-date="2026-07-15"]',
+    );
+    if (!(source instanceof HTMLElement) || !(column instanceof HTMLElement)) {
+      throw new Error('要素が見つかりません');
+    }
+    mockRect(column, { left: 0, top: 0, width: 100, height: 1440 });
+    mockElementsFromPoint([column]);
+    const api = calendarSink.current?.api;
+
+    firePointerDown(source);
+    movePointer(50, 600);
+    expect(api?.getState().dragPreview).not.toBeNull();
+
+    unmount();
+    expect(api?.getState().dragPreview).toBeNull();
+
+    releasePointer(50, 600);
     expect(onExternalDrop).not.toHaveBeenCalled();
   });
 });

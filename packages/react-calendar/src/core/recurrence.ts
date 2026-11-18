@@ -149,9 +149,14 @@ export function parseRRuleOptions(rrule: string): Partial<Options> {
 }
 
 /** 検証済みの RRULE と fake-UTC 化した dtstart から RRule インスタンスを構築する。 */
-function buildFakeUTCRule(rrule: string, dtstart: Date, timeZone: TimeZoneId): RRule {
+function buildFakeUTCRule(
+  rrule: string,
+  dtstart: Date,
+  timeZone: TimeZoneId,
+  noCache = false,
+): RRule {
   const parsed = parseRRuleOptions(rrule);
-  return new RRule({ ...parsed, dtstart: toFakeUTC(dtstart, timeZone) });
+  return new RRule({ ...parsed, dtstart: toFakeUTC(dtstart, timeZone) }, noCache);
 }
 
 /**
@@ -212,21 +217,211 @@ export function expandRecurrence(params: {
   exdates?: readonly Date[];
   range: DateRange;
 }): Date[] {
+  return expandRecurrenceWithCache(params, undefined);
+}
+
+/** {@link expandRecurrenceWithCache} が `cacheKey` ごとに保持する展開済みの候補。 */
+interface RecurrenceCacheEntry {
+  /** 候補を生成した RRULE 文字列。 */
+  rrule: string;
+  /** 候補を生成した起点（絶対時刻のミリ秒）。 */
+  dtstartMs: number;
+  /** 候補を生成したタイムゾーン。 */
+  timeZone: TimeZoneId;
+  /** 起点を fake-UTC に載せたルール。 */
+  rule: RRule;
+  /** 候補を保持している fake-UTC の区間の開始（両端含む）。 */
+  windowStartMs: number;
+  /** 候補を保持している fake-UTC の区間の終了（両端含む）。 */
+  windowEndMs: number;
+  /**
+   * 区間内の全候補（fake-UTC のミリ秒、昇順）。`null` は候補が多すぎて保持しない
+   * ルールであることを表す（以後は区間を広げずに毎回列挙する）。
+   */
+  fakeTimes: readonly number[] | null;
+  /**
+   * `fakeTimes` の各候補を絶対時刻（ミリ秒）に変換した値。未変換の位置は `NaN`
+   * （必要になった位置だけ変換して控える）。
+   */
+  instantTimes: Float64Array | null;
+}
+
+/** `cacheKey`（イベント）ごとの展開済み候補。キーが破棄されれば一緒に解放される。 */
+const recurrenceCache = new WeakMap<object, RecurrenceCacheEntry>();
+
+/** 1 つの `cacheKey` に保持する候補数の上限（超える場合は保持しない）。 */
+const RECURRENCE_CACHE_MAX_TIMES = 2048;
+
+/** 問い合わせ区間の前後へ広げて列挙する幅の上限（ミリ秒）。 */
+const RECURRENCE_CACHE_MAX_PADDING_MS = 45 * 24 * 60 * 60 * 1000;
+
+/** 問い合わせ区間の先へ、起点からの距離に応じて広げて列挙する幅の上限（ミリ秒）。 */
+const RECURRENCE_CACHE_MAX_LOOKAHEAD_MS = 180 * 24 * 60 * 60 * 1000;
+
+/** 昇順配列から `value` 以上の最初の位置を返す。 */
+function lowerBound(sorted: readonly number[], value: number): number {
+  let low = 0;
+  let high = sorted.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    const midValue = sorted[mid];
+    if (midValue !== undefined && midValue < value) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
+}
+
+/**
+ * fake-UTC 空間の `[fakeStartMs, fakeEndMs]`（両端含む）にある候補を、fake-UTC の
+ * 昇順のまま絶対時刻（ミリ秒）に変換して返す。
+ *
+ * RRULE の列挙は常に起点から数え直すため、`cacheKey` があれば直前に列挙した区間の
+ * 候補を保持し、区間内の問い合わせは列挙せずに切り出す。区間外の問い合わせでは、
+ * 前後へ広げた区間（保持中の区間と重なる場合はその和）を列挙し直す。列挙結果は
+ * 起点から順に生成した候補列を区間で切り出したものなので、広げた区間から問い合わせ
+ * 区間を切り出した結果は、問い合わせ区間を直接列挙した結果と一致する。
+ */
+function fakeOccurrencesBetween(
+  params: { rrule: string; dtstart: Date; timeZone: TimeZoneId },
+  fakeStartMs: number,
+  fakeEndMs: number,
+  cacheKey: object | undefined,
+): number[] {
+  const { rrule, dtstart, timeZone } = params;
+  const dtstartMs = dtstart.getTime();
+  const cached = cacheKey === undefined ? undefined : recurrenceCache.get(cacheKey);
+  const reusable =
+    cached !== undefined &&
+    cached.rrule === rrule &&
+    cached.dtstartMs === dtstartMs &&
+    cached.timeZone === timeZone
+      ? cached
+      : undefined;
+  const fakeTimes = reusable?.fakeTimes;
+  const instantTimes = reusable?.instantTimes;
+  if (
+    reusable !== undefined &&
+    fakeTimes != null &&
+    instantTimes != null &&
+    reusable.windowStartMs <= fakeStartMs &&
+    fakeEndMs <= reusable.windowEndMs
+  ) {
+    const result: number[] = [];
+    for (let index = lowerBound(fakeTimes, fakeStartMs); index < fakeTimes.length; index += 1) {
+      const fakeTime = fakeTimes[index];
+      if (fakeTime === undefined || fakeTime > fakeEndMs) {
+        break;
+      }
+      let instantTime = instantTimes[index];
+      if (instantTime === undefined || Number.isNaN(instantTime)) {
+        instantTime = fromFakeUTC(new Date(fakeTime), timeZone).getTime();
+        instantTimes[index] = instantTime;
+      }
+      result.push(instantTime);
+    }
+    return result;
+  }
+  const toInstantTimes = (fakes: readonly Date[]): number[] =>
+    fakes.map((fake) => fromFakeUTC(fake, timeZone).getTime());
+  // 保持するルールは rrule 自身の結果キャッシュを無効にする（問い合わせのたびに溜まるため）
+  const rule = reusable?.rule ?? buildFakeUTCRule(rrule, dtstart, timeZone, cacheKey !== undefined);
+  const fakeStart = new Date(fakeStartMs);
+  const fakeEnd = new Date(fakeEndMs);
+  if (
+    cacheKey === undefined ||
+    fakeTimes === null ||
+    Number.isNaN(dtstartMs) ||
+    Number.isNaN(fakeStart.getTime()) ||
+    Number.isNaN(fakeEnd.getTime()) ||
+    fakeEndMs < fakeStartMs
+  ) {
+    return toInstantTimes(rule.between(fakeStart, fakeEnd, true));
+  }
+  const padding = Math.min(fakeEndMs - fakeStartMs, RECURRENCE_CACHE_MAX_PADDING_MS);
+  // 列挙は常に起点から数え直すため、手前側の候補は追加の列挙なしで得られる。先の側は
+  // 広げたぶんだけ列挙が増えるので、起点から問い合わせ区間までの距離に比例した幅
+  // （上限あり）に抑え、前へ進む操作での数え直しの回数を減らす
+  const lookahead = Math.max(
+    padding,
+    Math.min((fakeStartMs - dtstartMs) / 4, RECURRENCE_CACHE_MAX_LOOKAHEAD_MS),
+  );
+  let windowStartMs = fakeStartMs - padding;
+  let windowEndMs = fakeEndMs + lookahead;
+  // 保持中の区間と重なる場合は和を取って保持範囲を広げる。ただし保持中の候補が上限の
+  // 半分を超えていれば和を取らず、今回の区間だけに置き換える（上限超過で保持を
+  // やめてしまうのを避けるため）
+  if (
+    reusable !== undefined &&
+    fakeTimes !== undefined &&
+    fakeTimes.length <= RECURRENCE_CACHE_MAX_TIMES / 2 &&
+    reusable.windowStartMs <= windowEndMs &&
+    windowStartMs <= reusable.windowEndMs
+  ) {
+    windowStartMs = Math.min(windowStartMs, reusable.windowStartMs);
+    windowEndMs = Math.max(windowEndMs, reusable.windowEndMs);
+  }
+  const windowStart = new Date(windowStartMs);
+  const windowEnd = new Date(windowEndMs);
+  if (Number.isNaN(windowStart.getTime()) || Number.isNaN(windowEnd.getTime())) {
+    return toInstantTimes(rule.between(fakeStart, fakeEnd, true));
+  }
+  const windowOccurrences = rule.between(windowStart, windowEnd, true);
+  const tooMany = windowOccurrences.length > RECURRENCE_CACHE_MAX_TIMES;
+  recurrenceCache.set(cacheKey, {
+    rrule,
+    dtstartMs,
+    timeZone,
+    rule,
+    windowStartMs,
+    windowEndMs,
+    fakeTimes: tooMany ? null : windowOccurrences.map((fake) => fake.getTime()),
+    instantTimes: tooMany ? null : new Float64Array(windowOccurrences.length).fill(Number.NaN),
+  });
+  return toInstantTimes(
+    windowOccurrences.filter((fake) => {
+      const time = fake.getTime();
+      return time >= fakeStartMs && time <= fakeEndMs;
+    }),
+  );
+}
+
+/**
+ * {@link expandRecurrence} と同じ結果を返す。`cacheKey` を渡すと、そのオブジェクトに
+ * 紐づけて列挙済みの候補を保持し、同じ RRULE・起点・タイムゾーンでの近傍範囲の
+ * 再展開を高速化する（結果は `cacheKey` の有無によらず同一）。
+ *
+ * @param params - {@link expandRecurrence} と同じ引数
+ * @param cacheKey - 候補を紐づけるオブジェクト（通常はソースイベント）。省略時は保持しない
+ * @returns オカレンスの開始時刻の昇順配列
+ * @throws 不正な RRULE の場合は `Error`
+ */
+export function expandRecurrenceWithCache(
+  params: {
+    rrule: string;
+    dtstart: Date;
+    timeZone: TimeZoneId;
+    exdates?: readonly Date[];
+    range: DateRange;
+  },
+  cacheKey: object | undefined,
+): Date[] {
   const { rrule, dtstart, timeZone, exdates = [], range } = params;
-  const rule = buildFakeUTCRule(rrule, dtstart, timeZone);
   if (range.end.getTime() <= range.start.getTime()) {
+    // 範囲が空でも、不正な RRULE は例外にする
+    buildFakeUTCRule(rrule, dtstart, timeZone);
     return [];
   }
   // 範囲境界も現地時刻→fake-UTC に変換する。DST による順序ずれの取りこぼしを
   // 防ぐため余白を付けて広めに問い合わせ、絶対時刻で厳密に再フィルタする
-  const fakeStart = new Date(toFakeUTC(range.start, timeZone).getTime() - FAKE_UTC_MARGIN_MS);
-  const fakeEnd = new Date(toFakeUTC(range.end, timeZone).getTime() + FAKE_UTC_MARGIN_MS);
+  const fakeStartMs = toFakeUTC(range.start, timeZone).getTime() - FAKE_UTC_MARGIN_MS;
+  const fakeEndMs = toFakeUTC(range.end, timeZone).getTime() + FAKE_UTC_MARGIN_MS;
   const excludedTimes = new Set(exdates.map((exdate) => exdate.getTime()));
 
   const occurrences: Date[] = [];
-  for (const fake of rule.between(fakeStart, fakeEnd, true)) {
-    const instant = fromFakeUTC(fake, timeZone);
-    const time = instant.getTime();
+  for (const time of fakeOccurrencesBetween(params, fakeStartMs, fakeEndMs, cacheKey)) {
     // [range.start, range.end) — end は排他
     if (time < range.start.getTime() || time >= range.end.getTime()) {
       continue;
@@ -234,7 +429,7 @@ export function expandRecurrence(params: {
     if (excludedTimes.has(time)) {
       continue;
     }
-    occurrences.push(instant);
+    occurrences.push(new Date(time));
   }
   // DST の秋切替（現地時刻が巻き戻る）では fake-UTC の昇順と絶対時刻の昇順が
   // 局所的に入れ替わり得るため、絶対時刻で並べ直して昇順を保証する

@@ -45,11 +45,7 @@ import type {
   Ref,
 } from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import {
-  isDragCandidateValid,
-  occurrenceBlocksOverlap,
-  resolveConstraintRules,
-} from '../core/constraints';
+import { isDragCandidateValid } from '../core/constraints';
 import { occurrenceKey } from '../core/expansion';
 import { dragPreviewRange, timeAtGridPosition } from '../core/interaction';
 import { resourceLanePatch } from '../core/resource-assignment';
@@ -63,13 +59,11 @@ import {
   startOfDayInZone,
 } from '../core/timezone';
 import type {
-  BusinessHoursRule,
   CalendarEventPatch,
   DateRange,
   EventOccurrence,
   PositionedOccurrence,
   RecurringEditScope,
-  ResolvedCalendarOptions,
   ResourceColumn,
   TimeZoneId,
 } from '../core/types';
@@ -78,12 +72,14 @@ import {
   allDayPatchRange,
   attachDragSessionListeners,
   autoScrollVelocity,
+  type ClickSuppressor,
   captureOccurrenceDeleteFocusContext,
   checkBeforeEventChange,
   checkBeforeEventDelete,
   checkBeforeSelectRange,
   collectOverlapBlockersInRange,
   createAutoScrollLoop,
+  createClickSuppressor,
   createCreatedEventFocusController,
   createDefaultEvent,
   createOccurrenceDeleteFocusController,
@@ -95,8 +91,11 @@ import {
   type OccurrenceDeleteFocusContext,
   originatesFromOccurrenceElement,
   reportOperationRejected,
+  resolveConstraintRulesForOccurrence,
+  resolveMoverBlocksOverlap,
   resolveScopeForRecurring,
 } from './drag-common';
+import { readingOrderArrowKey } from './text-direction';
 import type { CalendarInteractionCallbacks, UseCalendarResult } from './types';
 
 /**
@@ -121,6 +120,9 @@ const RESOURCE_ALLDAY_REGION_SELECTOR =
  * 終日アイテムの移動ドラッグがこの領域に乗ると時間指定変換になる。
  */
 const RESOURCE_COLUMN_BODY_SELECTOR = '[data-koyomi="resource-column"]';
+
+/** 終日セル内の「+N 件」ボタン（`AllDayOverflowButton`）を示す `data-koyomi` 属性のセレクタ。 */
+const ALL_DAY_OVERFLOW_SELECTOR = '[data-koyomi="allday-overflow"]';
 
 /**
  * ポインタ位置が `selector` に一致する領域の上にあるかを判定する。
@@ -383,32 +385,6 @@ function slotTimeRangeMinutes(options: { slotMinTime: string; slotMaxTime: strin
 }
 
 /**
- * 動かしている側の overlap 実効値（重なりを拒否するか）を求める。
- * 新規作成（`occurrence` が `null`）では動かしている側の個別設定が存在しないため、
- * グローバル `eventOverlap` をそのまま動かしている側の値として使う。
- */
-function resolveMoverBlocksOverlap(
-  occurrence: EventOccurrence | null,
-  eventOverlap: boolean,
-): boolean {
-  return occurrence === null
-    ? eventOverlap === false
-    : occurrenceBlocksOverlap(occurrence.event, eventOverlap);
-}
-
-/**
- * 対象（新規作成は `null`）に適用される配置制約の実効ルールを解決する。
- * イベント個別の `constraint` が優先され、未指定ならグローバル `eventConstraint` を使う。
- */
-function resolveConstraintRulesForOccurrence(
-  occurrence: EventOccurrence | null,
-  eventConstraint: ResolvedCalendarOptions['eventConstraint'],
-  businessHours: readonly BusinessHoursRule[],
-): readonly BusinessHoursRule[] | null {
-  return resolveConstraintRules(occurrence?.event.constraint ?? eventConstraint, businessHours);
-}
-
-/**
  * リソースビューのドラッグインタラクションを提供するフック。
  *
  * 変更の適用はライブラリが行う（`api.updateEvent`）。繰り返しイベントの場合は
@@ -439,20 +415,34 @@ export function useResourceGridDrag(params: {
   const overlapCacheRef = useRef(createOverlapBlockerCache());
   /** 進行中のドラッグセッション（非ドラッグ中は `null`）。 */
   const dragSessionRef = useRef<DragSession | null>(null);
-  /** 直後の click イベントを 1 回だけ抑制するフラグ。 */
-  const suppressNextClickRef = useRef(false);
+  /** ドラッグ確定・Escape キャンセル直後の click を 1 回だけ抑止する管理オブジェクト。 */
+  const clickSuppressorRef = useRef<ClickSuppressor | null>(null);
+  if (clickSuppressorRef.current === null) {
+    clickSuppressorRef.current = createClickSuppressor();
+  }
+  const clickSuppressor = clickSuppressorRef.current;
   /** キーボード削除後のフォーカス復帰を管理するコントローラ（本フック内で使い回す）。 */
   const deleteFocusControllerRef = useRef(createOccurrenceDeleteFocusController());
   /** キーボード作成による既定即時作成後のフォーカス移動を管理するコントローラ。 */
   const createdEventFocusControllerRef = useRef(createCreatedEventFocusController());
   const [isDragging, setIsDragging] = useState(false);
 
+  // アンマウント時に進行中のセッションがあれば、document リスナーを解除し、
+  // ストアに設定済みのドラッグプレビューも消す。プレビューはカレンダーの状態に入るため、
+  // 消さないと、ドラッグ中のビュー切替などでこのフックだけがアンマウントされた後も
+  // 残り続ける（確定・キャンセルのどちらも届かなくなるため）。セッションがなければ
+  // プレビューには触れない（他のフックが設定したプレビューを消さないため）。
   useEffect(() => {
     return () => {
-      dragSessionRef.current?.cleanup();
-      dragSessionRef.current = null;
+      const session = dragSessionRef.current;
+      if (session !== null) {
+        session.cleanup();
+        dragSessionRef.current = null;
+        paramsRef.current.calendar.api.setDragPreview(null);
+      }
+      clickSuppressor.dispose();
     };
-  }, []);
+  }, [clickSuppressor]);
 
   // キーボード削除・キーボード作成の確定後、DOM 更新完了後（再レンダー後）に一度だけ
   // フォーカス解決を試みる（`virtual-resource-view.tsx` の pinned フォーカス復元と同じ
@@ -874,7 +864,7 @@ export function useResourceGridDrag(params: {
       if (occurrence === null) {
         return;
       }
-      suppressNextClickRef.current = true;
+      clickSuppressor.arm();
 
       if (session.allDayConversion !== null) {
         // 時間指定 → 終日の変換ドラッグの確定（ポインタ位置の列のリソース割当）
@@ -1211,10 +1201,13 @@ export function useResourceGridDrag(params: {
           { start: occurrenceForPreview.start, end: occurrenceForPreview.end },
           dayDelta,
         );
+        // 制約判定の終日区分は確定時と同じくオカレンス自身の値を使う（終日行には
+        // 複数日にまたがる時間指定の予定も並ぶ）。プレビューの `allDay` は表示先が
+        // 終日行であることを表すため `true` のまま
         const invalid = !isCandidateValid(
           occurrenceForPreview,
           conversionRange,
-          true,
+          occurrenceForPreview.allDay,
           session.targetResourceId,
         );
         paramsRef.current.calendar.api.setDragPreview({
@@ -1264,7 +1257,7 @@ export function useResourceGridDrag(params: {
       if (nativeEvent.key !== 'Escape') {
         return;
       }
-      suppressNextClickRef.current = true;
+      clickSuppressor.arm();
       cancelSession();
     };
 
@@ -1367,8 +1360,7 @@ export function useResourceGridDrag(params: {
     event: ReactMouseEvent<HTMLElement>,
   ): void {
     event.stopPropagation();
-    if (suppressNextClickRef.current) {
-      suppressNextClickRef.current = false;
+    if (clickSuppressor.shouldSuppress(event.nativeEvent)) {
       return;
     }
     paramsRef.current.callbacks?.onEventClick?.(occurrence, event.nativeEvent);
@@ -1583,7 +1575,9 @@ export function useResourceGridDrag(params: {
         return;
       }
       const current = columns[index];
-      const target = columns[index + (event.key === 'ArrowLeft' ? -1 : 1)];
+      // RTL では列が右→左へ並ぶため、←/→ を並びの方向へ読み替える
+      const step = readingOrderArrowKey(event.key, event.currentTarget) === 'ArrowLeft' ? -1 : 1;
+      const target = columns[index + step];
       if (current === undefined || target === undefined) {
         return;
       }
@@ -1596,12 +1590,14 @@ export function useResourceGridDrag(params: {
         dayDelta === 0
           ? null
           : shiftRangeByDays({ start: occurrence.start, end: occurrence.end }, dayDelta);
+      // 終日区分は行（終日行かどうか）ではなくオカレンス自身の値を使う。終日行には
+      // 複数日にまたがる時間指定の予定も並ぶため、行の区分で確定すると時刻が失われる
       void commitKeyboardChange(
         occurrence,
         'move',
         range,
         targetLaneId,
-        allDay,
+        occurrence.allDay,
         sourceLaneId,
       ).catch(reportError);
       return;
@@ -1652,12 +1648,30 @@ export function useResourceGridDrag(params: {
     ).catch(reportError);
   }
 
-  /** 終日セルのクリックでその列の日 1 日の終日イベントを作成する。 */
-  function handleAllDayCellClick(column: ResourceColumn): void {
-    if (suppressNextClickRef.current) {
-      suppressNextClickRef.current = false;
+  /**
+   * 終日セルのクリックでその列の日 1 日の終日イベントを作成する。
+   * ドラッグ確定・Escape キャンセル直後の click と、セル内の「+N 件」ボタン
+   * （`allday-overflow`）からバブルしてきた click では作成しない
+   * （後者は `onAllDayOverflowClick` のための操作であり、空き領域のクリックではない）。
+   */
+  function handleAllDayCellClick(
+    column: ResourceColumn,
+    event: ReactMouseEvent<HTMLElement>,
+  ): void {
+    if (clickSuppressor.shouldSuppress(event.nativeEvent)) {
       return;
     }
+    if (
+      event.target instanceof Element &&
+      event.target.closest(ALL_DAY_OVERFLOW_SELECTOR) !== null
+    ) {
+      return;
+    }
+    createAllDayEventAt(column);
+  }
+
+  /** その列の日 1 日の終日イベントを作成する（終日セルのクリック・Enter・Space 共通）。 */
+  function createAllDayEventAt(column: ResourceColumn): void {
     const { state } = paramsRef.current.calendar;
     const day = column.date;
     const range: DateRange = {
@@ -1741,8 +1755,8 @@ export function useResourceGridDrag(params: {
 
   function getAllDayCellProps(column: ResourceColumn): ResourceAllDayCellProps {
     return {
-      onClick: () => {
-        handleAllDayCellClick(column);
+      onClick: (event: ReactMouseEvent<HTMLElement>) => {
+        handleAllDayCellClick(column, event);
       },
       onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
         // 終日アイテムのボタン由来のキー操作（Enter/Space 等）をセルの作成として
@@ -1754,7 +1768,7 @@ export function useResourceGridDrag(params: {
           return;
         }
         event.preventDefault();
-        handleAllDayCellClick(column);
+        createAllDayEventAt(column);
       },
       tabIndex: 0,
       'data-koyomi-resource': laneKeyOf(column),
@@ -1779,7 +1793,7 @@ export function useResourceGridDrag(params: {
       },
       tabIndex: 0,
       'data-koyomi-occurrence': occurrence.key,
-      ...eventNotificationProps(paramsRef.current.callbacks, occurrence),
+      ...eventNotificationProps(() => paramsRef.current.callbacks, occurrence),
     };
     if (dragSessionRef.current?.occurrence?.key === occurrence.key) {
       return { ...base, 'data-koyomi-dragging': 'true' };

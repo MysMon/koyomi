@@ -14,6 +14,9 @@
  * - {@link laneIdFromEventTarget} — 操作した DOM 要素から操作元レーンのリソース ID を
  *   解決する（複数リソース割当のオカレンスは複数レーンに表示されるため、操作元の
  *   特定は DOM を正とする。リソースビュー・タイムラインの2フックで共有）
+ * - {@link resolveMoverBlocksOverlap} / {@link resolveConstraintRulesForOccurrence} —
+ *   動かしている側のイベント個別の `overlap` / `constraint` を踏まえた実効値の解決
+ *   （4 つのドラッグ系フックと `use-calendar-clipboard.ts` の貼り付けで共通）
  * - {@link collectOverlapBlockersInRange} — 重なり判定用ブロッカーの収集
  *   （時間グリッド・日単位（帯）・リソース・タイムライン・外部ドラッグの 5 フック共通。
  *   `api.getOccurrences` から収集することで、表示中のビューモデルに現れない
@@ -34,11 +37,15 @@
  *   軸（縦/横）だけが違う）
  * - {@link attachDragSessionListeners} — pointermove/pointerup/pointercancel/keydown の
  *   document リスナー配線・解除（3フック共通）
+ * - {@link createClickSuppressor} — ドラッグ確定・Escape キャンセル直後の click を
+ *   1 回だけ抑止する管理（4フック共通。`use-day-drag.ts` を含む）
+ * - {@link eventNotificationSignature} — 追加通知系コールバックの指定の有無の組み合わせ
+ *   （`memo` 化した予定要素へ DOM props の増減を反映するための判定値）
  * - {@link eventNotificationProps} — 追加通知系ハンドラ（`onEventDoubleClick` /
  *   `onEventContextMenu` / `onEventHover` / `onEventHoverEnd`）の配線
  *   （3フックに加え `use-day-drag.ts` と `list-view-parts.tsx` も含む 5 箇所共通）
  * - {@link createDefaultEvent} — `onSelectRange` 未指定時の既定即時作成
- *   （3フックに加え `use-day-drag.ts` と `use-calendar-announcer.ts` も含む 5 箇所共通。
+ *   （3フックに加え `use-day-drag.ts` も含む 4 箇所共通。
  *   タイトル・`allDay` / `resourceId` の付与規則をここに集約し、複製を禁止する）
  * - {@link captureOccurrenceDeleteFocusContext} / {@link createOccurrenceDeleteFocusController} —
  *   キーボード削除後のフォーカス管理（4フック共通。`use-day-drag.ts` を含む）
@@ -57,17 +64,23 @@
  */
 
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { type OverlapBlocker, occurrenceBlocksOverlap } from '../core/constraints';
+import {
+  type OverlapBlocker,
+  occurrenceBlocksOverlap,
+  resolveConstraintRules,
+} from '../core/constraints';
 import { rangesOverlap } from '../core/date-utils';
 import { assignedLaneIds, effectiveResourceIds } from '../core/resource-assignment';
 import { addDaysInZone, dateKeyInZone, startOfDayInZone } from '../core/timezone';
 import type {
+  BusinessHoursRule,
   CalendarApi,
   CalendarEvent,
   DateRange,
   EventChangeEntry,
   EventOccurrence,
   RecurringEditScope,
+  ResolvedCalendarOptions,
   TimeZoneId,
 } from '../core/types';
 import { resourceIdFromLaneKey } from '../core/views/lane-key';
@@ -311,6 +324,56 @@ export function collectOverlapBlockersInRange(
     end: occurrence.end,
     blocksOverlap: occurrenceBlocksOverlap(occurrence.event, eventOverlap),
   }));
+}
+
+/**
+ * 宣言的制約の判定で「動かしている側」になる対象。ドラッグ・キーボード操作では
+ * 対象のオカレンス、貼り付けでは貼り付けるイベントの入力を `event` に入れて渡す
+ * （イベント個別の `overlap` / `constraint` だけを参照する）。
+ */
+export interface ConstraintMover {
+  /** 動かしている側のイベント（個別の `overlap` / `constraint` を持ち得る）。 */
+  event: Pick<CalendarEvent, 'overlap' | 'constraint'>;
+}
+
+/**
+ * 動かしている側の overlap 実効値（重なりを拒否するか）を求める。
+ *
+ * イベント個別の `overlap` が優先され、未指定ならグローバル `eventOverlap` を使う
+ * （重ねられる側の判定 `occurrenceBlocksOverlap` と同じ規則）。新規作成・外部ドラッグ
+ * （`mover` が `null`）では個別設定が存在しないため、グローバル `eventOverlap` を
+ * そのまま動かしている側の値として使う。
+ *
+ * 4 つのドラッグ系フックと `useCalendarClipboard` の貼り付けが同じ実装を使う。
+ *
+ * @param mover - 動かしている側（新規作成は `null`）
+ * @param eventOverlap - {@link CalendarOptions.eventOverlap} の実効値
+ * @returns 動かしている側が重なりを拒否するか
+ */
+export function resolveMoverBlocksOverlap(
+  mover: ConstraintMover | null,
+  eventOverlap: boolean,
+): boolean {
+  return (mover?.event.overlap ?? eventOverlap) === false;
+}
+
+/**
+ * 対象（新規作成は `null`）に適用される配置制約の実効ルールを解決する。
+ * イベント個別の `constraint` が優先され、未指定ならグローバル `eventConstraint` を使う。
+ *
+ * 4 つのドラッグ系フックと `useCalendarClipboard` の貼り付けが同じ実装を使う。
+ *
+ * @param mover - 動かしている側（新規作成は `null`）
+ * @param eventConstraint - {@link CalendarOptions.eventConstraint} の実効値
+ * @param businessHours - {@link CalendarOptions.businessHours} の実効値
+ * @returns 適用するルール一覧（`null` は制約なし）
+ */
+export function resolveConstraintRulesForOccurrence(
+  mover: ConstraintMover | null,
+  eventConstraint: ResolvedCalendarOptions['eventConstraint'],
+  businessHours: readonly BusinessHoursRule[],
+): readonly BusinessHoursRule[] | null {
+  return resolveConstraintRules(mover?.event.constraint ?? eventConstraint, businessHours);
 }
 
 /**
@@ -595,6 +658,84 @@ export function attachDragSessionListeners(handlers: DragSessionListenerHandlers
 }
 
 /**
+ * ドラッグ確定・Escape キャンセルの直後にブラウザが発火する click を 1 回だけ抑止する
+ * ための管理オブジェクト（{@link createClickSuppressor}）。
+ */
+export interface ClickSuppressor {
+  /**
+   * 同じポインタ操作が生む次の click を抑止対象にする。次のいずれかで自動的に解除される:
+   * click が 1 回届いた（その click だけが抑止対象になる）／次のポインタ操作が始まった
+   * （`pointerdown`）／Escape 以外のキーが押された。
+   */
+  arm: () => void;
+  /**
+   * 渡した click が抑止対象（{@link ClickSuppressor.arm} 後に最初に届いた click）かを返す。
+   *
+   * @param nativeEvent - 判定する click のネイティブイベント
+   */
+  shouldSuppress: (nativeEvent: Event) => boolean;
+  /** 登録中の document リスナーを解除する（アンマウント時に呼ぶ）。 */
+  dispose: () => void;
+}
+
+/**
+ * ドラッグ確定・Escape キャンセルの直後の click を 1 回だけ抑止する管理オブジェクトを作る。
+ *
+ * ブラウザは pointerup の直後に click を発火するが、その click が届く要素は予定とは
+ * 限らない（作成ドラッグなら列・行・セル、移動後に要素が入れ替わった場合は祖先）。
+ * そこで「抑止を予約した後、document に最初に届いた click」だけを抑止対象として記録し、
+ * 予定以外に届いた場合もそこで予約を使い切る。click が届かないまま次の操作
+ * （`pointerdown`・Escape 以外のキー入力）が始まった場合も予約を破棄するため、
+ * 後続の無関係なクリック・Enter が抑止されることはない。
+ *
+ * 4 つのドラッグ系フック（`use-day-drag` / `use-time-grid-drag` /
+ * `use-resource-grid-drag` / `use-timeline-drag`）で共通に使う。
+ *
+ * @returns 抑止の予約・判定・後始末を行う {@link ClickSuppressor}
+ */
+export function createClickSuppressor(): ClickSuppressor {
+  /** 抑止対象として記録した click（弱参照のため、イベントや要素を保持し続けない）。 */
+  let suppressed = new WeakSet<Event>();
+  let detach: (() => void) | null = null;
+
+  const disarm = (): void => {
+    detach?.();
+    detach = null;
+  };
+
+  return {
+    arm: () => {
+      disarm();
+      const handleClick = (event: Event): void => {
+        suppressed.add(event);
+        disarm();
+      };
+      const handleKeyDown = (event: KeyboardEvent): void => {
+        // Escape はキャンセル操作そのもの（キーリピートを含む）なので予約を維持する
+        if (event.key !== 'Escape') {
+          disarm();
+        }
+      };
+      // キャプチャ段階で受けることで、伝播を止める要素（予定・リサイズハンドル等）に
+      // 届く click も必ず観測し、各要素の onClick より先に記録する
+      document.addEventListener('click', handleClick, true);
+      document.addEventListener('pointerdown', disarm, true);
+      document.addEventListener('keydown', handleKeyDown, true);
+      detach = () => {
+        document.removeEventListener('click', handleClick, true);
+        document.removeEventListener('pointerdown', disarm, true);
+        document.removeEventListener('keydown', handleKeyDown, true);
+      };
+    },
+    shouldSuppress: (nativeEvent) => suppressed.has(nativeEvent),
+    dispose: () => {
+      disarm();
+      suppressed = new WeakSet<Event>();
+    },
+  };
+}
+
+/**
  * イベント要素に付与する追加通知系ハンドラ（`onDoubleClick` / `onContextMenu` /
  * `onPointerEnter` / `onPointerLeave`）。対応するコールバック
  * （`onEventDoubleClick` 等）が未指定のキーは {@link eventNotificationProps} の
@@ -621,43 +762,70 @@ export interface EventNotificationProps {
  * スプレッドすることで、各ビューの「省略時は DOM props を追加しない」という仕様を
  * 1 箇所の実装で保証する。
  *
- * @param callbacks - インタラクションコールバック
+ * キーの有無は本関数の呼び出し時点（＝予定要素のレンダー時）のコールバックで決まり、
+ * 各ハンドラは**発火時点**で `getCallbacks` を読み直す。予定要素は `memo` で
+ * 再レンダーを抑制しているため、レンダー時のコールバックを閉じ込めると、利用側が
+ * 差し替えた後も古いコールバックを呼び続けてしまう。キーの有無が変わる場合
+ * （コールバックの追加・削除）は、{@link eventNotificationSignature} の変化を
+ * きっかけに予定要素を再レンダーさせて反映する。
+ *
+ * @param getCallbacks - 最新のインタラクションコールバックを返す関数
+ *   （フックでは常に最新値を保持する ref を読む）
  * @param occurrence - 対象のオカレンス
  * @returns 追加通知系ハンドラ（該当コールバック未指定のキーは含まない）
  */
 export function eventNotificationProps(
-  callbacks: CalendarInteractionCallbacks | undefined,
+  getCallbacks: () => CalendarInteractionCallbacks | undefined,
   occurrence: EventOccurrence,
 ): EventNotificationProps {
   const props: EventNotificationProps = {};
-  const onEventDoubleClick = callbacks?.onEventDoubleClick;
-  if (onEventDoubleClick !== undefined) {
+  const callbacks = getCallbacks();
+  if (callbacks?.onEventDoubleClick !== undefined) {
     props.onDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
-      onEventDoubleClick(occurrence, event.nativeEvent);
+      getCallbacks()?.onEventDoubleClick?.(occurrence, event.nativeEvent);
     };
   }
-  const onEventContextMenu = callbacks?.onEventContextMenu;
-  if (onEventContextMenu !== undefined) {
+  if (callbacks?.onEventContextMenu !== undefined) {
     props.onContextMenu = (event: ReactMouseEvent<HTMLElement>) => {
-      onEventContextMenu(occurrence, event.nativeEvent);
+      getCallbacks()?.onEventContextMenu?.(occurrence, event.nativeEvent);
     };
   }
-  const onEventHover = callbacks?.onEventHover;
-  if (onEventHover !== undefined) {
+  if (callbacks?.onEventHover !== undefined) {
     props.onPointerEnter = (event: ReactPointerEvent<HTMLElement>) => {
-      onEventHover(occurrence, event.nativeEvent);
+      getCallbacks()?.onEventHover?.(occurrence, event.nativeEvent);
     };
   }
-  const onEventHoverEnd = callbacks?.onEventHoverEnd;
-  if (onEventHoverEnd !== undefined) {
+  if (callbacks?.onEventHoverEnd !== undefined) {
     props.onPointerLeave = (event: ReactPointerEvent<HTMLElement>) => {
-      onEventHoverEnd(occurrence, event.nativeEvent);
+      getCallbacks()?.onEventHoverEnd?.(occurrence, event.nativeEvent);
     };
   }
   return props;
 }
 
-/** {@link createDefaultEvent} の `defaultEventTitle` 省略時に使う既定タイトル。 */
+/**
+ * 追加通知系コールバック（`onEventDoubleClick` / `onEventContextMenu` /
+ * `onEventHover` / `onEventHoverEnd`）の「指定の有無の組み合わせ」を表す値を返す。
+ *
+ * {@link eventNotificationProps} が返すキーの集合はこの組み合わせだけで決まる。
+ * 関数の参照が変わっただけでは値は変わらず、コールバックが追加・削除されたときだけ
+ * 変わるため、`memo` 化した予定要素を「DOM props の増減が必要なときだけ」
+ * 再レンダーさせる判定に使う（`components/stable-handlers.ts`）。
+ *
+ * @param callbacks - インタラクションコールバック
+ * @returns 組み合わせごとに異なる整数（4 ビットのビット集合）
+ */
+export function eventNotificationSignature(
+  callbacks: CalendarInteractionCallbacks | undefined,
+): number {
+  return (
+    (callbacks?.onEventDoubleClick !== undefined ? 1 : 0) |
+    (callbacks?.onEventContextMenu !== undefined ? 2 : 0) |
+    (callbacks?.onEventHover !== undefined ? 4 : 0) |
+    (callbacks?.onEventHoverEnd !== undefined ? 8 : 0)
+  );
+}
+
 /**
  * 終日イベントとして書き込むパッチの `start` / `end` を、タイムゾーンに依存しない
  * 日付キー文字列に変換する。
@@ -680,6 +848,7 @@ export function allDayPatchRange(
   };
 }
 
+/** {@link createDefaultEvent} の `defaultEventTitle` 省略時に使う既定タイトル。 */
 const FALLBACK_DEFAULT_EVENT_TITLE = '(タイトルなし)';
 
 /**
@@ -687,7 +856,7 @@ const FALLBACK_DEFAULT_EVENT_TITLE = '(タイトルなし)';
  * の既定動作）。
  *
  * 4 つのドラッグ系フック（`use-day-drag` / `use-time-grid-drag` / `use-resource-grid-drag` /
- * `use-timeline-drag`）と `useCalendarAnnouncer` の `wrapCallbacks` が同一実装として呼ぶ。
+ * `use-timeline-drag`）が同一実装として呼ぶ。
  * タイトル・`allDay` / `resourceId` の付与規則をここに集約し、複製を禁止する
  * （呼び出し元ごとに個別実装すると、将来これらの扱いが変わったときに乖離するため）。
  *

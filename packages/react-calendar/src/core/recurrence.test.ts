@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import {
   countOccurrencesBefore,
   expandRecurrence,
+  expandRecurrenceWithCache,
   normalizeRRuleString,
   previousOccurrenceStart,
   toFakeUTC,
@@ -1023,6 +1024,118 @@ describe('truncateRRule', () => {
         timeZone: TOKYO,
         until: new Date('2026-07-05T00:00:00Z'),
       }),
+    ).toThrow(Error);
+  });
+});
+
+describe('expandRecurrenceWithCache', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  /** 決定的な擬似乱数（テストの再現性のため Math.random を使わない）。 */
+  function createRandom(seed: number): () => number {
+    let state = seed >>> 0;
+    return () => {
+      state = (state * 1664525 + 1013904223) >>> 0;
+      return state / 4294967296;
+    };
+  }
+
+  const RULES = [
+    'FREQ=DAILY',
+    'FREQ=DAILY;INTERVAL=3;COUNT=40',
+    'FREQ=WEEKLY;BYDAY=MO,WE,FR',
+    'FREQ=WEEKLY;INTERVAL=2;WKST=SU;BYDAY=SU,TU',
+    'FREQ=MONTHLY;BYDAY=-1FR',
+    'FREQ=MONTHLY;BYMONTHDAY=31',
+    'FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1',
+    'FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29',
+    'FREQ=DAILY;UNTIL=20261115T013000Z',
+    // 保持する候補数の上限を超えうる密なルール（保持せず毎回列挙する経路を含む）
+    'FREQ=HOURLY',
+  ] as const;
+
+  it.each([
+    [TOKYO, new Date('2026-07-01T00:00:00Z')],
+    // DST のあるゾーン。巻き戻りで 2 回現れる時刻（1:30）を起点にする
+    [NY, new Date('2026-03-01T06:30:00Z')],
+  ] as const)(
+    '範囲を前後に動かしても、保持なしの展開と同じ結果を返す（%s）',
+    (timeZone, dtstart) => {
+      const random = createRandom(20260701);
+      for (const rrule of RULES) {
+        const cacheKey = {};
+        let cursor = dtstart.getTime() - 10 * DAY;
+        for (let step = 0; step < 30; step += 1) {
+          // 前進・後退・遠方へのジャンプを混ぜ、範囲の長さも 1 時間〜約 6 週間で変える
+          const jump = random();
+          if (jump < 0.6) {
+            cursor += Math.floor(random() * 20 * DAY);
+          } else if (jump < 0.9) {
+            cursor -= Math.floor(random() * 30 * DAY);
+          } else {
+            cursor += Math.floor((random() - 0.3) * 300 * DAY);
+          }
+          const length = random() < 0.2 ? 60 * 60 * 1000 : Math.floor(random() * 42 * DAY) + DAY;
+          const range = { start: new Date(cursor), end: new Date(cursor + length) };
+          const exdates = random() < 0.3 ? [new Date(dtstart.getTime() + 7 * DAY)] : [];
+          const params = { rrule, dtstart, timeZone, exdates, range };
+          expect(toISO(expandRecurrenceWithCache(params, cacheKey))).toEqual(
+            toISO(expandRecurrence(params)),
+          );
+        }
+      }
+    },
+  );
+
+  it('同じキーで RRULE・起点・タイムゾーンが変わったら、保持した候補を使わない', () => {
+    const cacheKey = {};
+    const range = {
+      start: new Date('2026-07-01T00:00:00Z'),
+      end: new Date('2026-07-15T00:00:00Z'),
+    };
+    const variants = [
+      { rrule: 'FREQ=DAILY', dtstart: new Date('2026-07-01T00:00:00Z'), timeZone: TOKYO },
+      { rrule: 'FREQ=WEEKLY', dtstart: new Date('2026-07-01T00:00:00Z'), timeZone: TOKYO },
+      { rrule: 'FREQ=WEEKLY', dtstart: new Date('2026-07-02T03:00:00Z'), timeZone: TOKYO },
+      { rrule: 'FREQ=WEEKLY', dtstart: new Date('2026-07-02T03:00:00Z'), timeZone: NY },
+    ];
+    for (const variant of variants) {
+      const params = { ...variant, range };
+      expect(toISO(expandRecurrenceWithCache(params, cacheKey))).toEqual(
+        toISO(expandRecurrence(params)),
+      );
+    }
+  });
+
+  it('呼び出しごとに新しい Date を返す（戻り値を書き換えても次の結果に影響しない）', () => {
+    const cacheKey = {};
+    const params = {
+      rrule: 'FREQ=DAILY;COUNT=3',
+      dtstart: new Date('2026-07-01T00:00:00Z'),
+      timeZone: TOKYO,
+      range: { start: new Date('2026-07-01T00:00:00Z'), end: new Date('2026-07-10T00:00:00Z') },
+    };
+    const first = expandRecurrenceWithCache(params, cacheKey);
+    first[0]?.setTime(0);
+    expect(toISO(expandRecurrenceWithCache(params, cacheKey))).toEqual([
+      '2026-07-01T00:00:00.000Z',
+      '2026-07-02T00:00:00.000Z',
+      '2026-07-03T00:00:00.000Z',
+    ]);
+  });
+
+  it('空の範囲でも不正な RRULE は Error にする', () => {
+    const instant = new Date('2026-07-01T00:00:00Z');
+    expect(() =>
+      expandRecurrenceWithCache(
+        {
+          rrule: 'FOO=BAR',
+          dtstart: instant,
+          timeZone: TOKYO,
+          range: { start: instant, end: instant },
+        },
+        {},
+      ),
     ).toThrow(Error);
   });
 });

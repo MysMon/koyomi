@@ -97,7 +97,7 @@ describe('sameListDay', () => {
     const other: ListDay = {
       ...day,
       date: new Date(day.date.getTime()),
-      occurrences: day.occurrences.map((item) => ({ ...item, event: { ...item.event } })),
+      occurrences: day.occurrences.map((item) => ({ ...item })),
     };
     expect(sameListDay(day, other)).toBe(true);
   });
@@ -206,7 +206,7 @@ describe('ListDaySection のメモ化', () => {
 
       const sameContentDay: ListDay = {
         ...day,
-        occurrences: day.occurrences.map((item) => ({ ...item, event: { ...item.event } })),
+        occurrences: day.occurrences.map((item) => ({ ...item })),
       };
       rerender(<ListDaySection {...props} day={sameContentDay} />);
 

@@ -21,7 +21,7 @@
  */
 
 import type { CSSProperties, ReactElement, ReactNode, Ref } from 'react';
-import { memo, useCallback, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useImperativeHandle, useLayoutEffect, useRef } from 'react';
 import type {
   BusinessHourSlot,
   EventOccurrence,
@@ -36,6 +36,7 @@ import { useCalendarContext } from '../context';
 import type { CommonMessages } from '../locales/types';
 import { scrollContainerToTime } from '../scroll-to-time';
 import type {
+  CalendarInteractionCallbacks,
   EventContentContext,
   EventContentRenderer,
   MonthOverflowButtonProps,
@@ -51,6 +52,7 @@ import {
   withEventColorStyle,
   withTimegridHoursStyle,
 } from './month-view-parts';
+import { sameOccurrence } from './occurrence-equality';
 import {
   ariaLabelWithResource,
   businessHourSlotsForColumn,
@@ -61,13 +63,13 @@ import {
   resourceColumnHeaderContent,
   resourceTimedContentContext,
   sameBusinessHourSlots,
-  sameEventOccurrence,
   samePositionedOccurrences,
   samePreviewSegment,
   sameResource,
   sameSlots,
   toDivRef,
 } from './resource-view-parts';
+import { useStableHandlers } from './stable-handlers';
 import { AllDayOverflowButton } from './time-grid-view';
 
 /**
@@ -165,7 +167,7 @@ interface ResourceColumnDragHandlers {
 /**
  * `useResourceGridDrag` の戻り値は毎レンダー新しいオブジェクト（関数含む）になるため、
  * そのまま `memo` 化した子コンポーネントの props に渡すと再レンダー抑制が効かない。
- * ここで参照が変わらないラッパーを 1 度だけ作り、呼び出し時に ref 経由で常に最新の
+ * ここで参照が変わらないラッパーを作り（作り直す条件は `useStableHandlers` を参照）、呼び出し時に ref 経由で常に最新の
  * ハンドラへ委譲することで、props の同一性を保ったまま最新の挙動を保証する
  * （`time-grid-view.tsx` の `useStableColumnDrag` と同じ設計）。
  *
@@ -178,16 +180,21 @@ interface ResourceColumnDragHandlers {
  * この差は DOM 構造上の理由による意図的なものなので、`resource-view-parts.tsx` へは
  * 統合していない。
  */
-function useStableResourceDrag(drag: ResourceGridDragHandlers): ResourceColumnDragHandlers {
+function useStableResourceDrag(
+  drag: ResourceGridDragHandlers,
+  callbacks: CalendarInteractionCallbacks,
+): ResourceColumnDragHandlers {
   const dragRef = useRef(drag);
   dragRef.current = drag;
-  const [stable] = useState<ResourceColumnDragHandlers>(() => ({
-    getColumnProps: (column) => dragRef.current.getColumnProps(column),
-    getEventProps: (item) => dragRef.current.getEventProps(item),
-    getResizeHandleProps: (item, edge) => dragRef.current.getResizeHandleProps(item, edge),
-    getAllDayItemProps: (occurrence) => dragRef.current.getAllDayItemProps(occurrence),
-  }));
-  return stable;
+  return useStableHandlers<ResourceColumnDragHandlers>(
+    () => ({
+      getColumnProps: (column) => dragRef.current.getColumnProps(column),
+      getEventProps: (item) => dragRef.current.getEventProps(item),
+      getResizeHandleProps: (item, edge) => dragRef.current.getResizeHandleProps(item, edge),
+      getAllDayItemProps: (occurrence) => dragRef.current.getAllDayItemProps(occurrence),
+    }),
+    callbacks,
+  );
 }
 
 /**
@@ -259,7 +266,7 @@ export function ResourceView(props: ResourceViewProps): ReactElement | null {
   });
   // `drag` は毎レンダー新しいオブジェクトになるため、列・終日アイテムの
   // memo 化が効くよう、参照が変わらないラッパー経由で渡す（詳細は関数コメント参照）。
-  const stableDrag = useStableResourceDrag(drag);
+  const stableDrag = useStableResourceDrag(drag, callbacks);
   // api の参照は再レンダリングを跨いで安定するため、onToggleCollapse も安定する
   // （TimelineView の同名コールバックと同じ狙い）。
   const onToggleCollapse = useCallback(
@@ -717,7 +724,7 @@ function AllDayItemButtonImpl(props: AllDayItemButtonProps): ReactElement {
  */
 const AllDayItemButton = memo(AllDayItemButtonImpl, (prev, next) => {
   return (
-    sameEventOccurrence(prev.occurrence, next.occurrence) &&
+    sameOccurrence(prev.occurrence, next.occurrence) &&
     sameResource(prev.column.resource, next.column.resource) &&
     prev.lane === next.lane &&
     prev.timeZone === next.timeZone &&

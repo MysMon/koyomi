@@ -343,7 +343,7 @@ div[data-koyomi="resource"][data-koyomi-columns="<列数>"] (style: --koyomi-tim
       div[data-koyomi="timegrid-axis-gutter"] (role="presentation")
       div[data-koyomi="resource-allday-cells"] (role="presentation")  … position: relative の基準（row→gridcell 間の透過ラッパ）
         div[data-koyomi="resource-allday-cell"][data-koyomi-resource][data-koyomi-date][data-koyomi-preview-target?][data-koyomi-invalid?] (role="gridcell", aria-label=リソース名/未割り当て。複数日表示では日ラベル付き) × columns
-           … getAllDayCellProps（クリックでその列の日 1 日分の終日イベント作成。キーボードでの直接作成には未対応 = 既知の制限）。
+           … getAllDayCellProps（クリック、または Enter・Space でその列の日 1 日分の終日イベント作成）。
              data-koyomi-resource はレーンキー（r:${id} / 'unassigned'）、data-koyomi-date は列の日付キー。
              data-koyomi-invalid は data-koyomi-preview-target="true" の列かつ宣言的制約違反時のみ 'true'
           button[data-koyomi="allday-event"] × n             … getAllDayItemProps（列間移動のみ）

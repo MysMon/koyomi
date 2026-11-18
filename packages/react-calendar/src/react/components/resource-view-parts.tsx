@@ -34,6 +34,7 @@ import type { ResourcePreviewSegment } from '../use-resource-grid-drag';
 import { timedTextEventContentContext, titleOnlyEventContentContext } from './event-content';
 import { formatClockRangeLabel, formatDayHeader } from './format';
 import { formatOccurrenceRangeLabel } from './month-view-parts';
+import { sameOccurrence } from './occurrence-equality';
 
 /** 1 日の分（24:00 = 1440 分）。 */
 export const MINUTES_PER_DAY = 1440;
@@ -219,7 +220,10 @@ export function sameResource(a: CalendarResource | null, b: CalendarResource | n
   return a.id === b.id && a.title === b.title && a.color === b.color;
 }
 
-/** `PositionedOccurrence` 1 件分の、表示に影響する内容が等しいかどうかを比較する。 */
+/**
+ * `PositionedOccurrence` 1 件分の、表示・イベントハンドラに影響する内容が等しいかどうかを
+ * 比較する（オカレンスは {@link sameOccurrence}、加えて配置情報）。
+ */
 export function samePositionedOccurrence(
   a: PositionedOccurrence,
   b: PositionedOccurrence,
@@ -228,13 +232,7 @@ export function samePositionedOccurrence(
     return true;
   }
   return (
-    a.occurrence.key === b.occurrence.key &&
-    a.occurrence.event.title === b.occurrence.event.title &&
-    a.occurrence.event.color === b.occurrence.event.color &&
-    a.occurrence.event.resourceId === b.occurrence.event.resourceId &&
-    a.occurrence.event.editable === b.occurrence.event.editable &&
-    a.occurrence.start.getTime() === b.occurrence.start.getTime() &&
-    a.occurrence.end.getTime() === b.occurrence.end.getTime() &&
+    sameOccurrence(a.occurrence, b.occurrence) &&
     a.startMinutes === b.startMinutes &&
     a.endMinutes === b.endMinutes &&
     a.left === b.left &&
@@ -259,22 +257,6 @@ export function samePositionedOccurrences(
     const other = b[index];
     return other !== undefined && samePositionedOccurrence(item, other);
   });
-}
-
-/** `EventOccurrence` 1 件分の、表示に影響する内容が等しいかどうかを比較する（終日アイテム用）。 */
-export function sameEventOccurrence(a: EventOccurrence, b: EventOccurrence): boolean {
-  if (a === b) {
-    return true;
-  }
-  return (
-    a.key === b.key &&
-    a.event.title === b.event.title &&
-    a.event.color === b.event.color &&
-    a.event.resourceId === b.event.resourceId &&
-    a.event.editable === b.event.editable &&
-    a.start.getTime() === b.start.getTime() &&
-    a.end.getTime() === b.end.getTime()
-  );
 }
 
 /** `TimeSlot` 配列の内容が等しいかどうかを比較する（`ResourceView` / `VirtualResourceView` 共通）。 */

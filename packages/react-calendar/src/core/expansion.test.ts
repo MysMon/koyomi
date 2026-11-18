@@ -657,6 +657,18 @@ describe('expandEvents', () => {
   });
 
   describe('終日イベント', () => {
+    it('西暦 1000 年未満の終日イベントも展開できる', () => {
+      const source = makeEvent({ id: 'ad-999', start: '0999-03-01', allDay: true });
+      const result = expand(
+        [source],
+        { start: '0999-02-01T00:00:00Z', end: '0999-04-01T00:00:00Z' },
+        'UTC',
+      );
+      expect(result).toHaveLength(1);
+      expect(result[0]?.start).toEqual(new Date('0999-03-01T00:00:00Z'));
+      expect(result[0]?.end).toEqual(new Date('0999-03-02T00:00:00Z'));
+    });
+
     it("'YYYY-MM-DD' 文字列の単日イベントは表示 TZ の 0:00 に始まる 1 日になる", () => {
       const source = makeEvent({ id: 'ad1', start: '2026-07-01', allDay: true });
       const result = expand([source], {
@@ -1204,6 +1216,76 @@ describe('resolveOccurrence', () => {
       expect(resolved?.start).toEqual(new Date('2026-07-03T18:00:00Z'));
       expect(resolved?.end).toEqual(new Date('2026-07-03T19:00:00Z'));
     });
+
+    describe('params.master を渡した場合の originalStart は、マスターの終日区分で解釈する（expandEvents と一致）', () => {
+      const range = { start: '2026-07-01T00:00:00Z', end: '2026-07-10T00:00:00Z' };
+
+      /** expandEvents の結果から、オーバーライド `ov` のオカレンスを取り出す。 */
+      function expandedOverride(master: CalendarEvent, override: CalendarEvent): EventOccurrence {
+        const occurrence = expand([master, override], range).find((occ) => occ.eventId === 'ov');
+        if (occurrence === undefined) {
+          throw new Error('オーバーライドのオカレンスが展開されていません');
+        }
+        return occurrence;
+      }
+
+      it('時間指定マスターの 1 オカレンスを終日化したオーバーライドは、originalStart を時刻として解釈する', () => {
+        const master = makeEvent({
+          id: 'timed-master',
+          start: '2026-07-01T09:00:00',
+          end: '2026-07-01T10:00:00',
+          rrule: 'FREQ=DAILY;COUNT=5',
+        });
+        const override = makeEvent({
+          id: 'ov',
+          start: '2026-07-03',
+          end: '2026-07-04',
+          allDay: true,
+          recurringEventId: 'timed-master',
+          originalStart: new Date('2026-07-03T00:00:00Z'), // 東京 7/3 9:00
+        });
+        const expanded = expandedOverride(master, override);
+        const resolved = resolveOccurrence({
+          event: override,
+          occurrenceStart: expanded.start,
+          displayTimeZone: TOKYO,
+          defaultEventMinutes: 60,
+          master,
+        });
+        // 終日の日付（7/3 0:00）へ切り捨てず、元オカレンスの時刻（9:00）のまま
+        expect(resolved?.originalStart).toEqual(new Date('2026-07-03T00:00:00Z'));
+        expect(resolved?.originalStart).toEqual(expanded.originalStart);
+      });
+
+      it('終日マスターの 1 オカレンスを時間指定化したオーバーライドは、originalStart を日付として解釈する', () => {
+        const master = makeEvent({
+          id: 'all-day-master',
+          start: '2026-07-01',
+          allDay: true,
+          timeZone: NY,
+          rrule: 'FREQ=DAILY;COUNT=5',
+        });
+        const override = makeEvent({
+          id: 'ov',
+          start: '2026-07-03T09:00:00',
+          end: '2026-07-03T10:00:00',
+          recurringEventId: 'all-day-master',
+          originalStart: '2026-07-03',
+        });
+        const expanded = expandedOverride(master, override);
+        const resolved = resolveOccurrence({
+          event: override,
+          occurrenceStart: expanded.start,
+          displayTimeZone: TOKYO,
+          defaultEventMinutes: 60,
+          master,
+        });
+        // 終日の元オカレンスは表示 TZ（東京）における 7/3 の 0:00
+        // （マスター TZ の NY 7/3 0:00 = 04:00Z ではない）
+        expect(resolved?.originalStart).toEqual(new Date('2026-07-02T15:00:00Z'));
+        expect(resolved?.originalStart).toEqual(expanded.originalStart);
+      });
+    });
   });
 
   describe('終日イベント', () => {
@@ -1248,5 +1330,153 @@ describe('resolveOccurrence', () => {
       expect(inNy).not.toBeNull();
       expect(inNy?.end).toEqual(new Date('2026-07-09T04:00:00Z'));
     });
+  });
+});
+
+describe('expandEvents - 同じイベントオブジェクトでの再展開', () => {
+  /** 比較用に、オカレンスをキーと開始・終了・元の開始の文字列にする。 */
+  function summarize(
+    events: readonly CalendarEvent[],
+    params: {
+      range: { start: Date; end: Date };
+      displayTimeZone: string;
+      defaultEventMinutes: number;
+    },
+  ): string[] {
+    return expandEvents({ events, ...params }).map(
+      (occurrence) =>
+        `${occurrence.key}|${occurrence.start.toISOString()}|${occurrence.end.toISOString()}|${occurrence.originalStart.toISOString()}|${occurrence.allDay}`,
+    );
+  }
+
+  /** 毎回新しいオブジェクトとして作り直したイベント一覧（再利用される計算結果を持たない）。 */
+  function fresh(events: readonly CalendarEvent[]): CalendarEvent[] {
+    return events.map((event) => ({ ...event }));
+  }
+
+  const EVENTS: readonly CalendarEvent[] = [
+    { id: 'timed', title: 'A', start: '2026-07-01T09:00:00', end: '2026-07-01T10:30:00' },
+    { id: 'no-end', title: 'B', start: '2026-07-02T09:00:00' },
+    { id: 'date', title: 'C', start: new Date('2026-07-03T01:00:00Z') },
+    {
+      id: 'ny',
+      title: 'D',
+      start: '2026-07-04T09:00:00',
+      end: '2026-07-04T10:00:00',
+      timeZone: 'America/New_York',
+    },
+    { id: 'allday', title: 'E', start: '2026-07-05', end: '2026-07-08', allDay: true },
+    {
+      id: 'allday-ny',
+      title: 'F',
+      start: '2026-07-06',
+      allDay: true,
+      timeZone: 'America/New_York',
+    },
+    {
+      id: 'weekly',
+      title: 'G',
+      start: '2026-06-01T09:00:00',
+      end: '2026-06-01T10:00:00',
+      rrule: 'FREQ=WEEKLY;BYDAY=MO,WE',
+      exdates: ['2026-07-08T09:00:00'],
+    },
+    {
+      id: 'daily-ny',
+      title: 'H',
+      start: '2026-03-01T01:30:00',
+      rrule: 'FREQ=DAILY',
+      timeZone: 'America/New_York',
+    },
+    {
+      id: 'allday-weekly',
+      title: 'I',
+      start: '2026-06-02',
+      allDay: true,
+      rrule: 'FREQ=WEEKLY;COUNT=20',
+      rdates: ['2026-07-09'],
+    },
+  ];
+
+  it('範囲・表示タイムゾーン・既定の長さを変えながら再展開しても、作り直したイベントと同じ結果になる', () => {
+    const queries = [
+      {
+        range: { start: new Date('2026-06-28T00:00:00Z'), end: new Date('2026-07-12T00:00:00Z') },
+        displayTimeZone: 'Asia/Tokyo',
+        defaultEventMinutes: 60,
+      },
+      {
+        range: { start: new Date('2026-07-05T00:00:00Z'), end: new Date('2026-07-19T00:00:00Z') },
+        displayTimeZone: 'Asia/Tokyo',
+        defaultEventMinutes: 60,
+      },
+      {
+        range: { start: new Date('2026-06-28T00:00:00Z'), end: new Date('2026-07-12T00:00:00Z') },
+        displayTimeZone: 'America/Los_Angeles',
+        defaultEventMinutes: 60,
+      },
+      {
+        range: { start: new Date('2026-06-28T00:00:00Z'), end: new Date('2026-07-12T00:00:00Z') },
+        displayTimeZone: 'Asia/Tokyo',
+        defaultEventMinutes: 30,
+      },
+      {
+        range: { start: new Date('2026-10-25T00:00:00Z'), end: new Date('2026-11-08T00:00:00Z') },
+        displayTimeZone: 'America/New_York',
+        defaultEventMinutes: 45,
+      },
+      {
+        range: { start: new Date('2026-03-01T00:00:00Z'), end: new Date('2026-03-15T00:00:00Z') },
+        displayTimeZone: 'UTC',
+        defaultEventMinutes: 60,
+      },
+      {
+        range: { start: new Date('2026-06-28T00:00:00Z'), end: new Date('2026-07-12T00:00:00Z') },
+        displayTimeZone: 'Asia/Tokyo',
+        defaultEventMinutes: 60,
+      },
+    ];
+    for (const query of queries) {
+      expect(summarize(EVENTS, query)).toEqual(summarize(fresh(EVENTS), query));
+    }
+  });
+
+  it('イベントオブジェクトをその場で書き換えた場合も、書き換え後の値で展開する', () => {
+    const query = {
+      range: { start: new Date('2026-06-28T00:00:00Z'), end: new Date('2026-07-12T00:00:00Z') },
+      displayTimeZone: 'Asia/Tokyo',
+      defaultEventMinutes: 60,
+    };
+    const startDate = new Date('2026-07-03T01:00:00Z');
+    const events: CalendarEvent[] = [
+      { id: 'timed', title: 'A', start: '2026-07-01T09:00:00', end: '2026-07-01T10:30:00' },
+      { id: 'date', title: 'C', start: startDate },
+      { id: 'allday', title: 'E', start: '2026-07-05', end: '2026-07-08', allDay: true },
+      { id: 'weekly', title: 'G', start: '2026-06-01T09:00:00', rrule: 'FREQ=WEEKLY' },
+    ];
+    summarize(events, query);
+
+    // start の差し替え、Date の中身の書き換え、終日の end の差し替え、rrule の差し替え
+    Object.assign(events[0] ?? {}, { start: '2026-07-02T13:00:00', end: '2026-07-02T14:00:00' });
+    startDate.setTime(new Date('2026-07-04T05:00:00Z').getTime());
+    Object.assign(events[2] ?? {}, { end: '2026-07-06' });
+    Object.assign(events[3] ?? {}, { rrule: 'FREQ=DAILY;INTERVAL=3' });
+
+    expect(summarize(events, query)).toEqual(summarize(fresh(events), query));
+  });
+
+  it('呼び出しごとに新しい Date を返す（オカレンスの日時を書き換えても次の結果に影響しない）', () => {
+    const query = {
+      range: { start: new Date('2026-06-28T00:00:00Z'), end: new Date('2026-07-12T00:00:00Z') },
+      displayTimeZone: 'Asia/Tokyo',
+      defaultEventMinutes: 60,
+    };
+    const expected = summarize(fresh(EVENTS), query);
+    for (const occurrence of expandEvents({ events: EVENTS, ...query })) {
+      occurrence.start.setTime(0);
+      occurrence.end.setTime(0);
+      occurrence.originalStart.setTime(0);
+    }
+    expect(summarize(EVENTS, query)).toEqual(expected);
   });
 });
